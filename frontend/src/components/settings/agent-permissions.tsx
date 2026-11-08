@@ -84,7 +84,11 @@ export function PermissionsSection({
     repos.find((r) => r.repoKey === k)?.label || shortRepo(k)
   return (
     <Loading key="section" loading={false} label="Loading agent permissions">
-      <section className="grid gap-2" aria-labelledby={`${id}-h`}>
+      <section
+        className="grid gap-2"
+        aria-labelledby={`${id}-h`}
+        data-setting="agents.permissions"
+      >
         <h3 id={`${id}-h`} className="text-sm font-medium text-ink">
           What a new agent may do
         </h3>

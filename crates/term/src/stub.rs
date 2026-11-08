@@ -59,4 +59,7 @@ impl Terms {
         Vec::new()
     }
     pub fn close_all(&self) {}
+    pub fn settle(&self, _within: std::time::Duration) -> bool {
+        true
+    }
 }

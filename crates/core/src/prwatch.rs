@@ -8,11 +8,14 @@
 //! couldn't be asked about every [`ERROR_EVERY`]; a closed one, which
 //! GitHub can reopen, every [`CLOSED_EVERY`]; a merged one never again. A
 //! device that can't ask (no gh, card #542) asks about nothing and writes
-//! nothing.
+//! nothing. A `gh pr merge` heard on any device makes every open PR due at
+//! once ([`PrWatch::rush`], card #970), so an agent that just merged its PR
+//! can complete its card without waiting for the next poll.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -20,6 +23,9 @@ use coord::{Coord, PR_CLOSED, PR_MERGED, PrCheck};
 
 /// How often the poller looks for PRs that are due.
 pub const TICK: Duration = Duration::from_secs(30);
+/// How often the Core looks for a `gh pr merge` captured since the last
+/// look (card #970).
+pub const MERGE_TICK: Duration = Duration::from_secs(5);
 /// How often an open PR is asked about.
 pub const OPEN_EVERY: Duration = Duration::from_secs(180);
 /// How often a PR GitHub couldn't be asked about is tried again.
@@ -175,6 +181,9 @@ pub(crate) struct PrWatch {
     /// [`ERROR_EVERY`] even when another device's good row clears the
     /// error in the fold, as this gh is still broken (card #548).
     failed: Mutex<HashSet<String>>,
+    /// A `gh pr merge` was heard (card #970): at the next [`Self::due`],
+    /// an open PR, or one not heard of yet, is due whenever it was asked.
+    rushed: AtomicBool,
 }
 
 /// One card's PR that is due, and the log it lives in.
@@ -199,9 +208,16 @@ impl PrWatch {
         }
     }
 
+    /// Makes every open PR due at the next [`Self::due`], however recently
+    /// it was asked: someone ran `gh pr merge` (card #970).
+    pub(crate) fn rush(&self) {
+        self.rushed.store(true, Ordering::SeqCst);
+    }
+
     /// The PRs to ask about now: on a card in `coords` that isn't done and
     /// that an agent in `local` holds, not yet merged, and not asked about
-    /// too recently. Marks them asked.
+    /// too recently (an open one after [`Self::rush`] always). Marks them
+    /// asked.
     pub(crate) fn due(
         &self,
         coords: &[Arc<Coord>],
@@ -211,6 +227,7 @@ impl PrWatch {
     ) -> Vec<Due> {
         let mut asked = self.asked.lock().unwrap_or_else(|e| e.into_inner());
         let failed = self.failed.lock().unwrap_or_else(|e| e.into_inner());
+        let rushed = self.rushed.swap(false, Ordering::SeqCst);
         let mut out = Vec::new();
         for co in coords {
             let tasks = co.list_tasks(&coord::TaskFilter {
@@ -251,18 +268,19 @@ impl PrWatch {
                         continue;
                     }
                     let key = pr_key(&t.id, &url);
-                    let every = if k.is_some_and(|p| p.state == PR_CLOSED) {
-                        CLOSED_EVERY
+                    let (every, open) = if k.is_some_and(|p| p.state == PR_CLOSED) {
+                        (CLOSED_EVERY, false)
                     } else if failed.contains(&key)
                         || k.is_some_and(|p| p.state.is_empty() && !p.error.is_empty())
                     {
-                        ERROR_EVERY
+                        (ERROR_EVERY, false)
                     } else {
-                        OPEN_EVERY
+                        (OPEN_EVERY, true)
                     };
-                    if asked
-                        .get(&key)
-                        .is_some_and(|at| now.duration_since(*at) < every)
+                    if !(rushed && open)
+                        && asked
+                            .get(&key)
+                            .is_some_and(|at| now.duration_since(*at) < every)
                     {
                         continue;
                     }

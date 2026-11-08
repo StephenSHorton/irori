@@ -7,7 +7,7 @@
 // #450, #575, #576): how many may run on each device, the idle limit and the
 // crashes and failed starts before Irori asks, and how many your agents
 // may start, with today's count and cost and a Claude usage limit holding
-// the queue.
+// the queue; and the theme new agents' names come from (card #702).
 // Only you set these, here; no agent's tool can.
 
 import { useContext, useId, useState, type ReactNode } from "react"
@@ -21,6 +21,7 @@ import {
   AgentStartsControls,
   WholeNumberField,
 } from "@/components/settings/agent-starts"
+import { NamesThemesSection } from "@/components/settings/names-themes"
 import { SpaceAgentSwitch } from "@/components/settings/space-agents"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -35,8 +36,11 @@ import {
   idleLabel,
   useLimits,
   modelLabel,
+  sentBackRate,
+  shortModel,
   runningSince,
   useAgentStarts,
+  useRunHistory,
   useAgents,
   useRunning,
   useTrusted,
@@ -74,7 +78,10 @@ export function AgentsPane({ open }: { open: boolean }) {
       >
         {s ? (
           <div className="grid gap-4">
-            <div className="flex items-start justify-between gap-3">
+            <div
+              className="flex items-start justify-between gap-3"
+              data-setting="agents.each-card"
+            >
               <span className="flex flex-col">
                 <label htmlFor={id} className="cursor-pointer text-ink">
                   Start an agent for each card
@@ -97,41 +104,9 @@ export function AgentsPane({ open }: { open: boolean }) {
               />
             </div>
             <SpacesSection open={open} />
-            <section className="grid gap-2">
-              <h3 className="text-sm font-medium text-ink">
-                What a new agent starts with
-              </h3>
-              <p className="text-[12.5px] text-muted-foreground">
-                Every agent Irori starts uses these. One already working keeps
-                what it started with.
-              </p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <ChoiceSelect
-                  label="Model"
-                  showLabel
-                  size="sm"
-                  value={s.model}
-                  choices={s.models.map((m) => ({
-                    value: m,
-                    label: modelLabel(m, s.defaultModel),
-                  }))}
-                  onValueChange={(v) => set({ model: v })}
-                  className="text-[13px]"
-                />
-                <ChoiceSelect
-                  label="Effort"
-                  showLabel
-                  size="sm"
-                  value={s.effort}
-                  choices={s.efforts.map((e) => ({
-                    value: e,
-                    label: effortLabel(e, s.defaultEffort),
-                  }))}
-                  onValueChange={(v) => set({ effort: v })}
-                  className="text-[13px]"
-                />
-              </div>
-            </section>
+            <WeightsSection settings={s} set={set} />
+            <HistorySection open={open} />
+            <NamesThemesSection open={open} />
             <LimitsSection open={open} settings={s} set={set} />
           </div>
         ) : (
@@ -146,13 +121,163 @@ export function AgentsPane({ open }: { open: boolean }) {
   )
 }
 
+// WeightsSection is what a new agent starts with, by its card's weight
+// (card #963): Light, Normal and Heavy, each a model and effort. Normal is
+// the board's own pick; Light and Heavy follow it until the person picks
+// one (Sonnet at no more than medium, Opus at no less than high).
+function WeightsSection({
+  settings: s,
+  set,
+}: {
+  settings: AgentsSettings
+  set: (c: Omit<AgentsChange, "boardId">) => void
+}) {
+  const rows: {
+    name: string
+    model: string
+    effort: string
+    def: { model: string; effort: string }
+    onModel: (v: string) => void
+    onEffort: (v: string) => void
+  }[] = [
+    {
+      name: "Light",
+      model: s.lightModel,
+      effort: s.lightEffort,
+      def: { model: "", effort: "" },
+      onModel: (v) => set({ lightModel: v }),
+      onEffort: (v) => set({ lightEffort: v }),
+    },
+    {
+      name: "Normal",
+      model: s.model,
+      effort: s.effort,
+      def: { model: s.defaultModel, effort: s.defaultEffort },
+      onModel: (v) => set({ model: v }),
+      onEffort: (v) => set({ effort: v }),
+    },
+    {
+      name: "Heavy",
+      model: s.heavyModel,
+      effort: s.heavyEffort,
+      def: { model: "", effort: "" },
+      onModel: (v) => set({ heavyModel: v }),
+      onEffort: (v) => set({ heavyEffort: v }),
+    },
+  ]
+  return (
+    <section className="grid gap-2" data-setting="agents.model">
+      <h3 className="text-sm font-medium text-ink">
+        What a new agent starts with
+      </h3>
+      <p className="text-[12.5px] text-muted-foreground">
+        A card&apos;s weight picks its row; a card with no weight runs as
+        Normal. One already working keeps what it started with.
+      </p>
+      <ul className="grid divide-y divide-border rounded-md border border-border">
+        <li
+          aria-hidden
+          className="hidden px-3 py-1.5 text-xs text-muted-foreground sm:grid sm:grid-cols-[4.5rem_minmax(0,1fr)_minmax(0,1fr)] sm:gap-2"
+        >
+          <span>Weight</span>
+          <span>Model</span>
+          <span>Effort</span>
+        </li>
+        {rows.map((r) => (
+          <li
+            key={r.name}
+            className="grid grid-cols-2 items-center gap-2 px-3 py-2 sm:grid-cols-[4.5rem_minmax(0,1fr)_minmax(0,1fr)]"
+          >
+            <span className="col-span-2 text-[13px] text-ink sm:col-span-1">
+              {r.name}
+            </span>
+            <ChoiceSelect
+              label={`${r.name} model`}
+              size="sm"
+              value={r.model}
+              choices={withValue(s.models, r.model).map((m) => ({
+                value: m,
+                label: modelLabel(m, r.def.model),
+              }))}
+              onValueChange={r.onModel}
+              className="min-w-0 text-[13px]"
+            />
+            <ChoiceSelect
+              label={`${r.name} effort`}
+              size="sm"
+              value={r.effort}
+              choices={withValue(s.efforts, r.effort).map((e) => ({
+                value: e,
+                label: effortLabel(e, r.def.effort),
+              }))}
+              onValueChange={r.onEffort}
+              className="min-w-0 text-[13px]"
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+// HistorySection is how cards ended by weight and model (card #966), so the
+// mapping above rests on what happened: each row counts the attempts you
+// answered, Done or Not done.
+function HistorySection({ open }: { open: boolean }) {
+  const rows = useRunHistory(open)
+  return (
+    <section className="grid gap-2" data-setting="agents.history">
+      <h3 className="text-sm font-medium text-ink">How cards ended</h3>
+      <p className="text-[12.5px] text-muted-foreground">
+        Each agent&apos;s done check you answered, by what it ran on. A crash or
+        a card you send back starts its next agent one weight higher.
+      </p>
+      {rows.length === 0 ? (
+        <p className="text-[12.5px] text-muted-foreground">
+          Nothing yet: it fills in as you answer done checks.
+        </p>
+      ) : (
+        <ul className="grid divide-y divide-border rounded-md border border-border">
+          {rows.map((r) => (
+            <li
+              key={`${r.weight}-${r.model}-${r.effort}`}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-0.5 px-3 py-2 text-[13px]"
+            >
+              <span className="min-w-0 text-ink capitalize">
+                {r.weight} · {shortModel(r.model, r.effort)}
+              </span>
+              <span className="text-ink tabular-nums">
+                {sentBackRate({ runs: r.runs, sentBack: r.sentBack })} sent back
+              </span>
+              <span className="col-span-2 text-[12px] text-muted-foreground tabular-nums">
+                {r.runs} answered · {r.firstTry} done first try · {r.sentBack}{" "}
+                sent back · {r.advised} with the advisor
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+// withValue keeps a stored value in its list even when the list no longer
+// offers it, so the select still names what is set.
+function withValue(list: string[], v: string): string[] {
+  return !v || list.includes(v) ? list : [...list, v]
+}
+
 // SpacesSection is each shared space's own switch (card #573): off until
 // the person turns it on, and only for cards they make there.
 function SpacesSection({ open }: { open: boolean }) {
   const { boards } = useBoards()
   if (boards.length === 0) return null
   return (
-    <section className="grid gap-2" aria-label="Spaces">
+    <section
+      className="grid gap-2"
+      aria-label="Spaces"
+      data-setting="agents.spaces"
+    >
       <h3 className="text-sm font-medium text-ink">Spaces</h3>
       <p className="text-[12.5px] text-muted-foreground">
         Each space has its own switch, off until you turn it on. It runs your
@@ -215,7 +340,7 @@ function LimitsSection({
 }) {
   const { limits: l, error, setCap, releaseHold } = useLimits(open)
   return (
-    <section className="grid gap-2">
+    <section className="grid gap-2" data-setting="agents.limits">
       <h3 className="text-sm font-medium text-ink">Limits</h3>
       {l ? (
         <>
@@ -369,7 +494,7 @@ function RunningSection({ open }: { open: boolean }) {
   const { rows, error, loading, refresh } = useRunning(open)
   const [now] = useState(() => Date.now())
   return (
-    <section className="grid gap-2">
+    <section className="grid gap-2" data-setting="agents.running">
       <h3 className="text-sm font-medium text-ink">
         Running agents{rows.length > 0 && ` · ${rows.length}`}
       </h3>
@@ -502,7 +627,7 @@ function RunningRow({
 function TrustedSection({ open }: { open: boolean }) {
   const { rows, error, loading, trust } = useTrusted(open)
   return (
-    <section className="grid gap-2">
+    <section className="grid gap-2" data-setting="agents.trusted">
       <h3 className="text-sm font-medium text-ink">Trusted repos for agents</h3>
       <p className="text-[12.5px] text-muted-foreground">
         An agent Irori starts runs only in a repo Claude Code trusts on that

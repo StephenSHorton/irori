@@ -355,6 +355,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         // Free the speech model before exit (#240: Metal
                         // asserts otherwise).
                         window.voice_shutdown();
+                        // Card #783: the corner chat's headless runs end.
+                        window.assistant_shutdown();
                         h.core.set_reviver(None);
                         h.core.set_spawner(None);
                         h.close()
@@ -521,6 +523,26 @@ fn start_core(
     }
     #[cfg(not(desktop))]
     core.set_runs_no_agents();
+    // Irori's assistant names the person's new threads (card #782) with a
+    // Haiku turn on this computer's Claude Code. The phone has none.
+    #[cfg(desktop)]
+    {
+        let w = Arc::downgrade(&window);
+        core.set_namer(Some(Arc::new(
+            move |a: &irori_core::thread_names::NameAsk| match w.upgrade() {
+                Some(w) => w.name_thread(a),
+                None => Err("Irori is closing".into()),
+            },
+        )));
+        // And weighs each new card (card #965), the same way.
+        let w = Arc::downgrade(&window);
+        core.set_weigher(Some(Arc::new(
+            move |a: &irori_core::thread_names::NameAsk| match w.upgrade() {
+                Some(w) => w.weigh_card(a),
+                None => Err("Irori is closing".into()),
+            },
+        )));
+    }
     // Spawning is on by default for the private board where agents can
     // start (card #448, decision 1 (a)); his own switch wins.
     core.set_spawn_default_on(true);
@@ -688,7 +710,10 @@ fn main_window(app: &AppHandle, startup: bool) -> tauri::Result<()> {
     // applies inner_size to its WKWebView (Android ignores it), which drew
     // the desktop layout cut off on an iPhone (#269).
     #[cfg(desktop)]
-    let b = b.inner_size(1100.0, 720.0).center().visible(!startup);
+    let b = {
+        let (w, h) = shot::window_size().unwrap_or((1100.0, 720.0));
+        b.inner_size(w, h).center().visible(!startup)
+    };
     #[cfg(mobile)]
     let _ = startup;
     // macOS draws the title in the title bar, where it is hard to read and
@@ -777,8 +802,8 @@ fn wire_opener(app: &AppHandle, n: &notify::Notifier) {
     });
 }
 
-/// The roster line, the pause checkbox (Go `roster.trayStatus`,
-/// `tray.SetPause(.., inboxSvc.SetPaused)`), and the inbox and decide
+/// The roster line (Go `roster.trayStatus`), Stop everywhere (card #787;
+/// the old pause checkbox is gone), and the inbox and decide
 /// counts from the window's pumps (Go `inboxSvc.onCounts(tray.SetInbox)`,
 /// `board.pump(ctx, app, tray.SetDecide)`), so the tray reads each pump's
 /// own scan, never a snapshot the pump hasn't refreshed yet.
@@ -788,6 +813,12 @@ fn wire_tray(tray: &Arc<Tray>, core: &Arc<irori_core::Core>, window: &Arc<Window
         window.on_inbox_counts(Arc::new(move |c| t.set_inbox(tray_counts(c))));
         let t = tray.clone();
         window.on_decide_count(Arc::new(move |n| t.set_decide(n)));
+        // Stop everywhere's switch (card #787; Wind down in the code): the
+        // tray's line follows it, and while on, a click starts everywhere.
+        let t = tray.clone();
+        window.on_wind_down(Arc::new(move |on| t.set_wind_down(on)));
+        let w = window.clone();
+        tray.set_wind_down_off(Arc::new(move || w.wind_down_off().map(|_| ())));
     }
     {
         let tray = tray.clone();
@@ -804,13 +835,6 @@ fn wire_tray(tray: &Arc<Tray>, core: &Arc<irori_core::Core>, window: &Arc<Window
             }
         });
     }
-    // InboxService.SetPaused: drops the window's snapshot and nudges its
-    // pump, so the window's banner and the tray both follow.
-    let w = window.clone();
-    tray.set_pause(
-        &core.device().name,
-        Arc::new(move |paused| w.inbox_set_paused(paused)),
-    );
 }
 
 /// The tray's shape of the window's inbox counts.
@@ -818,7 +842,6 @@ fn tray_counts(c: irori_window::inbox::InboxCounts) -> tray_text::Counts {
     tray_text::Counts {
         unread: c.unread.max(0) as usize,
         held: c.held.max(0) as usize,
-        paused: c.paused,
     }
 }
 

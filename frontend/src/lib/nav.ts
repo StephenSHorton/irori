@@ -24,6 +24,9 @@ export type Section =
   | { kind: "profile" }
   // Card #377: every notification sent to the person.
   | { kind: "notifications" }
+  // Storage (card #728): what Irori keeps and its size. tab is "" for the
+  // overview, else one kind's page ("#storage/files").
+  | { kind: "storage"; tab: string }
 
 export const Home: Section = { kind: "home" }
 
@@ -42,6 +45,9 @@ export function sectionFromHash(hash: string): Section {
   const d = hash.match(/^#desk\/(.+)$/)
   if (d) return { kind: "desk", repo: decodeURIComponent(d[1]) }
   if (hash === "#notifications") return { kind: "notifications" }
+  if (hash === "#storage") return { kind: "storage", tab: "" }
+  const st = hash.match(/^#storage\/(.+)$/)
+  if (st) return { kind: "storage", tab: decodeURIComponent(st[1]) }
   const l = hash.match(/^#board\/([^/]+)\/([^/]+)$/)
   if (l)
     return {
@@ -63,6 +69,8 @@ export function sectionHash(s: Section): string {
   if (s.kind === "desk")
     return s.repo ? `#desk/${encodeURIComponent(s.repo)}` : "#desk"
   if (s.kind === "notifications") return "#notifications"
+  if (s.kind === "storage")
+    return s.tab ? `#storage/${encodeURIComponent(s.tab)}` : "#storage"
   if (s.kind === "board")
     return s.board
       ? `#board/${encodeURIComponent(s.id)}/${encodeURIComponent(s.board)}`
@@ -92,6 +100,7 @@ export function sameSection(a: Section, b: Section): boolean {
     return b.kind === "board" && a.id === b.id && a.board === b.board
   if (a.kind === "talk") return b.kind === "talk" && a.id === b.id
   if (a.kind === "desk") return b.kind === "desk" && a.repo === b.repo
+  if (a.kind === "storage") return b.kind === "storage" && a.tab === b.tab
   return true
 }
 

@@ -1193,7 +1193,8 @@ export function PhoneCallBar({
   const mine = useCallPart((s) => s.mine)
   if (!mine || mine.convId === here) return null
   return (
-    <div className="pt-2">
+    // Ask Irori's button and panel sit above it (card #783).
+    <div className="pt-2" data-assistant-avoid="bar">
       <CallBar
         mine={mine}
         onOpen={() => onOpen(mine.convId)}

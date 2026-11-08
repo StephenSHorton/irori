@@ -7,7 +7,6 @@ import {
   InfoIcon,
   LaptopIcon,
   PaletteIcon,
-  Trash2Icon,
   UsersIcon,
   type LucideIcon,
 } from "lucide-react"
@@ -18,7 +17,6 @@ import { DevicesPanel } from "@/components/settings/devices-panel"
 import { AgentsPane } from "@/components/settings/agents-pane"
 import { DesksPane } from "@/components/settings/desks-pane"
 import { AppearancePane } from "@/components/settings/appearance-pane"
-import { MaintenancePane } from "@/components/settings/maintenance-pane"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loading } from "@/components/ui/loading"
@@ -40,6 +38,7 @@ import { useCallPart } from "@/components/talk/huddle"
 import { loadTranscribe, setTranscribe } from "@/lib/call"
 import { inWails } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
+import { AssistantService } from "@/lib/host"
 
 export type SettingsSection =
   | "notifications"
@@ -48,7 +47,6 @@ export type SettingsSection =
   | "people"
   | "agents"
   | "desks"
-  | "maintenance"
   | "app"
 
 export const settingsSections: {
@@ -94,16 +92,10 @@ export const settingsSections: {
     hint: "One per repo: your open PRs from GitHub, for review. It never merges.",
   },
   {
-    id: "maintenance",
-    label: "Maintenance",
-    icon: Trash2Icon,
-    hint: "Clear out done cards.",
-  },
-  {
     id: "app",
     label: "App",
     icon: InfoIcon,
-    hint: "Starting Irori, voice input, huddle transcripts, updates and the version.",
+    hint: "Starting Irori, voice input, huddle transcripts, thread names, updates and the version.",
   },
 ]
 
@@ -176,7 +168,6 @@ export function SettingsDialog({
           )}
           {here.id === "agents" && <AgentsPane open={open} />}
           {here.id === "desks" && <DesksPane open={open} />}
-          {here.id === "maintenance" && <MaintenancePane />}
           {here.id === "app" && <AppPane open={open} version={version} />}
         </section>
       </DialogContent>
@@ -209,18 +200,21 @@ function NotificationsPane({ open }: { open: boolean }) {
     <Loading key="pane" loading={false} label="Loading notification settings">
       <div className="grid gap-3">
         <Toggle
+          spot="notifications.show"
           label="Show notifications"
           hint="Held messages, cards blocked on you, and agents asking you to choose."
           checked={n.enabled}
           onChange={(v) => s.setNotify({ enabled: v })}
         />
         <Toggle
+          spot="notifications.sound"
           label="Sound"
           checked={n.sound}
           disabled={off}
           onChange={(v) => s.setNotify({ sound: v })}
         />
         <Toggle
+          spot="notifications.confetti"
           label="Confetti on good news"
           hint={
             reducedMotion
@@ -231,7 +225,11 @@ function NotificationsPane({ open }: { open: boolean }) {
           disabled={off}
           onChange={(v) => s.setNotify({ confetti: v })}
         />
-        <Row label="Volume" disabled={off || !n.sound}>
+        <Row
+          label="Volume"
+          disabled={off || !n.sound}
+          spot="notifications.volume"
+        >
           <Slider
             min={0}
             max={100}
@@ -245,7 +243,7 @@ function NotificationsPane({ open }: { open: boolean }) {
             }
           />
         </Row>
-        <Row label="Corner" disabled={off}>
+        <Row label="Corner" disabled={off} spot="notifications.corner">
           <ChoiceSelect
             label="Corner"
             size="sm"
@@ -361,6 +359,7 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
           <ToggleShape label="Launch at login" hint={launchHint} />
         ) : (
           <Toggle
+            spot="app.login"
             label="Launch at login"
             hint={launchHint}
             checked={Boolean(s.launchAtLogin)}
@@ -371,7 +370,12 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
       </Loading>
       <VoiceNote open={open} />
       <TranscribeSwitch open={open} />
-      <div className="grid gap-1 border-t border-border pt-3">
+      <NamesSwitch open={open} />
+      <WeighsSwitch open={open} />
+      <div
+        className="grid gap-1 border-t border-border pt-3"
+        data-setting="app.updates"
+      >
         <span className="font-medium text-ink">Updates</span>
         <UpdateStatusLine />
         {keep.on !== null && (
@@ -434,7 +438,10 @@ function TranscribeSwitch({ open }: { open: boolean }) {
     }
   }
   return (
-    <div className="grid gap-1 border-t border-border pt-3">
+    <div
+      className="grid gap-1 border-t border-border pt-3"
+      data-setting="app.transcribe"
+    >
       <Loading loading={!read} label="Loading huddle transcripts">
         {!read ? (
           <ToggleShape label={transcribeLabel} hint={transcribeHint} />
@@ -452,22 +459,134 @@ function TranscribeSwitch({ open }: { open: boolean }) {
   )
 }
 
+const namesLabel = "Name new threads"
+const namesHint =
+  "Irori gives a thread you post a short title, and may retitle it once as the talk moves on. Undo is on the thread; a name you give is never changed."
+
+// NamesSwitch is "Name new threads" (#782): Irori's assistant naming the
+// person's threads, on unless they turn it off, on all their devices.
+function NamesSwitch({ open }: { open: boolean }) {
+  return (
+    <AssistantSwitch
+      open={open}
+      setting="app.names"
+      label={namesLabel}
+      hint={namesHint}
+      loading="Loading thread names"
+      read={AssistantService.Names}
+      write={AssistantService.NamesSet}
+    />
+  )
+}
+
+// WeighsSwitch is "Weigh new cards" (#965): Irori's assistant weighing each
+// new card, on unless they turn it off, on all their devices.
+function WeighsSwitch({ open }: { open: boolean }) {
+  return (
+    <AssistantSwitch
+      open={open}
+      setting="app.weighs"
+      label="Weigh new cards"
+      hint="Irori reads each new card and sets it light, normal or heavy, with a line on why, before its agent starts. Undo is on the card; a weight you set is never changed."
+      loading="Loading card weights"
+      read={AssistantService.Weighs}
+      write={AssistantService.WeighsSet}
+    />
+  )
+}
+
+function AssistantSwitch({
+  open,
+  setting,
+  label,
+  hint,
+  loading,
+  read: readOn,
+  write,
+}: {
+  open: boolean
+  setting: string
+  label: string
+  hint: string
+  loading: string
+  read: () => Promise<boolean>
+  write: (on: boolean) => Promise<void>
+}) {
+  const [on, setOn] = useState(true)
+  const [read, setRead] = useState(!inWails())
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    readOn()
+      .then((v) => {
+        if (!live) return
+        setOn(v)
+        setRead(true)
+      })
+      .catch((err: unknown) => {
+        if (!live) return
+        setError(errorText(err))
+        setRead(true)
+      })
+    return () => {
+      live = false
+    }
+  }, [open, readOn])
+  const set = async (v: boolean) => {
+    setError("")
+    setOn(v)
+    if (!inWails()) return
+    try {
+      await write(v)
+    } catch (err) {
+      setError(errorText(err))
+      setOn(await readOn().catch(() => !v))
+    }
+  }
+  return (
+    <div
+      className="grid gap-1 border-t border-border pt-3"
+      data-setting={setting}
+    >
+      <Loading loading={!read} label={loading}>
+        {!read ? (
+          <ToggleShape label={label} hint={hint} />
+        ) : (
+          <Toggle
+            label={label}
+            hint={hint}
+            checked={on}
+            onChange={(v) => void set(v)}
+          />
+        )}
+      </Loading>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+// spot is the row's key for Ask Irori's "take me there" (card #784,
+// lib/goto.ts settingSpots): data-setting, which it highlights.
 function Toggle({
   label,
   hint,
   checked,
   disabled,
   onChange,
+  spot,
 }: {
   label: string
   hint?: string
   checked: boolean
   disabled?: boolean
   onChange: (v: boolean) => void
+  spot?: string
 }) {
   const id = useId()
   return (
     <div
+      data-setting={spot}
       className={`flex items-start justify-between gap-3 ${disabled ? "opacity-50" : ""}`}
     >
       <span className="flex flex-col">
@@ -499,13 +618,16 @@ function Row({
   label,
   disabled,
   children,
+  spot,
 }: {
   label: string
   disabled?: boolean
   children: ReactNode
+  spot?: string
 }) {
   return (
     <div
+      data-setting={spot}
       className={`flex items-center justify-between gap-3 ${disabled ? "[&>span]:opacity-50" : ""}`}
     >
       <span className="text-ink">{label}</span>
