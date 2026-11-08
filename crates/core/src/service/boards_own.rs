@@ -1284,6 +1284,8 @@ impl Services {
             &actor,
             coord::NewTask {
                 board: space_board.into(),
+                // A name the person gave stays theirs there (card #779).
+                title_by_person: priv_t.title_by_person && top.title == priv_t.title,
                 ..new_card(&top, &priv_t, "")
             },
         )?;
@@ -1477,6 +1479,7 @@ impl Services {
             &user,
             coord::NewTask {
                 title: t.title.clone(),
+                title_by_person: t.title_by_person,
                 objective: t.objective.clone(),
                 done_criteria: t.done_criteria.clone(),
                 repo_key: t.repo_key.clone(),

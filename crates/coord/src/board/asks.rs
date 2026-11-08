@@ -2143,6 +2143,7 @@ impl Fold {
                 if title.is_empty() {
                     return Err(invalid("a card outcome needs a title"));
                 }
+                self.check_person_title(&by, &t, &title)?;
                 self.write(
                     &by,
                     self.ask_kind(kinds::TASK_EDITED),
@@ -2246,6 +2247,7 @@ impl Fold {
                         m.state
                     )));
                 }
+                self.check_person_title(&by, &m, &title)?;
                 self.write(
                     &by,
                     self.ask_kind(kinds::TASK_EDITED),

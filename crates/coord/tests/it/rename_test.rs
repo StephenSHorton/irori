@@ -125,13 +125,25 @@ fn an_agent_doesnt_rename_what_the_person_named() {
     assert!(err.to_string().contains("the person named"), "{err}");
     assert_eq!(title_of(&e.c, &t.id), "Join the lobby");
 
-    // With other changes they land, and the name stays.
-    let got =
+    // With other changes too it is refused, so nothing lands unsaid; the
+    // same changes without the title land.
+    want_err(
         e.c.edit_task(
             ALICE,
             &t.id,
             TaskEdit {
                 title: Some("lobby join v3".into()),
+                objective: Some("join from the lobby".into()),
+                ..TaskEdit::default()
+            },
+        ),
+        ErrorKind::NotAllowed,
+    );
+    let got =
+        e.c.edit_task(
+            ALICE,
+            &t.id,
+            TaskEdit {
                 objective: Some("join from the lobby".into()),
                 ..TaskEdit::default()
             },
@@ -213,4 +225,92 @@ fn on_a_shared_board_both_people_see_the_name_and_agents_leave_it() {
         assert_eq!(title_of(&s.c, &t.id), "Lobby");
         assert_eq!(s.c.ignored_rows(), 0);
     }
+}
+
+#[test]
+fn closing_an_ask_doesnt_rename_what_the_person_named() {
+    let e = Env::new();
+    let t = card(&e, "lobby join");
+    e.c.rename_task(USER, &t.id, "Join the lobby").unwrap();
+    let (ask, _) =
+        e.c.post_ask(
+            USER,
+            NewAsk {
+                text: "rename the lobby card".into(),
+                ..NewAsk::default()
+            },
+            &[],
+        )
+        .unwrap();
+    assert!(e.c.ask_claim(ALICE, &ask.id, secs(1)).unwrap().mine);
+    // An edit outcome that renames it is refused, saying why.
+    let err =
+        e.c.ask_close(
+            ALICE,
+            &ask.id,
+            AskOutcome {
+                kind: "edit".into(),
+                task: t.id.clone(),
+                title: "lobby v2".into(),
+                note: "renamed".into(),
+                ..AskOutcome::default()
+            },
+        )
+        .unwrap_err();
+    assert!(err.is(ErrorKind::NotAllowed), "{err}");
+    assert_eq!(title_of(&e.c, &t.id), "Join the lobby");
+    assert!(
+        e.c.get_task(&ask.id).unwrap().open_ask().is_some(),
+        "still open"
+    );
+
+    // The person renames an open ask on its page; its taker can't close it
+    // as a card under another name.
+    e.c.rename_task(USER, &ask.id, "Lobby rename").unwrap();
+    want_err(
+        e.c.ask_close(
+            ALICE,
+            &ask.id,
+            AskOutcome {
+                kind: "card".into(),
+                title: "Something else".into(),
+                note: "on it".into(),
+                ..AskOutcome::default()
+            },
+        ),
+        ErrorKind::NotAllowed,
+    );
+    e.c.ask_close(
+        ALICE,
+        &ask.id,
+        AskOutcome {
+            kind: "card".into(),
+            title: "Lobby rename".into(),
+            note: "on it".into(),
+            ..AskOutcome::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(title_of(&e.c, &ask.id), "Lobby rename");
+}
+
+#[test]
+fn a_card_made_with_the_persons_name_keeps_it_only_from_the_person() {
+    let e = Env::new();
+    let named = NewTask {
+        title: "Join the lobby".into(),
+        title_by_person: true,
+        ..NewTask::default()
+    };
+    // A share or a move makes the card again as the person, keeping it.
+    let t = e.c.create_task(USER, named.clone()).unwrap();
+    assert!(t.title_by_person);
+    assert!(e.reopen().get_task(&t.id).unwrap().title_by_person);
+    want_err(
+        e.c.edit_task(ALICE, &t.id, title_edit("x")),
+        ErrorKind::NotAllowed,
+    );
+    // An agent can't claim it.
+    let u = e.c.create_task(ALICE, named).unwrap();
+    assert!(!u.title_by_person);
 }

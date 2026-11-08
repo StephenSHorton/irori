@@ -2688,22 +2688,8 @@ impl Fold {
                 t.short_ref()
             )));
         }
-        // The person named it by hand (card #779): an agent leaves the name
-        // as it is. With other changes they land without it; a rename
-        // alone is refused, so the agent hears why.
-        let mut title = title;
-        if t.title_by_person
-            && !self.is_person(&by)
-            && title.as_ref().is_some_and(|v| *v != t.title)
-        {
-            if obj.is_none() && done.is_none() && repo.is_none() {
-                return Err(not_allowed(format!(
-                    "the person named {} “{}” themselves: leave its title as it is; they can rename it on its page",
-                    t.short_ref(),
-                    t.title
-                )));
-            }
-            title = None;
+        if let Some(v) = &title {
+            self.check_person_title(&by, &t, v)?;
         }
         let same = title.as_ref().is_none_or(|v| *v == t.title)
             && obj.as_ref().is_none_or(|v| *v == t.objective)
@@ -2748,6 +2734,20 @@ impl Fold {
             ));
         }
         Ok(now.clone())
+    }
+
+    /// The person named `t` by hand (card #779): an agent that would rename
+    /// it is refused, saying why, before anything is written (the fold
+    /// would drop the title without a word).
+    pub(crate) fn check_person_title(&self, by: &str, t: &Task, title: &str) -> Result<()> {
+        if t.title_by_person && !self.is_person(by) && !title.is_empty() && title != t.title {
+            return Err(not_allowed(format!(
+                "the person named {} “{}” themselves: leave its title out (an agent doesn't rename it); they can rename it on its page",
+                t.short_ref(),
+                t.title
+            )));
+        }
+        Ok(())
     }
 
     /// The person renames a card or thread by hand (card #779), on its

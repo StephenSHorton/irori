@@ -1135,7 +1135,7 @@ function Conversation({
           save={(title) => cards.rename(t.id, title)}
           label="Thread title"
           className="flex-1 text-[15px] font-semibold text-ink"
-          buttonClassName="block truncate"
+          oneLine
           formClassName="max-md:order-last max-md:basis-full"
           inputClassName="h-7 text-[13px]"
         />

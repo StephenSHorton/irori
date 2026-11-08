@@ -10,6 +10,8 @@ describe("nextTitle (card #779)", () => {
   test("nothing to save when empty or the same", () => {
     expect(nextTitle("   ", "lobby join")).toBeNull()
     expect(nextTitle(" lobby join ", "lobby join")).toBeNull()
+    // The field shows a title on one line: saving that is no change.
+    expect(nextTitle("lobby join flow", "lobby join\nflow")).toBeNull()
   })
 })
 

@@ -4,7 +4,13 @@
 // unless the save is refused, which says why under the field. An agent's
 // later rename doesn't land (the host keeps a name the person gave).
 
-import { useState, type FormEvent, type ReactNode } from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react"
 import { PencilIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,10 +22,12 @@ import { cn } from "@/lib/utils"
 export const MaxTitle = 200
 
 // nextTitle is what a save sends: trimmed, and null when it is empty or
-// says what the title already does (nothing to save).
+// says what the title already does (nothing to save). The field shows the
+// title on one line, so that spelling of it is no change either: opening
+// it and saving must not make the name the person's.
 export function nextTitle(draft: string, now: string): string | null {
   const t = draft.trim()
-  if (!t || t === now.trim()) return null
+  if (!t || t === now.trim() || t === plainLine(now).trim()) return null
   return t
 }
 
@@ -29,7 +37,7 @@ export function TitleEdit({
   as: Heading = "h1",
   className,
   inputClassName,
-  buttonClassName,
+  oneLine,
   formClassName,
   label = "Title",
   children,
@@ -41,8 +49,8 @@ export function TitleEdit({
   // The heading's look, as it was before it could be renamed.
   className?: string
   inputClassName?: string
-  // The title's own look: "block truncate" for a one-line header.
-  buttonClassName?: string
+  // A one-line header: the title is cut with "…", the pencil stays.
+  oneLine?: boolean
   // Where the field sits while it is open (a row of its own on a phone).
   formClassName?: string
   label?: string
@@ -54,6 +62,19 @@ export function TitleEdit({
   const [saved, setSaved] = useState<{ was: string; now: string } | null>(null)
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
+  // Focus goes back to the title when the field closes (keyboard users).
+  const button = useRef<HTMLButtonElement>(null)
+  const refocus = useRef(false)
+  useEffect(() => {
+    if (draft === null && refocus.current) {
+      refocus.current = false
+      button.current?.focus()
+    }
+  }, [draft])
+  const close = () => {
+    refocus.current = true
+    setDraft(null)
+  }
   // A newer title from the host (the save, or someone else's) wins.
   const shown = saved && saved.was === title ? saved.now : title
   if (saved && saved.was !== title) setSaved(null)
@@ -71,18 +92,19 @@ export function TitleEdit({
         setError("A card needs a title.")
         return
       }
-      setDraft(null)
+      close()
       return
     }
     setBusy(true)
     setSaved({ was: title, now: t })
-    setDraft(null)
+    close()
     try {
       await save(t)
       setError("")
     } catch (err) {
       setSaved(null)
-      setDraft(t)
+      // Back to the field with what they typed, unless they reopened it.
+      setDraft((d) => d ?? t)
       setError(errorText(err))
     } finally {
       setBusy(false)
@@ -109,10 +131,10 @@ export function TitleEdit({
             }}
             onKeyDown={(e) => {
               // Esc is Back on the card page: here it only leaves the field.
-              if (e.key === "Escape") {
+              if (e.key === "Escape" && !e.nativeEvent.isComposing) {
                 e.preventDefault()
                 e.stopPropagation()
-                setDraft(null)
+                close()
                 setError("")
               }
             }}
@@ -126,7 +148,7 @@ export function TitleEdit({
             size="sm"
             className="h-8"
             onClick={() => {
-              setDraft(null)
+              close()
               setError("")
             }}
           >
@@ -143,20 +165,27 @@ export function TitleEdit({
   }
   return (
     <Heading className={cn("group min-w-0", className)}>
+      {/* The heading's name stays the title; Rename is its hint. */}
       <button
+        ref={button}
         type="button"
         title="Rename"
-        aria-label={`Rename: ${plainLine(shown)}`}
+        data-title-edit=""
         className={cn(
-          "max-w-full cursor-text rounded-sm text-left [overflow-wrap:anywhere] outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-          buttonClassName
+          "max-w-full cursor-text rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+          oneLine ? "flex min-w-0 items-center" : "[overflow-wrap:anywhere]"
         )}
         onClick={open}
       >
-        {saved ? plainLine(shown) : (children ?? plainLine(shown))}
+        <span className={cn(oneLine && "min-w-0 truncate")}>
+          {saved ? plainLine(shown) : (children ?? plainLine(shown))}
+        </span>
         <PencilIcon
           aria-hidden
-          className="ml-1.5 inline size-[0.7em] align-baseline text-muted-foreground opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-60"
+          className={cn(
+            "ml-1.5 size-[0.7em] text-muted-foreground opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-60",
+            oneLine ? "shrink-0" : "inline align-baseline"
+          )}
         />
       </button>
     </Heading>

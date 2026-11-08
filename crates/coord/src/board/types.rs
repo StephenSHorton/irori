@@ -799,6 +799,9 @@ pub struct NewTask {
     /// `block_reason` (or the title when that is empty). Not with
     /// `blocked_by`.
     pub later: Option<super::later::Back>,
+    /// The person named it by hand (card #779), on the card it comes
+    /// from: a share keeps their name theirs. Only a person's row counts.
+    pub title_by_person: bool,
 }
 
 /// Narrows `list_tasks`; zero values mean any.
