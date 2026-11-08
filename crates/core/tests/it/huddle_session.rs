@@ -239,3 +239,22 @@ fn close_ends_the_session_and_no_runner_means_no_look() {
     assert!(e.contains("no assistant on this device"), "{e}");
     r.core.close().unwrap();
 }
+
+#[test]
+fn a_seed_with_no_title_takes_the_huddles_own() {
+    let (r, fake, seed) = rig();
+    let me = r.core.user_sender().key;
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    r.core
+        .talk()
+        .write_segment(&seed.conv_id, CALL, 0, t, t + 900, "we are talking", &me)
+        .unwrap();
+    r.core.call_title_set(CALL, "Release planning").unwrap();
+    r.core.huddle_open(&seed).unwrap();
+    let first = &fake.opens()[0];
+    assert!(first.contains("Title: Release planning"), "{first}");
+    r.core.close().unwrap();
+}

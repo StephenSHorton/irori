@@ -132,7 +132,8 @@ pub struct HuddleSeed {
     /// How the assistant is called ("Juno · Addam's assistant"), for its
     /// system prompt; "" for none.
     pub name: String,
-    /// The huddle's title, "" before one is set (card 1).
+    /// The huddle's title; "" takes its folded `call.title` (card #1043),
+    /// if any.
     pub title: String,
     /// The canvas, one line per item (card 8).
     pub canvas: Vec<String>,
@@ -214,10 +215,18 @@ impl Services {
             .clone()
     }
 
-    /// The packet text a new session of `seed`'s huddle starts with.
+    /// The packet text a new session of `seed`'s huddle starts with. With
+    /// no title in the seed, it takes the huddle's folded one (card #1043).
     pub(crate) fn huddle_packet_text(&self, seed: &HuddleSeed) -> Result<String, String> {
         let p = self.huddle_packet(&seed.conv_id)?;
-        Ok(huddle_packet::render(&p, &seed.title, &seed.canvas))
+        let folded;
+        let title = if seed.title.trim().is_empty() {
+            folded = self.talk.call_title(&seed.call_id).unwrap_or_default();
+            folded.as_str()
+        } else {
+            seed.title.as_str()
+        };
+        Ok(huddle_packet::render(&p, title, &seed.canvas))
     }
 
     /// Opens a new session of `seed`'s huddle: the system prompt, then the
