@@ -56,6 +56,7 @@ use crate::timers::{self, Kick, Ticker};
 use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
 pub mod assistant_answers;
+mod assistant_name;
 pub mod boards;
 mod boards_members;
 mod boards_own;
@@ -70,11 +71,14 @@ pub mod card_weights;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
+pub mod huddle_packet;
+pub mod huddle_session;
 mod liveness;
 mod mirror;
 pub mod name_themes;
 pub mod notes;
 mod notifications;
+mod prcard;
 pub mod space_move;
 pub mod spaces;
 pub mod spawn;
@@ -311,6 +315,7 @@ struct Services {
     faces: coord::avatar::Faces,
     /// The person's own avatar on shared spaces (card #393).
     person_avatar: coord::person_avatar::PersonAvatar,
+    assistant_name: coord::assistant_name::AssistantName,
     /// The person's names for their devices (card #184).
     device_names: Arc<coord::devname::Names>,
     /// Talk's channels, DMs and read cursors (card #389).
@@ -360,6 +365,8 @@ struct Services {
     weighing: card_weights::Weighing,
     /// Office Assistants answering other people (assistants-talk card 4).
     asst: assistant_answers::Answering,
+    /// The assistant's held session per huddle (card #1046).
+    held: huddle_session::HeldSessions,
     /// The themes new agents' names come from (card #702), shared with
     /// `names`.
     name_themes: Arc<name_themes::NameThemes>,
@@ -956,6 +963,14 @@ struct PersonColor<'a> {
     color: &'a str,
 }
 
+/// The `assistant.name` payload (card #1045).
+#[derive(Serialize)]
+struct AssistantNameRow<'a> {
+    name: &'a str,
+    by: &'a str,
+    at: i64,
+}
+
 /// The `person.avatar` payload (card #393).
 #[derive(Serialize)]
 struct PersonAvatarRow<'a> {
@@ -1438,8 +1453,16 @@ impl Core {
         let person_color = coord::devcolor::PersonPick::new();
         let faces = coord::avatar::Faces::new();
         let person_avatar = coord::person_avatar::PersonAvatar::new();
+        let assistant_name = coord::assistant_name::AssistantName::new();
         let colors_sub = Arc::new(st.subscribe());
-        load_colors(&st, &colors, &person_color, &faces, &person_avatar);
+        load_colors(
+            &st,
+            &colors,
+            &person_color,
+            &faces,
+            &person_avatar,
+            &assistant_name,
+        );
         let talk = Arc::new(coord::talk::Talk::new(Some(st.clone()), {
             let now = now.clone();
             Some(Arc::new(move || now().utc()))
@@ -1622,6 +1645,7 @@ impl Core {
             person_color,
             faces,
             person_avatar,
+            assistant_name,
             device_names,
             talk,
             notifications,
@@ -1657,6 +1681,7 @@ impl Core {
             naming,
             weighing,
             asst: Default::default(),
+            held: Default::default(),
             name_themes,
             invites,
         });
@@ -2061,6 +2086,7 @@ impl Core {
                             &s.person_color,
                             &s.faces,
                             &s.person_avatar,
+                            &s.assistant_name,
                         );
                         load_device_names(&s.store, &s.device_names);
                         s.follow_person_name();
@@ -2134,10 +2160,14 @@ impl Core {
                         }
                     } else if ev.kind == coord::devcolor::PERSON_KIND
                         || ev.kind == coord::person_avatar::KIND
+                        || ev.kind == coord::assistant_name::KIND
                     {
                         // The pick reaches every shared board on the
                         // person's member.profile (cards #385, #393).
-                        if s.person_color.apply(&ev) || s.person_avatar.apply(&ev) {
+                        if s.person_color.apply(&ev)
+                            || s.person_avatar.apply(&ev)
+                            || s.assistant_name.apply(&ev)
+                        {
                             s.follow_person_name();
                             s.hub.publish(CoreEvent::Devices);
                         }
@@ -2904,6 +2934,49 @@ impl Core {
         self.s.space_talk_post(space, by, payload)
     }
 
+    /// Gives the Core the desktop app's held huddle sessions (card #1046):
+    /// one `claude -p` per huddle, kept up between looks. A headless Core,
+    /// or the phone, has none and runs no looks.
+    pub fn set_huddle_runner(&self, r: Option<Arc<dyn huddle_session::HuddleRunner>>) {
+        self.s.set_huddle_runner(r);
+    }
+
+    /// The packet huddle `seed` starts a session with (tests; card #1046).
+    #[doc(hidden)]
+    pub fn huddle_packet_text(&self, seed: &huddle_session::HuddleSeed) -> Result<String, String> {
+        self.s.huddle_packet_text(seed)
+    }
+
+    /// Opens `seed`'s huddle's held session with its priming turn (tests;
+    /// card 7a calls it when the person joins).
+    #[doc(hidden)]
+    pub fn huddle_open(&self, seed: &huddle_session::HuddleSeed) -> Result<(), String> {
+        self.s.huddle_open(seed)
+    }
+
+    /// One look of `seed`'s huddle's assistant (tests; card 7b's feed
+    /// calls it).
+    #[doc(hidden)]
+    pub fn huddle_look(
+        &self,
+        seed: &huddle_session::HuddleSeed,
+        message: &str,
+    ) -> Result<huddle_session::Look, String> {
+        self.s.huddle_look(seed, message)
+    }
+
+    /// Ends `call`'s held session (tests; card 7a).
+    #[doc(hidden)]
+    pub fn huddle_close(&self, call: &str) {
+        self.s.huddle_close(call)
+    }
+
+    /// Whether `call` has an open held session (tests).
+    #[doc(hidden)]
+    pub fn huddle_is_open(&self, call: &str) -> bool {
+        self.s.huddle_is_open(call)
+    }
+
     /// "Weigh new cards" (card #965): on unless the person turned it off.
     pub fn weighs_on(&self) -> bool {
         self.s.weighs_on()
@@ -3209,6 +3282,12 @@ impl Core {
     /// "Hand to an agent" (card #485): the person moves a card whose items
     /// wait on gone agents back on the Board, and Irori starts an agent for
     /// it (or hands it to the next free one). Says which. App only.
+    ///
+    /// With this computer's Agents switch off the card still goes back on
+    /// the Board: start_agent's switch refusal (card #1066) isn't for this
+    /// button, whose card has already moved by then (card #1096). A card
+    /// another computer hands out is still asked for there, since that
+    /// computer goes by its own switch (cards #492, #995).
     pub fn hand_on(&self, id: &str) -> Result<String, String> {
         let person = format!("user:{}", self.s.device.id);
         let (t, _) = self
@@ -3216,13 +3295,19 @@ impl Core {
             .coord
             .hand_on(&person, id)
             .map_err(|e| e.to_string())?;
-        self.s.start_agent(id, "")?;
-        // The device that made the card runs its hand-out (card #485: the
-        // PC's cards go out from the PC).
+        let here = self.s.coord.hands_out_here(id);
+        let spawning = self.s.coord.spawning();
+        if spawning {
+            self.s.start_agent(id, "")?;
+        } else if !here {
+            self.s.request_start(id, "")?;
+        }
         if let Some(why) = self.s.no_agent_all().remove(id) {
             return Ok(format!("{} is back on the Board. {why}", t.short_ref()));
         }
-        if !self.s.coord.hands_out_here(id) {
+        // The device that made the card runs its hand-out (card #485: the
+        // PC's cards go out from the PC).
+        if !here {
             let dev = irori_identity::owner::device_of(&t.created_by).to_string();
             let mut name = self.device_label(&dev);
             if self.s.cant_run_devices().contains(&dev) {
@@ -3235,14 +3320,14 @@ impl Core {
                 t.short_ref()
             ));
         }
-        Ok(if self.s.coord.spawning() {
+        Ok(if spawning {
             format!(
                 "{} is back on the Board: Irori starts an agent for it.",
                 t.short_ref()
             )
         } else {
             format!(
-                "{} is back on the Board: it goes to the next free agent.",
+                "{} is back on the Board. Agents is switched off on this computer (Settings › Agents), so it waits for a free agent.",
                 t.short_ref()
             )
         })
@@ -3839,6 +3924,7 @@ fn load_colors(
     person: &coord::devcolor::PersonPick,
     faces: &coord::avatar::Faces,
     avatar: &coord::person_avatar::PersonAvatar,
+    assistant: &coord::assistant_name::AssistantName,
 ) {
     let mut f = Filter {
         kinds: vec![
@@ -3846,6 +3932,7 @@ fn load_colors(
             coord::devcolor::PERSON_KIND.into(),
             coord::avatar::KIND.into(),
             coord::person_avatar::KIND.into(),
+            coord::assistant_name::KIND.into(),
         ],
         limit: store::MAX_LIST_LIMIT,
         ..Filter::default()
@@ -3857,6 +3944,7 @@ fn load_colors(
             person.apply(ev);
             faces.apply(ev);
             avatar.apply(ev);
+            assistant.apply(ev);
         }
         if (evs.len() as i64) < f.limit {
             return;
@@ -4366,6 +4454,7 @@ impl Services {
                 let mut a = DeskAuthor {
                     pr: p.number,
                     agent: author.clone(),
+                    review_note: self.desk_watch.note(repo_key, p.number),
                     ..DeskAuthor::default()
                 };
                 match judge(&PrRef::of(&repo, p), &tasks, &author, &trust) {
@@ -4403,6 +4492,14 @@ impl Services {
         let ledger = self.capture.prs(&repo);
         let (mut tasks, home) = self.desk_cards(false);
         let logins = crate::deskmap::desk_logins(&desk, &self.people_logins());
+        // Other members' logins: a PR of theirs gets its card from their
+        // device, in the space we share (merge desk §12.2, card #1077).
+        let mine = [self.own_github_login(), snap.viewer.clone()];
+        let others: Vec<String> = self
+            .people_logins()
+            .into_iter()
+            .filter(|l| !mine.iter().any(|m| m.eq_ignore_ascii_case(l)))
+            .collect();
         let mut out = Vec::new();
         for p in &snap.prs {
             let pr = PrRef::of(&repo, p);
@@ -4418,6 +4515,17 @@ impl Services {
             let v = judge(&pr, &tasks, &author, &trust);
             let made = match &v {
                 Verdict::Card(m) => Some(m.task_id.clone()),
+                // A member's PR: their device makes its PR card in the space
+                // we share, and a private card made here would be one nobody
+                // else can claim on (merge desk §12.2, card #1077).
+                Verdict::NewCard(_)
+                    if !p.author.is_empty()
+                        && !desk.settings.reviews_off
+                        && crate::prcard::needs_card(p, &[])
+                        && others.iter().any(|l| l.eq_ignore_ascii_case(&p.author)) =>
+                {
+                    None
+                }
                 Verdict::NewCard(m) => {
                     let nt = coord::NewTask {
                         title: new_card_title(&pr),
@@ -4447,7 +4555,11 @@ impl Services {
                 }
                 Verdict::NotOurs => None,
             };
-            if let Some(id) = made {
+            // A PR card already links its PR, and is its author's to write.
+            let own_link = made
+                .as_ref()
+                .is_some_and(|id| tasks.iter().any(|t| &t.id == id && coord::pr_card(t)));
+            if let Some(id) = made.filter(|_| !own_link) {
                 let co = home.get(&id).unwrap_or(&self.coord);
                 match co.add_link("irori", &id, &p.url) {
                     Ok(t) => {
@@ -4806,6 +4918,9 @@ impl Services {
                 if wrote.is_ok() {
                     let v = self.map_desk(repo_key);
                     self.post_desk(repo_key, &v);
+                    // Merge desk §12.2 (card #1077): the PR card in a
+                    // shared space, and what GitHub says on the PR.
+                    self.pr_cards(repo_key, &v);
                     // Card #421: a PR that left the list may have merged.
                     self.settle_gone_prs(repo_key);
                 }
@@ -4841,6 +4956,16 @@ impl Services {
             let Some(p) = snap.prs.iter().find(|p| p.number == *n) else {
                 continue;
             };
+            // A shared PR card (merge desk §12.2) is nobody's to post on from
+            // here: its board takes no Irori comment from another member's
+            // device, and nobody holds it to hear one.
+            if home
+                .get(&m.task_id)
+                .and_then(|c| c.get_task(&m.task_id))
+                .is_some_and(|t| coord::pr_card(&t))
+            {
+                continue;
+            }
             let co = home
                 .get(&m.task_id)
                 .cloned()

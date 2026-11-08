@@ -331,6 +331,10 @@ export const BoardService = {
 // TalkService is Talk's channels, DMs and posts (cards #389, #390).
 export const TalkService = {
   Conversations: () => call(commands.talkConversations()),
+  // Every huddle in Talk, and a huddle's title (card #1044).
+  Huddles: () => call(commands.talkHuddles()),
+  CallTitleSet: (callId: string, title: string) =>
+    call(commands.talkCallTitleSet(callId, title)),
   Posts: (convId: string, before: string | null, limit: number) =>
     call(commands.talkPosts(convId, before, limit)),
   // mentions: the keys the composer's picker recorded (#461).
@@ -549,6 +553,10 @@ export const DevicesService = {
   PersonAvatar: () => call(commands.devicesPersonAvatar()),
   SetPersonAvatar: (avatar: string) =>
     done(commands.devicesSetPersonAvatar(avatar)),
+  AssistantName: () => call(commands.devicesAssistantName()),
+  AssistantLabel: () => call(commands.devicesAssistantLabel()),
+  SetAssistantName: (name: string) =>
+    done(commands.devicesSetAssistantName(name)),
   RenameDevice: (deviceId: string, name: string) =>
     call(commands.devicesRenameDevice(deviceId, name)),
   SideNames: () => call(commands.devicesSideNames()),

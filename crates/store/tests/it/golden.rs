@@ -126,7 +126,7 @@ const SINCE_GO: [&str; 30] = [
 /// history, card #377; spawned agents, card #446; the sides a device
 /// runs, card #494; spawning across the person's devices, card #455; a
 /// hidden DM space's marker, card #538; the names themes, card #702).
-const SINCE_GO_REFUSED: [&str; 29] = [
+const SINCE_GO_REFUSED: [&str; 30] = [
     kinds::AGENT_OFFER,
     kinds::SPAWN_HOST,
     kinds::SPAWN_END_REQUESTED,
@@ -140,6 +140,7 @@ const SINCE_GO_REFUSED: [&str; 29] = [
     kinds::TASK_PAUSED,
     kinds::PERSON_COLOR,
     kinds::PERSON_AVATAR,
+    kinds::ASSISTANT_NAME,
     kinds::TALK_READ,
     kinds::REPO_DESK,
     kinds::DESK_PRS,

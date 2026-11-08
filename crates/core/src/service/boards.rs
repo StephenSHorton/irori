@@ -2240,6 +2240,7 @@ impl Services {
         // different accounts don't take turns rewriting it.
         let color = self.person_color.chosen();
         let avatar = self.person_avatar.chosen();
+        let assistant = self.assistant_name.chosen();
         let had = v.profile_github_login(&me.id);
         let had_assistant = v.profile_assistant_card(&me.id);
         let login = self.own_github_login();
@@ -2247,11 +2248,13 @@ impl Services {
             .is_none_or(|n| n != self.ident.current().name)
             || v.profile_color(&me.id) != color
             || v.profile_avatar(&me.id) != avatar
+            || v.profile_assistant_name(&me.id) != assistant
             || (had.is_empty() && !login.is_empty())
         {
             let mut prof = self.ident.member_profile_row(epoch)?;
             prof.color = color;
             prof.avatar = avatar;
+            prof.assistant_name = assistant;
             prof.github_login = if had.is_empty() { login } else { had };
             // The assistant pointer rides every rewrite (card 2).
             prof.assistant_card = had_assistant;

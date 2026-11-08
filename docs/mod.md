@@ -116,6 +116,8 @@ claude plugin test mod            # engine-driven suite: tests/irori.test.tsx
 cd mod && bun test                # pure helpers: unit/lib.spec.ts
 ```
 
+`mod/.claude-plugin/types/` is gitignored (`mod/.gitignore`), so a fresh worktree lacks it and `tsc -p mod` fails on `mod/tsconfig.json`'s extends. Run `tsc` there against the main checkout's copy (copy that folder in), or load the mod once from the worktree.
+
 The loader rules that bite (research/v02/mod.md §9):
 
 - `$` may only be passed to top-level `function` declarations;

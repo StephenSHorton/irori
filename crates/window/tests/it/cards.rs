@@ -1882,11 +1882,40 @@ fn hand_on_a_wait_on_a_gone_agent() {
     let w = b.waits_on.as_ref().expect("a wait");
     assert!(w.gone);
     assert_eq!(b.gone_agent.as_ref().unwrap().key, kestrel);
+    // Card #1096: the Rig's Agents switch is off. The card still goes
+    // back on the Board, and the line says no agent is being started.
     let said = r.w.hand_on(&t.id).unwrap();
     assert!(said.contains("back on the Board"), "{said}");
+    assert!(said.contains("switched off"), "{said}");
     let d = r.w.card(&t.id).unwrap();
     assert_eq!(d.summary.state, coord::SUBMITTED);
     assert!(d.blockers.iter().all(|b| b.gone_agent.is_none()));
+
+    // With the switch on, Irori starts one.
+    r.w.core
+        .set_spawn_setting(irori_core::spawn::SpawnSetting {
+            on: true,
+            ..Default::default()
+        })
+        .unwrap();
+    let t2 = held_task(&r);
+    co.raise(
+        &r.key_a,
+        &t2.id,
+        coord::NewBlocker {
+            question: "Waiting on kestrel again".into(),
+            blocked_by: Some(coord::BlockedBy {
+                kind: coord::BLOCKED_ON_AGENT.into(),
+                reference: kestrel.clone(),
+            }),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    co.leave(&r.key_a, &t2.id, &r.key_a).unwrap();
+    let said = r.w.hand_on(&t2.id).unwrap();
+    assert!(said.contains("Irori starts an agent"), "{said}");
+    assert_eq!(r.w.card(&t2.id).unwrap().summary.state, coord::SUBMITTED);
 }
 
 /// Card #520: a wait no agent will end is a Needs you row (goneWait) and

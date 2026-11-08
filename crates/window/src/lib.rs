@@ -74,6 +74,7 @@ pub mod spawn;
 pub mod spawn_cost;
 pub mod stop;
 pub mod storage;
+pub mod sync_badge;
 pub mod talk;
 pub mod terms;
 pub mod threads;
@@ -195,10 +196,13 @@ pub struct Window {
     /// assistant (assistants talk, card 4): their own runner, so a peer
     /// never takes a slot from the person's chat.
     answers: assistant::Runner,
+    /// The held huddle sessions (card #1046), apart from the chat's runs.
+    huddles: Arc<assistant::HeldRunner>,
 }
 
 impl Window {
     pub fn new(core: Arc<Core>, seams: Seams, cfg: Config) -> Window {
+        let huddles = Arc::new(assistant::HeldRunner::for_core(&core));
         Window {
             core,
             seams,
@@ -220,6 +224,7 @@ impl Window {
             weighs: assistant::Runner::new(),
             rewrites: assistant::Runner::new(),
             answers: assistant::Runner::new(),
+            huddles,
         }
     }
 

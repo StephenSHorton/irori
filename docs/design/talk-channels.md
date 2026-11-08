@@ -70,6 +70,7 @@ talk.card             {postId, taskId}                     (a card made from a m
 - A thread's `convId` is its task id, so ask rows fold unchanged. A channel's is its `channelId`, and a DM's is the pair's DM id.
 - `message.sent` stays for agent send/reply. Agent↔agent messages are mirrored as read-only DM posts for the person.
 - Edits and deletes are out of v1.
+- **The person has two keys.** A member row or post may name them as `user`, as an agent that opens a DM adds them, or as `user:<deviceId>`, as their own posts and the DMs they open carry it. Both mean the same person. The backend compares with `talk::canon` / `is_person_key`; the frontend uses `isYou` and `memberOf` (`frontend/src/lib/conversations.ts`), never an exact match on one key.
 
 ## 7. Agent tools
 
