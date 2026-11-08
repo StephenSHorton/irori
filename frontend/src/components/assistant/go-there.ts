@@ -10,7 +10,7 @@ import { cardRef, cards as cardsApi } from "@/lib/cards"
 import { runCommand } from "@/lib/commands"
 import { settingSpot, type GoPage, type GoTarget } from "@/lib/goto"
 import { go, type Section } from "@/lib/nav"
-import { spotlight } from "@/lib/spotlight"
+import { spotlight, type From } from "@/lib/spotlight"
 import { errorText } from "@/lib/talk"
 
 export type GoDeps = {
@@ -19,6 +19,8 @@ export type GoDeps = {
   // before runs once the place is found, just before the window moves
   // (on a phone the chat closes then).
   before?: () => void
+  // from is where the chat's line to the highlight starts (lib/spotlight).
+  from?: From
 }
 
 const pageCommands: Partial<Record<GoPage, string>> = {
@@ -69,7 +71,8 @@ export async function goThere(t: GoTarget, deps: GoDeps): Promise<string> {
         if (r.thread) deps.openThread(r.id)
         else deps.openCard(r.id)
         void spotlight(
-          `[data-card-page="${CSS.escape(r.id)}"] [data-card-head]`
+          `[data-card-page="${CSS.escape(r.id)}"] [data-card-head]`,
+          { from: deps.from }
         )
         return ""
       }
@@ -84,12 +87,14 @@ export async function goThere(t: GoTarget, deps: GoDeps): Promise<string> {
           const sel = `[data-spot="${CSS.escape(s.key)}"]`
           if (!document.querySelector(sel) && !runCommand("nav.home"))
             go({ kind: "home" })
-          void spotlight(sel)
+          void spotlight(sel, { from: deps.from })
           return ""
         }
         openSettings(s.section)
         if (s.key !== s.section)
-          void spotlight(`[data-setting="${CSS.escape(s.key)}"]`)
+          void spotlight(`[data-setting="${CSS.escape(s.key)}"]`, {
+            from: deps.from,
+          })
         return ""
       }
       case "pr":

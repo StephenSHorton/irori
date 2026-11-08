@@ -26,6 +26,7 @@ import {
 } from "lucide-react"
 
 import { goThere } from "@/components/assistant/go-there"
+import { SpotlightLine } from "@/components/assistant/spotlight-line"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { RichText } from "@/components/common/rich-text"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
@@ -127,9 +128,12 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
   // in (lib/assistant.ts finish) or by its button. On a phone the panel
   // gets out of the way first, so the place and its highlight show.
   const goTo = useCallback(
-    (t: GoTarget): Promise<string> => {
+    (t: GoTarget, from?: Element): Promise<string> => {
       if (!ctx) return Promise.resolve("The window isn't ready yet.")
       return goThere(t, {
+        // The line starts at the go button tapped, or by itself at the
+        // newest reply's (drawn a moment after the reply settles).
+        from: from ?? lastGoButton,
         openCard: ctx.onOpen,
         openThread: ctx.onOpenThread ?? ctx.onOpen,
         // Only once the place is found: a go that fails keeps the chat
@@ -161,50 +165,53 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
     `max(calc(var(--safe-bottom) + ${Gap}px), ${px}px)`
 
   return createPortal(
-    s.open ? (
-      <AgentCards.Provider value={cards}>
-        <AssistantPanel
-          ref={panelRef}
-          entries={s.entries}
-          reply={s.reply}
-          narrow={narrow}
-          onAsk={(t) => void ask(t)}
-          onStop={stopAsking}
-          onNew={newChat}
-          onGo={goTo}
-          onPost={async (i) => {
-            const p = await postDraft(i)
-            // As the ask box does, the new thread opens (on a phone the
-            // panel gets out of the way).
-            cards?.onOpenThread(p.id)
-          }}
-          onClose={() => close(true)}
-          style={
-            narrow
-              ? {
-                  left: "calc(var(--safe-left) + 8px)",
-                  right: "calc(var(--safe-right) + 8px)",
-                  top: "calc(var(--safe-top) + 8px)",
-                  bottom: bottom(lift.panel + 8),
-                }
-              : {
-                  right,
-                  bottom: bottom(lift.panel + 12),
-                  width: `min(${PanelWidth}px, calc(100vw - 32px))`,
-                  height: `min(560px, calc(100svh - ${Math.max(lift.panel + 12, Gap)}px - 72px))`,
-                }
-          }
+    <>
+      <SpotlightLine />
+      {s.open ? (
+        <AgentCards.Provider value={cards}>
+          <AssistantPanel
+            ref={panelRef}
+            entries={s.entries}
+            reply={s.reply}
+            narrow={narrow}
+            onAsk={(t) => void ask(t)}
+            onStop={stopAsking}
+            onNew={newChat}
+            onGo={goTo}
+            onPost={async (i) => {
+              const p = await postDraft(i)
+              // As the ask box does, the new thread opens (on a phone the
+              // panel gets out of the way).
+              cards?.onOpenThread(p.id)
+            }}
+            onClose={() => close(true)}
+            style={
+              narrow
+                ? {
+                    left: "calc(var(--safe-left) + 8px)",
+                    right: "calc(var(--safe-right) + 8px)",
+                    top: "calc(var(--safe-top) + 8px)",
+                    bottom: bottom(lift.panel + 8),
+                  }
+                : {
+                    right,
+                    bottom: bottom(lift.panel + 12),
+                    width: `min(${PanelWidth}px, calc(100vw - 32px))`,
+                    height: `min(560px, calc(100svh - ${Math.max(lift.panel + 12, Gap)}px - 72px))`,
+                  }
+            }
+          />
+        </AgentCards.Provider>
+      ) : (
+        <AskButton
+          ref={buttonRef}
+          unread={s.unread || !!s.reply}
+          busy={!!s.reply}
+          onOpen={() => setAssistantOpen(true)}
+          style={{ right, bottom: bottom(lift.button + 12) }}
         />
-      </AgentCards.Provider>
-    ) : (
-      <AskButton
-        ref={buttonRef}
-        unread={s.unread || !!s.reply}
-        busy={!!s.reply}
-        onOpen={() => setAssistantOpen(true)}
-        style={{ right, bottom: bottom(lift.button + 12) }}
-      />
-    ),
+      )}
+    </>,
     document.body
   )
 }
@@ -380,8 +387,9 @@ export function AssistantPanel({
   onAsk: (text: string) => void
   onStop: () => void
   onNew: () => void
-  // onGo goes where a reply's go line says (card #784): "" or why not.
-  onGo: (t: GoTarget) => Promise<string>
+  // onGo goes where a reply's go line says (card #784), its line from the
+  // button tapped: "" or why not.
+  onGo: (t: GoTarget, from?: Element) => Promise<string>
   // onPost posts the drafted thread of the message at that index.
   onPost: (index: number) => Promise<void>
   onClose: () => void
@@ -609,7 +617,7 @@ function Entry({
   onPost,
 }: {
   entry: ChatEntry
-  onGo: (t: GoTarget) => Promise<string>
+  onGo: (t: GoTarget, from?: Element) => Promise<string>
   onPost: () => Promise<void>
 }) {
   if (entry.role === "person")
@@ -649,6 +657,14 @@ function Entry({
   )
 }
 
+// lastGoButton is the newest reply's go button, if the chat shows one.
+function lastGoButton(): Element | null {
+  const all = document.querySelectorAll(
+    "[data-assistant-panel] [data-assistant-go]"
+  )
+  return all.length ? all[all.length - 1] : null
+}
+
 // GoButton takes the person to what the reply's go line names (card
 // #784), and again on every tap: the chat went there by itself once.
 function GoButton({
@@ -656,7 +672,7 @@ function GoButton({
   onGo,
 }: {
   target: GoTarget
-  onGo: (t: GoTarget) => Promise<string>
+  onGo: (t: GoTarget, from?: Element) => Promise<string>
 }) {
   const [error, setError] = useState("")
   const Icon = target.kind === "pr" ? ExternalLinkIcon : LocateFixedIcon
@@ -668,9 +684,9 @@ function GoButton({
         size="sm"
         className="h-auto min-h-7 max-w-full justify-start py-1 text-left whitespace-normal"
         data-assistant-go=""
-        onClick={() => {
+        onClick={(e) => {
           setError("")
-          void onGo(target).then(setError)
+          void onGo(target, e.currentTarget).then(setError)
         }}
       >
         <Icon aria-hidden />
