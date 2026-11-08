@@ -5,6 +5,7 @@
 
 import { TermService } from "./host"
 import { inHost } from "./irori"
+import { previewFlag } from "./preview"
 import type * as B from "../gen/bindings"
 import type { TermHost } from "suzuri-view"
 
@@ -12,20 +13,70 @@ export type TermInfo = B.TermInfo
 export type TermMsg = B.TermMsg
 export type Folder = B.Folder
 
+// In the browser preview, ?term gives every card page one blank stand-in
+// shell (card #730), so the Terminal section's layout can be looked at; no
+// shell runs and nothing is drawn in it.
+function sampleTerms(): boolean {
+  return !inHost() && previewFlag("term") !== null
+}
+
+const sampleFolder = "/Users/sample/projects/irori"
+const nothing = () => Promise.resolve()
+// Each stand-in shell New terminal opens gets its own id.
+let nextSampleId = 2
+
+const SampleTermService: typeof TermService = {
+  Folders: () => Promise.resolve([{ path: sampleFolder, why: "repo" }]),
+  DeviceList: () => Promise.resolve([]),
+  List: (card) =>
+    Promise.resolve([
+      {
+        id: 1,
+        scope: { kind: "card", id: card },
+        cwd: sampleFolder,
+        title: "",
+        running: true,
+      },
+    ]),
+  Open: (scope, _cols, _rows, cwd) =>
+    Promise.resolve({
+      id: nextSampleId++,
+      scope,
+      cwd: cwd ?? sampleFolder,
+      title: "",
+      running: true,
+    }),
+  Attach: nothing,
+  Detach: nothing,
+  Write: nothing,
+  Paste: nothing,
+  Resize: nothing,
+  Scroll: nothing,
+  CellPx: nothing,
+  Focus: nothing,
+  Redraw: nothing,
+  Ack: nothing,
+  Close: nothing,
+}
+
+function svc(): typeof TermService {
+  return sampleTerms() ? SampleTermService : TermService
+}
+
 // termsHere says whether this window can open terminals: in the app, not
-// in a plain browser (the sample mode) or on a phone.
+// in a plain browser (the sample mode, but for ?term) or on a phone.
 export function termsHere(): boolean {
-  if (!inHost()) return false
+  if (!inHost()) return sampleTerms()
   return !/Android|iPhone|iPad/i.test(navigator.userAgent)
 }
 
 export function cardFolders(card: string): Promise<Folder[]> {
-  return TermService.Folders(card)
+  return svc().Folders(card)
 }
 
 // cardTerms lists a card's shells on this device. It never starts one.
 export function cardTerms(card: string): Promise<TermInfo[]> {
-  return TermService.List(card)
+  return svc().List(card)
 }
 
 export function openCardTerm(
@@ -34,11 +85,11 @@ export function openCardTerm(
   rows: number,
   cwd: string | null
 ): Promise<TermInfo> {
-  return TermService.Open({ kind: "card", id: card }, cols, rows, cwd)
+  return svc().Open({ kind: "card", id: card }, cols, rows, cwd)
 }
 
 export function closeTerm(id: number): Promise<void> {
-  return TermService.Close(id)
+  return svc().Close(id)
 }
 
 // The folder the person picked for a card on this device (design 6.1, step
@@ -90,24 +141,25 @@ export function termHost(
   return {
     write: (data) =>
       quiet(
-        TermService.Write(
-          id,
-          typeof data === "string" ? data : decoder.decode(data)
-        )
+        svc().Write(id, typeof data === "string" ? data : decoder.decode(data))
       ),
     paste: (text) => {
-      if (text) quiet(TermService.Paste(id, text))
+      if (text) quiet(svc().Paste(id, text))
     },
-    resize: (cols, rows) => quiet(TermService.Resize(id, cols, rows)),
-    cellPx: (w, h) => quiet(TermService.CellPx(id, w, h)),
-    scroll: (delta) => quiet(TermService.Scroll(id, delta)),
+    resize: (cols, rows) => quiet(svc().Resize(id, cols, rows)),
+    cellPx: (w, h) => quiet(svc().CellPx(id, w, h)),
+    scroll: (delta) => quiet(svc().Scroll(id, delta)),
     // An ack after the shell exited is harmless; never shown.
     ack: (seq) => {
-      TermService.Ack(id, seq).catch(() => {})
+      svc()
+        .Ack(id, seq)
+        .catch(() => {})
     },
-    redraw: () => quiet(TermService.Redraw(id)),
+    redraw: () => quiet(svc().Redraw(id)),
     focus: (on) => {
-      TermService.Focus(id, on).catch(() => {})
+      svc()
+        .Focus(id, on)
+        .catch(() => {})
     },
     select: () => {},
     copy: () => Promise.resolve(false),
@@ -119,14 +171,83 @@ export function termHost(
 
 // attachTerm starts the view's streams: the cached state, then a full
 // frame. detach is called when the view goes; the shell keeps running.
+//
+// A shell has one local view, and the Core forgets it on any detach. When
+// one view of a shell goes and another comes in the same render (the card
+// page's section handing it to the bottom panel, card #734, or a remount),
+// the two calls are separate invokes that may land in either order; a
+// detach landing last would leave the new view blank. So each shell's
+// attach and detach go out one after another, each after the last ended
+// (exported for its test).
+const pending = new Map<number, Promise<unknown>>()
+
+export function inTurn<T>(id: number, call: () => Promise<T>): Promise<T> {
+  const prev = pending.get(id) ?? Promise.resolve()
+  const next = prev.catch(() => {}).then(call)
+  const tail = next.catch(() => {})
+  pending.set(id, tail)
+  void tail.then(() => {
+    if (pending.get(id) === tail) pending.delete(id)
+  })
+  return next
+}
+
 export function attachTerm(
   id: number,
   onFrame: (frame: ArrayBuffer) => void,
   onMsg: (msg: TermMsg) => void
 ): Promise<void> {
-  return TermService.Attach(id, onFrame, onMsg)
+  return inTurn(id, () => svc().Attach(id, onFrame, onMsg))
 }
 
 export function detachTerm(id: number): void {
-  TermService.Detach(id).catch(() => {})
+  inTurn(id, () => svc().Detach(id)).catch(() => {})
+}
+
+// The person's own shells on this device (the device scope, card #734):
+// the terminal panel's on pages other than a card's.
+export function deviceTerms(): Promise<TermInfo[]> {
+  return svc().DeviceList()
+}
+
+// openDeviceTerm starts one of the person's own shells in cwd, or at home
+// when cwd is null. A folder that has gone since (a removed worktree)
+// opens at home instead of failing.
+export async function openDeviceTerm(
+  cols: number,
+  rows: number,
+  cwd: string | null
+): Promise<TermInfo> {
+  const scope: B.Scope = { kind: "device" }
+  if (!cwd) return svc().Open(scope, cols, rows, null)
+  try {
+    return await svc().Open(scope, cols, rows, cwd)
+  } catch {
+    return svc().Open(scope, cols, rows, null)
+  }
+}
+
+// firstDeviceTerm is what the panel shows when it opens off a card: the
+// shells already there, and a new one in cwd when none of them runs. Opening the panel is the
+// person asking for a shell. Calls made while one is under way share it,
+// so a double mount (StrictMode, a quick toggle) never starts two.
+let starting: Promise<TermInfo[]> | null = null
+
+export function firstDeviceTerm(
+  cols: number,
+  rows: number,
+  cwd: string | null
+): Promise<TermInfo[]> {
+  starting ??= deviceTerms()
+    // Shells that ended stay listed (with Restart) until closed; with
+    // none still running, a new one is started beside them.
+    .then(async (ts) =>
+      ts.some((t) => t.running)
+        ? ts
+        : [...ts, await openDeviceTerm(cols, rows, cwd)]
+    )
+    .finally(() => {
+      starting = null
+    })
+  return starting
 }

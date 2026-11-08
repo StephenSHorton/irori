@@ -1050,6 +1050,9 @@ pub(crate) struct People {
     queue: irori_core::spawn_limits::SpawnQueue,
     /// Cards that wait for an agent here (queued or held).
     waiting: std::collections::HashSet<String>,
+    /// Cards the person asked an agent for since their last failed
+    /// request (card #717).
+    asked_now: std::collections::HashSet<String>,
 }
 
 /// The other people's colours on this screen (card #385): every person
@@ -1177,6 +1180,7 @@ impl Window {
             // Shared boards' cards wait on a usage hold whatever the
             // private board's switch says.
             p.queue = c.spawn_queue();
+            p.asked_now = co.spawn_asked();
             p.waiting.extend(p.queue.on_boards.iter().cloned());
             if c.spawn_setting("").on {
                 if p.queue.held_until.is_some() {
@@ -1625,6 +1629,19 @@ pub(crate) fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String
     irori_core::spawn_stop::no_folder_words(&t.repo_key, &dev)
 }
 
+/// Whether card t's failed spawn still keeps it waiting (card #717). The
+/// failed row stays the card's newest until another request replaces it,
+/// but once an agent holds the card (or it was given to one) no agent
+/// starts for it, so the reason no longer applies; a person holding it
+/// (a card given to them) still waits on theirs. Nor once the person
+/// asked again (Trust and start, Start an agent) and no request has been
+/// written since: the next sweep asks afresh, or it waits in the queue.
+pub(crate) fn failed_wait_applies(t: &Task, p: &People) -> bool {
+    irori_core::spawn_stop::agent_on(t).is_none()
+        && !p.queue.places.contains_key(&t.id)
+        && !p.asked_now.contains(&t.id)
+}
+
 /// Where card `t` of space `s` sits: its tag (a card folded with none has
 /// the space's) and the board in the space it's on (card #558).
 pub(crate) fn card_place(t: &Task, s: &irori_core::BoardSummary) -> (String, String) {
@@ -1697,7 +1714,11 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         paused: t.paused,
         cant_start: t
             .spawn_request()
-            .filter(|sp| sp.op == coord::SPAWN_FAILED && !coord::usage_limited(sp))
+            .filter(|sp| {
+                sp.op == coord::SPAWN_FAILED
+                    && !coord::usage_limited(sp)
+                    && failed_wait_applies(t, p)
+            })
             .map(|sp| cant_start_text(t, sp, p))
             .unwrap_or_default(),
         no_agent: p.no_agent_for(&t.id),
@@ -2045,7 +2066,7 @@ fn newer(a: &GoTime, a_id: &str, b: &GoTime, b_id: &str) -> std::cmp::Ordering {
 }
 
 impl Window {
-    fn now_ms(&self) -> i64 {
+    pub(crate) fn now_ms(&self) -> i64 {
         ms(&GoTime::from_system(std::time::SystemTime::now()))
     }
 

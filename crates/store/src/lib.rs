@@ -118,6 +118,15 @@ impl Cursor {
     }
 }
 
+/// One kind's share of a log: [`Store::kind_sizes`] (card #728).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct KindSize {
+    pub kind: String,
+    pub rows: i64,
+    /// Payload and signature bytes; the file is larger by its indexes.
+    pub bytes: i64,
+}
+
 /// Device id to the highest seq held for it.
 pub type Vector = BTreeMap<String, i64>;
 

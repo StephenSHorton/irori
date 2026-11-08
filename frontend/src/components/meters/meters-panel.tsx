@@ -1,5 +1,4 @@
 import type { CSSProperties, ReactNode } from "react"
-import { cn } from "cn"
 
 import { Sparkline } from "@/components/meters/sparkline"
 import { PopoverContent, PopoverTitle } from "@/components/ui/popover"
@@ -24,6 +23,7 @@ import {
   resetLine,
   sortWindows,
   staleLine,
+  usageColor,
   windowLabel,
   type UsageLimits,
 } from "@/lib/usage"
@@ -205,15 +205,11 @@ function UsageSection({ usage, now }: { usage: UsageLimits; now: number }) {
                   className="h-1.5 overflow-hidden rounded-full bg-muted"
                 >
                   <div
-                    className={cn(
-                      "h-full rounded-full",
-                      left <= 10
-                        ? "bg-destructive"
-                        : left <= 25
-                          ? "bg-warning"
-                          : "bg-primary"
-                    )}
-                    style={{ width: `${left}%` }}
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${left}%`,
+                      backgroundColor: usageColor(left),
+                    }}
                   />
                 </div>
                 {reset && (
