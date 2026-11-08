@@ -902,7 +902,7 @@ export function SummaryMember(p: Partial<B.SummaryMember> = {}): B.SummaryMember
 
 /** TalkCall with Go's zero values for every field left out. */
 export function TalkCall(p: Partial<B.TalkCall> = {}): B.TalkCall {
-  return { "callId": "", "op": "", "durationMs": 0, "people": [], "transcript": false, ...p } as B.TalkCall
+  return { "callId": "", "op": "", "durationMs": 0, "people": [], "transcript": false, "title": "", ...p } as B.TalkCall
 }
 
 /** TalkConversation with Go's zero values for every field left out. */
@@ -942,7 +942,7 @@ export function TalkReplying(p: Partial<B.TalkReplying> = {}): B.TalkReplying {
 
 /** TalkTranscript with Go's zero values for every field left out. */
 export function TalkTranscript(p: Partial<B.TalkTranscript> = {}): B.TalkTranscript {
-  return { "callId": "", "convId": "", "convName": "", "convKind": "", "startedAtMs": null, "ended": false, "durationMs": 0, "lines": [], ...p } as B.TalkTranscript
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "startedAtMs": null, "ended": false, "durationMs": 0, "title": "", "titleByAssistant": false, "over": false, "lines": [], ...p } as B.TalkTranscript
 }
 
 /** TalkTranscriptLine with Go's zero values for every field left out. */
