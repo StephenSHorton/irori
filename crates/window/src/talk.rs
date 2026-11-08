@@ -74,6 +74,11 @@ pub struct TalkConversation {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub space_id: String,
+    /// The space's #office-assistants channel (assistants-talk.md §4): the
+    /// list puts it first. Absent otherwise.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub pinned: bool,
     /// A DM with another person that hasn't reached them yet (card #538):
     /// `them` ("Waiting for Bob's Irori") or `update` ("Bob's Irori needs
     /// updating"). Absent otherwise. `name` is who they are.
@@ -139,6 +144,36 @@ pub struct TalkCall {
     pub title: String,
 }
 
+/// One huddle in Talk's Huddles list (card #1044), newest first.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TalkHuddle {
+    pub call_id: String,
+    /// The channel or DM it was in.
+    pub conv_id: String,
+    /// The channel's name, or the DM's other person.
+    pub conv_name: String,
+    /// `channel` or `dm`.
+    pub conv_kind: String,
+    /// The huddle's title; empty when it has none.
+    pub title: String,
+    pub title_by_assistant: bool,
+    /// When it started, Unix ms; null when its start post isn't here.
+    pub started_at_ms: Option<i64>,
+    /// When its newest row was written, Unix ms.
+    pub last_at_ms: i64,
+    pub ended: bool,
+    /// How long it ran, once ended; 0 before.
+    pub duration_ms: i64,
+    /// The huddle is over as this device can tell (see
+    /// [`TalkTranscript::over`]).
+    pub over: bool,
+    /// Who took part, by name ("you" for the person), never a key.
+    pub people: Vec<String>,
+    /// How many lines its transcript has.
+    pub lines: i64,
+}
+
 /// A huddle's transcript (#656), as the person reads it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -148,8 +183,11 @@ pub struct TalkTranscript {
     pub conv_id: String,
     /// The channel's name, or the DM's other person.
     pub conv_name: String,
-    /// `channel` or `dm`.
+    /// `channel`, `personal` (a Personal channel) or `dm`.
     pub conv_kind: String,
+    /// Some line was said under the notice that lets agents read it (card
+    /// #1047): a person DM's agents read only those lines.
+    pub agents: bool,
     /// When it started, Unix ms; null when its start post isn't here.
     pub started_at_ms: Option<i64>,
     pub ended: bool,
@@ -242,7 +280,11 @@ impl Window {
         let cs = self.core.talk_conversations(&self.me())?;
         Ok(cs
             .into_iter()
-            .map(|c| TalkConversation {
+            .map(|c| {
+                let pinned = coord::talk::is_assistants_channel(&c.conv_id, &c.space_id);
+                (c, pinned)
+            })
+            .map(|(c, pinned)| TalkConversation {
                 conv_id: c.conv_id,
                 kind: c.kind,
                 name: c.name,
@@ -265,6 +307,7 @@ impl Window {
                 last_by: c.last_by,
                 read_only: c.read_only,
                 agents_now: c.agents_now,
+                pinned,
                 space_id: c.space_id,
                 waiting: c.waiting,
             })
@@ -333,6 +376,90 @@ impl Window {
             .collect())
     }
 
+    /// Every huddle in a conversation this person reads (card #1044),
+    /// newest first.
+    pub fn talk_huddles(&self) -> Vec<TalkHuddle> {
+        let talk = self.core.talk();
+        let me_board = format!(
+            "{}{}",
+            store::kinds::PERSON_ACTOR_PREFIX,
+            self.core.chain().person_id()
+        );
+        let calls: Vec<_> = talk
+            .calls()
+            .into_iter()
+            .filter(|c| {
+                if coord::talk::is_channel(&c.conv_id) {
+                    talk.channel(&c.conv_id).is_some()
+                } else {
+                    coord::talk::is_dm(&c.conv_id)
+                }
+            })
+            .collect();
+        let mut keys: Vec<String> = Vec::new();
+        for c in &calls {
+            if !coord::talk::is_channel(&c.conv_id)
+                && let Some(k) = talk.pair_other(&c.conv_id)
+                && !keys.contains(&k)
+            {
+                keys.push(k);
+            }
+            for k in &c.people {
+                if !keys.contains(k) {
+                    keys.push(k.clone());
+                }
+            }
+        }
+        let names: std::collections::HashMap<String, String> = keys
+            .iter()
+            .cloned()
+            .zip(self.core.talk_names(&keys))
+            .collect();
+        let name = |k: &str| {
+            if coord::talk::is_person_key(k) || k == me_board {
+                return "you".to_string();
+            }
+            names
+                .get(k)
+                .cloned()
+                .unwrap_or_else(|| tools::talk::UNKNOWN_PERSON.into())
+        };
+        calls
+            .into_iter()
+            .map(|c| {
+                let channel = coord::talk::is_channel(&c.conv_id);
+                let conv_name = if channel {
+                    talk.channel(&c.conv_id).map(|x| x.name).unwrap_or_default()
+                } else {
+                    talk.pair_other(&c.conv_id)
+                        .map(|k| name(&k))
+                        .unwrap_or_else(|| tools::talk::UNKNOWN_PERSON.into())
+                };
+                TalkHuddle {
+                    over: self.core.call_over(&c.call_id),
+                    ended: c.end.is_some(),
+                    duration_ms: c.end.as_ref().map(|m| m.duration_ms).unwrap_or(0),
+                    started_at_ms: c.start_at.map(|at| at.unix_milli_value()),
+                    last_at_ms: c.last.unix_milli_value(),
+                    people: c.people.iter().map(|k| name(k)).collect(),
+                    lines: c.lines as i64,
+                    title: c.title,
+                    title_by_assistant: c.title_by_assistant,
+                    conv_kind: if channel { "channel" } else { "dm" }.into(),
+                    conv_name,
+                    conv_id: c.conv_id,
+                    call_id: c.call_id,
+                }
+            })
+            .collect()
+    }
+
+    /// Sets huddle `call_id`'s title as the person (card #1044); returns
+    /// the title it now shows.
+    pub fn talk_call_title_set(&self, call_id: &str, title: &str) -> Result<String, String> {
+        self.core.call_title_set(crate::trim(call_id), title)
+    }
+
     /// Huddle `call_id`'s transcript (#656), every line, when the person
     /// may read the conversation it was in.
     pub fn talk_call_transcript(&self, call_id: &str) -> Result<TalkTranscript, String> {
@@ -352,7 +479,11 @@ impl Window {
         }
         let lines = talk.call_posts(id);
         let (conv_kind, mut keys) = if coord::talk::is_channel(&conv_id) {
-            ("channel", Vec::new())
+            // A Personal channel lives in no space (card #1047).
+            let personal = talk
+                .channel(&conv_id)
+                .is_some_and(|c| c.space_id.is_empty());
+            (if personal { "personal" } else { "channel" }, Vec::new())
         } else {
             ("dm", talk.pair_other(&conv_id).into_iter().collect())
         };
@@ -372,7 +503,7 @@ impl Window {
                 .cloned()
                 .unwrap_or_else(|| tools::talk::UNKNOWN_PERSON.into())
         };
-        let conv_name = if conv_kind == "channel" {
+        let conv_name = if conv_kind != "dm" {
             talk.channel(&conv_id).map(|c| c.name).unwrap_or_default()
         } else {
             talk.pair_other(&conv_id)
@@ -401,6 +532,7 @@ impl Window {
             conv_id,
             conv_name,
             conv_kind: conv_kind.into(),
+            agents: lines.iter().any(|p| p.agents),
             started_at_ms: start,
             ended: end.is_some(),
             duration_ms: end.unwrap_or(0),

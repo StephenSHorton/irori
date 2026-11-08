@@ -1812,11 +1812,34 @@ fn person() -> tools::Caller {
 
 /// Two lines said in huddle `CALL` in `conv` by the person, and its end.
 fn huddle(h: &Harness, conv: &str, by: &str) {
+    huddle_marked(h, conv, by, false);
+}
+
+/// [`huddle`], its lines carrying the `agents` mark (card #1047) or not.
+fn huddle_marked(h: &Harness, conv: &str, by: &str, agents: bool) {
     let t = h.b.talk.clone();
-    t.write_segment(conv, CALL, 0, 1_000, 2_000, "I'll take the PC build", by)
-        .unwrap();
-    t.write_segment(conv, CALL, 1, 3_000, 4_000, "and the patch notes", by)
-        .unwrap();
+    t.write_segment_marked(
+        conv,
+        CALL,
+        0,
+        1_000,
+        2_000,
+        "I'll take the PC build",
+        by,
+        agents,
+    )
+    .unwrap();
+    t.write_segment_marked(
+        conv,
+        CALL,
+        1,
+        3_000,
+        4_000,
+        "and the patch notes",
+        by,
+        agents,
+    )
+    .unwrap();
     t.post(ct::NewPost {
         conv_id: conv.into(),
         text: "ended a huddle".into(),
@@ -1841,15 +1864,18 @@ fn a_channel_huddle_reads_as_its_transcript() {
     huddle(&h, &ch.id, USER);
     let conv = format!("call:{CALL}");
 
-    // Listed for the person and the member, unread for the member until it
-    // reads it (the person's own lines are read); not for beta.
+    // Listed for the person and every agent of the space (card #1047),
+    // unread for them until they read it (the person's own lines are read).
     let line = format!("- huddle in #general (conv={conv}, 2 lines, ended)");
     has(
         &h.okj(&a, "talk_list", json!({})),
         &["Huddles with a transcript", &format!("{line}: 2 unread")],
     );
     has(&h.okj(&me, "talk_list", json!({})), &[&format!("{line}\n")]);
-    has_not(&h.okj(&b, "talk_list", json!({})), &["huddle in"]);
+    has(
+        &h.okj(&b, "talk_list", json!({})),
+        &[&format!("{line}: 2 unread")],
+    );
 
     for c in [&me, &a] {
         let out = h.okj(c, "talk_read", json!({"conv": conv}));
@@ -1904,7 +1930,7 @@ fn a_channel_huddle_reads_as_its_transcript() {
 }
 
 #[test]
-fn a_person_dm_huddle_is_never_an_agents() {
+fn a_person_dm_huddle_reaches_agents_only_under_the_mark() {
     let (h, _) = bobs_harness();
     h.b.roster
         .put(card(KEY_A, "alpha", "", "bypassPermissions"));
@@ -1912,9 +1938,12 @@ fn a_person_dm_huddle_is_never_an_agents() {
     let user = inbox::Sender::new(USER, "you", "user");
     tools::talk::post(&*h.b, &user, &bob_dm(), "hi", &[], false, None, &[]).unwrap();
     let dm = bob_dm().id().to_string();
-    huddle(&h, &dm, USER);
+    let a = call_a();
     let conv = format!("call:{CALL}");
 
+    // An older huddle (no mark): the person reads it, an agent is refused,
+    // and it isn't listed for the agent.
+    huddle(&h, &dm, USER);
     has(
         &h.okj(&me, "talk_read", json!({"conv": conv})),
         &[
@@ -1926,13 +1955,11 @@ fn a_person_dm_huddle_is_never_an_agents() {
         &h.okj(&me, "talk_list", json!({})),
         &[&format!("(conv={conv}, 2 lines, ended)")],
     );
-
-    let a = call_a();
     h.failsj(
         &a,
         "talk_read",
         json!({"conv": conv}),
-        &["agents don't read it"],
+        &["this one wasn't said under the notice"],
     );
     assert!(!tools::talk::can_read(&*h.b, KEY_A, &conv));
     assert!(tools::talk::posts(&*h.b, KEY_A, &conv).is_err());
@@ -1940,6 +1967,65 @@ fn a_person_dm_huddle_is_never_an_agents() {
     // Nobody is told of its end.
     assert!(tools::talk::tell_call_end(&*h.b, &user, &dm, CALL).is_empty());
     assert!(h.notices(KEY_A).is_empty());
+}
+
+#[test]
+fn a_marked_person_dm_huddle_is_read_by_the_agents_but_not_the_dm() {
+    let (h, _) = bobs_harness();
+    h.b.roster
+        .put(card(KEY_A, "alpha", "", "bypassPermissions"));
+    let user = inbox::Sender::new(USER, "you", "user");
+    tools::talk::post(&*h.b, &user, &bob_dm(), "hi", &[], false, None, &[]).unwrap();
+    let dm = bob_dm().id().to_string();
+    let a = call_a();
+    let conv = format!("call:{CALL}");
+    huddle_marked(&h, &dm, USER, true);
+    // One older-build line beside them stays closed.
+    h.b.talk
+        .write_segment(&dm, CALL, 2, 5_000, 6_000, "from an older build", USER)
+        .unwrap();
+
+    has(
+        &h.okj(&a, "talk_read", json!({"conv": conv})),
+        &[
+            "The transcript of the huddle in the DM with",
+            "I'll take the PC build",
+            "and the patch notes",
+        ],
+    );
+    has_not(
+        &h.okj(&a, "talk_read", json!({"conv": conv, "since": ""})),
+        &["older build"],
+    );
+    assert!(tools::talk::can_read(&*h.b, KEY_A, &conv));
+    // Listed with its two readable lines.
+    has(
+        &h.okj(&a, "talk_list", json!({})),
+        &[&format!("(conv={conv}, 2 lines, ended)")],
+    );
+    // The DM's own posts stay closed to agents.
+    assert!(tools::talk::posts(&*h.b, KEY_A, &dm).is_err());
+    h.failsj(&a, "talk_read", json!({"conv": dm}), &["isn't yours"]);
+    // And no wake is added.
+    assert!(tools::talk::tell_call_end(&*h.b, &user, &dm, CALL).is_empty());
+    assert!(h.notices(KEY_A).is_empty());
+}
+
+#[test]
+fn another_person_prints_as_a_name_not_a_gone_agent() {
+    let (h, _) = bobs_harness();
+    let me = person();
+    let user = inbox::Sender::new(USER, "you", "user");
+    tools::talk::post(&*h.b, &user, &bob_dm(), "hi", &[], false, None, &[]).unwrap();
+    let dm = bob_dm().id().to_string();
+    huddle(&h, &dm, USER);
+    let conv = format!("call:{CALL}");
+    let head = h.okj(&me, "talk_read", json!({"conv": conv}));
+    has(&head, &["in the DM with Bob ("]);
+    has_not(&head, &["gone", "person:"]);
+    let list = h.okj(&me, "talk_list", json!({}));
+    has(&list, &["huddle in the DM with Bob"]);
+    has_not(&list, &["gone"]);
 }
 
 #[test]

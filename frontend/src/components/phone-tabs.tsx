@@ -11,7 +11,8 @@ export type PhoneTab = "home" | "talk" | "boards"
 // phoneTab is the tab a section sits under: a space's page and its boards
 // are under Boards. A card's page is under the tab it was opened from.
 export function phoneTab(s: Section): PhoneTab {
-  if (s.kind === "talk") return "talk"
+  // A huddle's page sits under Talk (card #1044).
+  if (s.kind === "talk" || s.kind === "huddle") return "talk"
   if (onBoards(s)) return "boards"
   return "home"
 }
