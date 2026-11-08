@@ -309,8 +309,10 @@ fn the_assistant_is_never_an_agent_and_never_handed_a_thread() {
     let assistant = "eeeeeeee-5555-4555-8555-000000000005";
     let gamma = "ffffffff-6666-4666-8666-000000000006";
     write_session(&sessions, "900005.json", assistant, "assistant", &dir);
-    let elsewhere = tempfile::tempdir().unwrap();
-    write_session(&sessions, "900006.json", gamma, "gamma", elsewhere.path());
+    // Inside the rig's own folders, so nothing outlives its TempDirs.
+    let elsewhere = r.claude.join("gamma-work");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    write_session(&sessions, "900006.json", gamma, "gamma", &elsewhere);
     let gamma_key = format!("{me}/{gamma}");
     wait_for(60, "presence lists gamma", || {
         r.core.local_agents().iter().any(|c| c.key == gamma_key)
@@ -340,5 +342,4 @@ fn the_assistant_is_never_an_agent_and_never_handed_a_thread() {
         r.notices_to(&assistant_key).is_empty(),
         "nothing sent to it"
     );
-    drop(elsewhere);
 }
