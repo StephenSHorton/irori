@@ -53,6 +53,18 @@ export function boardsOf(s: BoardSummary): SpaceBoard[] {
   )
 }
 
+// openBoards is a space's (or Personal's) boards that aren't closed, its
+// first board always (card #690): what the pickers, tiles and counts
+// offer. closedBoards is the rest, for the Closed boards fold. The first
+// board is never closed, so it is never among them.
+export function openBoards<T extends { closed?: boolean }>(list: T[]): T[] {
+  return list.filter((x, i) => i === 0 || !x.closed)
+}
+
+export function closedBoards<T extends { closed?: boolean }>(list: T[]): T[] {
+  return list.filter((x, i) => i > 0 && !!x.closed)
+}
+
 // withLine is "with Blake", "with Blake and Casey", "with Blake +2"; "" alone.
 export function withLine(others: string[]): string {
   if (others.length === 0) return ""

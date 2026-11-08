@@ -454,3 +454,128 @@ fn a_thread_the_person_makes_a_card_gets_a_card_agent_in_the_threads_home() {
         t.blockers
     );
 }
+
+/// A spawner whose every start is a new session: `cccccccc-…-00000000001N`
+/// for the Nth start, so a second agent for the same thread is a session
+/// of its own, as `claude --bg` makes it. Ending one removes its file.
+fn spawner_each_new(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
+    let (a, b) = (f.clone(), f.clone());
+    let s2 = sessions.clone();
+    Spawner {
+        ready: None,
+        spawn: Arc::new(move |r: &SpawnReq| {
+            let mut started = a.started.lock().unwrap();
+            started.push(r.clone());
+            let n = started.len();
+            let sess = format!("cccccccc-3333-4333-8333-0000000000{n:02}");
+            write_session(
+                &sessions,
+                &format!("9100{n:02}.json"),
+                &sess,
+                &r.name,
+                Path::new(&r.folder),
+            );
+            Ok(SpawnStarted {
+                name: r.name.clone(),
+                prefix: sess[..8].into(),
+            })
+        }),
+        end: Arc::new(move |sess: &str| {
+            b.ended.lock().unwrap().push(sess.to_string());
+            let n: usize = sess[sess.len() - 2..].parse().unwrap_or(0);
+            let _ = std::fs::remove_file(s2.join(format!("9100{n:02}.json")));
+            Ok(String::new())
+        }),
+        trusted: Arc::new(|_| true),
+        list: None,
+    }
+}
+
+/// Card #739: the person resolves a thread, its agent is gone, and they
+/// reopen it and write on it. A new agent starts for it, without an
+/// @mention, with the new comment in its brief, and takes the thread; the
+/// thread says an agent is starting until it shows.
+#[test]
+fn a_reopened_thread_whose_agent_is_gone_gets_a_new_agent_told_the_comment() {
+    let r = Rig::new();
+    let (_repo, _dir) = agent_in_repo(&r);
+    let fake = Arc::new(Fake::default());
+    let me = r.core.device_id().to_string();
+    let person = format!("user:{me}");
+    let first = format!("{me}/cccccccc-3333-4333-8333-000000000001");
+    let second = format!("{me}/cccccccc-3333-4333-8333-000000000002");
+    let co = r.core.coord();
+    r.core
+        .set_spawner(Some(spawner_each_new(&fake, r.claude.join("sessions"))));
+    spawning_on(&r);
+
+    // Its first agent answers, and goes when the person resolves it.
+    let tk = thread(&r, "Can we add shortcuts to the app?");
+    wait_for(60, "the first agent took the thread", || {
+        co.get_task(&tk.id)
+            .and_then(|t| t.ask)
+            .is_some_and(|a| a.taker == first)
+    });
+    co.add_comment(&first, &tk.id, "Yes: #733 has them.", false)
+        .unwrap();
+    wait_for(60, "the thread answered", || {
+        co.get_task(&tk.id)
+            .and_then(|t| t.ask)
+            .is_some_and(|a| a.reason == coord::TAKE_ANSWERED)
+    });
+    co.resolve_thread(&person, &tk.id).unwrap();
+    wait_for(60, "the first agent ended and gone", || {
+        !fake.ended.lock().unwrap().is_empty()
+            && !r
+                .core
+                .local_agents()
+                .iter()
+                .any(|a| a.key == first && a.status != "gone")
+    });
+    assert_eq!(fake.started.lock().unwrap().len(), 1);
+
+    // Reopened and written on: nobody @mentioned.
+    co.reopen_thread(&person, &tk.id).unwrap();
+    let follow_up = "we're doing equivalent windows shortcuts right?";
+    // Who is live, as the window asks the roster when the person posts.
+    let live = |k: &str| {
+        r.core
+            .local_agents()
+            .iter()
+            .any(|a| a.key == k && a.status != "gone")
+    };
+    let (_, ns) = co
+        .person_comment(&person, &tk.id, follow_up, true, &[], Some(&live))
+        .unwrap();
+    assert!(ns.is_empty(), "nobody live to tell: {ns:?}");
+    wait_for(60, "a second agent started for the thread", || {
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+        fake.started.lock().unwrap().len() >= 2
+    });
+    let req = fake.started.lock().unwrap()[1].clone();
+    assert_eq!(req.task_id, tk.id);
+    assert!(
+        req.brief_path.to_string_lossy().ends_with("-2.md"),
+        "its second generation: {req:?}"
+    );
+    let brief = std::fs::read_to_string(&req.brief_path).unwrap();
+    assert!(
+        brief.contains(follow_up) && brief.contains(&format!("board_comment {}", tk.short_ref())),
+        "it is told the new comment: {brief}"
+    );
+
+    // It shows, is bound, and takes the thread; no third agent starts.
+    wait_for(60, "the second agent took the thread", || {
+        co.get_task(&tk.id)
+            .and_then(|t| t.ask)
+            .is_some_and(|a| a.taker == second)
+    });
+    let t = co.get_task(&tk.id).unwrap();
+    let s = t.spawn_request().unwrap();
+    assert!(s.generation == 2 && s.key == second, "{s:?}");
+    for _ in 0..3 {
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(fake.started.lock().unwrap().len(), 2, "no third agent");
+}

@@ -165,8 +165,20 @@ export function useRoster(): Roster {
 export function useNow(intervalMs = 1000): Date {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), intervalMs)
-    return () => window.clearInterval(id)
+    // Hidden, it holds still: the App's 1 s clock re-renders the whole
+    // window (card #765). Shown again, it catches up at once.
+    const tick = () => setNow(new Date())
+    const id = window.setInterval(() => {
+      if (!document.hidden) tick()
+    }, intervalMs)
+    const onShow = () => {
+      if (!document.hidden) tick()
+    }
+    document.addEventListener("visibilitychange", onShow)
+    return () => {
+      window.clearInterval(id)
+      document.removeEventListener("visibilitychange", onShow)
+    }
   }, [intervalMs])
   return now
 }

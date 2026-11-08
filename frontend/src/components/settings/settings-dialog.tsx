@@ -7,7 +7,6 @@ import {
   InfoIcon,
   LaptopIcon,
   PaletteIcon,
-  Trash2Icon,
   UsersIcon,
   type LucideIcon,
 } from "lucide-react"
@@ -18,7 +17,6 @@ import { DevicesPanel } from "@/components/settings/devices-panel"
 import { AgentsPane } from "@/components/settings/agents-pane"
 import { DesksPane } from "@/components/settings/desks-pane"
 import { AppearancePane } from "@/components/settings/appearance-pane"
-import { MaintenancePane } from "@/components/settings/maintenance-pane"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loading } from "@/components/ui/loading"
@@ -48,7 +46,6 @@ export type SettingsSection =
   | "people"
   | "agents"
   | "desks"
-  | "maintenance"
   | "app"
 
 export const settingsSections: {
@@ -92,12 +89,6 @@ export const settingsSections: {
     label: "Merge desks",
     icon: GitMergeIcon,
     hint: "One per repo: your open PRs from GitHub, for review. It never merges.",
-  },
-  {
-    id: "maintenance",
-    label: "Maintenance",
-    icon: Trash2Icon,
-    hint: "Clear out done cards.",
   },
   {
     id: "app",
@@ -176,7 +167,6 @@ export function SettingsDialog({
           )}
           {here.id === "agents" && <AgentsPane open={open} />}
           {here.id === "desks" && <DesksPane open={open} />}
-          {here.id === "maintenance" && <MaintenancePane />}
           {here.id === "app" && <AppPane open={open} version={version} />}
         </section>
       </DialogContent>

@@ -70,6 +70,7 @@ unchanged.
 | `/?open=board:task:sample-card-7` | a parent card's page: its subtasks, one blocked, and the steps done before the split |
 | `/?open=board:task:sample-card-9` | a subtask's page, with "Part of #7" under the title |
 | `/?open=board:task:sample-card-1` | a card's page with blockers, a PR and a long thread |
+| `/?term&open=board:task:sample-card-1` | the card page's Terminal section (card #730) with one blank stand-in shell (no shell runs, nothing is drawn): the box at its remembered height and the grip under it; drag it or focus it and press the arrow keys (Shift: bigger steps, Home and End: the ends, double-click: the default) |
 | `/?open=board:task:sample-card-2` | a blocker with recommended answers |
 | `/?open=board:task:sample-card-5` | a done card with a reviewed PR |
 | `/?open=board:task:sample-card-12` | Ready for you: an agent says it's done, its proof (screenshot, then how it was checked) at the top; Done closes it, Not done sends your words back (cards #112, #140) |
@@ -79,6 +80,7 @@ unchanged.
 | `/?open=board:task:sample-card-idle` | Idle, no reason given (card #305): held, its holder idle half an hour, nothing named it waits on; on Home its row is amber "Idle" |
 | `/?open=board:task:sample-card-job` | a holder between turns with a background job running (card #431): the page and Home say "running a job · 12 min" (card #489), not "not working on it now"; sample-mink's hover, its holder line and Settings › Agents say the same |
 | `/?open=board:task:sample-card-named` | the same wait named as a blocker on another agent: Home reads "Waiting on agent sample-kestrel" (card #305) |
+| `/?trust=cap` | Trust and start (cards #449, #717): Needs you's #19 waits on its repo's trust; its button answers with what the app says happens next, `cap` "It starts when a slot frees (1 of 1 in use)", `held` an agent already has it, `start` its agent is starting |
 | `/?loop=1` | a wait loop (card #481): Home's Needs you has one Stuck row, "#70, #72 and #71 wait on each other", with Open #70/#72/#71; `&open=board:task:sample-card-loop-71` shows a wait as a grey "Waiting on #70 Talk 4: Spaces" line with Stop waiting and no answer box; `sample-card-loop-72` shows it beside a red question |
 | `/?gone=1` | items whose agent is gone on cards nobody holds (card #485): `&open=board:task:sample-card-gone-73` shows an amber "Waiting on kestrel (gone)" wait with Hand to an agent beside Stop waiting; `sample-card-gone-74` shows piranha's done check with the amber "Waiting on piranha (gone)" line and Hand to an agent. Home's Needs you (card #520) has a Gone row for #73 ("#73 waits on kestrel (gone)") and #75 (an outside wait piranha raised), each with Hand to an agent and Open #N; #74 shows once, as its done check |
 | `/?winddown` | a finished Wind down (card #484): Home's one line "Wound down 43 agents, 23 confirmed · Pause all is on", which opens the dialog with each agent's answer; × dismisses it until the next run. No DM is opened per agent |
@@ -94,6 +96,7 @@ unchanged.
 | `/?newcard` | New card (card #456, sa-5): "A fresh agent" by default on your own board, with the model and effort it starts with; `?newcard&spawn=off` shows "Any free agent" instead |
 | `/?settings=agents` | Settings › Agents: the spawning switch, model and effort (#448), and the permissions (#449) |
 | `/?settings=agents&agentstarts=full` | "My agents may start agents" at its maximum (card #575): "100 of 100 in use"; `agentstarts=off` shows it switched off |
+| `/?settings=agents&namesoff=movies,anime` | Settings › Agents › Agent names (card #702): a switch per theme, each with its count and a few of its names; `namesoff` turns those off (all are on without it) |
 | `/?idle=gap` | Home's idle line as a dispatch gap: idle agents and two cards nobody was handed, with why (card #341); `/` alone reads "1 agent idle; 3 cards nobody took: #14, #25, #6." over the Stuck rows (card #487) |
 | `/?spawn=states` | Home's rows grouped Needs you, Stuck, Working, Waiting, Idle (card #487), with an agent starting, a device at its cap and agents that can't start; #51 reads "Waiting for a free Dolphin slot" |
 | `/#notifications` | The Notifications page (card #377): unread items, a done check and a decision with their live buttons, an agent's ask; `/?notifications=all#notifications` shows All, with a resolved blocker's outcome and read items; `?notifications=none` an empty history |
@@ -108,6 +111,12 @@ unchanged.
 | `/?spaces=open` | the space picker open: All spaces, Personal, each shared space, then Space settings (a shared pick) and New or join a space (card #689) |
 | `/#board/personal` | Personal's page: its boards and Add board (card #689; it was on the Spaces page) |
 | `/#boards` | Boards with All spaces picked: pick a space to see its boards (card #689); with a space picked (`?space=sample-board-mlg#boards`) it opens that space's page |
+| `/#board/sample-board-mlg` (descriptions) | MLG's tiles, MLG's and Netcode's descriptions two lines under their names (Art has none, so nothing), and "Closed boards · 1" folded under them (card #690); `?closed#board/sample-board-mlg` opens it on the closed Prototype, with its Closed badge; `?addboard#board/sample-board-mlg` opens New board with its optional Description |
+| `/#board/sample-board-mlg/sample-board-mlg-net` | a board's long description at its top, three lines and More (card #690); the header's ⋯ has Edit description… and Close board…; `?description=sample-board-mlg-net` opens Edit description |
+| `/#board/sample-board-mlg/sample-board-mlg-art` | a board with no description: nothing over its cards, and no prompt to add one (card #690) |
+| `/?close=sample-board-mlg-net#board/sample-board-mlg/sample-board-mlg-net` | Close board with two open cards (card #690): each with Open, "Move them to [MLG]" (picked) or "Cancel them", then Close board; `?close=sample-board-mlg-art` on Art's page has none open, a plain confirm |
+| `/#board/sample-board-mlg/sample-board-mlg-proto` | a closed board (card #690): read-only, no ask box or Rename, "Closed 4d ago" and Reopen board |
+| `/?closed#board/personal` | Personal's tiles, House with its description, and its Closed boards fold open on Taxes 2025 (card #690) |
 | `/?filter=board:sample-board-mlg` | the grid on the MLG board's chip: mlg#1 and mlg#2 |
 | `/?open=board:task:sample-board-1` | a card on a shared board: `mlg#1`, "Visible to", Withdraw |
 | `/#board/sample-board-mlg` | MLG, shared with Blake (card #268): each card's owner chip (Stephen, Blake, Former member) and the Mine / Blake chips |
@@ -120,10 +129,15 @@ unchanged.
 | `/?refs` | Home's Working rows with a cross-board ref, `agility#1234` (card #586): at sm+ the list's ref column widens to fit it whole and every title in the list stays lined up |
 | `/?refs=long` | the same plus `platform-infrastructure#98765`: the ref column stops at 10rem, the ref is cut with "…" and its full ref on hover |
 | `/?notes` | Notes (card #413; one list, no approvals since #616): the kind chips, and the notes with their tags, source chip and author, agents' among them, each with Edit and Remove; one says Still true?, and one is tagged `board:mlg` (a note about a space) |
+| `/?storage` | Storage (card #728): what Irori keeps on this device, its size by kind with a bar, build output and Claude Code's folder measured after the rest |
+| `/?storage=files` | One kind's page: what it holds, what deleting does (and that it can't be undone), its items with Select and Delete; try `builds`, `updates`, `logs`, `briefs` |
+| `/?storage=log` | Irori's log: what its rows are, Clear done cards (it was Settings > Maintenance), Clear resolved threads, and the cleared cards and threads with Put back |
+| `/?storage=closed` | Closed boards (with #690): every closed board in Personal and the spaces, its space, when it closed and its description; a click opens it |
 | `/?open=board:task:sample-card-4` | (Notes) under Who's on it: the notes sample-heron got on wake and the tag that matched each |
-| `/?meters=open` | the top bar's hardware meters (card #599) open: Claude usage left first, 5-hour 62% and Weekly 39% with when each resets; then CPU, Memory, a row per disk, Network and a row per GPU (an RTX 5080 and the CPU's Radeon), each with its last two minutes, Task Manager style. Every page's top bar has the strip (desktop only): CPU and Mem first, "Claude 62% · 39% left" (hover for which is which), GPU, then Net and Disk (the system disk, C:) as the header widens; a board's page needs more room for each |
-| `/?meters=open&usage=none` | Claude usage left before any reading: "No reading yet: appears after a Claude Code reply on this computer"; the strip has no Claude part |
-| `/?meters=open&usage=stale` | a usage reading 40 minutes old: "as of 14:05" beside Claude usage left |
+| `/?meters=open` | the top bar's hardware meters (card #599) open: Claude usage first, 5-hour 38% used and Weekly 61% used with when each resets; then CPU, Memory, a row per disk, Network and a row per GPU (an RTX 5080 and the CPU's Radeon), each with its last two minutes, Task Manager style. Every page's top bar has the strip (desktop only): CPU and Mem first, "Claude 38% · 61% used" (hover for which is which), GPU, then Net and Disk (the system disk, C:) as the header widens; a board's page needs more room for each |
+| `/?meters=open&usage=none` | Claude usage before any reading: "No reading yet: appears after a Claude Code reply on this computer"; the strip has no Claude part |
+| `/?meters=open&usage=stale` | a usage reading 40 minutes old: "as of 14:05" beside Claude usage |
+| `/?meters=open&usage=80` | both usage windows 80% used (any 0 to 100; card #772): the bars fill as the plan is used, like claude.ai, and blend from the theme color (up to 50% used) toward amber (80%) and red (100%); the strip's Claude reading takes the same color at 75% used and over |
 | `/?meters=open&gpu=none` | a machine with no GPU: no GPU rows, no GPU in the strip |
 | `/?android` at desktop width | no meters strip: the phone never shows it (it's also hidden under 768 px) |
 | `/?empty` | no cards yet |

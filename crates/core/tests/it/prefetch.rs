@@ -75,6 +75,50 @@ fn a_desktop_holds_small_offered_files_so_others_get_them_when_the_first_is_away
     }
 }
 
+/// A small file the person deleted here from Storage (card #728) is not
+/// picked up again when it is offered again; a fetch they ask for brings
+/// it back and ends that.
+#[test]
+fn a_file_deleted_from_storage_is_not_picked_up_again() {
+    let devs = person_with("p", 2, |i| {
+        (i == 1)
+            .then(|| Arc::new(|o: &mut irori_core::Options| o.prefetch_files = Some(CAP)) as Edit)
+    });
+    let files = tempfile::tempdir().unwrap();
+    let small = files.path().join("trace.txt");
+    std::fs::write(&small, vec![b'x'; 1024]).unwrap();
+    let (a, b) = (&devs[0], &devs[1]);
+    let path = small.to_string_lossy().into_owned();
+    let r = a
+        .core
+        .attach_files(&a.agent, std::slice::from_ref(&path))
+        .unwrap()[0]
+        .clone();
+    wait_for(WAIT, "B picks up the small file unasked", || {
+        b.core.files().has(&r.sha256)
+    });
+    b.core.files().remove(&r.sha256).unwrap();
+    // Offered again: B leaves it.
+    a.core
+        .attach_files(&a.agent, std::slice::from_ref(&path))
+        .unwrap();
+    std::thread::sleep(Duration::from_secs(4));
+    assert!(
+        !b.core.files().has(&r.sha256),
+        "B picked up a file the person deleted"
+    );
+    let mut got = Err(irori_core::meshview::FileFetchError::TimedOut);
+    wait_for(WAIT, "B fetches it when asked", || {
+        got = b.core.fetch_file_blocking(&r);
+        got.is_ok()
+    });
+    assert!(b.core.files().has(&r.sha256));
+    assert!(!b.core.files().dropped(&r.sha256));
+    for d in devs {
+        d.core.close().unwrap();
+    }
+}
+
 /// A file on a shared space's card: Bob's desktop picks it up from the
 /// board's log unasked and offers it there in turn.
 #[test]

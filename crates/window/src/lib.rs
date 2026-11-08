@@ -72,6 +72,7 @@ pub mod settings;
 pub mod spawn;
 pub mod spawn_cost;
 pub mod stop;
+pub mod storage;
 pub mod talk;
 pub mod terms;
 pub mod threads;

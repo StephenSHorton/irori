@@ -95,6 +95,16 @@ describe("threadLabel", () => {
     ).toEqual([])
   })
 
+  test("an unheard comment says an agent is starting for it (card #739)", () => {
+    const it = CardThreadItem({ kind: "comment", who: otter, unheard: true })
+    expect(threadLabel(it).badges).toEqual([
+      { label: "nobody has heard this yet", tone: "warning" },
+    ])
+    expect(threadLabel(it, false, true).badges).toEqual([
+      { label: "an agent is starting to answer", tone: "slate" },
+    ])
+  })
+
   test("one file is singular", () => {
     const l = threadLabel(
       CardThreadItem({ kind: "message", who: otter, to: wren, files: 1 })
