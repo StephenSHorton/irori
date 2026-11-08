@@ -1018,7 +1018,7 @@ pub fn posts(b: &dyn Backend, reader: &str, conv: &str) -> Result<Vec<Post>, Str
     let conv = trim(conv);
     if let Some(id) = conv.strip_prefix(ct::CALL_PREFIX) {
         call_parent(b, talk, reader, id)?;
-        return Ok(talk.call_posts(id));
+        return Ok(call_lines(talk, reader, id));
     }
     if ct::is_channel(conv) {
         if talk.channel(conv).is_none() {
@@ -1051,13 +1051,19 @@ pub fn posts(b: &dyn Backend, reader: &str, conv: &str) -> Result<Vec<Post>, Str
 }
 
 /// The conversation huddle `id` was in, when `reader` may read its lines:
-/// as they may read that conversation, and never an agent in a person DM.
+/// as they may read that conversation. A person DM's huddle is the one
+/// exception (card #1047, call-agents.md section 10): an agent of either
+/// person reads the lines marked `agents` directly, not the DM's own posts,
+/// and none at all of a huddle no line of which carries the mark.
 fn call_parent(b: &dyn Backend, talk: &Talk, reader: &str, id: &str) -> Result<String, String> {
     let parent = talk
         .call_conv(id)
         .ok_or_else(|| format!("no huddle {}. talk_list shows yours.", one_line(id, 80)))?;
-    if talk.pair_other(&parent).is_some() && !ct::is_person_key(reader) {
-        return Err("a huddle between two people is theirs: agents don't read it".into());
+    if talk.pair_other(&parent).is_some() {
+        if !ct::is_person_key(reader) && !has_agent_lines(&talk.call_posts(id)) {
+            return Err("a huddle between two people is theirs: this one wasn't said under the notice that lets agents read".into());
+        }
+        return Ok(parent);
     }
     if ct::is_channel(&parent) {
         if talk.channel(&parent).is_none() {
@@ -1067,6 +1073,27 @@ fn call_parent(b: &dyn Backend, talk: &Talk, reader: &str, id: &str) -> Result<S
         posts(b, reader, &parent)?;
     }
     Ok(parent)
+}
+
+/// Whether a huddle's lines are readable by agents as a person DM's: it has
+/// none yet (a live one just begun), or some carry the `agents` mark.
+fn has_agent_lines(lines: &[Post]) -> bool {
+    lines.is_empty() || lines.iter().any(|p| p.agents)
+}
+
+/// Huddle `id`'s lines as `reader` may read them: all, except that an
+/// agent reads only the marked lines of a person DM's (card #1047).
+fn call_lines(talk: &Talk, reader: &str, id: &str) -> Vec<Post> {
+    let lines = talk.call_posts(id);
+    let gated = !ct::is_person_key(reader)
+        && talk
+            .call_conv(id)
+            .is_some_and(|c| talk.pair_other(&c).is_some());
+    if gated {
+        lines.into_iter().filter(|p| p.agents).collect()
+    } else {
+        lines
+    }
 }
 
 /// Whether `reader` may read `conv`, by [`posts`]'s rule, without listing
@@ -2035,33 +2062,28 @@ fn call_head(talk: &Talk, n: &crate::Names<'_>, conv: &str) -> String {
     )
 }
 
-/// talk_list's huddles with a transcript (card #656), newest first: the
-/// person sees all of them, an agent those of the channels it is in, never
-/// a person DM's.
+/// talk_list's huddles with a transcript (card #656, #1047), newest first:
+/// every huddle of the spaces the reader is in, with its title, a person
+/// DM's too. An agent sees only the lines of a person DM's that carry the
+/// `agents` mark, so a DM huddle without any isn't listed.
 fn huddles(talk: &Talk, n: &crate::Names<'_>, me: &str) -> String {
-    let person = ct::is_person_key(me);
-    let shown: Vec<ct::CallInfo> = talk
+    let shown: Vec<(ct::CallInfo, Vec<Post>)> = talk
         .calls()
         .into_iter()
-        .filter(|c| c.lines > 0)
-        .filter(|c| {
-            if talk.pair_other(&c.conv_id).is_some() {
-                return person;
-            }
-            if !ct::is_channel(&c.conv_id) || talk.channel(&c.conv_id).is_none() {
-                return false;
-            }
-            person || talk.is_member(&c.conv_id, me)
+        .filter(|c| talk.pair_other(&c.conv_id).is_some() || talk.channel(&c.conv_id).is_some())
+        .map(|c| {
+            let lines = call_lines(talk, me, &c.call_id);
+            (c, lines)
         })
+        .filter(|(_, lines)| !lines.is_empty())
         .collect();
     if shown.is_empty() {
         return String::new();
     }
     let mut out = "Huddles with a transcript, newest first:\n".to_string();
-    for c in shown.iter().take(HUDDLES_SHOWN) {
+    for (c, lines) in shown.iter().take(HUDDLES_SHOWN) {
         let conv = format!("{}{}", ct::CALL_PREFIX, c.call_id);
-        let lines = talk.call_posts(&c.call_id);
-        let mark = Lines::parse(talk.cursor(me, &conv).as_deref(), &lines);
+        let mark = Lines::parse(talk.cursor(me, &conv).as_deref(), lines);
         let unread = lines
             .iter()
             .filter(|p| !mark.has(p) && ct::canon(&p.by) != ct::canon(me))
@@ -2071,11 +2093,16 @@ fn huddles(talk: &Talk, n: &crate::Names<'_>, me: &str) -> String {
         } else {
             String::new()
         };
+        let title = if c.title.trim().is_empty() {
+            String::new()
+        } else {
+            format!(" \"{}\"", one_line(&c.title, 80))
+        };
         out += &format!(
-            "- huddle in {} (conv={conv}, {} line{}, {}){tail}\n",
+            "- huddle{title} in {} (conv={conv}, {} line{}, {}){tail}\n",
             call_place(talk, n, &c.conv_id),
-            c.lines,
-            if c.lines == 1 { "" } else { "s" },
+            lines.len(),
+            if lines.len() == 1 { "" } else { "s" },
             if c.end.is_some() { "ended" } else { "live" },
         );
     }

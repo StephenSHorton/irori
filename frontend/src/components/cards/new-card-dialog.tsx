@@ -34,6 +34,7 @@ import { plainLine } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { effortLabel, modelLabel, useAgents } from "@/lib/agents"
 import { openSettings } from "@/lib/nav"
+import type { CardForm } from "@/lib/drafts"
 import { ZapIcon } from "lucide-react"
 
 // NewCardDialog is New card (card #116): the person makes a card straight
@@ -60,14 +61,17 @@ export function NewCardDialog({
   list,
   from,
   spawned,
-  draftLost,
+  draft,
+  onLeave,
   dashboard = false,
 }: {
   open: boolean
   onClose: () => void
-  // Going to Settings would take this dialog's page with it, and the draft
-  // with that (a Talk message's Make a card): the rule is said, not linked.
-  draftLost?: boolean
+  // Where Settings takes this dialog's page with it (a Talk message's Make
+  // a card, card #1071), the Settings link hands onLeave the form to keep,
+  // and draft is that form when the page is back: the form starts from it.
+  draft?: CardForm
+  onLeave?: (form: CardForm) => void
   onMade: (id: string) => void
   // The shared board whose page it was made from; left out: your own.
   board?: BoardSummary
@@ -83,7 +87,7 @@ export function NewCardDialog({
   dashboard?: boolean
 }) {
   const { boards: personal } = usePersonalBoards()
-  const [picked, setPicked] = useState<string | null>(null)
+  const [picked, setPicked] = useState<string | null>(draft?.picked ?? null)
   // A pick lasts one opening: each time the dialog opens, or its space or
   // list changes, it starts on the list you're on, else the first board.
   const seenKey = `${open}|${space?.boardId ?? ""}|${list?.boardId ?? ""}`
@@ -96,15 +100,15 @@ export function NewCardDialog({
   const on = target.on
   // The space, showing the board it goes on.
   const board = space && on ? { ...space, name: on.name, tag: on.tag } : space
-  const [title, setTitle] = useState("")
-  const [objective, setObjective] = useState("")
-  const [doneWhen, setDoneWhen] = useState("")
-  const [repoKey, setRepoKey] = useState("")
-  const [assignTo, setAssignTo] = useState("")
+  const [title, setTitle] = useState(draft?.title ?? "")
+  const [objective, setObjective] = useState(draft?.objective ?? "")
+  const [doneWhen, setDoneWhen] = useState(draft?.doneWhen ?? "")
+  const [repoKey, setRepoKey] = useState(draft?.repoKey ?? "")
+  const [assignTo, setAssignTo] = useState(draft?.assignTo ?? "")
   const [repos, setRepos] = useState<AskRepo[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const attach = useFileAttach(busy)
+  const attach = useFileAttach(busy, "", draft?.files)
   const agents = useMentionCandidates(open).filter(
     (c) => c.who.live && !c.board && !spawned?.has(c.who.key)
   )
@@ -115,9 +119,10 @@ export function NewCardDialog({
   const members = board?.members.filter((m) => !m.me) ?? []
   const giving = assignTo.startsWith("person:")
 
-  // A message's Make a card fills the form as it opens (once per message).
+  // A message's Make a card fills the form as it opens (once per message),
+  // unless it's back from Settings: the kept draft is what was typed.
   const [filled, setFilled] = useState<typeof from>(undefined)
-  if (open && from && filled !== from) {
+  if (open && from && !draft && filled !== from) {
     setFilled(from)
     setTitle(from.title)
     setObjective(from.objective)
@@ -187,10 +192,22 @@ export function NewCardDialog({
 
   // Settings is a page: closed first, so this dialog isn't left over it and
   // a space's card doesn't quietly become a Personal one (card #1007). Not
-  // while the card is being made: its page opens when that ends.
+  // while the card is being made: its page opens when that ends. Where the
+  // page goes with Settings, the form is handed to onLeave to keep instead
+  // (card #1071): leaving isn't closing, which would drop what was kept.
   const settingsAgents = () => {
     if (busy) return
-    onClose()
+    if (onLeave)
+      onLeave({
+        title,
+        objective,
+        doneWhen,
+        repoKey,
+        assignTo,
+        picked,
+        files: attach.files,
+      })
+    else onClose()
     openSettings("agents")
   }
 
@@ -319,19 +336,15 @@ export function NewCardDialog({
             <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[12.5px] text-muted-foreground">
               Irori won't start an agent for this card: your agents are off in
               this space.{" "}
-              {draftLost ? (
-                "Turn them on in Settings › Agents."
-              ) : (
-                <Button
-                  type="button"
-                  variant="link"
-                  size="xs"
-                  className="h-auto px-0 align-baseline"
-                  onClick={settingsAgents}
-                >
-                  Turn them on in Settings › Agents
-                </Button>
-              )}
+              <Button
+                type="button"
+                variant="link"
+                size="xs"
+                className="h-auto px-0 align-baseline"
+                onClick={settingsAgents}
+              >
+                Turn them on in Settings › Agents
+              </Button>
             </p>
           )}
           {fresh && spawn && assignTo === "" && (
@@ -347,19 +360,15 @@ export function NewCardDialog({
                   {effortLabel(spawn.effort, "").toLowerCase()}
                 </span>{" "}
                 and ends when it's done.{" "}
-                {draftLost ? (
-                  "Change it in Settings › Agents."
-                ) : (
-                  <Button
-                    type="button"
-                    variant="link"
-                    size="xs"
-                    className="h-auto px-0 align-baseline"
-                    onClick={settingsAgents}
-                  >
-                    Change in Settings › Agents
-                  </Button>
-                )}
+                <Button
+                  type="button"
+                  variant="link"
+                  size="xs"
+                  className="h-auto px-0 align-baseline"
+                  onClick={settingsAgents}
+                >
+                  Change in Settings › Agents
+                </Button>
               </span>
             </p>
           )}

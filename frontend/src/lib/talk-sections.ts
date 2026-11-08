@@ -10,11 +10,14 @@ import { useCallback, useState } from "react"
 
 import type { Conversation } from "@/lib/conversations"
 
-export type SectionKey = "threads" | "channels" | "dms" | "gone" | "agents"
+export type SectionKey =
+  "threads" | "huddles" | "channels" | "dms" | "gone" | "agents"
 
 // foldedByDefault is each section's fold before the person touches it.
 export const foldedByDefault: Record<SectionKey, boolean> = {
   threads: false,
+  // Huddles (card #1044): newest first, the live ones at the top.
+  huddles: false,
   channels: false,
   // Unfolded (card #484): a folded section shows no rows, so folding the
   // person's live DMs by default would hide what waits on them.

@@ -470,7 +470,12 @@ impl Mesh {
         {
             // Rows from a member may move the membership: refeed.
             let r = self.refeed.clone();
-            m.on_rows(Arc::new(move || r.notify_one()));
+            let node = self.node.clone();
+            m.on_rows(Arc::new(move || {
+                // Rows landed from a member's device: the sync badge (#1089).
+                node.activity().pulse();
+                r.notify_one()
+            }));
         }
         {
             // One check and insert, so two openers can't both start it.

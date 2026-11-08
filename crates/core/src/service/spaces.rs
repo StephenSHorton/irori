@@ -595,6 +595,31 @@ impl Services {
         })
     }
 
+    /// The member devices of space `b` too old for `level`'s `need`, and
+    /// those nobody has any word from, each as `person/device` (short
+    /// ids): a gate that fails closed (card #1077, the PR card's).
+    pub(crate) fn space_waiting_at(
+        &self,
+        b: &BoardLog,
+        level: ReadsLevel,
+        need: i64,
+    ) -> Result<(Vec<String>, Vec<String>)> {
+        let ms = b.verifier.membership();
+        let r = self.space_readers_at(b, level, need)?;
+        let name = |(p, d): (String, String)| {
+            let who = b
+                .verifier
+                .profile(&p)
+                .or_else(|| ms.person(&p).map(|x| x.name.clone()))
+                .unwrap_or_else(|| short(&p).to_string());
+            format!("{who}/{}", short(&d))
+        };
+        Ok((
+            r.too_old.into_iter().map(&name).collect(),
+            r.unheard.into_iter().map(&name).collect(),
+        ))
+    }
+
     /// The member devices of space `space_id` known to be too old for space
     /// rows, as `person/device` (short ids). Empty: it may write them. One
     /// nobody has any word from doesn't count: it gets a warning line
@@ -1370,6 +1395,8 @@ pub(crate) enum ReadsLevel {
     Spaces,
     /// The hello's `tolerant` (card #652).
     Tolerant,
+    /// The hello's `reviews` (card #1077): PR cards.
+    Reviews,
 }
 
 impl ReadsLevel {
@@ -1377,6 +1404,7 @@ impl ReadsLevel {
         match self {
             ReadsLevel::Spaces => r.spaces,
             ReadsLevel::Tolerant => r.tolerant,
+            ReadsLevel::Reviews => r.reviews,
         }
     }
 }
@@ -1701,6 +1729,27 @@ impl Services {
             .map_err(|e| e.to_string())?;
         self.space_talk_row(space_id, &ev)
             .ok_or_else(|| "the row didn't read back".to_string())
+    }
+}
+
+impl Services {
+    /// Makes space `space_id`'s #office-assistants channel if Talk hasn't
+    /// folded it (assistants-talk.md §4). Not in a hidden DM space, which
+    /// takes only what folds into its DM, and never in Personal (not a
+    /// board here). A space that can't take the row yet (its gate, or not
+    /// a member) is retried by the next sweep.
+    pub(crate) fn ensure_assistants_channel(&self, space_id: &str) {
+        if self.is_hidden_space(space_id) {
+            return;
+        }
+        let _ = self.talk.ensure_assistants_channel(space_id);
+    }
+
+    /// [`Self::ensure_assistants_channel`] for each space the person sees.
+    pub(crate) fn ensure_assistants_channels(&self) {
+        for b in self.visible_boards() {
+            self.ensure_assistants_channel(&b.id);
+        }
     }
 }
 

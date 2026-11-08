@@ -524,6 +524,8 @@ export type CardRef = {
   n: string
 }
 
+// The leading char is JS `\s` or "("; the core's `card_refs` (fold.rs) takes
+// only ASCII whitespace, so NBSP and U+3000 differ between the two.
 export function cardRefs(text: string): CardRef[] {
   const out: CardRef[] = []
   const re = /([A-Za-z0-9_-]*)#(\d+)(?![A-Za-z0-9_])/g
