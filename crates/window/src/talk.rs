@@ -121,6 +121,12 @@ pub struct TalkPost {
     pub agents_now: bool,
     #[specta(optional)]
     pub thread_from: Option<String>,
+    /// The post it answers (an assistant's answer or waiting line).
+    #[specta(optional)]
+    pub reply_to: Option<String>,
+    /// `ask` or `owner` on an assistant's waiting line.
+    #[specta(optional)]
+    pub waiting: Option<String>,
     /// The card made from it (always null in Talk 1).
     #[specta(optional)]
     pub card: Option<String>,
@@ -368,6 +374,8 @@ impl Window {
                 mentions: p.mentions,
                 agents_now: p.agents_now,
                 thread_from: p.thread_from,
+                reply_to: p.reply_to,
+                waiting: p.waiting,
                 card: p.card,
                 attachments: p.files.iter().map(crate::coord_ref).collect(),
                 call: p.call.map(|c| TalkCall {
