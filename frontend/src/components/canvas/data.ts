@@ -3,13 +3,15 @@
 // sits. It reads what the grid already has (CardSummary[] from useCards),
 // plus a card's CardDetail when one is to hand, for one blocker node per
 // open blocker. A card the person dragged keeps its spot (CardSummary.pos,
-// kept in coord so every device shows it); the rest are laid out by
-// autoLayout. Nothing here calls the host.
+// kept in coord so every device shows it); the rest are laid out by ELK
+// (elk.ts, card #776). Nothing here calls the host.
 //
 // The layout says who is doing what (card #587): each live agent is a hub
-// with the cards it holds in a small grid under it, the cards nobody live
-// is on sit in their own area, and done cards are tucked in a faded area
-// at the end. Nearness means something; nothing grows into a tall column.
+// with the cards it holds under it, the cards nobody live is on sit in
+// their own area, and done cards are tucked in a faded area at the end.
+// Nearness means something; nothing grows into a tall column. What puts a
+// card first, and the reasons the canvas shows for it, are weights.ts
+// (docs/canvas-layout.md).
 
 import { cardTone, type Tone } from "@/components/cards/bits"
 import { agentStatus, type StatusTone } from "@/lib/agent-status"
@@ -24,6 +26,8 @@ import {
   type CardSummary,
 } from "@/lib/cards"
 import { needsYou } from "@/lib/needs"
+
+import { RecentMs, reasons, score, type Facts, type Reason } from "./weights"
 
 // ---- the graph --------------------------------------------------------------
 
@@ -78,6 +82,12 @@ export type CardNode = {
   done: boolean
   faces: FaceRef[]
   card: CardSummary // the source card, for the real Irori bits (StatePill, Faces)
+  // Why it sits where it does (card #776, weights.ts): its prominence
+  // (higher comes first) and the reasons, strongest first.
+  live: boolean // an agent that is here is working on it now
+  recent: boolean // changed in the last hour
+  score: number
+  why: Reason[]
 }
 
 export type BlockerNode = {
@@ -126,10 +136,13 @@ export type Graph = {
 // Laid out: every node but a group has a top-left position and a size; a
 // group has the rect around its members. Positions are absolute (React
 // Flow subflows want them relative to the group: subtract group.x/y).
+// routes: ELK's line for an edge inside an area, as points from the
+// source's side to the target's (route.ts checks it still fits).
 export type Layout = {
   pos: Record<string, Point>
   size: Record<string, Size>
   groups: Record<string, Rect>
+  routes: Record<string, Point[]>
 }
 
 // ---- cards to graph ---------------------------------------------------------
@@ -191,9 +204,11 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`
 // details, when given, supplies each card's own blockers; without it a
 // card with open blockers gets one blocker node carrying blockerQuestion.
 // Agents that aren't here get no node: their faces stay on the card.
+// now: the clock for "changed in the last hour" (weights.ts).
 export function toGraph(
   cards: readonly CardSummary[],
-  details?: ReadonlyMap<string, CardDetail>
+  details?: ReadonlyMap<string, CardDetail>,
+  now: number = Date.now()
 ): Graph {
   const nodes: GraphNode[] = []
   const edges: GraphEdge[] = []
@@ -247,6 +262,19 @@ export function toGraph(
       ...c.watching.map((a) => faceOf(a, "watching")),
     ]
     const parent = c.parent && ids.has(c.parent.id) ? c.parent.id : null
+    const first = isDone ? undefined : c.working.find(here)
+    const tone = first ? agentStatus(first).tone : undefined
+    const changed = Date.parse(c.updatedAt)
+    const facts: Facts = {
+      needs: !isDone && needsYou(c),
+      live: tone === "working" || tone === "job",
+      recent: !isDone && Number.isFinite(changed) && now - changed < RecentMs,
+      stale: !isDone && !!c.stale,
+      done: isDone,
+    }
+    const parentShort = parent
+      ? `#${(cards.find((x) => x.id === parent)?.short ?? "").replace(/^#/, "")}`
+      : null
     nodes.push({
       kind: "card",
       id: c.id,
@@ -263,13 +291,27 @@ export function toGraph(
       repo: c.repoKey,
       board: c.board ?? "",
       where: whereOf(c),
-      needs: needsYou(c),
+      needs: facts.needs,
       // The grid's rule for its Nobody on it badge.
       nobody: !isDone && !openAsk(c) && nobodyOn(c) && !c.starting,
       stale: !isDone && !!c.stale,
       done: isDone,
       faces,
       card: c,
+      live: facts.live,
+      recent: facts.recent,
+      score: score(facts),
+      why: reasons(
+        facts,
+        isDone
+          ? { by: "done" }
+          : !first
+            ? { by: "unheld" }
+            : first.status === "person"
+              ? { by: "you" }
+              : { by: "agent", name: displayName(first) },
+        parentShort
+      ),
     })
     if (parent) edge("subtask", parent, c.id)
     // A done card is tucked away: no blockers, no agent lines.
@@ -396,6 +438,12 @@ export function toGraph(
   return { nodes: [...hubs, ...areas, ...nodes, ...agents.values()], edges }
 }
 
+// drawn is the lines the canvas draws (card #776): all but a holder line
+// inside its agent's own hub, which the hub's box already says.
+export function drawn(g: Graph): GraphEdge[] {
+  return g.edges.filter((e) => !e.inHub)
+}
+
 // handOffs is the cards whose live holder changed between two graphs: a
 // card that came to an agent, or moved from one to another.
 export function handOffs(prev: Map<string, string>, graph: Graph): string[] {
@@ -413,7 +461,7 @@ export function handOffs(prev: Map<string, string>, graph: Graph): string[] {
   return out
 }
 
-// ---- default layout ---------------------------------------------------------
+// ---- sizes and spacing -----------------------------------------------------
 
 export const NodeSize: Record<Exclude<GraphNode["kind"], "group">, Size> = {
   card: { w: 280, h: 132 },
@@ -421,30 +469,16 @@ export const NodeSize: Record<Exclude<GraphNode["kind"], "group">, Size> = {
   agent: { w: 180, h: 40 },
 }
 
-const Gap = 24 // between cards in a grid
-const Pad = 24 // inside an area's rect
-const Head = 32 // an area's label strip
-const AreaGap = 72 // between areas
-// Areas wrap into rows about this many times wider than tall, like the
-// window the canvas sits in, so the map fills it instead of a column.
-const Aspect = 2.2
-const MinRow = 1600 // a small board stays on one row
-const BlockerInset = 20 // a blocker under its card, set in a little
-const BlockerGap = 8 // between a card and its blockers, and between blockers
-const HubCols = 4 // an agent's grid is at most this wide
-const AreaCols = 10 // the unheld and done grids, about twice as wide as tall
-const PillCols = 6 // agents in the others strip
-const PillGap = 12
-
-// colsFor is how wide a grid of n cards is: about square, so a hub of 16
-// cards is 4 by 4, never 16 tall.
-export function colsFor(n: number, max: number, wide = 1): number {
-  return Math.max(1, Math.min(max, Math.ceil(Math.sqrt(n * wide))))
-}
+export const Gap = 24 // between cards in an area
+export const Pad = 24 // inside an area's rect
+export const Head = 32 // an area's label strip
+export const AreaGap = 72 // between areas
+export const BlockerInset = 20 // a blocker under its card, set in a little
+export const BlockerGap = 8 // between a card and its blockers, and between blockers
 
 // blockerSpot is where a card's i-th blocker sits: under the card, so the
-// grid's next column stays clear.
-function blockerSpot(card: Point, i: number): Point {
+// next card over stays clear.
+export function blockerSpot(card: Point, i: number): Point {
   return {
     x: card.x + BlockerInset,
     y:
@@ -453,156 +487,6 @@ function blockerSpot(card: Point, i: number): Point {
       BlockerGap +
       i * (NodeSize.blocker.h + BlockerGap),
   }
-}
-
-// depthFirst orders an area's cards so each subtask follows its parent,
-// keeping the input order (the grid's) otherwise.
-function depthFirst(cards: CardNode[]): CardNode[] {
-  const inSet = new Set(cards.map((c) => c.id))
-  const kids = new Map<string, CardNode[]>()
-  for (const c of cards)
-    if (c.parent && inSet.has(c.parent))
-      kids.set(c.parent, [...(kids.get(c.parent) ?? []), c])
-  const out: CardNode[] = []
-  const visit = (c: CardNode) => {
-    out.push(c)
-    for (const k of kids.get(c.id) ?? []) visit(k)
-  }
-  for (const c of cards) if (!c.parent || !inSet.has(c.parent)) visit(c)
-  return out
-}
-
-type Placed = { w: number; h: number; at: [string, Point, Size][] }
-
-// placeArea lays one area out from (0, 0): its label strip, its agents
-// (a hub's one, or the others strip's several, in rows), then its cards
-// in a grid, each card's blockers under it.
-function placeArea(
-  agents: AgentNode[],
-  cards: CardNode[],
-  blockersOf: Map<string, BlockerNode[]>,
-  maxCols: number
-): Placed {
-  const at: Placed["at"] = []
-  let y = Head + Pad
-  let w = 0
-  const pillCols = Math.min(PillCols, agents.length)
-  for (let r = 0; r * pillCols < agents.length; r++) {
-    agents
-      .slice(r * pillCols, (r + 1) * pillCols)
-      .forEach((a, i) =>
-        at.push([
-          a.id,
-          { x: Pad + i * (NodeSize.agent.w + PillGap), y },
-          NodeSize.agent,
-        ])
-      )
-    w = Math.max(w, pillCols * NodeSize.agent.w + (pillCols - 1) * PillGap)
-    y += NodeSize.agent.h + PillGap
-  }
-  if (agents.length) y += Gap - PillGap
-  // An agent's hub is about square; the big areas lie wide, like the window.
-  const cols = colsFor(cards.length, maxCols, maxCols === HubCols ? 1 : 2)
-  for (let r = 0; r * cols < cards.length; r++) {
-    const row = cards.slice(r * cols, (r + 1) * cols)
-    let rowH = 0
-    row.forEach((c, i) => {
-      const p = { x: Pad + i * (NodeSize.card.w + Gap), y }
-      at.push([c.id, p, NodeSize.card])
-      const bs = blockersOf.get(c.id) ?? []
-      bs.forEach((b, j) => at.push([b.id, blockerSpot(p, j), NodeSize.blocker]))
-      const h = NodeSize.card.h + bs.length * (NodeSize.blocker.h + BlockerGap)
-      rowH = Math.max(rowH, h)
-    })
-    w = Math.max(w, row.length * NodeSize.card.w + (row.length - 1) * Gap)
-    y += rowH + Gap
-  }
-  if (cards.length || agents.length) y -= Gap
-  return { w: w + 2 * Pad, h: y + Pad, at }
-}
-
-// autoLayout is the starting layout, no library (card #587): a hub per
-// agent (biggest first, then by name), then the cards nobody is on, packed
-// in rows that wrap; the done cards start a row of their own at the end.
-// Deterministic, so every device starts from the same picture.
-export function autoLayout(g: Graph): Layout {
-  const pos: Layout["pos"] = {}
-  const size: Layout["size"] = {}
-  const groups: Layout["groups"] = {}
-  const cards = g.nodes.filter((n): n is CardNode => n.kind === "card")
-  const blockersOf = new Map<string, BlockerNode[]>()
-  for (const n of g.nodes)
-    if (n.kind === "blocker")
-      blockersOf.set(n.card, [...(blockersOf.get(n.card) ?? []), n])
-  const agentsOf = new Map<string, AgentNode[]>()
-  for (const n of g.nodes)
-    if (n.kind === "agent")
-      agentsOf.set(n.group, [...(agentsOf.get(n.group) ?? []), n])
-  const agentOf = (id: string) => agentsOf.get(id)?.[0]
-  const members = new Map<string, CardNode[]>()
-  for (const c of cards)
-    members.set(c.group, [...(members.get(c.group) ?? []), c])
-  const count = (id: string) => members.get(id)?.length ?? 0
-
-  const areas = g.nodes.filter((n): n is GroupNode => n.kind === "group")
-  const hubs = areas
-    .filter((a) => a.by === "agent")
-    .sort((a, b) => {
-      const pa = agentOf(a.id)?.person ? 1 : 0
-      const pb = agentOf(b.id)?.person ? 1 : 0
-      return (
-        pb - pa || // you first
-        count(b.id) - count(a.id) ||
-        (agentOf(a.id)?.label ?? "").localeCompare(
-          agentOf(b.id)?.label ?? ""
-        ) ||
-        a.key.localeCompare(b.key)
-      )
-    })
-  const order = [
-    ...hubs,
-    ...areas.filter((a) => a.by === "unheld"),
-    ...areas.filter((a) => a.by === "others"),
-    ...areas.filter((a) => a.by === "done"),
-  ]
-
-  const placedAreas = order.map((a) => ({
-    a,
-    placed: placeArea(
-      agentsOf.get(a.id) ?? [],
-      depthFirst(members.get(a.id) ?? []),
-      blockersOf,
-      a.by === "agent" ? HubCols : AreaCols
-    ),
-  }))
-  const room = placedAreas
-    .filter((p) => p.a.by !== "done")
-    .reduce((s, p) => s + (p.placed.w + AreaGap) * (p.placed.h + AreaGap), 0)
-  const rowWidth = Math.max(
-    MinRow,
-    ...placedAreas.map((p) => p.placed.w),
-    Math.sqrt(room * Aspect)
-  )
-
-  let x = 0
-  let y = 0
-  let rowH = 0
-  for (const { a, placed } of placedAreas) {
-    const fresh = a.by === "done" // done starts its own row
-    if (x > 0 && (fresh || x + placed.w > rowWidth)) {
-      x = 0
-      y += rowH + AreaGap
-      rowH = 0
-    }
-    groups[a.id] = { x, y, w: placed.w, h: placed.h }
-    for (const [id, p, s] of placed.at) {
-      pos[id] = { x: x + p.x, y: y + p.y }
-      size[id] = s
-    }
-    x += placed.w + AreaGap
-    rowH = Math.max(rowH, placed.h)
-  }
-  return { pos, size, groups }
 }
 
 // ---- placed cards -----------------------------------------------------------
@@ -727,12 +611,10 @@ export function groupRects(
 
 // ---- what every canvas takes ------------------------------------------------
 
+// The canvas lays the graph out itself (ELK runs in its lazy chunk, card
+// #776): the layout with kept spots laid over is withPlaced(graph, auto).
 export type CanvasProps = {
   graph: Graph
-  // The auto layout with placed cards laid over (withPlaced).
-  layout: Layout
-  // The auto layout alone, for Tidy up.
-  auto: Layout
   onOpen: (id: string) => void // App's openCard: the real card page
   onPlace: (id: string, x: number, y: number) => void // keep a card's spot
   // Full screen (card #410): whether the canvas fills the window, and

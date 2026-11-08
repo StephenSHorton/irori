@@ -21,7 +21,7 @@ import {
 } from "@/lib/cards"
 import { previewFlag } from "@/lib/preview"
 
-import { autoLayout, toGraph, withPlaced } from "./data"
+import { toGraph } from "./data"
 
 export type BoardView = "list" | "canvas"
 
@@ -146,8 +146,6 @@ export function BoardCanvas({
   const stable = useMemo(() => cards, [sig])
   const details = useBlockerDetails(stable)
   const graph = useMemo(() => toGraph(stable, details), [stable, details])
-  const auto = useMemo(() => autoLayout(graph), [graph])
-  const layout = useMemo(() => withPlaced(graph, auto), [graph, auto])
   const [full, setFull] = useState(() => previewFlag("full") !== null)
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -203,8 +201,6 @@ export function BoardCanvas({
       >
         <Canvas
           graph={graph}
-          layout={layout}
-          auto={auto}
           onOpen={onOpen}
           onPlace={(id, x, y) => void cardsApi.place(id, x, y)}
           full={full}

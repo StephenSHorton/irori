@@ -34,18 +34,33 @@
 }
 @keyframes irori-pulse {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in oklch, var(--pulse, var(--success)) 55%, transparent);
+    box-shadow: 0 0 0 0
+      color-mix(in oklch, var(--pulse, var(--success)) 55%, transparent);
   }
   70%,
   100% {
-    box-shadow: 0 0 0 10px color-mix(in oklch, var(--pulse, var(--success)) 0%, transparent);
+    box-shadow: 0 0 0 10px
+      color-mix(in oklch, var(--pulse, var(--success)) 0%, transparent);
   }
 }
 @keyframes irori-handoff {
   0% {
-    box-shadow: 0 0 0 3px var(--primary), 0 0 24px 4px color-mix(in oklch, var(--primary) 60%, transparent);
+    box-shadow:
+      0 0 0 3px var(--primary),
+      0 0 24px 4px color-mix(in oklch, var(--primary) 60%, transparent);
   }
   100% {
-    box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent;
+    box-shadow:
+      0 0 0 0 transparent,
+      0 0 0 0 transparent;
   }
+}
+
+/* Card #776: a card's "why it's here" shows while the pointer is on it,
+   above the cards around it. */
+.irori-flow .react-flow__node:hover {
+  z-index: 1000 !important;
+}
+.irori-flow .react-flow__node:hover .irori-why {
+  display: block;
 }
