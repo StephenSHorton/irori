@@ -1084,7 +1084,6 @@ function summary(c: CardDetail): CardSummary {
     queuePlace: c.queuePlace,
     usageLimit: c.usageLimit,
     waitPr: c.waitPr,
-    mergePr: c.mergePr,
     goneWait: c.goneWait,
     working: c.working,
     watching: c.watching,

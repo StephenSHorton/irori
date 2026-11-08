@@ -2472,6 +2472,11 @@ pub(crate) fn board_status(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     } else {
         trim(a.str("note"))
     };
+    // Card #970: a PR last heard open may have just been merged by the
+    // caller; GitHub is asked now, so completed isn't refused on old news.
+    if completing && co.pr_states(&id).iter().any(|p| p.state == coord::PR_OPEN) {
+        s.b.recheck_prs(&co, &c.sender.key, &id);
+    }
     let t = match co.set_task_state_with(
         &as_[0],
         &id,

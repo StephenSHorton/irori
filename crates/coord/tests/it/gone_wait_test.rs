@@ -145,19 +145,26 @@ fn a_question_and_a_card_wait_are_left_to_their_own_rows() {
     assert!(e.c.gone_waits(&t.id).is_empty());
 }
 
+/// Card #970: a gone agent's wait on a PR is a gone wait like any outside
+/// wait, open PR or merged (no merge row asks the person to merge it).
 #[test]
-fn a_wait_on_a_pr_shows_once_as_the_merge_until_the_pr_is_settled() {
+fn a_gone_agents_wait_on_a_pr_is_a_gone_wait() {
     let e = Env::new();
     let t = card(&e, ALICE);
     let b = wait(&e, &t.id, "Merge PR #41", BLOCKED_ON_EXTERNAL, PR);
     e.c.leave(ALICE, &t.id, ALICE).unwrap();
     e.ros.set(ALICE, "gone");
     assert_eq!(e.c.stranded(&t.id).len(), 1);
-    // #509's merge row covers it.
-    assert_eq!(e.c.merge_waits(&t.id), [PR]);
-    assert!(e.c.gone_waits(&t.id).is_empty());
+    let gone = || {
+        e.c.gone_waits(&t.id)
+            .iter()
+            .map(|s| s.blocker_id.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(gone(), [b.id.clone()]);
     assert!(lane(&e, USER, &t.id).0);
-    // Merged, the wait is still open and its agent gone: now it is ours.
+    // Still polled, so a merge is heard.
+    assert_eq!(e.c.polled_waits(&t.id), [PR]);
     e.c.record_pr_state(
         &t.id,
         PrCheck {
@@ -167,14 +174,8 @@ fn a_wait_on_a_pr_shows_once_as_the_merge_until_the_pr_is_settled() {
         },
     )
     .unwrap();
-    assert!(e.c.merge_waits(&t.id).is_empty());
-    assert_eq!(
-        e.c.gone_waits(&t.id)
-            .iter()
-            .map(|s| s.blocker_id.clone())
-            .collect::<Vec<_>>(),
-        [b.id]
-    );
+    assert!(e.c.polled_waits(&t.id).is_empty());
+    assert_eq!(gone(), [b.id]);
     assert!(lane(&e, USER, &t.id).0);
 }
 

@@ -73,17 +73,24 @@ impl Services {
         self.tell_pr_news();
     }
 
-    /// Polls every desk this device polls now, whatever its cadence, when
-    /// an agent on any device ran `gh pr merge` since the last look.
-    pub(super) fn desk_merge_heard(self: &Arc<Self>) {
-        if self.desk_lister.is_none() {
-            return;
-        }
+    /// When an agent on any device ran `gh pr merge` since the last look:
+    /// asks GitHub about the open PRs this device's agents' cards link now
+    /// (card #970: an agent that merged its PR completes its card without
+    /// waiting on the next poll), and polls every desk this device polls,
+    /// whatever its cadence. Every device looks, merge desk or not.
+    pub(super) fn merge_heard(self: &Arc<Self>) {
         let cmds = self.capture.commit_cmds();
         if !self
             .desk_merges
             .news(cmds.iter().map(|c| (c.command.as_str(), c.at)))
         {
+            return;
+        }
+        if self.pr_checker.is_some() {
+            self.pr_watch.rush();
+            self.check_prs(std::time::Instant::now());
+        }
+        if self.desk_lister.is_none() {
             return;
         }
         for d in self.polled_desks() {

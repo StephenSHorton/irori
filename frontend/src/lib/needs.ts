@@ -22,7 +22,6 @@ import {
   type CardRef,
   type CardSummary,
   type GoneWait,
-  type WaitPr,
 } from "./cards"
 import { parseTime, plainLine } from "./irori"
 import { HoldReason, State, type Delivery } from "./talk"
@@ -151,8 +150,6 @@ function row(c: CardSummary, now: number): Row {
       : { state: "working", line }
   }
   if (c.paused) return { state: "waiting", line: "Paused" }
-  // Card #509: an agent's wait on a PR's merge is the person's merge.
-  if (c.mergePr) return { state: "needs", line: mergeLine(c.mergePr) }
   // Card #520: a wait no agent will end, on a card nobody holds.
   if (c.goneWait) return { state: "needs", line: goneLine(c.goneWait) }
   // Card #471: a card on a PR waits on the PR (agents merge it, another
@@ -315,11 +312,6 @@ export function prChip(
   }
 }
 
-// mergeLine is a merge wait's line (card #509): "Merge PR #41".
-export function mergeLine(pr: WaitPr): string {
-  return `Merge PR #${pr.number}`
-}
-
 // goneLine is a gone wait's line (card #520): "Waits on kestrel (gone)",
 // or for an outside wait its gone agent raised, "Waits on CI on the
 // release; piranha (gone) raised it".
@@ -398,8 +390,6 @@ export function stuckLine(end: CardRef, cards: CardSummary[]): string {
 
 export type Need =
   | { kind: "check" | "decision"; id: string; at: number; card: CardSummary }
-  // Card #509: an agent waits on the person to merge a PR.
-  | { kind: "merge"; id: string; at: number; card: CardSummary; pr: WaitPr }
   // Card #520: a wait no agent will end, on a card nobody holds.
   | { kind: "gone"; id: string; at: number; card: CardSummary; wait: GoneWait }
   // Card #541: no computer can start its agent, and nothing to decide.
@@ -489,17 +479,7 @@ export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
     })
   }
   for (const c of cards) {
-    if (!c.mergePr || over(c) || needsYou(c)) continue
-    out.push({
-      kind: "merge",
-      id: c.id,
-      at: time(c.updatedAt),
-      card: c,
-      pr: c.mergePr,
-    })
-  }
-  for (const c of cards) {
-    if (!c.goneWait || c.mergePr || over(c) || needsYou(c)) continue
+    if (!c.goneWait || over(c) || needsYou(c)) continue
     out.push({
       kind: "gone",
       id: c.id,

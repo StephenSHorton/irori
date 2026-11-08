@@ -275,6 +275,11 @@ pub trait Backend: Send + Sync {
     fn spawn_wait(&self, _task_id: &str, _asked: bool) -> String {
         String::new()
     }
+    /// Asks GitHub now about each PR card `task_id` (in `co`) links that is
+    /// last heard open, and records a merge or a closing (card #970):
+    /// agent `caller` is setting it completed, likely just after its own
+    /// `gh pr merge`, which the poll may not have heard yet. Default: none.
+    fn recheck_prs(&self, _co: &Arc<coord::Coord>, _caller: &str, _task_id: &str) {}
     /// Asks for an agent on card `task_id` for agent `caller` (card #575):
     /// what happens next, or why not.
     fn agent_start(&self, _caller: &str, _task_id: &str) -> Result<String, String> {

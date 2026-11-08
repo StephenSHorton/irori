@@ -2037,19 +2037,10 @@ impl Coord {
         self.lock().pr_states.get(id)?.get(pr).cloned()
     }
 
-    /// The PRs card `id`'s open external waits ask this person to merge,
-    /// not yet known merged or closed (card #509); on a shared board only
-    /// their own agents' waits.
-    pub fn merge_waits(&self, id: &str) -> Vec<String> {
-        let f = self.lock();
-        f.tasks
-            .get(id)
-            .map(|t| f.merge_waits(t))
-            .unwrap_or_default()
-    }
-
-    /// The PRs of [`Coord::merge_waits`] the poller still asks about, a
-    /// closed one too (card #548).
+    /// The PRs card `id`'s open external waits are on that the poller
+    /// still asks about, whoever holds it: not known merged, a closed one
+    /// too (cards #509, #548). On a shared board only this person's own
+    /// agents' waits.
     pub fn polled_waits(&self, id: &str) -> Vec<String> {
         let f = self.lock();
         f.tasks
