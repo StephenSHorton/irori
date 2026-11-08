@@ -82,15 +82,17 @@ export function AgentsPane({ open }: { open: boolean }) {
         {s ? (
           <div className="grid gap-5">
             <WhenSection open={open} settings={s} set={set} />
-            <div className="grid gap-2">
-              <WeightsSection settings={s} set={set} />
-              <WeighsSwitch />
-            </div>
+            <WeightsSection settings={s} set={set} />
           </div>
         ) : (
           <AgentsShape />
         )}
       </Loading>
+      {/* Reads on its own, so it stays when the read above fails. The gap
+          pulls it up under the table it picks rows of. */}
+      <div className="-mt-3">
+        <WeighsSwitch />
+      </div>
       <HistorySection open={open} />
       <PermissionsSection open={open} />
       <TrustedSection open={open} />
@@ -175,21 +177,20 @@ function WhenSection({
             </ul>
           </li>
         )}
-        <li
-          data-setting="agents.given"
-          className="flex items-start justify-between gap-3 px-3 py-2"
-        >
-          <span className="flex min-w-0 flex-col">
-            <span className="text-ink">Cards someone gives you</span>
-            <span className="text-xs text-muted-foreground">
-              When someone in a shared space gives or assigns you a card, Irori
-              asks &ldquo;OK to start an agent on this?&rdquo; in Needs you.
-              Nothing starts without your yes, whatever the switches above say.
-            </span>
+        <li data-setting="agents.given" className="grid gap-0.5 px-3 py-2">
+          {/* The badge sits on the title's line so the description gets the
+              row's full width (at 390px it was squeezed beside the badge). */}
+          <span className="flex items-start justify-between gap-3">
+            <span className="min-w-0 text-ink">Cards someone gives you</span>
+            <Badge variant="info" className="mt-0.5 shrink-0">
+              Always asks
+            </Badge>
           </span>
-          <Badge variant="info" className="mt-0.5 shrink-0">
-            Always asks
-          </Badge>
+          <span className="text-xs text-muted-foreground">
+            When someone in a shared space gives or assigns you a card, Irori
+            asks &ldquo;OK to start an agent on this?&rdquo; in Needs you.
+            Nothing starts without your yes, whatever the switches above say.
+          </span>
         </li>
       </ul>
       <p className="text-xs text-muted-foreground">

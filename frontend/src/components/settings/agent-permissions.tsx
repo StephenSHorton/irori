@@ -175,8 +175,8 @@ export function PermissionsSection({
               Pushing to main
             </h4>
             <p className="text-[12.5px] text-muted-foreground">
-              Applies unless Permissions is Anything without asking, which sets
-              no limits.
+              Under Anything without asking it applies only when a card quotes
+              someone else; otherwise that choice sets no limits.
             </p>
             <ul className="grid gap-1.5">
               {[...keys].map((k) => (
@@ -218,16 +218,22 @@ function PermissionsShape() {
   return (
     <section className="grid gap-2">
       <h3 className="text-sm font-medium text-ink">What a new agent may do</h3>
+      <p className="text-[12.5px] text-muted-foreground">
+        For your Personal cards, on this computer; each computer has its own.
+      </p>
       <span className="text-sm font-medium text-ink">Permissions</span>
       <span skullet-block="" className="block h-7 w-[220px] rounded-lg" />
       <p className="text-[12.5px] text-muted-foreground">
-        In a shared space, or when a card quotes someone else, an agent never
-        runs without asking: it gets the checks, git and Irori rules instead.
+        In a shared space, or when a card quotes someone else, Anything without
+        asking isn&apos;t used: the agent gets the git and Irori rules instead.
+        Force pushes and <code>rm -rf</code> are never allowed.
       </p>
       <div className="grid gap-1.5">
-        <h4 className="text-[12.5px] font-medium text-ink">
-          When its work is done
-        </h4>
+        <h4 className="text-[12.5px] font-medium text-ink">Pushing to main</h4>
+        <p className="text-[12.5px] text-muted-foreground">
+          Under Anything without asking it applies only when a card quotes
+          someone else; otherwise that choice sets no limits.
+        </p>
         <div className="flex min-w-0 items-center justify-between gap-3">
           <span className="font-mono text-[12.5px]">sample-org/irori</span>
           <span

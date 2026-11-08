@@ -24,6 +24,11 @@ describe("Ask Irori's go lines (card #784)", () => {
       kind: "setting",
       key: "stop-here",
     })
+    // A saved chat's line for a spot that moved lands where it went.
+    expect(parseGo("setting app.weighs")).toEqual({
+      kind: "setting",
+      key: "agents.weighs",
+    })
     expect(parseGo("setting agents.model")).toEqual({
       kind: "setting",
       key: "agents.model",

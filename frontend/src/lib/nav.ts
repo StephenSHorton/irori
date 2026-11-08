@@ -105,18 +105,34 @@ export function sectionHash(s: Section): string {
 }
 
 // go moves the window to section s as a new history entry; App follows
-// it through popstate, the same as the browser's back and forward.
-export function go(s: Section): void {
+// it through popstate, the same as the browser's back and forward. mark
+// rides along in the entry's state, for a Back that wants to know how the
+// window got there (Settings' list, settingsBack).
+export function go(s: Section, mark?: { fromList?: boolean }): void {
   const url = window.location.pathname + window.location.search + sectionHash(s)
-  window.history.pushState({ section: s }, "", url)
-  window.dispatchEvent(new PopStateEvent("popstate", { state: { section: s } }))
+  const state = { section: s, ...mark }
+  window.history.pushState(state, "", url)
+  window.dispatchEvent(new PopStateEvent("popstate", { state }))
 }
 
 // openSettings goes to Settings, at one section if named. Going where the
-// window already is adds no history entry.
+// window already is adds no history entry, and with no section named,
+// already being on Settings is enough: the gear or Cmd+, keeps the section
+// shown, as the old dialog did (card #1007).
 export function openSettings(tab: SettingsSection | "" = ""): void {
   const s: Section = { kind: "settings", tab }
+  if (!tab && sectionFromHash(window.location.hash).kind === "settings") return
   if (window.location.hash !== sectionHash(s)) go(s)
+}
+
+// settingsBack is a Settings section's own Back where the list stands
+// alone (a phone, a small window): the browser's back when the list opened
+// it, so system Back doesn't return to the section just left, else the
+// list in place of the section (a deep link, the assistant).
+export function settingsBack(): void {
+  const st = window.history.state as { fromList?: boolean } | null
+  if (st?.fromList) window.history.back()
+  else replace({ kind: "settings", tab: "" })
 }
 
 // replace moves the window to section s in place of where it is: no

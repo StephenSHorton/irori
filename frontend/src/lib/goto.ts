@@ -129,8 +129,14 @@ export const settingSpots: SettingSpot[] = [
   { key: "app.updates", section: "app", label: "Updates" },
 ]
 
+// Spots that moved, by their old key, so a saved chat's go line still
+// lands: Weigh new cards moved from App to Agents (card #1007). Kept out
+// of settingSpots, so the assistant's prompt list doesn't name them.
+const movedSpots: Record<string, string> = { "app.weighs": "agents.weighs" }
+
 export function settingSpot(key: string): SettingSpot | undefined {
-  return settingSpots.find((s) => s.key === key)
+  const k = movedSpots[key] ?? key
+  return settingSpots.find((s) => s.key === k)
 }
 
 // parseGo reads a go line's body ("card #779"), or null when it names
@@ -150,10 +156,10 @@ export function parseGo(body: string): GoTarget | null {
       const r = /^([a-z0-9_-]*)#(\d+)$/i.exec(arg)
       return r ? { kind: "card", ref: `${r[1].toLowerCase()}#${r[2]}` } : null
     }
-    case "setting":
-      return settingSpot(arg.toLowerCase())
-        ? { kind: "setting", key: arg.toLowerCase() }
-        : null
+    case "setting": {
+      const spot = settingSpot(arg.toLowerCase())
+      return spot ? { kind: "setting", key: spot.key } : null
+    }
     case "pr": {
       const u =
         /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)\/?$/i.exec(arg)

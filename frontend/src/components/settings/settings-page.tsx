@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { useReducedMotion } from "@/lib/motion"
 import {
   ArrowLeftIcon,
@@ -24,7 +24,7 @@ import { Slider } from "@/components/ui/slider"
 import { useBoards, useInvite } from "@/lib/boards"
 import { plainLine } from "@/lib/irori"
 import { useMedia } from "@/lib/media"
-import { go, openSettings, type SettingsSection } from "@/lib/nav"
+import { go, openSettings, settingsBack, type SettingsSection } from "@/lib/nav"
 import { corners, useSettings } from "@/lib/settings"
 import { UpdateStatusLine, useKeepUpToDate } from "@/updater"
 import { VoiceNote } from "@/components/settings/voice-note"
@@ -103,10 +103,27 @@ const cornerChoices = corners.map((c) => ({ value: c.id, label: c.label }))
 // reads its settings when it's opened.
 export function SettingsPage({ tab }: { tab: SettingsSection | "" }) {
   const compact = useMedia(compactQuery)
+  // Where the list stands alone, opening a section or going back swaps
+  // the whole page, so the focused button goes with it: focus the
+  // section's heading, or on the way back the row of the section left.
+  const heading = useRef<HTMLHeadingElement>(null)
+  const list = useRef<HTMLUListElement>(null)
+  const was = useRef(tab)
+  useEffect(() => {
+    const left = was.current
+    was.current = tab
+    if (!compact || left === tab) return
+    if (tab) heading.current?.focus()
+    else
+      list.current
+        ?.querySelector<HTMLButtonElement>(`[data-section="${left}"]`)
+        ?.focus()
+  }, [tab, compact])
   if (compact && !tab)
     return (
       <div className="grid min-h-0 flex-1 content-start overflow-y-auto pb-20 mac:overscroll-none">
         <ul
+          ref={list}
           className="overflow-hidden p-0! glass-panel"
           aria-label="Settings sections"
         >
@@ -116,8 +133,11 @@ export function SettingsPage({ tab }: { tab: SettingsSection | "" }) {
               <li key={s.id} className="border-b border-border last:border-b-0">
                 <button
                   type="button"
-                  onClick={() => go({ kind: "settings", tab: s.id })}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-secondary/50"
+                  data-section={s.id}
+                  onClick={() =>
+                    go({ kind: "settings", tab: s.id }, { fromList: true })
+                  }
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left outline-none hover:bg-secondary/50 focus-visible:bg-secondary/50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
                 >
                   <Icon
                     className="size-4 shrink-0 text-muted-foreground"
@@ -144,7 +164,7 @@ export function SettingsPage({ tab }: { tab: SettingsSection | "" }) {
       {!compact && (
         <nav
           aria-label="Settings sections"
-          className="grid w-[220px] shrink-0 content-start gap-0.5 overflow-y-auto pb-6"
+          className="-mx-1 grid w-[228px] shrink-0 content-start gap-0.5 overflow-y-auto px-1 pt-px pb-6"
         >
           {settingsSections.map((s) => {
             const Icon = s.icon
@@ -175,7 +195,8 @@ export function SettingsPage({ tab }: { tab: SettingsSection | "" }) {
             <Button
               size="xs"
               variant="ghost"
-              onClick={() => go({ kind: "settings", tab: "" })}
+              aria-label="Back to Settings sections"
+              onClick={settingsBack}
             >
               <ArrowLeftIcon className="size-3.5" aria-hidden />
               Settings
@@ -184,7 +205,13 @@ export function SettingsPage({ tab }: { tab: SettingsSection | "" }) {
         )}
         <section className="grid max-w-3xl min-w-0 grid-cols-[minmax(0,1fr)] gap-3 p-4 glass-panel sm:p-5">
           <div className="grid gap-0.5">
-            <h2 className="text-base font-semibold text-ink">{here.label}</h2>
+            <h2
+              ref={heading}
+              tabIndex={-1}
+              className="text-base font-semibold text-ink outline-none"
+            >
+              {here.label}
+            </h2>
             <p className="text-[13px] text-muted-foreground">{here.hint}</p>
           </div>
           {here.id === "notifications" && <NotificationsPane />}
@@ -402,23 +429,21 @@ function AppPane() {
       <section className="grid gap-3" aria-label="This device">
         <h3 className="text-sm font-medium text-ink">This device</h3>
         {/* Until it's read, a skeleton rather than a switch shown off (card
-            #598). A device that can't start at login (a phone) doesn't
-            offer it, as Keep up to date below doesn't. */}
-        {(launchUnknown || s.launchAtLogin !== null) && (
-          <Loading loading={launchUnknown} label="Loading Launch at login">
-            {launchUnknown ? (
-              <ToggleShape label="Launch at login" hint={launchHint} />
-            ) : (
-              <Toggle
-                spot="app.login"
-                label="Launch at login"
-                hint={launchHint}
-                checked={Boolean(s.launchAtLogin)}
-                onChange={(v) => void s.setLaunchAtLogin(v)}
-              />
-            )}
-          </Loading>
-        )}
+            #598); a failed read leaves the switch off and disabled. */}
+        <Loading loading={launchUnknown} label="Loading Launch at login">
+          {launchUnknown ? (
+            <ToggleShape label="Launch at login" hint={launchHint} />
+          ) : (
+            <Toggle
+              spot="app.login"
+              label="Launch at login"
+              hint={launchHint}
+              checked={Boolean(s.launchAtLogin)}
+              disabled={s.launchAtLogin === null}
+              onChange={(v) => void s.setLaunchAtLogin(v)}
+            />
+          )}
+        </Loading>
         <div className="grid gap-1" data-setting="app.updates">
           <span className="text-ink">Updates</span>
           <UpdateStatusLine />
