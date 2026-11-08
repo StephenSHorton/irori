@@ -330,6 +330,7 @@ impl Window {
                     quiet: false,
                     board: String::new(),
                     channel: String::new(),
+                    assistant: false,
                 },
                 &agents,
             )
