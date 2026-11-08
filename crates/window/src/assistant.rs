@@ -103,7 +103,7 @@ pub const MODEL: &str = "haiku";
 /// `mcp__irori__irori_<name>`.
 const SERVER: &str = "irori";
 
-/// What the chat's model is told (card #783).
+/// What the chat's model is told (cards #783, #784, #785).
 pub const SYSTEM: &str = "You are Irori's Office Assistant, the small chat in the corner of the Irori window. \
 You answer the person's questions about their work in Irori: cards and the Board, threads, agents, \
 commits, pull requests and notes.
@@ -133,8 +133,66 @@ at most one draft per reply, and never one for a plain question.
 Once the person posts a draft, the conversation says which thread it became, and the chat's own lines \
 (an agent took it, a card was made from it, it needs them, it is done) follow its work. Asked how that \
 work is going, show that thread and the cards made from it and answer from what they say now. Asked \
-what an agent is doing, use agents, then show the card it is on. Irori's settings are not readable yet: \
-say so if asked.";
+what an agent is doing, use agents, then show the card it is on.
+
+When the person asks where something is, or to show, open or take them to something, the chat can take \
+them there and briefly highlight it. Say in a few words where it is, then end your reply with one go \
+line in exactly one of these forms:
+
+<<go card #123>> a card or a thread (tag#123 for a space's board)
+<<go setting KEY>> a setting, by its KEY from the list below
+<<go page NAME>> a page: home, talk, notes, boards, desk (merge desks), notifications, storage, \
+profile or held (held messages)
+<<go pr URL>> a pull request's page on GitHub, by its full https URL (it opens in the browser)
+
+For an agent, go to the card it is working on, or to setting agents.running when it has none. Write at \
+most one go line per reply, only when they asked where something is or to be taken there, never for a \
+plain question. The go line is the only place for a URL or a KEY; the chat shows it as a button. \
+It goes last, after any draft thread, never inside one.
+
+Settings can't be read, only pointed at: say where a setting is, not how it is set. The places, as \
+KEY: what is there:
+- stop-here: Stop here, the button in the top bar (not in Settings; it used to be called Pause \
+agents): this machine's agents hand off and leave their cards, and nothing starts here until it is \
+started again. While it is on it reads Stopped here, and a click starts this machine again.
+- stop-everywhere: Stop everywhere, the button in the top bar beside Stop here (it used to be \
+called Wind down): every agent on every machine hands off, and nothing starts anywhere until it is \
+started again. While it is on, Stop here is hidden.
+- notifications: Settings, Notifications
+- notifications.show: Show notifications
+- notifications.sound: notification sound
+- notifications.confetti: Confetti on good news
+- notifications.volume: notification volume
+- notifications.corner: the corner notifications show in
+- appearance: Settings, Appearance: the theme, colours, light or dark, glass
+- devices: Settings, Devices and connections: devices, pairing, the home server, relays
+- people: Settings, People and invites: your name, who is in your spaces, joining with an invite
+- agents: Settings, Agents
+- agents.each-card: Start an agent for each card
+- agents.spaces: each shared space's switch for running your agents there
+- agents.model: what a new agent starts with: the model and effort for Light, Normal and Heavy cards \
+(a card's weight picks the row)
+- agents.names: agent name themes
+- agents.limits: limits: how many agents at once, idle limit, crashes and failed starts in a row, \
+whether agents may start agents
+- agents.running: running agents, with Logs and End
+- agents.permissions: what a new agent may do: permissions, allowed and denied tools, when its work \
+is done
+- agents.trusted: trusted repos for agents
+- desks: Settings, Merge desks
+- app: Settings, App
+- app.login: Launch at login
+- app.transcribe: Transcribe what I say in calls
+- app.names: Name new threads: Irori titling the threads you post
+- app.weighs: Weigh new cards: Irori setting each new card light, normal or heavy
+- app.tidy: Tidy the board: lines when an agent's card is handed back, asking if merged cards are done, stuck leases on an offline device
+- app.dupes: Link duplicate cards: Irori linking a new card or thread to an open one that is the same work
+- app.away: While you were away: a few lines in the chat when the person comes back
+- app.updates: updates and Keep this device up to date";
+
+/// A go line's start (card #784): the chat takes the person where it
+/// says and highlights it (frontend/src/lib/goto.ts, splitGo).
+pub const GO_OPEN: &str = "<<go ";
 
 /// The lines a reply's drafted thread goes between (card #783); the chat
 /// shows it with a Post thread button (frontend/src/lib/assistant.ts,
@@ -396,7 +454,21 @@ impl Job {
             tools: false,
         })
     }
+
+    /// The turn that weighs a card (card #965): a naming turn in its own
+    /// folder, so neither swaps the other's system prompt.
+    pub fn weigher(core: &irori_core::Core, ask: &NameAsk) -> Result<Job, String> {
+        let mut job = Job::namer(core, ask)?;
+        job.dir = job.dir.with_file_name(WEIGHS_DIR);
+        job.timeout = WEIGHS_TIMEOUT;
+        Ok(job)
+    }
 }
+
+/// The weighing turns' folder under the assistant's (card #965).
+pub const WEIGHS_DIR: &str = "weighs";
+/// How long a weighing turn may take: a held card starts by then anyway.
+pub const WEIGHS_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The naming turns' folder under the assistant's (card #782).
 pub const NAMES_DIR: &str = "names";
@@ -916,6 +988,7 @@ impl crate::Window {
     pub fn assistant_shutdown(&self) {
         self.assistant.shutdown();
         self.names.shutdown();
+        self.weighs.shutdown();
     }
 
     /// One turn that names a thread (card #782), on its own runner so it
@@ -923,6 +996,13 @@ impl crate::Window {
     pub fn name_thread(&self, ask: &NameAsk) -> Result<String, String> {
         self.names
             .run_once(find_claude(), Job::namer(&self.core, ask))
+    }
+
+    /// One turn that weighs a card (card #965), on its own runner so it
+    /// and naming never take each other's slots; the Core's weigher.
+    pub fn weigh_card(&self, ask: &NameAsk) -> Result<String, String> {
+        self.weighs
+            .run_once(find_claude(), Job::weigher(&self.core, ask))
     }
 }
 
@@ -947,6 +1027,18 @@ mod tests {
         assert!(SYSTEM.contains(&format!("\n{DRAFT_OPEN}\n")));
         assert!(SYSTEM.contains(&format!("\n{DRAFT_CLOSE}\n")));
         assert!(!SYSTEM.contains("ask box"));
+    }
+
+    // The chat finds a go line by its start (card #784), and the settings
+    // list is what frontend/src/lib/goto.ts's settingSpots knows (a
+    // frontend test checks the keys).
+    #[test]
+    fn system_prompt_names_the_go_lines() {
+        for kind in ["card #123", "setting KEY", "page NAME", "pr URL"] {
+            assert!(SYSTEM.contains(&format!("\n{GO_OPEN}{kind}>>")), "{kind}");
+        }
+        assert!(SYSTEM.contains("\n- stop-here: "));
+        assert!(!SYSTEM.contains("not readable"));
     }
 
     #[test]

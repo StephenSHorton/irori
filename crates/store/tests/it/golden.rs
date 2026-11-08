@@ -124,7 +124,7 @@ const SINCE_GO: [&str; 29] = [
 /// history, card #377; spawned agents, card #446; the sides a device
 /// runs, card #494; spawning across the person's devices, card #455; a
 /// hidden DM space's marker, card #538; the names themes, card #702).
-const SINCE_GO_REFUSED: [&str; 32] = [
+const SINCE_GO_REFUSED: [&str; 33] = [
     kinds::AGENT_OFFER,
     kinds::SPAWN_HOST,
     kinds::SPAWN_END_REQUESTED,
@@ -162,6 +162,8 @@ const SINCE_GO_REFUSED: [&str; 32] = [
     kinds::ASSISTANT_DUPES_SET,
     kinds::ASSISTANT_AWAY_SET,
     kinds::ASSISTANT_DID,
+    // "Weigh new cards" (card #965).
+    kinds::ASSISTANT_WEIGHS_SET,
 ];
 
 /// Device-local kinds added after the Go port: the last hello this device

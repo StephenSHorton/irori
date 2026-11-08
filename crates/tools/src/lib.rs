@@ -415,7 +415,7 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 59] = [
+    let list: [(&'static str, Handler); 60] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -440,6 +440,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("board_unblock", board::board_unblock),
         ("board_join", board::board_join),
         ("board_leave", board::board_leave),
+        ("board_move", board::board_move),
         ("board_assign", board::board_assign),
         ("board_status", board::board_status),
         ("board_link", board::board_link),

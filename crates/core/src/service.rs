@@ -65,6 +65,7 @@ mod bridge;
 pub mod call_settings;
 pub(crate) mod calls;
 pub(crate) mod calls_share;
+pub mod card_weights;
 mod deskmerge;
 mod dm_spaces;
 pub mod dupes;
@@ -355,6 +356,8 @@ struct Services {
     /// Irori linking duplicate cards (card #786).
     awaying: away::Awaying,
     duping: dupes::Duping,
+    /// Irori's assistant weighing new cards (card #965).
+    weighing: card_weights::Weighing,
     /// The themes new agents' names come from (card #702), shared with
     /// `names`.
     name_themes: Arc<name_themes::NameThemes>,
@@ -1244,6 +1247,7 @@ impl Core {
         let tidying = tidy::Tidying::load(&st);
         let awaying = away::Awaying::load(&st);
         let duping = dupes::Duping::load(&st);
+        let weighing = card_weights::Weighing::load(&st);
         let co = Arc::new(
             Coord::new(
                 st.clone(),
@@ -1602,6 +1606,7 @@ impl Core {
             tidying,
             awaying,
             duping,
+            weighing,
             name_themes,
             invites,
         });
@@ -2027,6 +2032,7 @@ impl Core {
                         s.follow_tidy_on();
                         s.follow_dupes_on();
                         s.follow_away_on();
+                        s.follow_weighs_on();
                     } else if ev.kind == kinds::ASSISTANT_NAMES_SET {
                         // Another device's "Name new threads" (card #782).
                         s.follow_names_on();
@@ -2039,6 +2045,9 @@ impl Core {
                     } else if ev.kind == kinds::ASSISTANT_AWAY_SET {
                         // Another device's "While you were away" (card #786).
                         s.follow_away_on();
+                    } else if ev.kind == kinds::ASSISTANT_WEIGHS_SET {
+                        // Another device's "Weigh new cards" (card #965).
+                        s.follow_weighs_on();
                     } else if ev.kind == kinds::TRANSCRIBE_SET {
                         // Another device's switch (card #656).
                         s.follow_call_settings();
@@ -2345,6 +2354,24 @@ impl Core {
             });
             let s3 = s.clone();
             self.spawn("assistant-names-run", move || s3.names_loop(rx));
+        }
+        {
+            // Irori's assistant weighs new cards (card #965), as above.
+            let q = s.coord.subscribe();
+            let reg = self.on_stop(&q, |q| q.close());
+            s.weighs_seen_all();
+            let (tx, rx) = std::sync::mpsc::channel();
+            s.weighs_queue(Some(tx));
+            let s2 = s.clone();
+            self.spawn("assistant-weighs", move || {
+                let _reg = reg;
+                while let Some(ch) = q.recv() {
+                    s2.weighs_hear(&ch);
+                }
+                s2.weighs_queue(None);
+            });
+            let s3 = s.clone();
+            self.spawn("assistant-weighs-run", move || s3.weighs_loop(rx));
         }
         {
             let sub = Arc::new(s.capture.subscribe());
@@ -2773,6 +2800,21 @@ impl Core {
     /// headless Core, or the phone, has none and names nothing.
     pub fn set_namer(&self, n: Option<thread_names::Namer>) {
         self.s.set_namer(n);
+    }
+
+    /// Installs the turn that weighs a new card (card #965).
+    pub fn set_weigher(&self, n: Option<thread_names::Namer>) {
+        self.s.set_weigher(n);
+    }
+
+    /// "Weigh new cards" (card #965): on unless the person turned it off.
+    pub fn weighs_on(&self) -> bool {
+        self.s.weighs_on()
+    }
+
+    /// The person turns "Weigh new cards" on or off, from the app only.
+    pub fn set_weighs_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_weighs_on(on)
     }
 
     /// "Name new threads" (card #782): on unless the person turned it off.

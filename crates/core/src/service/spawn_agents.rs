@@ -373,6 +373,7 @@ impl Services {
             Some(
                 Why::NoShow { .. }
                 | Why::NextPass
+                | Why::Weighing
                 | Why::AtCap { .. }
                 | Why::Elsewhere { .. }
                 | Why::NoDevice { .. }

@@ -273,6 +273,8 @@ export const BoardService = {
   LeaseNotices: () => call(commands.boardLeaseNotices()),
   ReleaseLease: (did: string) => done(commands.boardReleaseLease(did)),
   UndoLeaseNotice: (did: string) => done(commands.boardUndoLeaseNotice(did)),
+  // Undo on Irori's weighing of a card (card #965).
+  UndoWeight: (id: string) => call(commands.boardUndoWeight(id)),
   Pin: (id: string, pinned: boolean) => done(commands.boardPin(id, pinned)),
   // A card's weight (card #963): light, normal or heavy, or "" to clear.
   SetWeight: (id: string, level: string, reason: string) =>
@@ -406,6 +408,8 @@ export const StorageService = {
 export const AgentsService = {
   Settings: (boardId: string) => call(commands.agentsSettings(boardId)),
   Set: (change: B.AgentsChange) => call(commands.agentsSet(change)),
+  // How cards ended, by weight, model and effort (card #966).
+  History: () => call(commands.agentsHistory()),
   Starts: () => call(commands.agentsStarts()),
   SetStarts: (on: boolean, max: number) =>
     call(commands.agentsStartsSet(on, max)),
@@ -717,4 +721,7 @@ export const AssistantService = {
   AwaySet: (on: boolean) => done(commands.assistantAwaySet(on)),
   AwayTake: () => call(commands.assistantAwayTake()),
   AwayInput: () => call(commands.assistantAwayInput()),
+  // "Weigh new cards" (card #965): on unless the person turned it off.
+  Weighs: () => call(commands.assistantWeighs()),
+  WeighsSet: (on: boolean) => done(commands.assistantWeighsSet(on)),
 }

@@ -123,6 +123,11 @@ impl Setup {
 
 /// A card on the private board with spawning on and its first agent bound.
 fn bound() -> Setup {
+    bound_weighed("")
+}
+
+/// [`bound`] for a card the person weighed `level` first.
+fn bound_weighed(level: &str) -> Setup {
     let skew = Arc::new(AtomicI64::new(0));
     let r = rig(&skew);
     let work = tempfile::tempdir().unwrap();
@@ -140,6 +145,9 @@ fn bound() -> Setup {
             },
         )
         .unwrap();
+    if !level.is_empty() {
+        co.set_weight(&person, &t.id, level, "").unwrap();
+    }
     co.set_where(
         &t.id,
         Where {
@@ -222,7 +230,12 @@ fn the_agent_stays_through_the_grace_then_ends() {
 
 #[test]
 fn a_quick_not_done_reaches_the_same_agent() {
-    let s = at_done_check();
+    // Already heavy: nothing to move up to, so the session stays (#966).
+    let s = bound_weighed("heavy");
+    s.r.core
+        .coord()
+        .set_task_state(&s.first(), &s.t.id, "completed", "done: saving works")
+        .unwrap();
     not_done(&s, "the save still 500s");
     past_grace(&s);
     std::thread::sleep(Duration::from_millis(1500));
@@ -986,4 +999,148 @@ fn an_agent_cant_lift_stop_everywhere() {
     assert!(!s.r.core.agents_paused_on(&me));
     let said = tool_as_a(&s, "agents_pause", serde_json::json!({}));
     assert!(said.contains("Pause agents is off"), "{said}");
+}
+
+/// The model each started agent got, in order.
+fn models(s: &Setup) -> Vec<(String, String)> {
+    s.fake
+        .started
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|r| (r.model.clone(), r.effort.clone()))
+        .collect()
+}
+
+fn sonnet_then_opus() -> Vec<(String, String)> {
+    vec![
+        ("sonnet".to_string(), "medium".to_string()),
+        ("opus".to_string(), "high".to_string()),
+    ]
+}
+
+/// Card #966: an agent moves its card up: left_off goes on the card, the
+/// agent is ended, and a fresh one starts one weight higher from it.
+#[test]
+fn an_agent_moves_its_card_up_and_the_next_carries_on_from_left_off() {
+    let s = bound();
+    let co = s.r.core.coord();
+    co.set_steps(
+        &s.first(),
+        &s.t.id,
+        vec![coord::Step {
+            text: "fix it".into(),
+            ..coord::Step::default()
+        }],
+    )
+    .unwrap();
+    let got = co
+        .move_weight(
+            &s.first(),
+            &s.t.id,
+            true,
+            "the cause is unknown",
+            "reproduced it; the lock is next",
+        )
+        .unwrap();
+    assert_eq!(got.weight.as_ref().unwrap().level, "heavy");
+    assert!(!got.holders.contains(&s.first()), "it left the card");
+    wait_for(60, "the first agent ended", || {
+        s.skew.fetch_add(30, Ordering::SeqCst);
+        s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+        ended(&s, 1)
+    });
+    wait_for(60, "a fresh agent", || {
+        s.fake.started.lock().unwrap().len() == 2
+    });
+    assert_eq!(models(&s), sonnet_then_opus());
+    let brief = std::fs::read_to_string(&s.fake.started.lock().unwrap()[1].brief_path).unwrap();
+    assert!(brief.contains("reproduced it; the lock is next"), "{brief}");
+    let t = co.get_task(&s.t.id).unwrap();
+    assert_eq!(t.spawn_request().unwrap().weight, "heavy");
+    assert_eq!(t.spawn_crashes, 0, "a move is no crash");
+}
+
+/// Card #966: the person's Not done ends the agent still waiting on it and
+/// starts the next attempt one step higher; the tally counts it.
+#[test]
+fn a_card_sent_back_restarts_one_step_higher() {
+    let s = at_done_check();
+    not_done(&s, "the save still 500s");
+    wait_for(60, "the agent ended for the higher weight", || ended(&s, 1));
+    wait_for(60, "the next attempt", || {
+        s.fake.started.lock().unwrap().len() == 2
+    });
+    assert_eq!(models(&s), sonnet_then_opus());
+    let co = s.r.core.coord();
+    let t = co.get_task(&s.t.id).unwrap();
+    assert_eq!(t.weight, None, "the weight itself is untouched");
+    assert_eq!(t.run_level(), "heavy");
+    let brief = std::fs::read_to_string(&s.fake.started.lock().unwrap()[1].brief_path).unwrap();
+    assert!(brief.contains("This attempt runs heavy"), "{brief}");
+    assert!(brief.contains("the save still 500s"), "{brief}");
+    let tally = co.run_tally();
+    assert_eq!(tally.len(), 1, "{tally:?}");
+    assert_eq!(
+        (
+            tally[0].weight.as_str(),
+            tally[0].model.as_str(),
+            tally[0].runs,
+            tally[0].sent_back,
+            tally[0].first_try
+        ),
+        ("normal", "sonnet", 1, 1, 0)
+    );
+}
+
+/// Card #966: the person's own weight stays theirs; the next attempt still
+/// starts higher than it.
+#[test]
+fn a_persons_weight_stays_while_the_attempt_steps_up() {
+    let s = bound_weighed("light");
+    let co = s.r.core.coord();
+    co.set_task_state(&s.first(), &s.t.id, "completed", "done")
+        .unwrap();
+    not_done(&s, "no");
+    wait_for(60, "the next attempt", || {
+        s.fake.started.lock().unwrap().len() == 2
+    });
+    let t = co.get_task(&s.t.id).unwrap();
+    let w = t.weight.as_ref().unwrap();
+    assert_eq!((w.level.as_str(), w.by_person()), ("light", true));
+    assert_eq!(t.run_level(), "normal");
+    assert_eq!(s.fake.started.lock().unwrap()[1].model, "sonnet");
+}
+
+/// Card #966: a crash starts the next agent one step higher.
+#[test]
+fn a_crash_starts_the_next_agent_one_step_higher() {
+    let s = bound();
+    std::fs::remove_file(s.r.claude.join("sessions").join("910001.json")).unwrap();
+    wait_for(60, "the next agent after the crash", || {
+        s.skew.fetch_add(30, Ordering::SeqCst);
+        s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+        s.fake.started.lock().unwrap().len() == 2
+    });
+    assert_eq!(models(&s), sonnet_then_opus());
+    let co = s.r.core.coord();
+    assert_eq!(co.get_task(&s.t.id).unwrap().spawn_crashes, 1);
+}
+
+/// Card #966: Done on the first try counts in the tally as that.
+#[test]
+fn done_on_the_first_try_is_tallied() {
+    let s = at_done_check();
+    let co = s.r.core.coord();
+    let b = check_of(co, &s.t.id);
+    // A Not done they take back with Done on the same check doesn't count.
+    not_done(&s, "wait");
+    co.say_done(&s.person, &s.t.id, &b, &[]).unwrap();
+    assert_eq!(co.get_task(&s.t.id).unwrap().run_level(), "normal");
+    let tally = co.run_tally();
+    assert_eq!(tally.len(), 1, "{tally:?}");
+    assert_eq!(
+        (tally[0].runs, tally[0].first_try, tally[0].sent_back),
+        (1, 1, 0)
+    );
 }

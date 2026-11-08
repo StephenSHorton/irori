@@ -412,6 +412,8 @@ pub struct Fold {
     pub(crate) paused: HashMap<String, (bool, RowPos)>,
     /// Each card's newest weight rows (card #963).
     pub(crate) weights: HashMap<String, super::weight::WeightSlots>,
+    /// Each card's attempts, by request generation (card #966).
+    pub(crate) runs: HashMap<String, HashMap<i64, super::runs::Run>>,
     /// A board's review requests by card, and its dedicated reviewers.
     pub(crate) reviews: BTreeMap<String, Vec<super::review::ReviewRequest>>,
     /// Agents whose device reads offline, for the presence notices (card
@@ -582,6 +584,7 @@ impl Fold {
             archived: HashMap::new(),
             paused: HashMap::new(),
             weights: HashMap::new(),
+            runs: HashMap::new(),
             reviews: BTreeMap::new(),
             away: HashMap::new(),
             reviewers: BTreeMap::new(),
@@ -957,6 +960,7 @@ impl Fold {
                     if self.spawned.get(&p.who).is_some_and(|m| m.task_id == t.id) {
                         if p.reason == LEFT_GONE {
                             t.spawn_crashes += 1;
+                            t.note_retry(RETRY_CRASH, &p.who, p.at.unix_nano());
                         } else {
                             t.spawn_crashes = 0;
                         }

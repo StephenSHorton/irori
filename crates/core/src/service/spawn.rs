@@ -485,10 +485,10 @@ impl SpawnSetting {
         }
     }
 
-    /// The model and effort card `t` starts with, by its weight.
+    /// The model and effort card `t`'s next attempt starts with: by its
+    /// weight, stepped up for its crashes and Not dones (card #966).
     pub fn pick_for(&self, t: &coord::Task) -> (String, String) {
-        let level = t.weight.as_ref().map(|w| w.level.as_str()).unwrap_or("");
-        let (m, e) = self.pick(level);
+        let (m, e) = self.pick(t.run_level());
         (m.to_string(), e.to_string())
     }
 
@@ -616,6 +616,17 @@ pub const MAX_CAP: i64 = 200;
 /// The cap a device starts with (§6): 6 on Windows, 12 elsewhere.
 pub fn default_cap() -> i64 {
     if cfg!(windows) { 6 } else { 12 }
+}
+
+/// Whether the Claude Code in `claude_dir` has the advisor on (card #966):
+/// its user settings name an `advisorModel`. Irori's own `--settings` file
+/// never sets it.
+pub(crate) fn advisor_in(claude_dir: &Path) -> bool {
+    std::fs::read(claude_dir.join("settings.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v["advisorModel"].as_str().map(|m| !m.trim().is_empty()))
+        .unwrap_or(false)
 }
 
 /// The brief a spawned agent reads first.
@@ -1325,12 +1336,21 @@ fn weight_words(b: &mut String, t: &Task, short: &str) {
             "{short} has no weight, so it runs as normal."
         )),
     }
+    let why = t.stepped_why();
+    if !why.is_empty() {
+        b.push_str(&format!(" This attempt runs {}, {why}.", t.run_level()));
+    }
     let mine = t.weight.as_ref().is_some_and(|w| w.by_person());
-    b.push_str(if mine {
-        " If its work turns out heavier or lighter than that, say so on the card in one line (board_comment); the person set its weight, so leave it to them."
+    if mine {
+        b.push_str(" If its work turns out heavier or lighter than that, say so on the card in one line (board_comment); the person set its weight, so leave it to them.");
     } else {
-        " If its work turns out heavier or lighter than that, say so on the card in one line (board_comment) and give it the weight it needs (board_edit weight), so its next agent starts on the right model."
-    });
+        if t.run_level() != coord::WEIGHT_HEAVY {
+            b.push_str(&format!(" If you find it heavier than that, or your advisor keeps sending you back on the same point, push your branch and move it up: board_move task_id={short} direction=up, with why and left_off. Irori ends you and starts a fresh agent one weight higher, from your Left off."));
+        }
+        if t.run_level() != coord::WEIGHT_LIGHT {
+            b.push_str(" If it turns out to be busy work, move it down the same way (board_move direction=down).");
+        }
+    }
     b.push(' ');
     b.push_str(SPLIT_WORK);
     b.push_str("\n\n");
@@ -1952,6 +1972,15 @@ impl Services {
             if self.limit_holds(&self.coord, &t).is_some() {
                 continue;
             }
+            // A new card waits, briefly, for Irori to weigh it (card #965),
+            // so its agent starts on the model its work needs.
+            if self.weigh_holds(&t) {
+                continue;
+            }
+            // The weight may have landed since this sweep's list was read,
+            // and the model comes from the card. After the hold's check:
+            // the weight is written before the hold lets go.
+            let t = self.coord.get_task(&t.id).unwrap_or(t);
             // Which of the person's devices starts it (card #455, decision
             // 7 (a)); None waits for the machine it needs or for the retry.
             let Some(dev) = self.spawn_device(&t) else {
@@ -2246,6 +2275,8 @@ impl Services {
             // By the card's weight (card #963); none is normal.
             model: setting.pick_for(t).0,
             effort: setting.pick_for(t).1,
+            weight: t.run_level().to_string(),
+            advisor: advisor_in(Path::new(&self.presence.claude_dir())),
             counted: self.start_counts(&self.coord, t),
             ..SpawnAsk::default()
         };
@@ -3142,6 +3173,11 @@ impl Services {
                 if let Some((_, t, k)) = self.spawn_card_of(&a.key)
                     && (coord::is_terminal(&t.state)
                         || !t.holders.contains(&k)
+                        || t.spawn_request().is_some_and(|s| {
+                            s.generation == m.generation
+                                && !s.key.is_empty()
+                                && t.sent_back_lifts(s)
+                        })
                         || t.blockers.iter().any(|b| {
                             b.open()
                                 && b.done_check
@@ -3196,6 +3232,15 @@ impl Services {
                 if lost || quiet {
                     self.begin_end(&a.key);
                 }
+                continue;
+            }
+            // The person's Not done lifted the card (card #966): the agent
+            // still here from its done check runs on the old weight, so it
+            // hands off and the next attempt starts one step higher.
+            if t.spawn_request().is_some_and(|s| {
+                s.generation == m.generation && !s.key.is_empty() && t.sent_back_lifts(s)
+            }) {
+                self.begin_end(&a.key);
                 continue;
             }
             let waiting = t.state == BLOCKED
@@ -3840,7 +3885,7 @@ mod tests {
             b.text
         );
         assert!(
-            b.text.contains("say so on the card in one line"),
+            b.text.contains("board_move task_id=#7 direction=up"),
             "{}",
             b.text
         );
@@ -3849,6 +3894,8 @@ mod tests {
 
         let mut t = card();
         t.weight = Some(coord::Weight {
+            was_level: String::new(),
+            was_reason: String::new(),
             level: "heavy".into(),
             reason: "plan the ``` split".into(),
             set_by: coord::SET_BY_AGENT.into(),
@@ -3863,12 +3910,7 @@ mod tests {
             "{}",
             b.text
         );
-        assert!(
-            b.text
-                .contains("give it the weight it needs (board_edit weight)"),
-            "{}",
-            b.text
-        );
+        assert!(b.text.contains("move it down the same way"), "{}", b.text);
         assert!(
             b.text.contains(
                 "Why it is weighed so (by agent:blake):\n```text\nplan the ''' split\n```"

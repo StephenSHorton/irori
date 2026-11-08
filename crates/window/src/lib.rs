@@ -188,6 +188,7 @@ pub struct Window {
     /// The turns that name the person's threads (card #782): their own
     /// runner, so they never take the chat's.
     names: assistant::Runner,
+    weighs: assistant::Runner,
 }
 
 impl Window {
@@ -210,6 +211,7 @@ impl Window {
             meters: meters::History::default(),
             assistant: assistant::Runner::new(),
             names: assistant::Runner::new(),
+            weighs: assistant::Runner::new(),
         }
     }
 

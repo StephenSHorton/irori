@@ -103,6 +103,8 @@ export const commands = {
 	boardRename: (id: string, title: string) => __TAURI_INVOKE<Task>("board_rename", { id, title }),
 	/**  The person undoes Irori's name for their thread (card #782). */
 	boardUndoTitle: (id: string) => __TAURI_INVOKE<Task>("board_undo_title", { id }),
+	/**  The person undoes Irori's weighing of a card (card #965). */
+	boardUndoWeight: (id: string) => __TAURI_INVOKE<Task>("board_undo_weight", { id }),
 	boardPin: (id: string, pinned: boolean) => __TAURI_INVOKE<null>("board_pin", { id, pinned }),
 	/**
 	 *  The person weighs a card (card #963): light, normal or heavy with an
@@ -385,6 +387,10 @@ export const commands = {
 	boardReleaseLease: (did: string) => __TAURI_INVOKE<null>("board_release_lease", { did }),
 	/**  The person takes back a lease notice (card #786). */
 	boardUndoLeaseNotice: (did: string) => __TAURI_INVOKE<null>("board_undo_lease_notice", { did }),
+	/**  "Weigh new cards" (#965): on unless turned off. */
+	assistantWeighs: () => __TAURI_INVOKE<boolean>("assistant_weighs"),
+	/**  Turns "Weigh new cards" on or off, on all the person's devices. */
+	assistantWeighsSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_weighs_set", { on }),
 	/**  A huddle's transcript (#656): every line, named. */
 	talkCallTranscript: (callId: string) => __TAURI_INVOKE<TalkTranscript>("talk_call_transcript", { callId }),
 	/**  What this device can share: displays, then windows. */
@@ -472,6 +478,8 @@ export const commands = {
 	 *  board).
 	 */
 	agentsSettings: (boardId: string) => __TAURI_INVOKE<AgentsSettings>("agents_settings", { boardId }),
+	/**  How cards ended, by weight, model and effort (card #966). */
+	agentsHistory: () => __TAURI_INVOKE<RunHistoryRow[]>("agents_history"),
 	/**  The person changes them: the app only, never a tool. */
 	agentsSet: (change: AgentsChange) => __TAURI_INVOKE<AgentsSettings>("agents_set", { change }),
 	/**
@@ -1823,6 +1831,11 @@ export type CardThreadItem = {
 	 *  when it has no Undo or can't be undone any more.
 	 */
 	undoDid?: string,
+	/**
+	 *  Irori's weighing of the card, while the weight is still Irori's
+	 *  (card #965): what Undo puts back, a weight or "no weight".
+	 */
+	undoWeight?: string,
 };
 
 /**
@@ -1864,7 +1877,14 @@ export type CardWeight = {
 	/**  One line on why; empty when the person gave none. */
 	reason?: string,
 	/**
-	 *  Who set it: person, assistant (Irori's office assistant) or agent.
+	 *  The level its next attempt starts on and why, when a crash or a Not
+	 *  done stepped it above `level` (card #966); else empty.
+	 */
+	runsAt?: string,
+	steppedWhy?: string,
+	/**
+	 *  Who set it: person, assistant (Irori's office assistant) or agent;
+	 *  empty on a card with no weight that a retry stepped up.
 	 *  The person's is theirs: agents and the assistant don't change it.
 	 */
 	setBy: string,
@@ -2759,6 +2779,20 @@ export type Rollup = {
 export type RosterChange = {
 	change: Change,
 	agents: AgentCard[],
+};
+
+/**
+ *  One row of Settings › Agents' history (card #966): attempts the person
+ *  answered on one weight, model and effort.
+ */
+export type RunHistoryRow = {
+	weight: string,
+	model: string,
+	effort: string,
+	runs: number,
+	firstTry: number,
+	sentBack: number,
+	advised: number,
 };
 
 /**

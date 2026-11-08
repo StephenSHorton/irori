@@ -521,6 +521,26 @@ impl Window {
             .map_err(|e| e.to_string())
     }
 
+    /// The person undoes Irori's weighing of a card (card #965): what it
+    /// replaced comes back as the person's own (a card with none goes back
+    /// to none), and Irori leaves it.
+    pub fn undo_weight(&self, id: &str) -> Result<Task, String> {
+        let id = trim(id);
+        let (co, keys) = self
+            .core
+            .task_coord(id, &[self.user_key()])
+            .map_err(|e| e.to_string())?;
+        let t = co
+            .get_task(id)
+            .ok_or_else(|| crate::cards::not_found_task(id))?;
+        let Some(w) = t.weight.as_ref().filter(|w| w.by_assistant()) else {
+            return Err(format!("{}: Irori's weight is already gone", t.short_ref()));
+        };
+        co.set_weight(&keys[0], id, &w.was_level, &w.was_reason)
+            .map(|(t, _)| t)
+            .map_err(|e| e.to_string())
+    }
+
     /// The person deletes a card (card #57): it leaves the Board on every
     /// device, and the signed log keeps it. A card on a shared board isn't
     /// deleted: other people already have it, so it is withdrawn (§5.3).

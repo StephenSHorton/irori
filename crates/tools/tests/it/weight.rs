@@ -142,3 +142,28 @@ fn board_create_and_board_split_take_a_weight() {
         &["subtask 2", "give a weight with one line on why"],
     );
 }
+
+/// Card #966: board_move writes left_off and the weight and leaves the card.
+#[test]
+fn board_move_moves_the_card_and_leaves_it() {
+    let h = new_harness();
+    h.new_card(&call_a(), json!({"title": "Find the leak"}));
+    h.okj(&call_a(), "board_join", json!({"task_id": "#1"}));
+    h.okj(
+        &call_a(),
+        "board_steps",
+        json!({"task_id": "#1", "steps": [{"text": "find it"}]}),
+    );
+    h.failsj(
+        &call_a(),
+        "board_move",
+        json!({"task_id": "#1", "direction": "sideways", "why": "x", "left_off": "y"}),
+        &["direction: up or down"],
+    );
+    let out = h.okj(
+        &call_a(),
+        "board_move",
+        json!({"task_id": "#1", "direction": "up", "why": "the cause is unknown", "left_off": "reproduced it"}),
+    );
+    assert!(out.contains("moved up"), "{out}");
+}

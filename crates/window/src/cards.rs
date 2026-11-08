@@ -457,7 +457,16 @@ pub struct CardWeight {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub reason: String,
-    /// Who set it: person, assistant (Irori's office assistant) or agent.
+    /// The level its next attempt starts on and why, when a crash or a Not
+    /// done stepped it above `level` (card #966); else empty.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub runs_at: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub stepped_why: String,
+    /// Who set it: person, assistant (Irori's office assistant) or agent;
+    /// empty on a card with no weight that a retry stepped up.
     /// The person's is theirs: agents and the assistant don't change it.
     pub set_by: String,
     /// Who, by name: "you" for this person, "Irori" for the assistant, or
@@ -904,6 +913,11 @@ pub struct CardThreadItem {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub undo_did: String,
+    /// Irori's weighing of the card, while the weight is still Irori's
+    /// (card #965): what Undo puts back, a weight or "no weight".
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub undo_weight: String,
 }
 
 /// A lease on another of the person's devices that Irori told them about
@@ -1715,7 +1729,18 @@ pub(crate) fn card_place(t: &Task, s: &irori_core::BoardSummary) -> (String, Str
 /// Card `t`'s weight as the card shows it (card #963), its model and
 /// effort read from board `board` (`""`: the private board).
 pub(crate) fn card_weight(t: &Task, board: &str, p: &People) -> Option<CardWeight> {
-    let w = t.weight.as_ref().filter(|w| !w.level.is_empty())?;
+    // Card #966: a card a crash or a Not done stepped up shows the level
+    // its next attempt runs at, and why, weight or none.
+    let stepped = t.stepped_why();
+    let none = coord::Weight {
+        level: coord::WEIGHT_NORMAL.into(),
+        ..coord::Weight::default()
+    };
+    let w = match t.weight.as_ref().filter(|w| !w.level.is_empty()) {
+        Some(w) => w,
+        None if !stepped.is_empty() => &none,
+        None => return None,
+    };
     let by_name = match w.set_by.as_str() {
         coord::SET_BY_PERSON if w.by == p.user || p.is_owner(&w.by) => "you".to_string(),
         coord::SET_BY_ASSISTANT => "Irori".to_string(),
@@ -1728,10 +1753,16 @@ pub(crate) fn card_weight(t: &Task, board: &str, p: &People) -> Option<CardWeigh
             Some(f) => f(board),
             None => irori_core::spawn::SpawnSetting::default(),
         });
-    let (model, effort) = set.pick(&w.level);
+    let (model, effort) = set.pick(t.run_level());
     Some(CardWeight {
         level: w.level.clone(),
         reason: w.reason.clone(),
+        runs_at: if stepped.is_empty() {
+            String::new()
+        } else {
+            t.run_level().to_string()
+        },
+        stepped_why: stepped.to_string(),
         set_by: w.set_by.clone(),
         by_name,
         model: model.into(),
@@ -3127,6 +3158,26 @@ fn build_thread(
             it.kind == THREAD_EVENT && it.who.status == IRORI && it.text.starts_with(&renamed)
         }) {
             it.undo_title = t.title_was.clone();
+        }
+    }
+    // Undo on Irori's weighing, while the weight is still its own (card
+    // #965).
+    if let Some(w) = t.weight.as_ref().filter(|w| w.by_assistant()) {
+        let name = &p.ref_(IRORI).name;
+        let (weighed, changed) = (
+            format!("{name} weighed it "),
+            format!("{name} changed the weight from "),
+        );
+        if let Some((_, it)) = all.iter_mut().rev().find(|(_, it)| {
+            it.kind == THREAD_EVENT
+                && it.who.status == IRORI
+                && (it.text.starts_with(&weighed) || it.text.starts_with(&changed))
+        }) {
+            it.undo_weight = if w.was_level.is_empty() {
+                "no weight".to_string()
+            } else {
+                w.was_level.clone()
+            };
         }
     }
     let mut agent_later = false;

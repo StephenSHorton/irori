@@ -61,6 +61,7 @@ pub use said::{SAID_CHARS, SAID_DAYS, SAID_MAX, SAID_PER_CARD, Said};
 mod short;
 mod side_gate;
 pub use side_gate::ASK_THE_PERSON;
+mod runs;
 mod spawn;
 mod subtasks;
 mod tasks;
@@ -117,6 +118,7 @@ pub use resource::{
 pub use review::{
     NOTICE_REVIEW, REVIEW_REQUESTED, Review, ReviewRequest, VERDICT_APPROVED, VERDICT_CHANGES,
 };
+pub use runs::RunTally;
 pub use short::{parse_ref, parse_short, short_suffix};
 pub use threads::{
     NOT_YOURS_TO_CLOSE as THREAD_NOT_YOURS, READING_LINES, TAKE_ANSWERED, agents_now_default,
@@ -1127,6 +1129,22 @@ impl Coord {
     /// Weighs a card (card #963): light, normal or heavy, or "" to clear.
     /// A weight the person set is changed only by a person. Returns the
     /// card and whether anything changed.
+    pub fn move_weight(
+        &self,
+        by: &str,
+        id: &str,
+        up: bool,
+        reason: &str,
+        left_off: &str,
+    ) -> Result<Task> {
+        self.lock().move_weight(by, id, up, reason, left_off)
+    }
+
+    /// How attempts ended, by weight, model and effort (card #966).
+    pub fn run_tally(&self) -> Vec<RunTally> {
+        self.lock().run_tally()
+    }
+
     pub fn set_weight(
         &self,
         by: &str,
@@ -1135,6 +1153,11 @@ impl Coord {
         reason: &str,
     ) -> Result<(Task, bool)> {
         self.lock().set_weight(by, id, level, reason)
+    }
+    /// Irori's office assistant weighs a card (card #965). See
+    /// [`Fold::weigh_as_irori`].
+    pub fn weigh_as_irori(&self, id: &str, level: &str, reason: &str) -> Result<Task> {
+        self.lock().weigh_as_irori(id, level, reason)
     }
     /// The cards the person paused (card #207).
     pub fn paused_ids(&self) -> std::collections::HashSet<String> {

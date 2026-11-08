@@ -139,6 +139,7 @@ export type Returned = B.Returned
 export type ReviewerChoice = B.ReviewerChoice
 export type Rollup = B.Rollup
 export type RosterChange = B.RosterChange
+export type RunHistoryRow = B.RunHistoryRow
 export type RunningAgent = B.RunningAgent
 export type Scope = B.Scope
 export type SendResult = B.SendResult
@@ -812,6 +813,11 @@ export function Rollup(p: Partial<B.Rollup> = {}): B.Rollup {
 /** RosterChange with Go's zero values for every field left out. */
 export function RosterChange(p: Partial<B.RosterChange> = {}): B.RosterChange {
   return { "change": Change(), "agents": [], ...p } as B.RosterChange
+}
+
+/** RunHistoryRow with Go's zero values for every field left out. */
+export function RunHistoryRow(p: Partial<B.RunHistoryRow> = {}): B.RunHistoryRow {
+  return { "weight": "", "model": "", "effort": "", "runs": 0, "firstTry": 0, "sentBack": 0, "advised": 0, ...p } as B.RunHistoryRow
 }
 
 /** RunningAgent with Go's zero values for every field left out. */

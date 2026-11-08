@@ -10,6 +10,7 @@ mod assistant_away;
 mod assistant_dupes;
 mod assistant_names;
 mod assistant_tidy;
+mod assistant_weighs;
 mod attachments;
 mod board_servers;
 mod boards;

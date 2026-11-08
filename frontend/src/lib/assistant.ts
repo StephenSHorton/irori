@@ -24,6 +24,7 @@ import {
   type WorkThread,
 } from "./assistant-follow"
 import { cards, threads } from "./cards"
+import { goesByItself, splitGo, type GoTarget } from "./goto"
 import { AssistantService, Events } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
@@ -437,6 +438,17 @@ function initial(): AssistantState {
       reply: null,
       unread: false,
     }
+  if (flag === "go")
+    return {
+      ...base,
+      open: true,
+      entries: [
+        { role: "person", text: "Where do I turn off pausing agents?" },
+        { role: "assistant", text: sampleAnswer("pausing agents").text },
+      ],
+      reply: null,
+      unread: false,
+    }
   if (flag === "new")
     return { ...base, open: true, entries: [], reply: null, unread: false }
   if (flag === "draft")
@@ -516,6 +528,31 @@ function finish(r: Reply) {
     reply: null,
     unread: !s.open,
   })
+  // Take me there (card #784): a whole reply with a go line, come in
+  // while the chat is open, goes there by itself, once. Never from saved
+  // history, never a reply stopped or cut short, never a PR (that opens
+  // the browser: only a tap does).
+  const go = r.end === "done" ? splitReply(r.text).go : null
+  if (go && s.open && goesByItself(go)) goHandler?.(go)
+}
+
+// addNote puts a plain line of the chat's own at its end (a go that
+// couldn't get there, card #784).
+export function addNote(text: string) {
+  const s = assistantState()
+  set({
+    entries: capHistory([
+      ...s.entries,
+      { role: "assistant", text, note: true },
+    ]),
+  })
+}
+
+// The chat's way to go somewhere (components/assistant/assistant-chat.tsx
+// registers it while it is mounted).
+let goHandler: ((t: GoTarget) => void) | null = null
+export function onGo(f: ((t: GoTarget) => void) | null) {
+  goHandler = f
 }
 
 // ask sends the person's question with the chat so far. Nothing while a
@@ -626,6 +663,19 @@ export function splitDraft(raw: string): Split {
     draft: rest.slice(0, end).trim(),
     partial: false,
   }
+}
+
+// splitReply splits a reply as the chat shows it: its drafted thread
+// (splitDraft) and its go line (card #784, lib/goto.ts), taken only from
+// the text outside the draft, so the draft posts exactly as shown.
+// writing: the reply is still being written.
+export function splitReply(
+  raw: string,
+  writing = false
+): Split & { go: GoTarget | null } {
+  const d = splitDraft(raw)
+  const g = splitGo(d.text, writing)
+  return { ...d, text: g.text, go: g.go }
 }
 
 // postDraft posts the draft of the chat's message at index as a thread,
@@ -875,6 +925,26 @@ export function sampleAnswer(q: string): { tools: string[]; text: string } {
     )
   )
     return { tools: [`Searching for “${q.trim()}”`], text: sampleWork(q) }
+  // Take me there (card #784).
+  if (/paus|stop/.test(s))
+    return {
+      tools: ["Reading the agents"],
+      text: "Pausing agents is now **Stop here**, the button in the top bar, not in Settings. While it's on it reads Stopped here; one click starts this machine again.\n\n<<go setting stop-here>>",
+    }
+  if (/\b(model|effort)\b/.test(s))
+    return {
+      tools: [],
+      text: "A new agent's model and effort are in **Settings › Agents**, under What a new agent starts with. An agent already working keeps its own.\n\n<<go setting agents.model>>",
+    }
+  const shown =
+    /\b(?:show|open|take me to|where(?:'s| is))\b.*?(?:^|\s)([a-z0-9_-]*#\d+)/.exec(
+      s
+    )
+  if (shown)
+    return {
+      tools: [`Opening ${shown[1]}`],
+      text: `Here's ${shown[1]}. Opening it for you.\n\n<<go card ${shown[1]}>>`,
+    }
   if (/agent|doing|working|busy/.test(s))
     return {
       tools: ["Reading the agents", "Reading the Board"],
