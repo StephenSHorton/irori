@@ -26,7 +26,8 @@ export function NamesThemesSection({ open }: { open: boolean }) {
       <p className="text-[12.5px] text-muted-foreground">
         Each new agent gets a short name nobody has used lately, from the themes
         that are on. When they run out, or every theme is off, names come from
-        all of them. Agents already named keep their names.
+        all of them. Agents already named keep their names. On all your
+        computers.
       </p>
       <ul className="grid gap-2">
         {v.themes.map((t) => (

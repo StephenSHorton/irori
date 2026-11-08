@@ -359,9 +359,7 @@ export function CommandPalette({
     if (!i) return
     keepRecent(i.key)
     onOpenChange(false)
-    // Not for Settings' own commands: they show a section of it.
-    if (!i.key.startsWith("command:settings."))
-      window.dispatchEvent(new Event(PaletteJump))
+    window.dispatchEvent(new Event(PaletteJump))
     // After the dialog lets go of focus, so the action's own focus sticks.
     window.setTimeout(() => i.run(), 0)
   }

@@ -264,6 +264,12 @@ The owner builds the ask's notices when it posts. They go out through `SendWith(
   - **Later:** dismisses the toast only.
 
   With `told = 0` there is no Wake them: waking would only reopen it and post the same card again, and a waiting ask goes out by itself when an agent goes idle. The body says so: "Nobody was free. It goes to the first agent that is." (after a wake: "You woke them, but nobody is free. …"). The card clears when a `taken` or a terminal state folds.
+- **Not while a computer is taking it** (*card #995*). A thread on a full computer is `unclaimed` at once, and another computer can't move it for `ASK_FULL_GRACE`, so the card used to come first every time. `take.state unclaimed` is still written (the spawn needs it); the card holds off, on every desktop device, while the fold's `ask_notice_hold` says so, which is carried to the watcher on `Card.notice_hold`:
+  - the owner is full and `full_target` names a computer with room, and the ask is one `pull_asks` would move;
+  - it moved in this opening and its new owner has room (`full_target` is None by then, and no request is written until that computer's sweep);
+  - its agent was bound in this opening and the `taken` row hasn't folded here yet (two rows, and sync can bring them apart).
+
+  Each counts from its own moment and stops after `ASK_ROOM_HOLD` (30 seconds), so a computer that looked free and never took it is still said. After a move the first counts from the end of `ASK_FULL_SETTLE`, since the next move can't come sooner, and it doesn't read this device's own spawning switch: the computer taking the thread goes by its own. While a request waits for its agent, `spawn_pending` keeps the card off as before. No board row says which computers have room, so the watcher reads the Board again each second while a card is held: when every computer fills up the card comes then. A card already up stays up if a computer frees later. Each device judges this from its own view of who is full (synced rows, as the move itself does), so a device that hasn't heard yet can post the card a moment early, and clock skew moves its 30 seconds by as much. A device that quits during a hold and starts after it ran out seeds the ask as already seen, like any card waiting at a start, so it shows no card for that opening.
 - The tile shows "Nobody took this yet". A claim after `unclaimed` is still granted.
 
 ### Outcomes

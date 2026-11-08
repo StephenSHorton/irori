@@ -2813,6 +2813,12 @@ pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         }
         ttl = Duration::from_secs(m as u64 * 60);
     }
+    // A device's heavy slots: the base name takes one (device-free §2).
+    if res.to_ascii_lowercase().starts_with("heavy/")
+        && let Some(own) = crate::heavy_family(&s.b.device_id())
+    {
+        return heavy_lease(s, c, res, &own, ttl, a.bool("steal"));
+    }
     // A lease in a shared card's repo goes on that board first, where
     // another person's lease refuses it.
     let mirrored = match s.b.router() {
@@ -2865,6 +2871,64 @@ pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     out
 }
 
+/// A lease on `heavy/...`: exactly this device's family takes a slot, and
+/// nothing else under `heavy/` is leased at all.
+fn heavy_lease(s: &Inner, c: &Caller, res: &str, own: &str, ttl: Duration, steal: bool) -> String {
+    let said = one_line(res, MAX_FIELD_RUNES);
+    if !res.eq_ignore_ascii_case(own) {
+        let direct = res.to_ascii_lowercase().contains("/slot-");
+        return err_text(&if direct {
+            format!(
+                "{said} is a slot itself: lease the base name {own} and Irori picks a free slot (and renews yours)."
+            )
+        } else {
+            format!("{said} isn't this device's heavy name. This device's is {own}.")
+        });
+    }
+    if steal {
+        return err_text(&format!(
+            "heavy slots can't be stolen: lease {own} again later, or ask a holder to release."
+        ));
+    }
+    match s
+        .b
+        .coord()
+        .acquire_slot(&c.sender.key, own, crate::HEAVY_SLOTS, ttl)
+    {
+        Ok(l) => format!(
+            "Leased {} until {} ({}). Lease again to renew; release when done.",
+            one_line(&l.resource, MAX_FIELD_RUNES),
+            l.until.format_rfc3339(),
+            in_(&s.now(), &l.until)
+        ),
+        Err(e) if e.kind() == coord::ErrorKind::Held => {
+            let n = s.roster();
+            let now = s.now();
+            let prefix = format!("{own}/slot-");
+            let mut held: Vec<String> =
+                s.b.coord()
+                    .leases()
+                    .into_iter()
+                    .filter(|l| l.resource.starts_with(&prefix))
+                    .map(|l| {
+                        format!(
+                            "{} held by {}, expires {}",
+                            one_line(&l.resource, MAX_FIELD_RUNES),
+                            n.who(&l.holder),
+                            in_(&now, &l.until)
+                        )
+                    })
+                    .collect();
+            held.sort();
+            err_text(&format!(
+                "every heavy slot on this device is taken: {}. Message a holder, say on your card what you wait for, and lease {own} again later.",
+                held.join("; ")
+            ))
+        }
+        Err(e) => map_err(e),
+    }
+}
+
 pub(crate) fn leases(s: &Inner, _: &Caller, raw: &[u8]) -> String {
     if let Err(e) = decode(raw, &[]) {
         return e;
@@ -2905,6 +2969,30 @@ pub(crate) fn release(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let r = s.b.coord().release(&c.sender.key, res);
     if let Some(rt) = s.b.router() {
         rt.mirror_release(&c.sender.key, res);
+    }
+    if let Err(e) = &r
+        && e.kind() == coord::ErrorKind::NotFound
+    {
+        // Not a lease of its own: the base name of a slot family releases
+        // the caller's slot of it.
+        match s.b.coord().release_slot(&c.sender.key, res) {
+            Ok(true) => return format!("Released {}.", one_line(res, MAX_FIELD_RUNES)),
+            Ok(false) => {
+                let prefix = format!("{}/slot-", res.to_ascii_lowercase());
+                if s.b
+                    .coord()
+                    .leases()
+                    .iter()
+                    .any(|l| l.resource.starts_with(&prefix))
+                {
+                    return err_text(&format!(
+                        "you hold no slot of {}.",
+                        one_line(res, MAX_FIELD_RUNES)
+                    ));
+                }
+            }
+            Err(e) => return map_err(e),
+        }
     }
     if let Err(e) = r {
         // Not yours: another person's lease on a shared board is never

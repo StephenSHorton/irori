@@ -37,7 +37,7 @@ import {
 } from "@/lib/needs"
 import { SpawnedActions } from "@/components/cards/spawned-actions"
 import { PermissionPrompt } from "@/components/cards/permission-prompt"
-import { openSettings } from "@/components/settings/settings-menu"
+import { openSettings } from "@/lib/nav"
 import { answerable } from "@/lib/thread"
 import { useDraft } from "@/lib/drafts"
 import { answerKey, answerPatch, instant, isDone } from "@/lib/optimistic"
