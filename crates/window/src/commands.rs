@@ -26,7 +26,7 @@ use crate::boards::{BoardSettings, BoardSummary, SharePreview, SpaceBoard};
 use crate::call::CallView;
 use crate::cards::{CardDetail, CardMessage, CardSummary, DonePage, IdleReport};
 use crate::desk::{DeskSettings, DeskView};
-use crate::devices::{DeviceView, HomeServerView, PairStatus, RelayView};
+use crate::devices::{DeviceView, HomeServerView, PairStatus};
 use crate::events::{CaptureChange, Empty};
 use crate::inbox::{InboxCounts, SendResult};
 use crate::invites::InviteStatus;
@@ -1490,18 +1490,6 @@ pub async fn devices_set_public_relays(w: W<'_>, on: bool) -> R<HomeServerView> 
     blocking(&w, move |w| w.set_public_relays(on)).await
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn devices_relay(w: W<'_>) -> R<RelayView> {
-    Ok(w.relay())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn devices_set_relay(w: W<'_>, credential_url: String) -> R<RelayView> {
-    w.set_relay(&credential_url)
-}
-
 // ---- SettingsService -------------------------------------------------------------
 
 #[tauri::command]
@@ -2388,8 +2376,6 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             devices_set_home_server,
             devices_set_home_server_awake,
             devices_set_public_relays,
-            devices_relay,
-            devices_set_relay,
             settings_get_notifications,
             settings_set_notifications,
             settings_test_notification,

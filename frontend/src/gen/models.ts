@@ -133,7 +133,6 @@ export type PairStatus = B.PairStatus
 export type Policy = B.Policy
 export type PolicyInput = B.PolicyInput
 export type RefTarget = B.RefTarget
-export type RelayView = B.RelayView
 export type RepoName = B.RepoName
 export type Resolution = B.Resolution
 export type Returned = B.Returned
@@ -233,7 +232,7 @@ export function AgentsPauseView(p: Partial<B.AgentsPauseView> = {}): B.AgentsPau
 
 /** AgentsSettings with Go's zero values for every field left out. */
 export function AgentsSettings(p: Partial<B.AgentsSettings> = {}): B.AgentsSettings {
-  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "lightModel": "", "lightEffort": "", "heavyModel": "", "heavyEffort": "", "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
+  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "lightModel": "", "lightEffort": "", "heavyModel": "", "heavyEffort": "", "assistantModel": "", "assistantEffort": "", "assistantModels": [], "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
 }
 
 /** AgentStartsView with Go's zero values for every field left out. */
@@ -784,11 +783,6 @@ export function PolicyInput(p: Partial<B.PolicyInput> = {}): B.PolicyInput {
 /** RefTarget with Go's zero values for every field left out. */
 export function RefTarget(p: Partial<B.RefTarget> = {}): B.RefTarget {
   return { "id": "", "short": "", "title": "", "thread": false, "done": false, "state": "", "blocked": false, "ready": false, "progress": CardProgress(), ...p } as B.RefTarget
-}
-
-/** RelayView with Go's zero values for every field left out. */
-export function RelayView(p: Partial<B.RelayView> = {}): B.RelayView {
-  return { "state": "", ...p } as B.RelayView
 }
 
 /** RepoName with Go's zero values for every field left out. */

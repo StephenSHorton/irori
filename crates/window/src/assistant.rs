@@ -103,7 +103,8 @@ pub const TIMEOUT: Duration = Duration::from_secs(120);
 pub const MAX_RUNS: usize = 2;
 /// How many earlier turns go into the prompt.
 pub const HISTORY_TURNS: usize = 12;
-/// The model: quick and cheap, enough for looking things up.
+/// The model the small side turns run on (thread names, weighing,
+/// rewriting): quick and cheap. The chat's is a setting (card #1014).
 pub const MODEL: &str = "haiku";
 /// The MCP server's name in the config, so its tools are
 /// `mcp__irori__irori_<name>`.
@@ -187,7 +188,7 @@ started again. While it is on, Stop here is hidden.
 - agents.given: cards someone gives or assigns you in a shared space: Irori always asks first in Needs \
 you, whatever the switches say
 - agents.model: what a new agent starts with: the model and effort for Light, Normal and Heavy cards \
-(a card's weight picks the row)
+(a card's weight picks the row), and the model and effort this chat runs on
 - agents.names: agent name themes
 - agents.limits: how many agents at once on each computer, whether agents may start agents
 - agents.stops: when Irori stops and asks: idle limit, crashes and failed starts in a row
@@ -420,6 +421,8 @@ pub struct Job {
     /// Written to stdin, then stdin is closed.
     pub prompt: String,
     pub model: String,
+    /// `--effort`; `None` passes none (the side turns).
+    pub effort: Option<String>,
     /// The `CLAUDE_CONFIG_DIR` to give the child; `None` keeps this
     /// process's (the person's sign-in), an empty path unsets it (Claude
     /// Code's default dir and sign-in).
@@ -434,6 +437,8 @@ impl Job {
     /// The window assistant's job for `prompt`, against this Core.
     pub fn assistant(core: &irori_core::Core, prompt: String) -> Result<Job, String> {
         let exe = std::env::current_exe().map_err(|e| format!("no exe path: {e}"))?;
+        // Read at each question, so a change applies to the next one.
+        let setting = core.spawn_setting("");
         // Absolute, as the child's cwd is the run dir and its arguments
         // name files in it (a relative IRORI_HOME would not line up).
         let abs = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
@@ -444,7 +449,8 @@ impl Job {
             exe,
             system: SYSTEM.into(),
             prompt,
-            model: MODEL.into(),
+            model: setting.assistant_model().into(),
+            effort: Some(setting.assistant_effort().into()),
             claude_config_dir: dev_claude_config_dir(),
             timeout: TIMEOUT,
             tools: true,
@@ -464,6 +470,7 @@ impl Job {
             system: ask.system.clone(),
             prompt: ask.prompt.clone(),
             model: MODEL.into(),
+            effort: None,
             claude_config_dir: dev_claude_config_dir(),
             timeout: NAMES_TIMEOUT,
             tools: false,
@@ -547,9 +554,9 @@ pub fn mcp_config(exe: &Path, data_dir: &Path, secret: &str) -> String {
 /// `claude`'s arguments for a run whose files are in `dir`. The prompt is
 /// not among them: it goes on stdin. The system prompt is a file, so none
 /// of it reaches `claude.cmd`'s `cmd.exe` parsing on Windows.
-pub fn args(dir: &Path, model: &str) -> Vec<String> {
+pub fn args(dir: &Path, model: &str, effort: Option<&str>) -> Vec<String> {
     let p = |f: &str| dir.join(f).to_string_lossy().into_owned();
-    [
+    let mut out: Vec<String> = [
         "-p",
         "--model",
         model,
@@ -576,17 +583,26 @@ pub fn args(dir: &Path, model: &str) -> Vec<String> {
     ]
     .iter()
     .map(|s| s.to_string())
-    .collect()
+    .collect();
+    with_effort(&mut out, effort);
+    out
+}
+
+/// Adds `--effort` after `--model`, when there is one.
+fn with_effort(args: &mut Vec<String>, effort: Option<&str>) {
+    if let (Some(e), Some(i)) = (effort, args.iter().position(|a| a == "--model")) {
+        args.splice(i + 2..i + 2, ["--effort".to_string(), e.to_string()]);
+    }
 }
 
 /// `claude`'s arguments for `job`: [`args`] for the chat; with no tools,
 /// no MCP server at all and nothing allowed.
 pub fn job_args(job: &Job) -> Vec<String> {
     if job.tools {
-        return args(&job.dir, &job.model);
+        return args(&job.dir, &job.model, job.effort.as_deref());
     }
     let sys = job.dir.join(SYSTEM_FILE).to_string_lossy().into_owned();
-    [
+    let mut out: Vec<String> = [
         "-p",
         "--model",
         &job.model,
@@ -607,7 +623,9 @@ pub fn job_args(job: &Job) -> Vec<String> {
     ]
     .iter()
     .map(|s| s.to_string())
-    .collect()
+    .collect();
+    with_effort(&mut out, job.effort.as_deref());
+    out
 }
 
 /// Writes `data` to `path` readable by this user only (it may hold a
@@ -1211,9 +1229,39 @@ mod tests {
     }
 
     #[test]
+    fn the_chat_runs_on_sonnet_low_unless_picked_and_side_turns_stay_haiku() {
+        use irori_core::spawn::SpawnSetting;
+        let s = SpawnSetting::default();
+        assert_eq!(
+            (s.assistant_model(), s.assistant_effort()),
+            ("sonnet", "low")
+        );
+        let s = SpawnSetting {
+            assistant_model: "opus".into(),
+            assistant_effort: "high".into(),
+            ..SpawnSetting::default()
+        };
+        assert_eq!(
+            (s.assistant_model(), s.assistant_effort()),
+            ("opus", "high")
+        );
+        let bad = SpawnSetting {
+            assistant_model: "gpt".into(),
+            ..SpawnSetting::default()
+        };
+        assert!(bad.check().is_err());
+        assert_eq!(MODEL, "haiku");
+    }
+
+    #[test]
     fn args_keep_the_prompt_off_the_command_line() {
-        let a = args(Path::new("/d/assistant"), "haiku");
+        let a = args(Path::new("/d/assistant"), "sonnet", Some("low"));
         assert_eq!(a[0], "-p");
+        let m = a.iter().position(|x| x == "--model").unwrap();
+        assert_eq!(a[m + 1], "sonnet");
+        assert_eq!(a[m + 2], "--effort");
+        assert_eq!(a[m + 3], "low");
+        assert!(!args(Path::new("/d"), "haiku", None).contains(&"--effort".into()));
         let i = a.iter().position(|x| x == "--tools").unwrap();
         assert_eq!(a[i + 1], "");
         assert!(a.iter().any(|x| x.ends_with(SYSTEM_FILE)));
@@ -1275,6 +1323,7 @@ mod tests {
             system: SYSTEM.into(),
             prompt: "The person: hi\n".into(),
             model: MODEL.into(),
+            effort: None,
             claude_config_dir: None,
             timeout,
             tools: true,
@@ -1411,6 +1460,7 @@ mod tests {
             system: "Name it.".into(),
             prompt: "Name this thread.".into(),
             model: MODEL.into(),
+            effort: None,
             claude_config_dir: None,
             timeout: NAMES_TIMEOUT,
             tools: false,

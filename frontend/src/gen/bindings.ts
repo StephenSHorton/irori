@@ -300,8 +300,6 @@ export const commands = {
 	devicesSetHomeServer: (on: boolean, outside: boolean, publicAddr: string) => __TAURI_INVOKE<HomeServerView>("devices_set_home_server", { on, outside, publicAddr }),
 	devicesSetHomeServerAwake: (on: boolean) => __TAURI_INVOKE<HomeServerView>("devices_set_home_server_awake", { on }),
 	devicesSetPublicRelays: (on: boolean) => __TAURI_INVOKE<HomeServerView>("devices_set_public_relays", { on }),
-	devicesRelay: () => __TAURI_INVOKE<RelayView>("devices_relay"),
-	devicesSetRelay: (credentialUrl: string) => __TAURI_INVOKE<RelayView>("devices_set_relay", { credentialUrl }),
 	settingsGetNotifications: () => __TAURI_INVOKE<NotifyOptions>("settings_get_notifications"),
 	settingsSetNotifications: (o: NotifyOptions) => __TAURI_INVOKE<NotifyOptions>("settings_set_notifications", { o }),
 	settingsTestNotification: () => __TAURI_INVOKE<null>("settings_test_notification"),
@@ -726,6 +724,12 @@ export type AgentsChange = {
 	lightEffort?: string | null,
 	heavyModel?: string | null,
 	heavyEffort?: string | null,
+	/**
+	 *  The office assistant's model and effort (card #1014); the default
+	 *  stores nothing.
+	 */
+	assistantModel?: string | null,
+	assistantEffort?: string | null,
 	idleMins?: number | null,
 	crashLimit?: number | null,
 	startTries?: number | null,
@@ -799,6 +803,13 @@ export type AgentsSettings = {
 	/**  A heavy card's: the board's pick, or Opus at no less than high. */
 	heavyModel: string,
 	heavyEffort: string,
+	/**
+	 *  The office assistant's chat model and effort (card #1014), and the
+	 *  models it offers (the efforts are `efforts`).
+	 */
+	assistantModel: string,
+	assistantEffort: string,
+	assistantModels: string[],
 	/**
 	 *  The idle limit in minutes (card #456, sa-6): how long a spawned
 	 *  agent waits on an unanswered question before it hands off and goes.
@@ -2713,13 +2724,6 @@ export type RefTarget = {
 	ready: boolean,
 	/**  Done steps over all (a parent's, its subtasks' rollup). */
 	progress: CardProgress,
-};
-
-/**  The advanced relay line (D4: no iroh meaning, always "none"). */
-export type RelayView = {
-	credentialUrl?: string,
-	state: string,
-	detail?: string,
 };
 
 /**
