@@ -33,6 +33,7 @@ import {
   AttachmentList,
   PendingFiles,
   useFileAttach,
+  withoutSent,
 } from "@/components/attachments"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { RichText } from "@/components/common/rich-text"
@@ -409,6 +410,8 @@ function entryKey(e: ChatEntry): number {
 let draft = ""
 let draftFiles: File[] = []
 let uploading: Promise<string> | null = null
+// The files that upload is carrying: only these leave the box when it ends.
+let uploadingFiles: File[] = []
 // Why the last upload failed, for a panel closed while it did.
 let uploadFailed = ""
 
@@ -512,7 +515,7 @@ export function AssistantPanel({
     draftFiles
   )
   const pending = attach.files
-  const clearFiles = attach.clear
+  const discardFiles = attach.discard
   useEffect(() => {
     draftFiles = pending
   }, [pending])
@@ -524,20 +527,21 @@ export function AssistantPanel({
       setGoing(null)
       setSendError(why)
       setText(draft)
-      if (!draftFiles.length) clearFiles()
+      if (!why) discardFiles(uploadingFiles)
     })
     return () => {
       here = false
     }
-  }, [going, clearFiles])
+  }, [going, discardFiles])
   // The box empties only once the files are stored: a failure keeps the
   // words and the files, and says why.
   const upload = (t: string, files: File[]) => {
+    uploadingFiles = files
     uploading = attachFiles(files).then(
       (refs) => {
         uploading = null
         draft = ""
-        draftFiles = []
+        draftFiles = withoutSent(draftFiles, files)
         onAsk(t, refs)
         return ""
       },
@@ -550,7 +554,8 @@ export function AssistantPanel({
     setGoing(uploading)
   }
   const send = (t: string, files: File[] = []) => {
-    if (busy || uploading || (!t.trim() && !files.length)) return
+    if (busy || uploading || attach.reading) return
+    if (!t.trim() && !files.length) return
     uploadFailed = ""
     setSendError("")
     if (files.length) return upload(t, files)
@@ -623,7 +628,10 @@ export function AssistantPanel({
         aria-busy={busy}
       >
         {!entries.length && !reply ? (
-          <Starters onPick={send} />
+          <Starters
+            onPick={(q) => send(q, pending)}
+            disabled={sending || attach.reading}
+          />
         ) : (
           <div ref={list} className="flex flex-col gap-4">
             {entries.map((e, i) => (
@@ -704,10 +712,18 @@ export function AssistantPanel({
               type="submit"
               size="icon"
               className="size-8 shrink-0 rounded-lg"
-              aria-label={sending ? "Sending" : "Send"}
-              disabled={sending || (!text.trim() && !pending.length)}
+              aria-label={
+                sending
+                  ? "Sending"
+                  : attach.reading
+                    ? "Reading the picture"
+                    : "Send"
+              }
+              disabled={
+                sending || attach.reading || (!text.trim() && !pending.length)
+              }
             >
-              {sending ? (
+              {sending || attach.reading ? (
                 <Loader2Icon
                   className="animate-spin motion-reduce:animate-none"
                   aria-hidden
@@ -750,7 +766,13 @@ function IconTip({
 }
 
 // Starters is the empty chat: what it is for, and a few questions to tap.
-function Starters({ onPick }: { onPick: (q: string) => void }) {
+function Starters({
+  onPick,
+  disabled,
+}: {
+  onPick: (q: string) => void
+  disabled: boolean
+}) {
   return (
     <div className="flex h-full flex-col justify-end gap-3 pb-1">
       <p className="text-[13px] text-muted-foreground">
@@ -766,6 +788,7 @@ function Starters({ onPick }: { onPick: (q: string) => void }) {
             variant="outline"
             size="sm"
             className="h-auto max-w-full rounded-full py-1.5 text-left whitespace-normal"
+            disabled={disabled}
             onClick={() => onPick(q)}
           >
             {q}

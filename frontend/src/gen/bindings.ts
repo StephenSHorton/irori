@@ -904,7 +904,11 @@ export type AssistantFile = {
 	size: number,
 	mime?: string,
 	device: string,
-	/**  The assistant reads this type; `false` says so in the chat. */
+	/**
+	 *  The assistant reads this type; `false` says so in the chat. A file
+	 *  saved without the field isn't marked unreadable: only a `false`
+	 *  says that, as in the frontend's `can_read === false`.
+	 */
 	can_read?: boolean,
 };
 
