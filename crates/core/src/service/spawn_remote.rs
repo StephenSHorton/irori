@@ -578,6 +578,7 @@ impl Services {
             advisor: super::spawn::advisor_in(std::path::Path::new(&self.presence.claude_dir())),
             note,
             counted: self.start_counts(&self.coord, t),
+            others: brief.others_text,
             ..SpawnAsk::default()
         };
         let out = self
