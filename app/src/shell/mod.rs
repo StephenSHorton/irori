@@ -523,6 +523,18 @@ fn start_core(
     }
     #[cfg(not(desktop))]
     core.set_runs_no_agents();
+    // Irori's assistant names the person's new threads (card #782) with a
+    // Haiku turn on this computer's Claude Code. The phone has none.
+    #[cfg(desktop)]
+    {
+        let w = Arc::downgrade(&window);
+        core.set_namer(Some(Arc::new(
+            move |a: &irori_core::thread_names::NameAsk| match w.upgrade() {
+                Some(w) => w.name_thread(a),
+                None => Err("Irori is closing".into()),
+            },
+        )));
+    }
     // Spawning is on by default for the private board where agents can
     // start (card #448, decision 1 (a)); his own switch wins.
     core.set_spawn_default_on(true);

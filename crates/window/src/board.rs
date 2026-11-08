@@ -450,6 +450,25 @@ impl Window {
             .map_err(|e| e.to_string())
     }
 
+    /// The person undoes Irori's name for their thread (card #782): the
+    /// title it had comes back as the person's own rename, so it stays and
+    /// Irori never renames it again.
+    pub fn undo_title(&self, id: &str) -> Result<Task, String> {
+        let id = trim(id);
+        let (co, keys) = self
+            .core
+            .task_coord(id, &[self.user_key()])
+            .map_err(|e| e.to_string())?;
+        let t = co
+            .get_task(id)
+            .ok_or_else(|| crate::cards::not_found_task(id))?;
+        if t.title_was.is_empty() || t.title_by_person {
+            return Err(format!("{}: Irori's name is already gone", t.short_ref()));
+        }
+        co.rename_task(&keys[0], id, &t.title_was)
+            .map_err(|e| e.to_string())
+    }
+
     /// The person deletes a card (card #57): it leaves the Board on every
     /// device, and the signed log keeps it. A card on a shared board isn't
     /// deleted: other people already have it, so it is withdrawn (§5.3).

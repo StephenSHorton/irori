@@ -95,6 +95,7 @@ pub use crate::service::spawn_why;
 pub use crate::service::storage::{BuildTree, LIVE_TREE};
 pub use crate::service::sync_out::{SyncOutLog, SyncOutReport};
 pub use crate::service::talk_replying::{REPLYING_CAP, Replier, TalkReplying};
+pub use crate::service::thread_names;
 pub use crate::service::trees;
 pub use crate::service::{
     BoardReviewer, Core, HomeEdit, NO_HOME_SERVER, NowFn, Options, ReviveFn, StartError,
