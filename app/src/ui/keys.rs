@@ -6,7 +6,8 @@
 //! |---|---|
 //! | Cmd+K, Cmd+P | the command palette |
 //! | Esc | back from a card's page |
-//! | Cmd+[, Cmd+] | back, forward |
+//! | Cmd+[, Cmd+] (Mac); Alt+Left, Alt+Right (PC) | back, forward |
+//! | Cmd+1..5, Cmd+B, Cmd+F | sections, sidebar fold, search (`palette::on_key`, ahead of this) |
 //! | Cmd+N | New card (on the board shown, if any) |
 //! | Cmd+, | Settings |
 //! | / | focus the board's search (Home and boards: `board::on_key`, ahead of this) |
@@ -19,20 +20,43 @@ use rune::{Key, KeyEvent, Tx};
 
 use super::{Dialog, Route, State};
 
+/// Back (false: Forward) for a history key (card #733, app-shortcuts.ts):
+/// Cmd+[ and Cmd+] on a Mac; on a PC Alt+Left and Alt+Right, since Ctrl+[
+/// is Esc in a terminal. A text field takes Alt+arrows first (a word
+/// left or right), so they only walk the history outside one.
+pub fn history_key(ev: &KeyEvent, mac: bool) -> Option<bool> {
+    let m = ev.mods;
+    match &ev.key {
+        Key::Command(c) if mac && !m.shift && !m.alt && !m.ctrl => match c {
+            '[' => Some(true),
+            ']' => Some(false),
+            _ => None,
+        },
+        Key::Left | Key::Right if !mac && m.alt && !m.ctrl && !m.cmd && !m.shift && !m.logo => {
+            Some(ev.key == Key::Left)
+        }
+        _ => None,
+    }
+}
+
 pub fn on_key(s: &mut State, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let m = ev.mods;
+    if let Some(back) = history_key(ev, cfg!(target_os = "macos")) {
+        // A dialog has the keys while it is open.
+        if s.dialog.is_some() {
+            return false;
+        }
+        if back {
+            s.back();
+        } else {
+            s.nav.forward();
+        }
+        return true;
+    }
     match &ev.key {
         Key::Command(c) if !m.shift && !m.alt => match c {
             'k' | 'p' => {
                 s.open_dialog(Dialog::Palette);
-                true
-            }
-            '[' => {
-                s.back();
-                true
-            }
-            ']' => {
-                s.nav.forward();
                 true
             }
             'n' => {
@@ -134,9 +158,49 @@ mod tests {
         s.nav.open_card("c1".into());
         assert!(run(&mut s, key(Key::Escape, false)));
         assert_eq!(s.nav.card, None);
-        assert!(run(&mut s, key(Key::Command('['), true)));
+        let (back, fwd) = if cfg!(target_os = "macos") {
+            (key(Key::Command('['), true), key(Key::Command(']'), true))
+        } else {
+            (alt(Key::Left), alt(Key::Right))
+        };
+        assert!(run(&mut s, back.clone()));
         assert_eq!(s.nav.route, Route::Home);
-        assert!(run(&mut s, key(Key::Command(']'), true)));
+        assert!(run(&mut s, fwd));
         assert_eq!(s.nav.route, Route::Talk(None));
+        // A dialog keeps the keys.
+        s.open_dialog(Dialog::Palette);
+        assert!(!run(&mut s, back));
+        assert_eq!(s.nav.route, Route::Talk(None));
+    }
+
+    fn alt(k: Key) -> KeyEvent {
+        KeyEvent {
+            key: k,
+            mods: Mods {
+                alt: true,
+                ..Mods::default()
+            },
+        }
+    }
+
+    #[test]
+    fn history_keys_per_platform() {
+        let cmd = |c| key(Key::Command(c), true);
+        // The Mac: Cmd+[ and Cmd+]; Alt+arrows are the caret's.
+        assert_eq!(history_key(&cmd('['), true), Some(true));
+        assert_eq!(history_key(&cmd(']'), true), Some(false));
+        assert_eq!(history_key(&alt(Key::Left), true), None);
+        // A PC: Alt+Left and Alt+Right; Ctrl+[ is Esc in a terminal.
+        assert_eq!(history_key(&alt(Key::Left), false), Some(true));
+        assert_eq!(history_key(&alt(Key::Right), false), Some(false));
+        assert_eq!(history_key(&cmd('['), false), None);
+        // Other modifiers with them are something else.
+        let mut shifted = alt(Key::Left);
+        shifted.mods.shift = true;
+        assert_eq!(history_key(&shifted, false), None);
+        assert_eq!(history_key(&key(Key::Left, false), false), None);
+        let mut alt_cmd = cmd('[');
+        alt_cmd.mods.alt = true;
+        assert_eq!(history_key(&alt_cmd, true), None);
     }
 }

@@ -86,17 +86,30 @@ fn go_to(s: &mut State, r: Route) {
     s.go(r);
 }
 
+const MAC: bool = cfg!(target_os = "macos");
+
+/// Back's keys as the palette shows them (card #733, ui/keys.rs): Cmd+[
+/// on a Mac; on a PC Alt+Left, since Ctrl+[ is Esc in a terminal.
+pub fn back_shortcut(mac: bool) -> &'static str {
+    if mac { "Mod+[" } else { "Alt+←" }
+}
+
+/// Forward's keys, as [`back_shortcut`].
+pub fn forward_shortcut(mac: bool) -> &'static str {
+    if mac { "Mod+]" } else { "Alt+→" }
+}
+
 /// Every command that applies now. `dark` is the theme showing.
 pub fn commands(s: &State, dark: bool) -> Vec<Command> {
     let mut out = vec![
         // Back and Forward (card #733): the window's history.
         Command::new("nav.back", "Back", |s| s.back())
             .go_to(5)
-            .keys("Mod+[")
+            .keys(back_shortcut(MAC))
             .words(&["previous", "history"]),
         Command::new("nav.forward", "Forward", |s| s.nav.forward())
             .go_to(5)
-            .keys("Mod+]")
+            .keys(forward_shortcut(MAC))
             .words(&["next", "history"]),
         Command::new("nav.home", "Home", |s| go_to(s, Route::Home))
             .go_to(1)
@@ -348,6 +361,37 @@ mod tests {
     fn shortcut_keys_per_platform() {
         assert_eq!(shortcut_keys("Mod+K", true), ["⌘", "K"]);
         assert_eq!(shortcut_keys("Mod+K", false), ["Ctrl", "K"]);
+        assert_eq!(shortcut_keys(back_shortcut(true), true), ["⌘", "["]);
+        assert_eq!(shortcut_keys(back_shortcut(false), false), ["Alt", "←"]);
+        assert_eq!(shortcut_keys(forward_shortcut(false), false), ["Alt", "→"]);
+    }
+
+    #[test]
+    fn every_desktop_shortcut_shows_on_its_row() {
+        // Card #733: Settings, the sections in the sidebar's order, the
+        // fold and New card show their keys.
+        let s = State::default();
+        let cs = commands(&s, true);
+        let keys = |id: &str| cs.iter().find(|c| c.id == id).and_then(|c| c.shortcut);
+        assert_eq!(keys("settings.open"), Some("Mod+,"));
+        for (i, id) in [
+            "nav.home",
+            "nav.talk",
+            "nav.notes",
+            "nav.boards",
+            "nav.notifications",
+        ]
+        .iter()
+        .enumerate()
+        {
+            assert_eq!(
+                keys(id),
+                Some(["Mod+1", "Mod+2", "Mod+3", "Mod+4", "Mod+5"][i])
+            );
+        }
+        assert_eq!(keys("sidebar.fold"), Some("Mod+B"));
+        assert_eq!(keys("card.new"), Some("Mod+N"));
+        assert_eq!(keys("nav.back"), Some(back_shortcut(MAC)));
     }
 
     #[test]
