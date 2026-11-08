@@ -1733,6 +1733,27 @@ impl Services {
 }
 
 impl Services {
+    /// Makes space `space_id`'s #office-assistants channel if Talk hasn't
+    /// folded it (assistants-talk.md §4). Not in a hidden DM space, which
+    /// takes only what folds into its DM, and never in Personal (not a
+    /// board here). A space that can't take the row yet (its gate, or not
+    /// a member) is retried by the next sweep.
+    pub(crate) fn ensure_assistants_channel(&self, space_id: &str) {
+        if self.is_hidden_space(space_id) {
+            return;
+        }
+        let _ = self.talk.ensure_assistants_channel(space_id);
+    }
+
+    /// [`Self::ensure_assistants_channel`] for each space the person sees.
+    pub(crate) fn ensure_assistants_channels(&self) {
+        for b in self.visible_boards() {
+            self.ensure_assistants_channel(&b.id);
+        }
+    }
+}
+
+impl Services {
     /// Names for the keys other people's rows carry in this device's
     /// spaces: `person:<id>` by their profile (else member) name, and
     /// `agent:<cardId>` by its card, for Talk's member and post names.

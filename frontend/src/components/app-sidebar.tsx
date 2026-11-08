@@ -271,7 +271,9 @@ export function AppSidebar({
   const here = (s: Section) =>
     !openCard &&
     !!section &&
-    section.kind === s.kind &&
+    // A huddle's page lights Talk (card #1044).
+    (section.kind === s.kind ||
+      (s.kind === "talk" && section.kind === "huddle")) &&
     (s.kind !== "board" || (section.kind === "board" && section.id === s.id))
 
   // Shut, the drawer stays mounted off-screen: Settings lives in it.
@@ -297,7 +299,8 @@ export function AppSidebar({
                 "fixed inset-y-0 left-0 z-50 w-[min(18rem,85vw)] bg-background pt-[var(--safe-top)] pb-[var(--safe-bottom)] shadow-xl transition-transform",
                 !drawer && "invisible -translate-x-full"
               )
-            : "bg-sidebar/60"
+            : // Docked: clear of the status bar and side cutout too (card #1092).
+              "bg-sidebar/60 pt-[var(--safe-top)] pb-[var(--safe-bottom)] pl-[var(--safe-left)]"
         )}
         style={narrow ? undefined : { width: folded ? foldedWidth : width }}
       >
@@ -549,7 +552,7 @@ export function AppSidebar({
           <CallBar
             mine={huddle}
             folded={folded}
-            onOpen={() => go({ kind: "talk", id: huddle.convId })}
+            onOpen={() => go({ kind: "huddle", id: huddle.callId })}
             onMute={(on) => void setMuted(on).catch(() => {})}
             onDeafen={(on) => void setDeafened(on).catch(() => {})}
             onLeave={() => void leaveHuddle().catch(() => {})}

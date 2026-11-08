@@ -1499,7 +1499,8 @@ fn huddles_through_the_window() {
     let m = v.mine.as_ref().unwrap();
     assert_eq!(
         (m.conv_kind.as_str(), m.conv_name.as_str()),
-        ("channel", "standup")
+        // A Personal channel reads as one (card #1047).
+        ("personal", "standup")
     );
     assert_eq!(m.device, label);
     assert_eq!(m.peers[0].name, "you");
@@ -1587,7 +1588,7 @@ fn a_huddles_transcript_through_the_window() {
             t.conv_name.as_str(),
             t.conv_kind.as_str()
         ),
-        (ch.as_str(), "standup", "channel")
+        (ch.as_str(), "standup", "personal")
     );
     assert_eq!(t.started_at_ms, Some(t0));
     assert!(!t.ended);

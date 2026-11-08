@@ -283,6 +283,9 @@ export const commands = {
 	devicesSetPersonColor: (color: string) => __TAURI_INVOKE<null>("devices_set_person_color", { color }),
 	devicesPersonAvatar: () => __TAURI_INVOKE<string>("devices_person_avatar"),
 	devicesSetPersonAvatar: (avatar: string) => __TAURI_INVOKE<null>("devices_set_person_avatar", { avatar }),
+	devicesAssistantName: () => __TAURI_INVOKE<string>("devices_assistant_name"),
+	devicesAssistantLabel: () => __TAURI_INVOKE<string>("devices_assistant_label"),
+	devicesSetAssistantName: (name: string) => __TAURI_INVOKE<null>("devices_set_assistant_name", { name }),
 	devicesRenameDevice: (deviceId: string, name: string) => __TAURI_INVOKE<string>("devices_rename_device", { deviceId, name }),
 	/**  Every work/personal side named on a device or a card (card #494). */
 	devicesSideNames: () => __TAURI_INVOKE<string[]>("devices_side_names"),
@@ -357,6 +360,11 @@ export const commands = {
 	 *  devices.
 	 */
 	callTranscribeSet: (on: boolean) => __TAURI_INVOKE<null>("call_transcribe_set", { on }),
+	/**
+	 *  Whether a huddle in this conversation reaches agents live: false in a
+	 *  space some device of which is too old, for the start notice.
+	 */
+	callAgentsReady: (convId: string) => __TAURI_INVOKE<boolean>("call_agents_ready", { convId }),
 	/**  "Name new threads" (#782): on unless turned off. */
 	assistantNames: () => __TAURI_INVOKE<boolean>("assistant_names"),
 	/**  Turns "Name new threads" on or off, on all the person's devices. */
@@ -372,6 +380,10 @@ export const commands = {
 	assistantWeighsSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_weighs_set", { on }),
 	/**  A huddle's transcript (#656): every line, named. */
 	talkCallTranscript: (callId: string) => __TAURI_INVOKE<TalkTranscript>("talk_call_transcript", { callId }),
+	/**  Every huddle in Talk (card #1044), newest first. */
+	talkHuddles: () => __TAURI_INVOKE<TalkHuddle[]>("talk_huddles"),
+	/**  Sets a huddle's title (card #1044); returns the title it now shows. */
+	talkCallTitleSet: (callId: string, title: string) => __TAURI_INVOKE<string>("talk_call_title_set", { callId, title }),
 	/**  What this device can share: displays, then windows. */
 	shareSources: () => __TAURI_INVOKE<ShareSourceView[]>("share_sources"),
 	/**  Shares a window or display (an id from share_sources) in the huddle. */
@@ -1098,7 +1110,7 @@ export type CallMineView = {
 	convId: string,
 	/**  The channel's name, or the DM's other person. */
 	convName: string,
-	/**  `channel` or `dm`. */
+	/**  `channel`, `personal` (a Personal channel) or `dm`. */
 	convKind: string,
 	/**  When this device joined, Unix ms. */
 	joinedAtMs: number,
@@ -1162,7 +1174,7 @@ export type CallRingView = {
 	callId: string,
 	convId: string,
 	convName: string,
-	/**  `channel` or `dm`. */
+	/**  `channel`, `personal` (a Personal channel) or `dm`. */
 	convKind: string,
 	/**  Who started it. */
 	by: string,
@@ -3044,6 +3056,12 @@ export type SummaryMember = {
 	working: number,
 	free: number,
 	/**
+	 *  Their assistant as others see it (card #1045): "Juno · Addam's
+	 *  assistant", or "Addam's assistant" with no chosen name; left out
+	 *  when unknown.
+	 */
+	assistant?: string,
+	/**
 	 *  Their colour (card #385): another person's as this screen places
 	 *  it (their pick, nudged off this person's devices and other people);
 	 *  this person's own pick, "" for none.
@@ -3108,11 +3126,46 @@ export type TalkConversation = {
 	 */
 	spaceId?: string,
 	/**
+	 *  The space's #office-assistants channel (assistants-talk.md §4): the
+	 *  list puts it first. Absent otherwise.
+	 */
+	pinned?: boolean,
+	/**
 	 *  A DM with another person that hasn't reached them yet (card #538):
 	 *  `them` ("Waiting for Bob's Irori") or `update` ("Bob's Irori needs
 	 *  updating"). Absent otherwise. `name` is who they are.
 	 */
 	waiting?: string,
+};
+
+/**  One huddle in Talk's Huddles list (card #1044), newest first. */
+export type TalkHuddle = {
+	callId: string,
+	/**  The channel or DM it was in. */
+	convId: string,
+	/**  The channel's name, or the DM's other person. */
+	convName: string,
+	/**  `channel` or `dm`. */
+	convKind: string,
+	/**  The huddle's title; empty when it has none. */
+	title: string,
+	titleByAssistant: boolean,
+	/**  When it started, Unix ms; null when its start post isn't here. */
+	startedAtMs: number | null,
+	/**  When its newest row was written, Unix ms. */
+	lastAtMs: number,
+	ended: boolean,
+	/**  How long it ran, once ended; 0 before. */
+	durationMs: number,
+	/**
+	 *  The huddle is over as this device can tell (see
+	 *  [`TalkTranscript::over`]).
+	 */
+	over: boolean,
+	/**  Who took part, by name ("you" for the person), never a key. */
+	people: string[],
+	/**  How many lines its transcript has. */
+	lines: number,
 };
 
 /**  One side of a conversation. */
@@ -3198,8 +3251,13 @@ export type TalkTranscript = {
 	convId: string,
 	/**  The channel's name, or the DM's other person. */
 	convName: string,
-	/**  `channel` or `dm`. */
+	/**  `channel`, `personal` (a Personal channel) or `dm`. */
 	convKind: string,
+	/**
+	 *  Some line was said under the notice that lets agents read it (card
+	 *  #1047): a person DM's agents read only those lines.
+	 */
+	agents: boolean,
 	/**  When it started, Unix ms; null when its start post isn't here. */
 	startedAtMs: number | null,
 	ended: boolean,

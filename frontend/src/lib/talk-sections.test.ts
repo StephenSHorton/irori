@@ -79,6 +79,7 @@ describe("Talk list sections (card #463)", () => {
   test("the Archive and Agents talking start folded; your DMs, Threads and Channels don't", () => {
     expect(foldedByDefault).toEqual({
       threads: false,
+      huddles: false,
       channels: false,
       dms: false,
       gone: true,

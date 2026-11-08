@@ -172,7 +172,10 @@ impl Node {
             let Some(conn) = self.conn_to(dev) else {
                 continue;
             };
-            match fetch_over(conn.raw(), &fs, r).await {
+            let busy = self.activity().begin();
+            let got = fetch_over(conn.raw(), &fs, r).await;
+            drop(busy);
+            match got {
                 Ok(()) => {
                     if let Err(e) = self.offer(r) {
                         self.log(&format!("mesh: offer {}: {e}", r.sha256));
@@ -196,6 +199,7 @@ impl Node {
             && let Some(fs) = self.o.files.clone()
         {
             let log = |l: &str| self.log(l);
+            let _busy = self.activity().begin();
             serve_blob(
                 &mut st,
                 &fs,

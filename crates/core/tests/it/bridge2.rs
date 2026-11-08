@@ -982,6 +982,61 @@ fn a_persons_avatar_reaches_the_other_side() {
     });
 }
 
+/// Card #1045: Bob names his assistant. Alice sees "Juno · <Bob's name>'s
+/// assistant" with the person taken from Bob's own profile; with no name
+/// chosen, both read the computed default and nothing was written for it;
+/// clearing it goes back to the default.
+#[test]
+fn a_persons_assistant_name_reaches_the_other_side() {
+    let t = two_people();
+    let bob_id = t.b().person().id;
+    let bob = |c: &Core| {
+        c.board_list()
+            .into_iter()
+            .flat_map(|b| b.members)
+            .find(|m| m.person_id == bob_id)
+    };
+    // The person comes from the member's own profile name, whatever Alice
+    // has of it now; the chosen name sits beside it.
+    let says = |c: &Core, chosen: &str| {
+        bob(c).is_some_and(|m| {
+            let d = format!("{}'s assistant", m.name);
+            m.assistant
+                == if chosen.is_empty() {
+                    d
+                } else {
+                    format!("{chosen} · {d}")
+                }
+        })
+    };
+    wait_for(30, "alice sees the default, nothing written", || {
+        t.sync();
+        says(t.a(), "")
+    });
+    assert_eq!(t.b().assistant_name(), "");
+    assert_eq!(
+        t.b().assistant_name_or_default(),
+        format!("{}'s assistant", t.b().person().name)
+    );
+    for bad in ["Juno 2", "Juno · Alice's assistant", &"x".repeat(25)] {
+        assert!(t.b().set_assistant_name(bad).is_err(), "{bad}");
+    }
+    t.b().set_assistant_name("Juno").unwrap();
+    wait_for(30, "bob's Core takes the name", || {
+        t.b().assistant_name() == "Juno"
+    });
+    assert_eq!(t.b().assistant_name_or_default(), "Juno");
+    wait_for(30, "alice sees bob's assistant by its name", || {
+        t.sync();
+        says(t.a(), "Juno")
+    });
+    t.b().set_assistant_name("").unwrap();
+    wait_for(30, "alice sees the default again", || {
+        t.sync();
+        says(t.a(), "")
+    });
+}
+
 /// Card #472: a new agent's word is never one another member's live agent
 /// on a shared board has. Bob runs a "kestrel" and shares it on the board;
 /// a seed whose first word is kestrel gives Alice's next agent kestrel
@@ -1026,4 +1081,56 @@ fn a_new_agents_word_differs_from_a_friends_agent_on_a_shared_board() {
     let got = t.a().pick_agent_name(&seed);
     assert_ne!(got, "kestrel", "Bob's agent has it");
     assert!(coord::names::WORDS.contains(&got.as_str()), "{got}");
+}
+
+/// Card #1075 (§12.12 B8): another person's ask reaches Bob's agent; once
+/// the agent has it, every card it makes on Bob's private log is marked,
+/// and a card by his other agent, which never heard it, is not.
+#[test]
+fn a_card_made_after_another_persons_words_is_marked() {
+    let t = two_people();
+    let (b1, b2) = (
+        t.b().board_key(&t.board, &t.rb.key_a).unwrap(),
+        t.b().board_key(&t.board, &t.rb.key_b).unwrap(),
+    );
+    t.sync();
+    wait_cards(t.a(), &t.board, &[&b1, &b2]);
+    let co = t.a().board_coord(&t.board).unwrap();
+    co.post_ask(
+        &Two::person(t.a()),
+        coord::NewAsk {
+            text: "Who can look at the flaky sync test?".into(),
+            wake: true,
+            ..coord::NewAsk::default()
+        },
+        &[idle(&b1)],
+    )
+    .unwrap();
+    t.sync();
+    wait_bridged(t.b(), &t.rb.key_a, 1);
+    let nt = |title: &str| coord::NewTask {
+        title: title.into(),
+        ..coord::NewTask::default()
+    };
+    let ib = t.b().inbox();
+    assert!(!ib.saw_others(&t.rb.key_a), "not read yet");
+    let w = ib
+        .next_wake(&t.rb.key_a, inbox::path::MOD)
+        .unwrap()
+        .expect("the ask wakes alpha");
+    ib.mark_delivered(&t.rb.key_a, &w.token).unwrap();
+    assert!(ib.saw_others(&t.rb.key_a), "delivered: alpha read it");
+    assert!(!ib.saw_others(&t.rb.key_b));
+    let after = t
+        .b()
+        .coord()
+        .create_task(&t.rb.key_a, nt("Look at the sync test"))
+        .unwrap();
+    let other = t
+        .b()
+        .coord()
+        .create_task(&t.rb.key_b, nt("Something else"))
+        .unwrap();
+    assert!(t.b().coord().get_task(&after.id).unwrap().others);
+    assert!(!t.b().coord().get_task(&other.id).unwrap().others);
 }

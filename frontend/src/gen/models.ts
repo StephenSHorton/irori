@@ -160,6 +160,7 @@ export type SubtaskPreview = B.SubtaskPreview
 export type SummaryMember = B.SummaryMember
 export type TalkCall = B.TalkCall
 export type TalkConversation = B.TalkConversation
+export type TalkHuddle = B.TalkHuddle
 export type TalkMember = B.TalkMember
 export type TalkMemberRef = B.TalkMemberRef
 export type TalkPerson = B.TalkPerson
@@ -910,6 +911,11 @@ export function TalkConversation(p: Partial<B.TalkConversation> = {}): B.TalkCon
   return { "convId": "", "kind": "", "name": "", "unread": 0, "mentions": 0, "members": [], "lastAt": "", "lastText": "", "lastBy": "", "readOnly": false, "agentsNow": false, ...p } as B.TalkConversation
 }
 
+/** TalkHuddle with Go's zero values for every field left out. */
+export function TalkHuddle(p: Partial<B.TalkHuddle> = {}): B.TalkHuddle {
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "title": "", "titleByAssistant": false, "startedAtMs": null, "lastAtMs": 0, "ended": false, "durationMs": 0, "over": false, "people": [], "lines": 0, ...p } as B.TalkHuddle
+}
+
 /** TalkMember with Go's zero values for every field left out. */
 export function TalkMember(p: Partial<B.TalkMember> = {}): B.TalkMember {
   return { "kind": "", "key": "", ...p } as B.TalkMember
@@ -942,7 +948,7 @@ export function TalkReplying(p: Partial<B.TalkReplying> = {}): B.TalkReplying {
 
 /** TalkTranscript with Go's zero values for every field left out. */
 export function TalkTranscript(p: Partial<B.TalkTranscript> = {}): B.TalkTranscript {
-  return { "callId": "", "convId": "", "convName": "", "convKind": "", "startedAtMs": null, "ended": false, "durationMs": 0, "title": "", "titleByAssistant": false, "over": false, "lines": [], ...p } as B.TalkTranscript
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "agents": false, "startedAtMs": null, "ended": false, "durationMs": 0, "title": "", "titleByAssistant": false, "over": false, "lines": [], ...p } as B.TalkTranscript
 }
 
 /** TalkTranscriptLine with Go's zero values for every field left out. */

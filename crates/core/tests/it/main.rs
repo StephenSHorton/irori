@@ -42,6 +42,7 @@ mod names;
 mod notes;
 mod notifications;
 mod offline;
+mod others_text;
 mod pair;
 mod personal_boards;
 mod pr_cards;
