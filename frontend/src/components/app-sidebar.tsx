@@ -93,6 +93,7 @@ export function AppSidebar({
   space,
   onSpace,
   onNewSpace,
+  waiting,
   me,
 }: {
   roster: Roster
@@ -116,11 +117,14 @@ export function AppSidebar({
   // Narrow windows: the drawer is open, and closing it.
   drawer?: boolean
   onDrawer?: (open: boolean) => void
-  // The space Dashboard, Talk and Boards show (card #393), and picking one.
+  // The space Talk and Boards show (card #393; the Dashboard always shows
+  // every space, card #1001), and picking one.
   space: string
   onSpace: (id: string) => void
   // New or join a space, from the picker (card #689).
   onNewSpace: () => void
+  // The spaces with something waiting for you: a dot on their picker row.
+  waiting?: ReadonlySet<string>
   // You, as your profile has you: the row that opens it.
   me: { name: string; color: string; avatar: string }
 }) {
@@ -382,6 +386,7 @@ export function AppSidebar({
               onSpace={onSpace}
               onNewSpace={onNewSpace}
               folded={folded}
+              waiting={waiting}
             />
             <NavItem
               icon={MessagesSquareIcon}
@@ -402,7 +407,7 @@ export function AppSidebar({
             />
           </SpaceGroup>
 
-          <Group label="All spaces" bare folded={folded}>
+          <Group label="Everywhere" bare folded={folded}>
             <NavItem
               icon={BellIcon}
               label="Notifications"
