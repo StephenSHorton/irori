@@ -283,3 +283,35 @@ export function richBlocks(s: string): Block[] {
   endList()
   return out
 }
+
+// boldRuns splits text into its plain and **bold** runs (card #783: Ask
+// Irori's replies are Markdown-light). An unclosed ** stays as written. Never markup: each run is rendered as text.
+export type TextRun = { text: string; bold: boolean }
+export function boldRuns(s: string): TextRun[] {
+  const out: TextRun[] = []
+  let i = 0
+  while (i < s.length) {
+    const a = s.indexOf("**", i)
+    if (a < 0) break
+    const b = s.indexOf("**", a + 2)
+    if (b < 0) break
+    const inner = s.slice(a + 2, b)
+    // "** x **" or "****" isn't bold.
+    if (!inner.trim() || /^\s|\s$/.test(inner)) {
+      out.push({ text: s.slice(i, a + 2), bold: false })
+      i = a + 2
+      continue
+    }
+    if (a > i) out.push({ text: s.slice(i, a), bold: false })
+    out.push({ text: inner, bold: true })
+    i = b + 2
+  }
+  if (i < s.length) out.push({ text: s.slice(i), bold: false })
+  // Merge neighbouring plain runs.
+  return out.reduce<TextRun[]>((acc, r) => {
+    const last = acc[acc.length - 1]
+    if (last && !last.bold && !r.bold) last.text += r.text
+    else acc.push({ ...r })
+    return acc
+  }, [])
+}

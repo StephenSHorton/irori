@@ -692,6 +692,32 @@ impl Store {
         self.inner.list(f)
     }
 
+    /// How many rows of each kind this log holds and their bytes (payload
+    /// and signature), replicated and device-only rows together, largest
+    /// first (the Storage page, card #728). It reads every row once, so it
+    /// is for a page the person opens, not a hot path.
+    pub fn kind_sizes(&self) -> Result<Vec<crate::KindSize>> {
+        self.inner.read(|c| {
+            let mut st = c.prepare(
+                "SELECT kind, COUNT(*), COALESCE(SUM(length(payload)), 0) + COALESCE(SUM(length(sig)), 0) \
+                 FROM (SELECT kind, payload, sig FROM events UNION ALL SELECT kind, payload, sig FROM local_events) \
+                 GROUP BY kind ORDER BY 3 DESC, kind",
+            )?;
+            let rows = st.query_map([], |r| {
+                Ok(crate::KindSize {
+                    kind: r.get(0)?,
+                    rows: r.get(1)?,
+                    bytes: r.get(2)?,
+                })
+            })?;
+            let mut out = Vec::new();
+            for r in rows {
+                out.push(r?);
+            }
+            Ok(out)
+        })
+    }
+
     /// Rows moved out because they were past their device's cut (and
     /// honoured revokes), oldest first.
     pub fn refused(&self, limit: i64) -> Result<Vec<Event>> {

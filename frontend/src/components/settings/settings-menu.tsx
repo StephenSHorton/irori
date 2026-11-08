@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { PaletteJump } from "@/components/command-palette"
 import { useCommands } from "@/lib/commands"
+import { SettingsShortcut } from "@/lib/app-shortcuts"
 import { previewFlag } from "@/lib/preview"
 
 // OpenSettingsEvent opens Settings at a section from elsewhere in the
@@ -56,6 +57,7 @@ export function SettingsMenu({ version }: { version?: string }) {
   useCommands([
     {
       id: "settings.open",
+      shortcut: SettingsShortcut,
       title: "Settings",
       group: "Go to",
       order: 4,

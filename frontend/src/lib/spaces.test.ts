@@ -10,8 +10,11 @@ import {
   known,
   spacesOf,
   threadsSpace,
+  waitingSpaces,
   withLine,
   cardsOnPersonal,
+  closedBoards,
+  openBoards,
 } from "./spaces"
 import { cropSquare, initials, isAvatar } from "./avatar"
 
@@ -47,10 +50,10 @@ const gone = BoardSummary({
 })
 
 describe("spaces (card #393)", () => {
-  test("the switcher lists All spaces, Personal, then shared spaces by name", () => {
+  test("the switcher lists Personal, then shared spaces by name (no All spaces)", () => {
     const s = spacesOf([mlg, iro, gone])
-    expect(s.map((x) => x.id)).toEqual([AllSpaces, Personal, "b-iro", "b-mlg"])
-    expect(s[3].others).toEqual(["Blake"])
+    expect(s.map((x) => x.id)).toEqual([Personal, "b-iro", "b-mlg"])
+    expect(s[2].others).toEqual(["Blake"])
   })
 
   test("with line", () => {
@@ -60,10 +63,11 @@ describe("spaces (card #393)", () => {
     expect(withLine(["Blake", "Addam", "Casey"])).toBe("with Blake +2")
   })
 
-  test("a pick of a space you left goes back to All spaces", () => {
+  test("a pick of a space you left, or an old All spaces, goes to Personal", () => {
     expect(known("b-mlg", [mlg])).toBe("b-mlg")
-    expect(known("b-gone", [mlg, gone])).toBe(AllSpaces)
-    expect(known("nope", [mlg])).toBe(AllSpaces)
+    expect(known("b-gone", [mlg, gone])).toBe(Personal)
+    expect(known("nope", [mlg])).toBe(Personal)
+    expect(known(AllSpaces, [mlg])).toBe(Personal)
     expect(known(Personal, [])).toBe(Personal)
   })
 
@@ -176,5 +180,34 @@ describe("cardsOnPersonal", () => {
   })
   test("an inner board has its own, and a space's card is on none", () => {
     expect(cardsOnPersonal(cards, "b-home").map((c) => c.id)).toEqual(["h"])
+  })
+})
+
+// Card #690: closed boards leave the lists for the Closed boards fold.
+describe("openBoards and closedBoards", () => {
+  const list = [
+    { boardId: "s", closed: false },
+    { boardId: "n" },
+    { boardId: "p", closed: true },
+    { boardId: "a", closed: false },
+  ]
+  test("open keeps the first board and the unclosed, in order", () => {
+    expect(openBoards(list).map((x) => x.boardId)).toEqual(["s", "n", "a"])
+    expect(closedBoards(list).map((x) => x.boardId)).toEqual(["p"])
+  })
+  test("the first board is never closed, even if a row says so", () => {
+    const odd = [{ boardId: "s", closed: true }, { boardId: "n" }]
+    expect(openBoards(odd).map((x) => x.boardId)).toEqual(["s", "n"])
+    expect(closedBoards(odd)).toEqual([])
+    expect(openBoards([])).toEqual([])
+  })
+})
+
+describe("waitingSpaces (card #1001)", () => {
+  test("the rows whose space has something waiting", () => {
+    const spaces = [{ id: Personal }, { id: "b-a" }, { id: "b-b" }]
+    const got = waitingSpaces(spaces, (id) => id === "b-b")
+    expect([...got]).toEqual(["b-b"])
+    expect(waitingSpaces(spaces, () => false).size).toBe(0)
   })
 })

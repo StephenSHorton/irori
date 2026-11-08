@@ -3401,3 +3401,176 @@ fn a_row_naming_a_hash_its_writer_never_held_lends_nothing() {
     assert!(offered(b1, &sha).contains(&b1.core.device_id().to_string()));
     close(alice.drain(..).chain(bob.drain(..)));
 }
+
+/// Card #690: in a shared space a board's description, close and reopen
+/// reach the other person. Bob makes a board and may close it; he can't
+/// close Alice's board, and nobody closes the first; Alice, an owner, may
+/// reopen his. A close moves the open cards (a family together) or
+/// cancels them first. While it's closed neither device puts a card on it.
+#[test]
+fn a_boards_description_close_and_reopen_reach_bob_and_back() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let space = invited(a1, b1);
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        hears(a1, &space, b1)
+            && a1
+                .core
+                .board_rows_not_ready(&space)
+                .is_ok_and(|v| v.is_empty())
+    });
+    wait_for(WAIT, "bob hears alice", || {
+        hears(b1, &space, a1)
+            && b1
+                .core
+                .board_rows_not_ready(&space)
+                .is_ok_and(|v| v.is_empty())
+    });
+    let on = |d: &Dev, id: &str| {
+        d.core
+            .space_boards(&space)
+            .ok()
+            .and_then(|bs| bs.into_iter().find(|x| x.board_id == id))
+    };
+
+    // Bob's board, with its description from New board; Alice's, with none.
+    let net = b1
+        .core
+        .create_space_board_with(&space, "Netcode", "net", "Rollback netcode")
+        .unwrap();
+    let art = a1.core.create_space_board(&space, "Art", "art").unwrap();
+    b1.core.kick_board(&space);
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "alice gets bob's board and its description", || {
+        on(a1, &net).is_some_and(|x| x.description == "Rollback netcode")
+    });
+    let x = on(a1, &net).unwrap();
+    assert_eq!(
+        x.description_by,
+        b1.person_actor(),
+        "named from the row's device"
+    );
+    assert!(x.may_close, "alice owns the space");
+    wait_for(WAIT, "bob gets alice's board", || on(b1, &art).is_some());
+    assert!(on(b1, &net).unwrap().may_close, "his own board");
+    assert!(
+        !on(b1, &art).unwrap().may_close,
+        "not his, and he isn't an owner"
+    );
+
+    // Alice describes the first board and edits Bob's.
+    a1.core
+        .set_space_board_description(&space, &space, "The game")
+        .unwrap();
+    a1.core
+        .set_space_board_description(&space, &net, "Rollback netcode, 4 players")
+        .unwrap();
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob gets alice's descriptions", || {
+        b1.core.space_boards(&space).is_ok_and(|bs| {
+            bs[0].description == "The game"
+                && bs
+                    .iter()
+                    .any(|x| x.board_id == net && x.description == "Rollback netcode, 4 players")
+        })
+    });
+
+    // Who may close what.
+    let keep = || irori_core::OpenCards::Keep;
+    let e = b1.core.close_space_board(&space, &art, keep()).unwrap_err();
+    assert!(e.to_string().contains("only the person who made"), "{e}");
+    let e = b1
+        .core
+        .close_space_board(&space, &space, keep())
+        .unwrap_err();
+    assert!(e.to_string().contains("first board"), "{e}");
+
+    // A card on net, with a subtask: a close that keeps them is refused,
+    // naming it; one that moves them takes the family to art.
+    let co = b1.core.board_coord(&space).unwrap();
+    let t = co
+        .create_task(
+            &b1.person_actor(),
+            coord::NewTask {
+                title: "rollback".into(),
+                board: net.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let (_, kids) = co
+        .split(
+            &b1.person_actor(),
+            &t.id,
+            vec![coord::NewSubtask {
+                title: "inputs".into(),
+                ..Default::default()
+            }],
+            Vec::new(),
+        )
+        .unwrap();
+    let e = b1.core.close_space_board(&space, &net, keep()).unwrap_err();
+    assert!(e.to_string().contains("net#1"), "{e}");
+    let e = b1
+        .core
+        .close_space_board(&space, &net, irori_core::OpenCards::MoveTo(net.clone()))
+        .unwrap_err();
+    assert!(e.to_string().contains("pick another board"), "{e}");
+    b1.core
+        .close_space_board(&space, &net, irori_core::OpenCards::MoveTo(art.clone()))
+        .unwrap();
+    b1.core.kick_board(&space);
+    wait_for(WAIT, "alice sees net closed", || {
+        on(a1, &net).is_some_and(|x| x.closed)
+    });
+    wait_for(WAIT, "alice has the family on art", || {
+        card_on(a1, &space, &t.id).is_some_and(|x| x.board == art)
+            && card_on(a1, &space, &kids[0].id).is_some_and(|x| x.board == art)
+    });
+    let e = a1
+        .core
+        .board_coord(&space)
+        .unwrap()
+        .create_task(
+            &a1.person_actor(),
+            coord::NewTask {
+                title: "late".into(),
+                board: net.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("is closed"), "{e}");
+    assert!(
+        a1.core
+            .set_space_board_description(&space, &net, "x")
+            .is_err()
+    );
+
+    // Alice, an owner, reopens it; Bob closes it again canceling a card.
+    a1.core.reopen_space_board(&space, &net).unwrap();
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob sees net reopened", || {
+        on(b1, &net).is_some_and(|x| !x.closed)
+    });
+    let more = co
+        .create_task(
+            &b1.person_actor(),
+            coord::NewTask {
+                title: "more".into(),
+                board: net.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    b1.core
+        .close_space_board(&space, &net, irori_core::OpenCards::Cancel)
+        .unwrap();
+    b1.core.kick_board(&space);
+    wait_for(WAIT, "alice sees it canceled and net closed", || {
+        on(a1, &net).is_some_and(|x| x.closed)
+            && card_on(a1, &space, &more.id).is_some_and(|x| x.state == coord::CANCELED)
+    });
+    close(alice.drain(..).chain(bob.drain(..)));
+}

@@ -20,7 +20,13 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
-import { setAgentOffer } from "@/lib/agents"
+import {
+  effortLabel,
+  setAgentOffer,
+  tokenCount,
+  useAgentUsage,
+  usedModel,
+} from "@/lib/agents"
 import { agentStatus, throughLine } from "@/lib/agent-status"
 import { plainLine } from "@/lib/irori"
 import { useMedia } from "@/lib/media"
@@ -38,7 +44,10 @@ export const AgentCards = createContext<{
     id: string
     short: string
     title: string
+    tag?: string
     state?: string
+    spaceId?: string
+    private?: boolean
   }[]
   onOpenThread?: (id: string) => void
 } | null>(null)
@@ -139,6 +148,23 @@ function AgentSummary({
   const device = who.device || who.where
   // One wording for every status (card #489), with how long a job has run.
   const state = agentStatus(who, live?.statusSince)
+  const usage = useAgentUsage(who.key)
+  const t = usage?.tokens
+  const n = (v: number | null | undefined) => v ?? 0
+  const tokens = t && {
+    total: n(t.total),
+    input: n(t.input),
+    output: n(t.output),
+    cacheRead: n(t.cacheRead),
+    cacheWrite: n(t.cacheWrite),
+  }
+  // Card #1020: what is known of it. Irori's spawn record has the model and
+  // effort; the transcript on its own device has the tokens.
+  const made = [
+    usage?.model ? usedModel(usage.model) : "",
+    usage?.effort ? effortLabel(usage.effort, "") : "",
+    tokens ? `${tokenCount(tokens.total)} tokens` : "",
+  ].filter(Boolean)
   return (
     <>
       <div className="flex min-w-0 items-center gap-3">
@@ -182,6 +208,19 @@ function AgentSummary({
           {who.where && who.device && who.where !== who.device && (
             <div className="truncate text-xs text-muted-foreground">
               {plainLine(who.where)}
+            </div>
+          )}
+          {made.length > 0 && (
+            <div
+              className="truncate text-xs text-muted-foreground"
+              data-testid="agent-usage"
+              title={
+                tokens
+                  ? `${tokens.total.toLocaleString()} tokens: ${tokens.input.toLocaleString()} in, ${tokens.output.toLocaleString()} out, ${tokens.cacheRead.toLocaleString()} cache read, ${tokens.cacheWrite.toLocaleString()} cache write`
+                  : undefined
+              }
+            >
+              {made.join(" · ")}
             </div>
           )}
           {spawnedFor && (
