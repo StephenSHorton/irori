@@ -577,6 +577,9 @@ fn ts_shapes_match_the_json() {
     )
     .unwrap();
     let _ = r.w.comment(&t.id, "a comment", "none", &[], &[]).unwrap();
+    // A weight (card #963), so Task, Weight and CardWeight are checked.
+    co.set_weight(&a, &t.id, "heavy", "planning the split")
+        .unwrap();
     let task = co.get_task(&t.id).unwrap();
 
     let j = |v: &dyn erased::Ser| v.json();
@@ -586,8 +589,10 @@ fn ts_shapes_match_the_json() {
     check_shape(&src, "Link", &j(&task.links[0]));
     check_shape(&src, "Step", &j(&task.steps[0]));
     check_shape(&src, "Comment", &j(&co.comments(&t.id).unwrap()[0]));
+    check_shape(&src, "Weight", &j(task.weight.as_ref().unwrap()));
     let card = r.w.card(&t.id).unwrap();
     let cj = j(&card);
+    check_shape(&src, "CardWeight", &cj["weight"]);
     check_shape(&src, "CardBlocker", &cj["blockers"][0]);
     check_shape(&src, "CardOption", &cj["blockers"][0]["options"][0]);
     check_shape(&src, "AgentRef", &cj["working"][0]);

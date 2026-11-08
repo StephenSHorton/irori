@@ -627,6 +627,22 @@ pub struct Task {
     pub pinned: bool,
     #[specta(optional)]
     pub pin_rank: i64,
+    /// Card #963: light, normal or heavy; none is normal.
+    #[specta(optional)]
+    pub weight: Weight,
+}
+
+/// coord.Weight (card #963).
+#[derive(Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Weight {
+    pub level: String,
+    #[specta(optional)]
+    pub reason: String,
+    /// person, assistant or agent.
+    pub set_by: String,
+    pub by: String,
+    pub at: Time,
 }
 
 /// coord.Comment.

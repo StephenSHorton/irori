@@ -55,6 +55,7 @@ import {
 } from "./bits"
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { ClearDone } from "./clear-done"
+import { WeightTag } from "./weight"
 import { FACES_MAX, Faces, TalkBubble } from "./faces"
 
 // Filter is a chip: All, Needs a decision, In review (card #191), My
@@ -593,6 +594,7 @@ function CardTile({
             Stale
           </Badge>
         )}
+        <WeightTag card={card} />
         {busy(withLive(card, live)) && <Spinner className="ml-auto" />}
       </span>
       {card.talking.length > 1 && (
