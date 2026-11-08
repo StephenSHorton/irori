@@ -40,6 +40,7 @@ mod offers;
 mod owner;
 mod parts;
 mod placed;
+pub mod pr_claim;
 mod presence;
 mod prstate;
 mod threads;
@@ -106,14 +107,16 @@ pub use notes::{
 };
 pub use owner::{OWNER_ACCEPT, OWNER_DECLINE};
 pub use placed::MAX_PLACE;
+pub use pr_claim::{CLAIM_MAX_AGE, CLAIM_RENEW_WITHIN, CLAIM_TTL, ClaimStep};
 pub use presence::{NOTICE_PRESENCE, PRESENCE_GRACE};
 pub use prstate::{
     DESK_PR_CARD_MARK, NOTICE_PR, PR_CARD_CLOSED, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED,
     PR_OPEN, PR_REVIEW_REQUIRED, PrCheck, PrNews, PrState, desk_pr_card,
 };
 pub use resource::{
-    DESK_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key, is_desk,
-    normalize_glob, normalize_resource, overlaps, parse_resource,
+    DESK_PREFIX, PR_CLAIM_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource,
+    check_repo_key, is_desk, is_pr_claim, normalize_glob, normalize_resource, overlaps,
+    parse_resource, pr_claim_resource,
 };
 pub use review::{
     NOTICE_REVIEW, REVIEW_REQUESTED, Review, ReviewRequest, VERDICT_APPROVED, VERDICT_CHANGES,
@@ -1373,6 +1376,44 @@ impl Coord {
         steal: bool,
     ) -> Result<Option<Lease>> {
         self.lock().mirror_acquire(card, resource, ttl, all, steal)
+    }
+    /// The PR card for `pr` (a PR's full URL) on this board, if any (merge
+    /// desk §12.2): the lowest id among duplicates, open ones first.
+    pub fn pr_card_for(&self, pr: &str) -> Option<Task> {
+        let f = self.lock();
+        f.pr_card_for(pr).map(|t| f.shown(t))
+    }
+    /// Takes the claim on `pr` for `by`, or says who holds it and writes no
+    /// refusal row (merge desk §12.3). Who may claim is the caller's check.
+    pub fn claim_pr(&self, by: &str, pr: &str) -> Result<Lease> {
+        self.lock().claim_pr(by, pr)
+    }
+    /// The live claim on `pr`, if any.
+    pub fn claim_of(&self, pr: &str) -> Option<Lease> {
+        self.lock().claim_of(pr)
+    }
+    /// Lets `by` go of its claim on `pr`; false when it held none.
+    pub fn release_claim(&self, by: &str, pr: &str) -> Result<bool> {
+        let Some(name) = pr_claim_resource(pr) else {
+            return Err(Error::new(
+                ErrorKind::Invalid,
+                format_args!("{pr} is not a GitHub pull request URL"),
+            ));
+        };
+        self.mirror_release(by, &name)
+    }
+    /// "Not me" on `pr`: a comment on its card with `declines` set.
+    pub fn decline_review(&self, by: &str, pr: &str, reason: &str) -> Result<Comment> {
+        self.lock().decline_review(by, pr, reason)
+    }
+    /// This device's duties as a claimer (renew, release on the holder's
+    /// own verdict); see [`Fold::claim_duties`].
+    pub fn claim_duties(
+        &self,
+        alive: &dyn Fn(&str) -> bool,
+        login_of: &dyn Fn(&str) -> String,
+    ) -> Vec<pr_claim::ClaimStep> {
+        self.lock().claim_duties(alive, login_of)
     }
     /// Mirrors the release of card's lease; false when none is here.
     pub fn mirror_release(&self, card: &str, resource: &str) -> Result<bool> {

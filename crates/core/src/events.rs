@@ -47,6 +47,9 @@ pub enum Topic {
     Talk,
     /// The notification history changed (card #377).
     Notifications,
+    /// The assistant's conversation changed (`assistant:changed`,
+    /// card #1102).
+    AssistantChat,
     /// Claude usage left changed (`usage:changed`, card #599).
     Usage,
     /// A call changed: ringing, joined, left, mute, speaking, health
@@ -75,6 +78,10 @@ pub enum CoreEvent {
     Talk,
     /// A notification was kept or read (card #377), here or synced.
     Notifications,
+    /// A row of the assistant's conversation folded, here or synced
+    /// (card #1102). It says only that the fold changed, never a reply's
+    /// text.
+    AssistantChat,
     /// A session's reading of the plan's rate-limit windows was taken
     /// (card #599): on every one, as its observed time moves even when
     /// the figures don't.
@@ -99,6 +106,7 @@ impl CoreEvent {
             CoreEvent::Devices => Topic::Devices,
             CoreEvent::Talk => Topic::Talk,
             CoreEvent::Notifications => Topic::Notifications,
+            CoreEvent::AssistantChat => Topic::AssistantChat,
             CoreEvent::Usage => Topic::Usage,
             CoreEvent::Call => Topic::Call,
             CoreEvent::AssistantHome => Topic::AssistantHome,

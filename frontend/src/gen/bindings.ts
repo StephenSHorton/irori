@@ -568,6 +568,13 @@ export const commands = {
 	 *  more. An unknown or finished id is fine.
 	 */
 	assistantStop: (id: number) => __TAURI_INVOKE<null>("assistant_stop", { id }),
+	/**
+	 *  A page of the assistant's one conversation, newest first (card #1102,
+	 *  docs/design/one-assistant.md §4): up to `limit` entries (0 is 50) older
+	 *  than the one whose cursor is `before` ("" starts at the newest). The
+	 *  same on every one of the person's devices.
+	 */
+	assistantChatList: (before: string, limit: number) => __TAURI_INVOKE<AssistantChatPage>("assistant_chat_list", { before, limit }),
 };
 
 /* Types */
@@ -907,6 +914,98 @@ export type Ask = {
 export type AskRepo = {
 	repoKey: string,
 	label: string,
+};
+
+/**  What a follow-up line lets the person do. */
+export type AssistantChatAct = {
+	/**  Today `answer`. */
+	kind: string,
+	card: string,
+	blocker: string,
+};
+
+/**  An owner's-OK draft of an answer to another person. */
+export type AssistantChatDraft = {
+	request: string,
+	post: string,
+	space: string,
+	text: string,
+	device: string,
+	at: number,
+};
+
+/**
+ *  One entry of the conversation: exactly one of `turn`, `update` and
+ *  `draft`, as `kind` says.
+ */
+export type AssistantChatItem = {
+	/**  Pass it as `before` for the entries older than this one. */
+	cursor: string,
+	/**  `turn`, `update` or `draft`. */
+	kind: string,
+	turn?: AssistantChatTurn | null,
+	update?: AssistantChatUpdate | null,
+	draft?: AssistantChatDraft | null,
+};
+
+/**  A page of the conversation, newest first. */
+export type AssistantChatPage = {
+	items: AssistantChatItem[],
+	/**  Older entries remain. */
+	more: boolean,
+};
+
+/**  A thread a reply posted, or the person posted from its draft. */
+export type AssistantChatPosted = {
+	id: string,
+	short: string,
+	/**  Its board's tag: numbers are per board. */
+	tag: string,
+};
+
+/**  The assistant's reply to a question. */
+export type AssistantChatReply = {
+	text: string,
+	/**  What its write tools changed, a line each (card #987). */
+	changed: string[],
+	/**  The label of the screen it looked at. */
+	looked: string,
+	error: string,
+	/**  The assistant's computer didn't get to it. */
+	skipped: boolean,
+	/**  The assistant's computer. */
+	device: string,
+	/**  Unix milliseconds. */
+	at: number,
+};
+
+/**  One question and its reply, once there is one. */
+export type AssistantChatTurn = {
+	turn: string,
+	text: string,
+	/**  The device the person typed on. */
+	device: string,
+	/**  Unix milliseconds on that device. */
+	at: number,
+	/**  The turn this one asks again. */
+	again: string,
+	/**  Brought in from the assistant's computer's old history. */
+	imported: boolean,
+	callId: string,
+	reply?: AssistantChatReply | null,
+	posted?: AssistantChatPosted | null,
+	/**  The person stopped it. */
+	stopped: boolean,
+};
+
+/**  A follow-up line about a thread the chat posted. */
+export type AssistantChatUpdate = {
+	key: string,
+	thread: string,
+	text: string,
+	act?: AssistantChatAct | null,
+	at: number,
+	imported: boolean,
 };
 
 /**

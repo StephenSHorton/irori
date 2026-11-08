@@ -116,6 +116,30 @@ pub fn is_desk(name: &str) -> bool {
     name.starts_with(DESK_PREFIX)
 }
 
+/// The prefix of a PR review claim, `pr/<owner>/<name>/<n>` (merge desk
+/// §12.3): a named lease written straight to the PR card's board log by
+/// `review_claim`. The `lease` tool and the mirror path refuse it.
+pub const PR_CLAIM_PREFIX: &str = "pr/";
+
+/// Whether a canonical lease name is a PR review claim.
+pub fn is_pr_claim(name: &str) -> bool {
+    name.starts_with(PR_CLAIM_PREFIX)
+}
+
+/// The claim resource of a PR's full GitHub URL, lowercased:
+/// `https://github.com/Owner/Name/pull/7` is `pr/owner/name/7`. `None`
+/// for anything that isn't a PR URL.
+pub fn pr_claim_resource(pr: &str) -> Option<String> {
+    let l = super::types::Link {
+        kind: super::types::LINK_URL.into(),
+        reference: trim_space(pr).into(),
+        ..super::types::Link::default()
+    };
+    let (repo, n) = super::links::pr_link(&l)?;
+    let name = format!("{PR_CLAIM_PREFIX}{}/{n}", repo.to_ascii_lowercase());
+    named_re().is_match(&name).then_some(name)
+}
+
 /// `strconv.Atoi`: an optional sign then decimal digits, fitting an int.
 pub(crate) fn go_atoi(s: &str) -> Option<i64> {
     let digits = s.strip_prefix(['+', '-']).unwrap_or(s);

@@ -14,6 +14,7 @@
 //! | `talk:replying` | `TalkReplying[]` | coalesced, 250 ms, only when it changed (#645) |
 //! | `assistant:home` | `AssistantHomeStatus` | coalesced, 250 ms: the recorded assistant's computer changed (one-assistant card 1) |
 //! | `notifications:changed` | `{}` | a notification kept or read, here or synced (#377) |
+//! | `assistant:changed` | `{}` | coalesced, 250 ms: a row of the assistant's conversation folded, here or synced (#1102) |
 //! | `settings:launch-at-login` | bool | after every toggle attempt |
 //! | `app:open` | [`Target`] | a card's Open (M6 toast) |
 //! | `update:status` | [`UpdateStatus`] | updater transitions (M8) |
@@ -41,6 +42,7 @@ use sys::cancel::Cancel;
 use crate::Window;
 use crate::roster::RosterChange;
 
+pub use crate::assistant_chat::EVENT_ASSISTANT_CHANGED;
 pub use crate::assistant_home::EVENT_ASSISTANT_HOME;
 pub use crate::boards::EVENT_BOARDS_CHANGED;
 pub use crate::call::EVENT_CALL_STATE;
@@ -296,6 +298,18 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
             let q = feed.queue().clone();
             coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
                 w.emit(EVENT_NOTIFICATIONS_CHANGED, &Empty {});
+            });
+        }));
+    }
+    {
+        // The assistant's conversation (card #1102): the chat reads its
+        // list again. Only that it changed, never a reply's text.
+        let (w, stop) = (w.clone(), stop.clone());
+        let feed = w.core.feed(&[Topic::AssistantChat]);
+        out.push(spawn("irori-window-assistant-chat", move || {
+            let q = feed.queue().clone();
+            coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
+                w.emit(EVENT_ASSISTANT_CHANGED, &Empty {});
             });
         }));
     }

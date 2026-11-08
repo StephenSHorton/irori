@@ -86,9 +86,14 @@ fn two_people() -> Two {
 
 /// [`two_people`] with `notes` as Bob's desktop cards.
 fn two_people_with(notes: Option<notify::Notifier>) -> Two {
+    two_people_opts(Rig::new(), |o| o.notifier = notes)
+}
+
+/// [`two_people`] with `ra` as Alice's rig and `edit` applied to Bob's
+/// Core options.
+fn two_people_opts(ra: Rig, edit: impl FnOnce(&mut irori_core::Options)) -> Two {
     let turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
-    let ra = Rig::new();
-    let rb = Rig::with(|o| o.notifier = notes);
+    let rb = Rig::with(edit);
     let (a, b) = (&ra.core, &rb.core);
     assert_ne!(a.person().id, b.person().id, "two people");
     let board = a.create_board("MLG farming", "mlg").unwrap();
@@ -1237,4 +1242,252 @@ fn a_card_made_after_another_persons_words_is_marked() {
         .unwrap();
     assert!(t.b().coord().get_task(&after.id).unwrap().others);
     assert!(!t.b().coord().get_task(&other.id).unwrap().others);
+}
+
+// ---- merge desk §12.3 (card #1078, B3): review_claim --------------------
+
+mod claim {
+    use super::*;
+    use coord::{NewTask, PrCard};
+    use irori_core::deskwatch::PrLister;
+    use irori_core::prwatch::PrChecker;
+    use std::sync::Mutex;
+
+    const REPO: &str = "remote:github.com/a/b";
+    /// The PR's author on GitHub, as Alice's PR card names it.
+    const AUTHOR: &str = "alice-gh";
+
+    /// A fake gh: who it says wrote the PR, and who the viewer is.
+    struct Gh {
+        author: Mutex<String>,
+        viewer: String,
+    }
+
+    impl PrLister for Gh {
+        fn list(&self, _: &str, _: usize) -> Result<Vec<coord::DeskPr>, String> {
+            Ok(vec![])
+        }
+        fn viewer(&self) -> Result<String, String> {
+            if self.viewer.is_empty() {
+                Err("no gh".into())
+            } else {
+                Ok(self.viewer.clone())
+            }
+        }
+    }
+
+    impl PrChecker for Gh {
+        fn check(&self, url: &str) -> coord::PrCheck {
+            coord::PrCheck {
+                pr: url.into(),
+                state: "OPEN".into(),
+                ..coord::PrCheck::default()
+            }
+        }
+        fn author(&self, _: &str) -> Result<String, String> {
+            Ok(self.author.lock().unwrap().clone())
+        }
+    }
+
+    /// Alice and Bob; Bob's gh says `viewer`, and says `author` wrote the PR.
+    fn world(viewer: &str, author: &str) -> (Two, Arc<Gh>) {
+        let gh = Arc::new(Gh {
+            author: Mutex::new(author.into()),
+            viewer: viewer.into(),
+        });
+        let g = gh.clone();
+        let t = two_people_opts(Rig::new(), move |o| {
+            o.desk_lister = Some(g.clone());
+            o.pr_checker = Some(g);
+        });
+        if !viewer.is_empty() {
+            // Bob's gh has said who he is: the desk poll learns it.
+            t.b()
+                .coord()
+                .set_desk(
+                    &format!("user:{}", t.b().device_id()),
+                    coord::new_desk(REPO, t.b().device_id()),
+                )
+                .unwrap();
+            let _ = t.b().poll_desk(REPO);
+        }
+        (t, gh)
+    }
+
+    /// Alice makes the PR card for PR 7, as herself.
+    fn pr_card(t: &Two) -> String {
+        let co = t.a().board_coord(&t.board).unwrap();
+        let card = co
+            .create_task(
+                &Two::person(t.a()),
+                NewTask {
+                    title: "PR #7: ship it".into(),
+                    objective: "Irori made this card for the pull request.".into(),
+                    repo_key: REPO.into(),
+                    links: vec![PR.into()],
+                    pr_card: Some(PrCard {
+                        pr: PR.into(),
+                        author: AUTHOR.into(),
+                    }),
+                    ..NewTask::default()
+                },
+            )
+            .unwrap();
+        t.sync();
+        card.id
+    }
+
+    fn call(c: &Core, key: &str, name: &str, args: serde_json::Value) -> String {
+        let caller = tools::Caller {
+            sender: inbox::Sender::new(key, "agent", "claude"),
+            path: inbox::path::MOD.into(),
+        };
+        c.tools()
+            .call(&caller, name, &serde_json::to_vec(&args).unwrap())
+            .unwrap()
+    }
+
+    fn rc(c: &Core, key: &str, action: &str) -> String {
+        call(
+            c,
+            key,
+            "review_claim",
+            serde_json::json!({"pr": PR, "action": action}),
+        )
+    }
+
+    #[test]
+    fn an_agent_with_no_shared_card_claims_and_the_other_person_sees_it() {
+        let (t, _gh) = world("bob-gh", AUTHOR);
+        pr_card(&t);
+        let out = rc(t.b(), &t.rb.key_a, "claim");
+        assert!(out.contains("You hold the review claim"), "{out}");
+        assert!(out.contains("gh pr view"), "{out}");
+        t.sync();
+        let held = t.a().board_coord(&t.board).unwrap().claim_of(PR).unwrap();
+        assert!(held.holder.starts_with("agent:"), "{held:?}");
+        // Another of Bob's agents is told who holds it.
+        let again = rc(t.b(), &t.rb.key_b, "claim");
+        assert!(again.contains("holds the review claim"), "{again}");
+        assert!(again.contains("comment on the PR instead"), "{again}");
+        let refused = t.b().board_coord(&t.board).unwrap().claim_of(PR).unwrap();
+        assert_eq!(refused.holder, held.holder);
+        // confirm, then release.
+        assert!(rc(t.b(), &t.rb.key_a, "confirm").contains("still hold"));
+        assert!(rc(t.b(), &t.rb.key_b, "confirm").contains("don't hold"));
+        assert!(rc(t.b(), &t.rb.key_a, "release").contains("Released"));
+    }
+
+    #[test]
+    fn the_go_ahead_needs_work_in_the_repo_in_that_space() {
+        let (t, _gh) = world("bob-gh", AUTHOR);
+        pr_card(&t);
+        let out = rc(t.b(), &t.rb.key_a, "claim");
+        assert!(
+            out.contains(irori_tools_text::OFF),
+            "no card of his here: {out}"
+        );
+        rc(t.b(), &t.rb.key_a, "release");
+        // Bob's own card in the repo.
+        t.b()
+            .board_coord(&t.board)
+            .unwrap()
+            .create_task(
+                &Two::person(t.b()),
+                NewTask {
+                    title: "Fix the farm".into(),
+                    objective: "work".into(),
+                    repo_key: REPO.into(),
+                    ..NewTask::default()
+                },
+            )
+            .unwrap();
+        let out = rc(t.b(), &t.rb.key_a, "claim");
+        assert!(out.contains("already allowed this review"), "{out}");
+        // With the setting off it is the Off text again.
+        t.b().set_reviews_unasked(false).unwrap();
+        let out = rc(t.b(), &t.rb.key_a, "claim");
+        assert!(out.contains(irori_tools_text::OFF), "{out}");
+    }
+
+    mod irori_tools_text {
+        pub const OFF: &str = "Your person signs off this review";
+    }
+
+    #[test]
+    fn the_authors_own_agent_is_refused() {
+        let (t, _gh) = world("bob-gh", AUTHOR);
+        pr_card(&t);
+        let out = rc(t.a(), &t.ra.key_a, "claim");
+        assert!(out.contains("own PR"), "{out}");
+    }
+
+    #[test]
+    fn a_pr_github_says_someone_else_wrote_is_refused() {
+        let (t, gh) = world("bob-gh", AUTHOR);
+        pr_card(&t);
+        *gh.author.lock().unwrap() = "mallory".into();
+        let out = rc(t.b(), &t.rb.key_a, "claim");
+        assert!(out.contains("someone else wrote"), "{out}");
+        assert!(t.b().board_coord(&t.board).unwrap().claim_of(PR).is_none());
+    }
+
+    #[test]
+    fn an_unknown_github_login_is_refused() {
+        let (t, _) = world("", AUTHOR);
+        pr_card(&t);
+        let out = rc(t.b(), &t.rb.key_a, "claim");
+        assert!(out.contains("doesn't know your GitHub login"), "{out}");
+    }
+
+    #[test]
+    fn a_card_an_agent_made_is_not_a_pr_card_and_lease_refuses_pr_names() {
+        let (t, _gh) = world("bob-gh", AUTHOR);
+        // A plain card that links the PR.
+        let co = t.a().board_coord(&t.board).unwrap();
+        co.create_task(
+            &Two::person(t.a()),
+            NewTask {
+                title: "PR #7: ship it".into(),
+                objective: "x".into(),
+                repo_key: REPO.into(),
+                links: vec![PR.into()],
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+        t.sync();
+        let out = rc(t.b(), &t.rb.key_a, "claim");
+        assert!(out.contains("no card for this PR"), "{out}");
+        let out = call(
+            t.b(),
+            &t.rb.key_a,
+            "lease",
+            serde_json::json!({"resource": "pr/a/b/7"}),
+        );
+        assert!(out.contains("review_claim"), "{out}");
+    }
+
+    #[test]
+    fn a_decline_comments_on_the_card_and_lets_go() {
+        let (t, _gh) = world("bob-gh", AUTHOR);
+        let id = pr_card(&t);
+        rc(t.b(), &t.rb.key_a, "claim");
+        let out = call(
+            t.b(),
+            &t.rb.key_a,
+            "review_claim",
+            serde_json::json!({"pr": PR, "action": "decline", "reason": "not my area"}),
+        );
+        assert!(out.contains("not you"), "{out}");
+        t.sync();
+        let co = t.a().board_coord(&t.board).unwrap();
+        assert!(co.claim_of(PR).is_none());
+        let cs = co.comments(&id).unwrap();
+        assert!(
+            cs.iter()
+                .any(|c| c.declines == PR && c.text.contains("not my area")),
+            "{cs:?}"
+        );
+    }
 }

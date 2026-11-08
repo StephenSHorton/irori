@@ -150,7 +150,7 @@ A new `crates/core/src/service/assistant_chat.rs` folds the rows into one conver
 - **Drafts** (`assistant.answer.draft`) are standalone lines ordered by their own store order, the first per `request` wins.
 - **`posted`:** the first per turn wins, and it fills the turn's `posted` when the `said` row has none.
 - **New chat:** the newest `cleared` row hides every turn whose `asked` row is older, every line and draft older than it, and every `said` row of a hidden turn. Rows are never deleted, so this only hides them (storage.md §4).
-- **Imported rows** (§10) sort before every turn that isn't imported.
+- **Imported rows** (§10) sort before every turn that isn't imported. They also count as older than any New chat, whatever their store order: an import that lands after a New chat stays hidden (as built, #1102).
 - **What is shown:** the turns, lines and drafts after the newest clear. The list command pages them, 50 at a time, newest first.
 - A row whose actor isn't its kind's is skipped.
 - It loads at start and on resync, in the same block as notifications (`load_notifications`, `crates/core/src/service.rs`), and applies arriving rows in the kind loop.
@@ -158,7 +158,7 @@ A new `crates/core/src/service/assistant_chat.rs` folds the rows into one conver
 
 ### Scrubbed before signing
 
-A row is permanent on every device, so a secret that gets into one stays there for good (v0.4 §5.1). Before appending, the writer runs the Core's scrubber (the `scrubber` field on `Services`, which capture uses and which holds the exact secret values `add_secret` gives it) on every text field: the question on the asking device, the reply and its `changed` lines on the assistant's computer, and follow-up lines and drafts on their writer. A match becomes `[redacted:<kind>]`, as capture does.
+A row is permanent on every device, so a secret that gets into one stays there for good (v0.4 §5.1). Before appending, the writer (`Core::assistant_chat_write`, as built in #1102) runs the Core's scrubber (the `scrubber` field on `Services`, which capture uses and which holds the exact secret values `add_secret` gives it) on every text field: the question on the asking device, the reply and its `changed` lines on the assistant's computer, and follow-up lines and drafts on their writer. A match becomes `[redacted:<kind>]`, as capture does.
 
 - The exact values are the writer's own secrets. The pattern rules apply everywhere, so another device's secret that matches no pattern is kept, as in capture. Accepted: the rows reach only the person's devices, and tools leave their text out (below).
 - The reply streams live before it is scrubbed (§5). The stream is only a view and may briefly show text the row redacts. When the `said` row lands, its text replaces the streamed text on every device.
@@ -395,6 +395,7 @@ Nothing needs a gate:
 - Every new kind is private. Older builds store and pass on kinds they don't know (no-server.md: "The private log stores unknown kinds and folds them after an update").
 - `assistantChat` is an optional field on `spawn.host`. Older readers ignore it. It must never ship in a build without the worker (card 3).
 - An older build keeps its own local chat until it updates (§7).
+- An older build's `events` tool and `/v1/events` don't know these kinds, so they show their rows whole to that device's own agents (found in #1102's review). The rows still reach only the person's devices. Cards 3 and 4, which first write them, can weigh whether that wants a note or a gate.
 
 ## 12. Build plan
 

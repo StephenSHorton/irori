@@ -162,6 +162,7 @@ pub fn log_part(kind: &str) -> &'static str {
         "note" => "notes",
         "commit" | "desk" => "code",
         "agent" | "spawn" => "agents",
+        "assistant" => "assistant",
         _ => "other",
     }
 }
