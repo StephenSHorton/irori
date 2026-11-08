@@ -97,6 +97,7 @@ export type IdleReport = B.IdleReport
 export type InboxCounts = B.InboxCounts
 export type InviteStatus = B.InviteStatus
 export type LaterBack = B.LaterBack
+export type LeaseNotice = B.LeaseNotice
 export type Link = B.Link
 export type LinkKind = B.LinkKind
 export type LogFreshness = B.LogFreshness
@@ -616,6 +617,11 @@ export function InboxCounts(p: Partial<B.InboxCounts> = {}): B.InboxCounts {
 /** InviteStatus with Go's zero values for every field left out. */
 export function InviteStatus(p: Partial<B.InviteStatus> = {}): B.InviteStatus {
   return { "role": "", "state": "", "boardId": "", "boardName": "", "peerName": "", "peerFingerprint": "", "myFingerprint": "", "misses": 0, ...p } as B.InviteStatus
+}
+
+/** LeaseNotice with Go's zero values for every field left out. */
+export function LeaseNotice(p: Partial<B.LeaseNotice> = {}): B.LeaseNotice {
+  return { "id": "", "resource": "", "text": "", "at": "", ...p } as B.LeaseNotice
 }
 
 /** Link with Go's zero values for every field left out. */
