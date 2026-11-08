@@ -298,6 +298,8 @@ pub struct Fold {
     pub(crate) no_cards_fn: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pub(crate) board_owner: Option<super::OwnerAtFn>,
     pub(crate) hop_of: Option<super::HopFn>,
+    /// See [`super::Options::others_of`].
+    pub(crate) others_of: Option<super::OthersFn>,
     pub(crate) holds_file: Option<KeyFn>,
     pub(crate) ignored: usize,
     pub(crate) ignored_by: BTreeMap<String, usize>,
@@ -522,6 +524,7 @@ impl Fold {
             no_cards_fn: o.no_cards,
             board_owner: o.board_owner,
             hop_of: o.hop_of,
+            others_of: o.others_of,
             holds_file: o.holds_file,
             ignored: 0,
             ignored_by: BTreeMap::new(),
@@ -780,6 +783,7 @@ impl Fold {
         self.fold_kind(ev);
         if let Some(p) = row::<TaskIdRow>(&ev.payload) {
             self.note_pr_vouchers(&p.task_id);
+            self.note_others(ev, &p.task_id);
         }
     }
 
@@ -1845,11 +1849,22 @@ impl Fold {
             Some(f) if self.on_board && super::carries_hop(kind) => f(actor),
             _ => 0,
         };
-        let ev = if hop > 0 {
+        // Card #1075: on the private log, the cards, edits and steps an
+        // agent writes after it read another person's text say so.
+        let others = !self.on_board
+            && super::carries_others(kind)
+            && actor.starts_with("agent:")
+            && self.others_of.as_ref().is_some_and(|f| f(actor));
+        let ev = if hop > 0 || others {
             let mut v = serde_json::to_value(payload)
                 .map_err(|e| Error::raw(ErrorKind::Store, format!("coord: {e}")))?;
             if let Some(o) = v.as_object_mut() {
-                o.insert("hop".into(), hop.into());
+                if hop > 0 {
+                    o.insert("hop".into(), hop.into());
+                }
+                if others {
+                    o.insert("others".into(), true.into());
+                }
             }
             st.append(actor, kind, &v)?
         } else {

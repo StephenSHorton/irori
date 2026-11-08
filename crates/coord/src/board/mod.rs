@@ -222,6 +222,8 @@ type KeyFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 type StrFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
 /// [`Options::hop_of`].
 pub type HopFn = Arc<dyn Fn(&str) -> i64 + Send + Sync>;
+/// [`Options::others_of`].
+pub type OthersFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 /// [`Options::busy_elsewhere`].
 pub type BusyFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 /// Whether a person owned the board at a row's place (`None`: now).
@@ -353,6 +355,14 @@ pub struct Options {
     /// this coord's lock and takes the inbox's, so what runs under the
     /// inbox lock must never wait on this coord ([`with_inbox_lock_held`]).
     pub hop_of: Option<HopFn>,
+    /// On the private log, whether an agent (by its store actor,
+    /// `agent:<key>`) has read another person's text in its session (card
+    /// #1075, merge-desk §12). The cards, edits and steps rows it writes
+    /// then carry `others`, and that card's spawn waits on the person's
+    /// "OK to start an agent on this?" and never runs Bypass. Called under
+    /// this coord's lock, so it must not wait on any lock the coord's
+    /// callers hold (the inbox keeps the flag beside its own lock).
+    pub others_of: Option<OthersFn>,
     /// On a board, whether this device holds an attachment (by sha256).
     /// A board row naming a file this device holds is preceded by this
     /// device's `attach.offered` for it in the board log, once (v0.5
@@ -407,6 +417,15 @@ pub const HOP_KINDS: &[&str] = &[
 /// Whether a board row of kind carries `hop` (board asks too, §9).
 pub fn carries_hop(kind: &str) -> bool {
     HOP_KINDS.contains(&kind) || kind.starts_with("board.ask.")
+}
+
+/// Whether a private-log row of kind can carry `others` (card #1075): the
+/// rows that make or change a card's text, which its agent later reads.
+pub fn carries_others(kind: &str) -> bool {
+    matches!(
+        kind,
+        store::kinds::TASK_CREATED | store::kinds::TASK_EDITED | store::kinds::TASK_STEPS
+    )
 }
 
 /// A board row's `hop` (0 when it has none), for the bridge.
@@ -1843,6 +1862,26 @@ impl Coord {
         let t = f.create_task(by, task)?;
         f.assign_notice(by, &t.id, to, "")
     }
+
+    /// The cards on the private log marked by an agent that had read
+    /// another person's text, which wait on "OK to start an agent on
+    /// this?" (card #1075). See [`Fold::marked_to_ask`].
+    pub fn marked_to_ask(&self) -> Vec<Task> {
+        self.lock().marked_to_ask()
+    }
+
+    /// Asks the person "OK to start an agent on this?" about marked card
+    /// `id` (card #1075). See [`Fold::ask_marked`].
+    pub fn ask_marked(&self, by: &str, id: &str, context: &str) -> Result<()> {
+        self.lock().ask_marked(by, id, context)
+    }
+
+    /// The agents a spawn row says read another person's text (card
+    /// #1075), for the inbox's flag: kept across a restart by the rows.
+    pub fn spawned_others(&self) -> Vec<String> {
+        self.lock().spawned_others()
+    }
+
     /// The cards given to this person that wait on "OK to start an agent
     /// on this?" (card #573). See [`Fold::given_to_ask`].
     pub fn given_to_ask(&self) -> Vec<Task> {

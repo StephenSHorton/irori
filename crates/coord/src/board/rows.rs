@@ -746,6 +746,10 @@ crate::go_struct! {
         /// It counts toward "My agents may start agents" (card #575): an
         /// agent asked for it, or an agent that counts went on to cause it.
         pub counted: bool = "counted" "omit",
+        /// The agent it starts reads another person's text (card #1075):
+        /// its brief quotes it, or its card is on a shared board. The
+        /// inbox flags the agent for the session it starts.
+        pub others: bool = "others" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }
