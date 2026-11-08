@@ -165,3 +165,56 @@ fn a_row_whose_agent_ended_without_answering_reads_no_answer() {
     assert_eq!(b.state, row::NO_ANSWER);
     assert!(st.finished, "{st:?}");
 }
+
+/// Pause on this machine (card #787) is the same graceful stop for one
+/// device: it holds starts here and winds this device's agents down; off
+/// lifts it and closes what hasn't reached an agent.
+#[test]
+fn pause_here_winds_this_devices_agents_down_and_off_resumes() {
+    let r = Rig::new();
+    let ib = r.w.core.inbox();
+    let v = r.w.agents_pause_set(true).unwrap();
+    assert!(v.on);
+    let st = r.w.wind_down_status();
+    assert_eq!(st.scope, irori_window::wind_down::SCOPE_DEVICE, "{st:?}");
+    assert!(!st.on, "Pause here isn't Pause all");
+    let ids: Vec<String> = st
+        .rows
+        .iter()
+        .filter(|x| x.key == r.key_a || x.key == r.key_b)
+        .map(|x| x.delivery_id.clone())
+        .collect();
+    assert_eq!(ids.len(), 2, "{st:?}");
+    for id in &ids {
+        assert!(inbox::is_wind_down(&ib.get(id).unwrap().message));
+    }
+    let v = r.w.agents_pause_set(false).unwrap();
+    assert!(!v.on);
+    let st = r.w.wind_down_status();
+    assert!(st.off && st.finished, "{st:?}");
+    for id in &ids {
+        assert_eq!(ib.get(id).unwrap().state, inbox::st::SKIPPED);
+    }
+}
+
+/// Off of Pause all leaves a wind-down going to a device still paused by
+/// its own Pause (its graceful stop goes on).
+#[test]
+fn unpause_all_keeps_a_paused_devices_wind_downs() {
+    let r = Rig::new();
+    let ib = r.w.core.inbox();
+    r.w.agents_pause_set(true).unwrap();
+    let ids: Vec<String> = r
+        .w
+        .wind_down_status()
+        .rows
+        .iter()
+        .map(|x| x.delivery_id.clone())
+        .collect();
+    r.w.wind_down_all().unwrap();
+    r.w.wind_down_off().unwrap();
+    assert!(r.w.core.agents_pause().on, "this device's own Pause stays");
+    for id in &ids {
+        assert_ne!(ib.get(id).unwrap().state, inbox::st::SKIPPED, "{id}");
+    }
+}

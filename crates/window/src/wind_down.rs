@@ -12,9 +12,11 @@ use crate::Window;
 
 /// windDown:changed: the switch or a run's status moved.
 pub const EVENT_WIND_DOWN: &str = "windDown:changed";
-/// A run's scope: every one of the person's devices (the only one since
-/// card #787).
+/// A run's scope: Wind down, every one of the person's devices.
 pub const SCOPE_ALL: &str = "all";
+/// A run's scope: Pause agents on this device, its graceful stop (card
+/// #787).
+pub const SCOPE_DEVICE: &str = "device";
 
 /// What a wind-down says (the wake's preamble carries the steps).
 pub const WIND_DOWN_TEXT: &str = "Wind down: save your place, hand back your cards, release your leases and reply \"wound down\". Then stop until I resume you.";
@@ -122,8 +124,6 @@ impl Window {
     /// agents. A device already paused stays as it was.
     pub fn wind_down_all(&self) -> Result<WindDownStatus, String> {
         let here = self.core.device_id().to_string();
-        let me = self.core.user_sender();
-        let ib = self.core.inbox();
         let mut agents = self.core.mesh_agents();
         agents.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.key.cmp(&b.key)));
         agents.dedup_by(|a, b| a.key == b.key);
@@ -135,6 +135,16 @@ impl Window {
         devs.sort();
         devs.dedup();
         self.core.wind_down_pause(&devs)?;
+        self.start_run(SCOPE_ALL, agents);
+        Ok(self.wind_down_told())
+    }
+
+    /// The shared graceful stop (card #787): a wind-down to each of
+    /// `agents`, as the run that replaces any earlier one. Wind down sends
+    /// it to every device's agents, Pause agents to this device's.
+    fn start_run(&self, scope: &str, agents: Vec<irori_core::AgentCard>) {
+        let me = self.core.user_sender();
+        let ib = self.core.inbox();
         let mut run = Run {
             st: WindDownStatus {
                 id: format!(
@@ -144,7 +154,7 @@ impl Window {
                         .map(|d| d.as_millis())
                         .unwrap_or_default()
                 ),
-                scope: SCOPE_ALL.into(),
+                scope: scope.into(),
                 ..WindDownStatus::default()
             },
         };
@@ -184,7 +194,25 @@ impl Window {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .run = Some(run);
-        Ok(self.wind_down_told())
+    }
+
+    /// Closes the wind-downs not reached yet whose agent's device starts
+    /// agents again (no pause holds it), every device's (card #787).
+    fn cancel_unpaused(&self) -> Vec<String> {
+        let ib = self.core.inbox();
+        let by = self.core.user_sender().key;
+        let pauses = self.core.agents_pauses();
+        let mut errs = vec![];
+        for d in ib.open_wind_downs() {
+            let dev = irori_identity::owner::device_of(&d.to);
+            if pauses.get(dev).is_some_and(|p| p.on) {
+                continue;
+            }
+            if let Err(e) = ib.cancel_wind_down(&d.id, &by) {
+                errs.push(e.to_string());
+            }
+        }
+        errs
     }
 
     /// Wind down off (WindDownService.Off, card #787), at any time: the
@@ -192,17 +220,13 @@ impl Window {
     /// the pauses Wind down set are lifted, and the cards the agents left
     /// start again in queue order. Agents already winding down finish.
     pub fn wind_down_off(&self) -> Result<WindDownStatus, String> {
-        let ib = self.core.inbox();
-        let by = self.core.user_sender().key;
         let mut errs = vec![];
-        for d in ib.open_wind_downs() {
-            if let Err(e) = ib.cancel_wind_down(&d.id, &by) {
-                errs.push(e.to_string());
-            }
-        }
         if let Err(e) = self.core.wind_down_lift() {
             errs.push(e);
         }
+        // A device still paused (by the person, or its own Pause agents)
+        // keeps its graceful stop going.
+        errs.extend(self.cancel_unpaused());
         if let Some(run) = self
             .wind_down
             .lock()
@@ -218,6 +242,49 @@ impl Window {
         } else {
             Err(format!("wind down off: {}", errs.join("; ")))
         }
+    }
+
+    /// Pause agents from the app (card #787): a graceful stop of this
+    /// device. On holds starts here and winds this device's agents down
+    /// (their cards may start on the person's other devices); off lifts it
+    /// and closes the wind-downs not reached yet. The `agents_pause` tool
+    /// only holds starts.
+    pub(crate) fn pause_here(&self, on: bool) -> Result<(), String> {
+        let was = self.core.agents_pause().on;
+        self.core.set_agents_paused(on)?;
+        if on && !was {
+            let here = self.core.device_id().to_string();
+            let mut agents: Vec<_> = self
+                .core
+                .mesh_agents()
+                .into_iter()
+                .filter(|a| a.device_id == here)
+                .collect();
+            agents.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.key.cmp(&b.key)));
+            agents.dedup_by(|a, b| a.key == b.key);
+            if !agents.is_empty() {
+                self.start_run(SCOPE_DEVICE, agents);
+            }
+        }
+        if !on {
+            let errs = self.cancel_unpaused();
+            if let Some(run) = self
+                .wind_down
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .run
+                .as_mut()
+                && run.st.scope == SCOPE_DEVICE
+            {
+                run.st.off = true;
+            }
+            if !errs.is_empty() {
+                self.wind_down_told();
+                return Err(format!("pause agents off: {}", errs.join("; ")));
+            }
+        }
+        self.wind_down_told();
+        Ok(())
     }
 
     /// The switch, read from every device's Pause agents (card #787).
