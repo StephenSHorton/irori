@@ -1881,6 +1881,82 @@ fn a_fallback_rings_only_past_the_cursor() {
     );
 }
 
+/// Assistants talk 1 (design §4): a space's #office-assistants has an id
+/// every member computes, and a row carried by another space (or Personal)
+/// naming it is refused, whichever copy folds first.
+#[test]
+fn the_assistants_channel_id_is_the_spaces_and_no_other_space_can_make_it() {
+    let (s1, s2) = (
+        talk::assistants_channel_id("s1"),
+        talk::assistants_channel_id("s2"),
+    );
+    assert_ne!(s1, s2);
+    assert!(s1.starts_with("ch_oa_") && talk::is_channel(&s1));
+    assert!(talk::is_assistants_channel(&s1, "s1"));
+    assert!(!talk::is_assistants_channel(&s1, "s2"));
+    assert!(!talk::is_assistants_channel(&s1, ""));
+
+    let t = Talk::new(None, None);
+    let t0 = hlc_at(fixed_now());
+    let made = |seq: i64, id: &str, space: &str| {
+        let p = serde_json::json!({
+            "channelId": id, "name": "office-assistants", "by": "irori", "spaceId": space
+        });
+        row(
+            "dev-b",
+            seq,
+            t0 + seq as u64,
+            "irori",
+            kinds::TALK_CHANNEL_CREATED,
+            &p,
+        )
+    };
+    // S2 carries S1's id first: refused, so S1's own copy still folds.
+    assert!(!t.apply(&made(10, &s1, "s2")), "S1's id in S2");
+    assert!(!t.apply(&made(11, &s1, "")), "S1's id in Personal");
+    assert!(t.channel(&s1).is_none());
+    assert!(t.apply(&made(12, &s1, "s1")));
+    assert_eq!(t.channel(&s1).unwrap().space_id, "s1");
+    // A made-up id in the range is refused too.
+    assert!(!t.apply(&made(13, "ch_oa_0000000000000000", "s1")));
+}
+
+/// Assistants talk 1: `ensure_assistants_channel` writes it once, in the
+/// space asked and never in Personal, and an archived one stays so.
+#[test]
+fn ensure_assistants_channel_writes_once_and_an_archived_one_stays() {
+    let (e, sp) = (Env::new(), Env::on("dev-a"));
+    let t = talk(&e);
+    t.set_spaces(std::sync::Arc::new(ManySpaces { st: sp.st.clone() }));
+    assert!(!t.ensure_assistants_channel("").unwrap(), "Personal");
+    assert!(t.ensure_assistants_channel("s1").unwrap());
+    assert!(!t.ensure_assistants_channel("s1").unwrap(), "twice");
+    let id = talk::assistants_channel_id("s1");
+    let c = t.channel(&id).unwrap();
+    assert_eq!(
+        (c.name.as_str(), c.space_id.as_str()),
+        ("office-assistants", "s1")
+    );
+    assert!(!c.archived);
+    assert!(t.channel(&talk::assistants_channel_id("s2")).is_none());
+
+    let ev = row(
+        "dev-a",
+        900,
+        hlc_at(fixed_now()) + 900,
+        "irori",
+        kinds::TALK_CHANNEL_EDITED,
+        &serde_json::json!({"channelId": id, "archived": true, "spaceId": "s1"}),
+    );
+    assert!(t.apply(&ev));
+    assert!(t.channel(&id).unwrap().archived);
+    assert!(
+        !t.ensure_assistants_channel("s1").unwrap(),
+        "not brought back"
+    );
+    assert!(t.channel(&id).unwrap().archived);
+}
+
 // ---- a huddle's title and who took part (card #1043) -------------------------
 
 /// Another person in a space, as their rows name them.

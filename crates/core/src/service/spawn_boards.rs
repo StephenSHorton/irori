@@ -201,6 +201,51 @@ impl Services {
         }
     }
 
+    /// Flags the agents Irori started that read another person's text
+    /// (card #1075): their spawn rows say so, and the inbox's flag for them
+    /// is in memory, so this sets it again after a restart. Cheap and
+    /// idempotent, every sweep.
+    pub(crate) fn mark_spawned_others(&self) {
+        let mut keys = self.coord.spawned_others();
+        for b in self.visible_boards() {
+            keys.extend(b.coord().spawned_others());
+        }
+        for k in keys {
+            self.inbox.mark_saw_others(&k);
+        }
+    }
+
+    /// Stops at each card on the private log that an agent made or changed
+    /// after it read another person's text: it asks the person in Needs
+    /// you "OK to start an agent on this?", and nothing starts without
+    /// their yes (card #1075, decision 50). One device asks, the one that
+    /// would start the agent. Runs even while paused: it starts nothing.
+    pub(crate) fn ask_marked_cards(&self) {
+        let me = self.user_sender().key;
+        for t in self.coord.marked_to_ask() {
+            if self.spawn_device(&t).is_none_or(|d| d != self.device.id) {
+                continue;
+            }
+            let asks = if t.objective.trim().is_empty() {
+                &t.title
+            } else {
+                &t.objective
+            };
+            let cut: String = asks.chars().take(GIVEN_CONTEXT_CHARS).collect();
+            let more = if cut.len() < asks.len() {
+                "… (open the card for the rest)"
+            } else {
+                ""
+            };
+            let context = format!(
+                "An agent made or changed this card after it read another person's text. It asks: {cut}{more}\n\nIrori stopped here because that text may not be yours. An agent would run on this computer, under your own settings and cap, never on Bypass, and treat the card as that person's request."
+            );
+            if let Err(e) = self.coord.ask_marked(&me, &t.id, &context) {
+                logf(format_args!("marked card {}: {e}", t.short_ref()));
+            }
+        }
+    }
+
     /// The person asks for an agent on a card given to them after their
     /// Not now: the question comes back on this device, which then starts
     /// it on their yes. False when `id` is no such card.
@@ -322,6 +367,9 @@ impl Services {
             weight: t.run_level().to_string(),
             advisor: super::spawn::advisor_in(std::path::Path::new(&self.presence.claude_dir())),
             counted: self.start_counts(&log.co, t),
+            // On a shared board its agent reads the members' words (card
+            // #1075): the session starts flagged.
+            others: true,
             ..SpawnAsk::default()
         };
         let Some(g) = log

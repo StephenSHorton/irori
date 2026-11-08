@@ -436,6 +436,22 @@ impl tools::Backend for ToolsView {
     fn device_id(&self) -> String {
         self.0.device.id.clone()
     }
+    fn device_free(&self, path: &str) -> Option<tools::DeviceFree> {
+        let dir = if path.is_empty() {
+            self.0.data_dir.clone()
+        } else {
+            PathBuf::from(path)
+        };
+        let q = sys::meters::quick(&dir);
+        Some(tools::DeviceFree {
+            dir: dir.to_string_lossy().into_owned(),
+            disk: q.disk.map(|d| (d.free_bytes, d.total_bytes)),
+            mem: q
+                .mem
+                .map(|m| (m.total_bytes.saturating_sub(m.used_bytes), m.total_bytes)),
+            cpu: q.cpu.and_then(|c| c.pct.map(|p| (p, c.cores))),
+        })
+    }
     fn agents(&self) -> Vec<presence::AgentCard> {
         self.0
             .roster
@@ -1282,6 +1298,17 @@ impl Core {
                     is_owner: Some(is_owner.clone()),
                     revoked: Some(revoked.clone()),
                     done_check: true,
+                    // Whether an agent read another person's text (card
+                    // #1075): the inbox keeps the flag beside its lock, so
+                    // this write-time check never waits on it.
+                    others_of: Some({
+                        let sawn = ib.saw_others_handle();
+                        Arc::new(move |actor: &str| {
+                            actor
+                                .strip_prefix(store::kinds::AGENT_ACTOR_PREFIX)
+                                .is_some_and(|k| sawn.has(k))
+                        })
+                    }),
                     // The private board's spawned-agent switch (card #446).
                     spawning: Some({
                         let on = spawn_state.on.clone();

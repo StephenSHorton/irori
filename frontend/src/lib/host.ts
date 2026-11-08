@@ -626,6 +626,8 @@ export const CallService = {
   // "Transcribe what I say in calls" (#656), on all the person's devices.
   Transcribe: () => call(commands.callTranscribe()),
   TranscribeSet: (on: boolean) => done(commands.callTranscribeSet(on)),
+  // Whether a huddle in this conversation reaches agents live (#1047).
+  AgentsReady: (convId: string) => call(commands.callAgentsReady(convId)),
   // A huddle's transcript (#656): every line, named.
   Transcript: (callId: string) => call(commands.talkCallTranscript(callId)),
 }

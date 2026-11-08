@@ -137,16 +137,28 @@ test("transcriptNotice says who reads it, or why it isn't written", () => {
   expect(
     transcriptNotice({ convKind: "channel", convName: "suzuri", ...on })
   ).toBe(
-    "This huddle is transcribed. What you say is written down in #suzuri for its members and their agents."
+    "Agents hear this huddle. What you say is written down as you speak, for #suzuri's members and all their agents."
   )
   expect(transcriptNotice({ convKind: "dm", convName: "Spencer", ...on })).toBe(
-    "This huddle is transcribed. What you say is written down for the two of you."
+    "Agents hear this huddle. What you say is written down as you speak, for the two of you and your agents."
   )
   // A Personal channel: you and your agents.
   expect(
     transcriptNotice({ convKind: "personal", convName: "us", ...on })
   ).toBe(
-    "This huddle is transcribed. What you say is written down in #us for you and your agents."
+    "Agents hear this huddle. What you say is written down as you speak, for you and your agents."
+  )
+  // A space with a device too old for huddle rows: agents and the canvas
+  // are off, and the lines arrive at the end.
+  expect(
+    transcriptNotice({
+      convKind: "channel",
+      convName: "suzuri",
+      ...on,
+      agentsOff: true,
+    })
+  ).toBe(
+    "Agents and the canvas are off: someone's Irori in this space needs updating. What you say is written down in #suzuri at the end, for its members and their agents."
   )
   expect(
     transcriptNotice({
@@ -198,7 +210,7 @@ test("transcriptNotice says who reads it, or why it isn't written", () => {
       convName: "person:0123abcdef",
       ...on,
     })
-  ).toContain("in #channel for")
+  ).toContain("for #channel's members")
   expect(
     transcriptNotice({
       convKind: "channel",
@@ -249,6 +261,18 @@ test("whoCanRead names the channel, or the two of you", () => {
   )
   expect(whoCanRead({ convKind: "dm", convName: "Spencer" })).toBe(
     "Who can read it: the two of you."
+  )
+})
+
+test("whoCanRead says agents read a DM huddle said under the new notice", () => {
+  expect(
+    whoCanRead({ convKind: "dm", convName: "Spencer", agents: true })
+  ).toBe("Who can read it: the two of you and your agents.")
+  expect(
+    whoCanRead({ convKind: "dm", convName: "Spencer", agents: false })
+  ).toBe("Who can read it: the two of you.")
+  expect(whoCanRead({ convKind: "personal", convName: "us" })).toBe(
+    "Who can read it: you and your agents."
   )
 })
 

@@ -297,7 +297,8 @@ export function AppSidebar({
                 "fixed inset-y-0 left-0 z-50 w-[min(18rem,85vw)] bg-background pt-[var(--safe-top)] pb-[var(--safe-bottom)] shadow-xl transition-transform",
                 !drawer && "invisible -translate-x-full"
               )
-            : "bg-sidebar/60"
+            : // Docked: clear of the status bar and side cutout too (card #1092).
+              "bg-sidebar/60 pt-[var(--safe-top)] pb-[var(--safe-bottom)] pl-[var(--safe-left)]"
         )}
         style={narrow ? undefined : { width: folded ? foldedWidth : width }}
       >
