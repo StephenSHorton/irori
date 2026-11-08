@@ -229,6 +229,7 @@ fn message_schema() -> Schema {
     f.push(("ref", Schema::String));
     f.push(("notice", Schema::Bool));
     f.push(("stop", Schema::Bool));
+    f.push(("others", Schema::Bool));
     f.push(("board", crate::bridge::board_from_schema()));
     f.push((
         "attachments",
@@ -306,6 +307,7 @@ pub fn decode_message(payload: &[u8]) -> std::result::Result<Message, json::Erro
         ref_: s(&o, "ref"),
         notice: b(&o, "notice"),
         stop: b(&o, "stop"),
+        others: b(&o, "others"),
         board: o
             .get("board")
             .map(crate::bridge::decode_board_from)
@@ -696,6 +698,8 @@ pub(crate) struct Inner {
     pub progress: HashMap<String, GoTime>,
     /// Commits already counted as progress, by sha (a relink isn't new).
     pub progress_shas: HashSet<String>,
+    /// Agents that read another person's text (card #1075).
+    pub sawn: Arc<SawOthers>,
     pub pairs: HashMap<String, Vec<GoTime>>,
     /// receive.set rows by (boardId, personId).
     pub receive: BTreeMap<(String, String), crate::bridge::Setting<crate::ReceiveSetting>>,
@@ -726,6 +730,39 @@ pub(crate) struct Inner {
 /// The messaging core. Safe for concurrent use.
 pub struct Inbox {
     pub(crate) inner: Mutex<Inner>,
+    /// Beside the lock on purpose (card #1075): a board coord's write asks
+    /// it under the coord's own lock, and the inbox calls into coords under
+    /// its own, so it may not wait on `inner`.
+    pub(crate) sawn: Arc<SawOthers>,
+}
+
+/// The agents that read another person's text, sticky for their session
+/// (card #1075): folded from the deliveries that reached them (a board row,
+/// or a send from a session already flagged), and marked in memory by core
+/// (a spawn with others' text, a `review_claim`), which marks its spawned
+/// agents again after a restart. Its own lock, taken last: nothing is
+/// called while it is held.
+#[derive(Default)]
+pub struct SawOthers {
+    set: Mutex<BTreeSet<String>>,
+}
+
+impl SawOthers {
+    pub fn has(&self, agent: &str) -> bool {
+        self.set
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(agent)
+    }
+
+    pub fn add(&self, agent: &str) {
+        if !agent.is_empty() {
+            self.set
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(agent.to_string());
+        }
+    }
 }
 
 /// A change stream from [`Inbox::subscribe`]. Dropping it (or
@@ -796,6 +833,7 @@ impl Inbox {
             let me = format!("user:{}", opts.device_id);
             Arc::new(move |k: &str| k == me)
         });
+        let sawn = Arc::new(SawOthers::default());
         let mut b = Inner {
             st,
             roster,
@@ -833,6 +871,7 @@ impl Inbox {
             known: BTreeMap::new(),
             pol: Policy::default(),
             running: BTreeMap::new(),
+            sawn: sawn.clone(),
             turned: HashSet::new(),
             progress: HashMap::new(),
             progress_shas: HashSet::new(),
@@ -858,6 +897,7 @@ impl Inbox {
         };
         b.replay()?;
         Ok(Inbox {
+            sawn: b.sawn.clone(),
             inner: Mutex::new(b),
         })
     }
@@ -1203,6 +1243,21 @@ impl Inner {
             }
         }
         let is_owner_to = !r.to.is_empty() && self.is_owner(&r.to);
+        // Card #1075: an agent that has the text of another person (a
+        // board row) or of a session that read it (a flagged send) has
+        // read it. Held and queued rows haven't reached it yet.
+        if matches!(
+            r.state.as_str(),
+            st::DELIVERED | st::ENGAGED | st::ANSWERED | st::DEFERRED
+        ) && !r.to.is_empty()
+            && !is_owner_to
+            && self
+                .msgs
+                .get(&r.message_id)
+                .is_some_and(|m| !m.board.is_empty() || m.others)
+        {
+            self.sawn.add(&r.to);
+        }
         let d = self.dels.get_mut(&r.delivery_id).expect("delivery");
         if r.state != st::QUEUED || r.to != prev_to {
             d.wake_tries = 0;
