@@ -25,7 +25,8 @@ use store::{Filter, Store, kinds};
 
 use super::Services;
 use super::spawn_agents::{
-    AGENT_STARTS_CEILING, AGENT_STARTS_ON, AGENT_STARTS_ROW, AgentAsk, AgentStarts,
+    AGENT_STARTS_CEILING, AGENT_STARTS_ON, AGENT_STARTS_ROW, AgentAsk, AgentStarts, REVIEWS_ON,
+    REVIEWS_ROW,
 };
 use crate::logf;
 
@@ -1486,6 +1487,10 @@ pub(crate) struct SpawnState {
     pub caps: RwLock<HashMap<String, i64>>,
     /// "My agents may start agents on my cards" (card #575).
     pub agent_starts: RwLock<AgentStarts>,
+    /// The person's "Agents review other people's PRs without asking"
+    /// (merge-desk §12.8): `false` only when they turned it off, so no row
+    /// means on.
+    pub reviews_off: std::sync::atomic::AtomicBool,
     /// Pause agents (card #665), by device: no start there while on.
     pub agents_pause: RwLock<HashMap<String, super::spawn_pause::AgentsPause>>,
     /// Cards an agent asked for an agent on, until the request is written.
@@ -1655,6 +1660,7 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
     let mut caps = HashMap::new();
     let mut offers = HashMap::new();
     let mut starts = None;
+    let mut reviews = REVIEWS_ON;
     let mut pause = super::spawn_pause::PauseFold::default();
     for ev in evs {
         if ev.actor != "user" {
@@ -1701,6 +1707,10 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
             if let Some(dev) = super::spawn_pause::paused_device(&r.device) {
                 // Pause agents on a device (card #665).
                 pause.add(dev, &r);
+            } else if r.device == REVIEWS_ROW {
+                // The person's switch for reviews without asking
+                // (merge-desk §12.8): on unless a row says off.
+                reviews = r.on.unwrap_or(REVIEWS_ON);
             } else if r.device == AGENT_STARTS_ROW {
                 starts = Some(AgentStarts {
                     on: r.on.unwrap_or(AGENT_STARTS_ON),
@@ -1739,6 +1749,8 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
     *s.on.write().unwrap_or_else(|e| e.into_inner()) = on;
     *s.caps.write().unwrap_or_else(|e| e.into_inner()) = caps;
     *s.agent_starts.write().unwrap_or_else(|e| e.into_inner()) = starts.unwrap_or_default();
+    s.reviews_off
+        .store(!reviews, std::sync::atomic::Ordering::SeqCst);
     *s.offers.write().unwrap_or_else(|e| e.into_inner()) = offers;
     *s.agents_pause.write().unwrap_or_else(|e| e.into_inner()) = pause.done();
 }
@@ -1933,6 +1945,8 @@ impl Services {
             .unwrap_or_else(|e| e.into_inner());
         let rows = self.store.as_ref();
         load_spawn(rows, &self.spawn);
+        // Another device's row reaches here too: the fence follows it.
+        self.push_reviews();
         self.clean_after_start();
         self.bind_spawns();
         self.take_up_started();

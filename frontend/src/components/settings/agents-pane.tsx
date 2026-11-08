@@ -40,6 +40,7 @@ import {
   sentBackRate,
   shortModel,
   runningSince,
+  useAgentReviews,
   useAgentStarts,
   useRunHistory,
   useAgents,
@@ -519,6 +520,7 @@ function LimitsSection({
           </p>
         )}
         <AgentStartsRow open={open} />
+        <AgentReviewsRow open={open} />
         {error && l && (
           <p className="text-[12.5px] text-destructive">{error}</p>
         )}
@@ -604,6 +606,41 @@ function AgentStartsRow({ open }: { open: boolean }) {
         }
       >
         <AgentStartsControls starts={s} set={set} />
+      </LimitRow>
+    </ul>
+  )
+}
+
+// AgentReviewsRow is "Agents review other people's PRs without asking"
+// (merge-desk §12.8). On when unset; off makes each review ask the person.
+// It governs approving and requesting changes: comments stay allowed.
+function AgentReviewsRow({ open }: { open: boolean }) {
+  const { on, error, set } = useAgentReviews(open)
+  const id = useId()
+  if (on === null) return null
+  return (
+    <ul
+      className="grid divide-y divide-border rounded-md border border-border"
+      data-setting="agents.reviews"
+    >
+      <LimitRow
+        title="Agents review other people's PRs without asking"
+        hint={
+          <>
+            Across all your computers. Lets an agent approve or request changes
+            on a pull request in a repo you work in, under your GitHub login.
+            Comments are always allowed. Off, each review asks you first. Agents
+            can't change this.
+            {error && <span className="text-destructive"> {error}</span>}
+          </>
+        }
+      >
+        <Switch
+          id={id}
+          aria-label="Agents review other people's PRs without asking"
+          checked={on}
+          onCheckedChange={(v) => void set(v)}
+        />
       </LimitRow>
     </ul>
   )
