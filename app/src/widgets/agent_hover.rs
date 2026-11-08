@@ -12,11 +12,12 @@
 //! card (it reaches the tile under it), as on main's desktop.
 //!
 //! A touch screen has no hover (main's `pointer: coarse`, card #227): a tap
-//! opens the card, and it stays until the next tap. Rune has no press a
-//! handler can decline, so the face only takes presses while the last
-//! pointer was a finger ([`State`]'s `widgets.touch`, kept by the window
-//! root): a mouse click still reaches the tile, and the very first touch
-//! of a run, if it lands on a face, still does too.
+//! opens the card, and it stays until the next tap off it, which closes it
+//! and does nothing else (on main that tap also reaches what is under it).
+//! Rune has no press a handler can decline, so the face only takes presses
+//! while the last pointer was a finger ([`State`]'s `widgets.touch`, kept by
+//! the window root): a mouse click still reaches the tile, and the very
+//! first touch of a run, if it lands on a face, still does too.
 
 use std::time::Duration;
 
@@ -94,18 +95,9 @@ fn leave(s: &mut State, anchor: Option<&str>) {
     }
 }
 
-/// A finger tapped `anchor`'s face: its card opens and stays, or a second
-/// tap closes it.
+/// A finger tapped `anchor`'s face: its card opens and stays. (The scrim
+/// in [`card`] takes the tap that closes it.)
 fn tapped(s: &mut State, anchor: &str, who: &AgentRef) {
-    let open = s
-        .widgets
-        .hover
-        .as_ref()
-        .is_some_and(|h| h.anchor == anchor && h.pinned);
-    if open {
-        s.widgets.hover = None;
-        return;
-    }
     enter(s, anchor, who);
     if let Some(h) = s.widgets.hover.as_mut() {
         h.pinned = true;

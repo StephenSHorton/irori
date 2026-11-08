@@ -745,8 +745,7 @@ fn pick_theme(s: &mut State, id: &str) {
 }
 
 /// Sets one of your colours ("accent" or "tint") and switches to Custom.
-/// Each change in the picker sets it, as main's colour input does.
-/// Sets a custom colour. Each step of a drag or keystroke shows at once
+/// Each step of a drag or keystroke shows at once
 /// (`save` false); it is written and sent to the cards when it settles.
 fn pick_colour(s: &mut State, which: &str, hex: &str, save: bool) {
     let hex = hex.trim().to_ascii_lowercase();

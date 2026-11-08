@@ -425,7 +425,6 @@ fn close_dialog(s: &mut State) {
     if s.settings.open_select.take().is_some() {
         return;
     }
-    appearance::hidden(s);
     s.settings.tick_gen.fetch_add(1, Ordering::SeqCst);
     s.close_dialog();
 }

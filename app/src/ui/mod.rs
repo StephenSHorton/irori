@@ -221,6 +221,9 @@ impl State {
 
     /// Opens a dialog; its package hears `app:dialog-opened` (to load).
     pub fn open_dialog(&mut self, d: Dialog) {
+        if !matches!(d, Dialog::Settings(_)) {
+            self.settings_going();
+        }
         self.dialog = Some(d);
         // The dialog's package reads what it shows (settings: its pane).
         let ev = Event {
@@ -231,7 +234,16 @@ impl State {
     }
 
     pub fn close_dialog(&mut self) {
+        self.settings_going();
         self.dialog = None;
+    }
+
+    /// Settings is about to go, however it was asked to (a shortcut can
+    /// replace it): a colour typed there is saved, as no blur will be.
+    fn settings_going(&mut self) {
+        if matches!(self.dialog, Some(Dialog::Settings(_))) {
+            crate::settings::appearance::hidden(self);
+        }
     }
 
     /// A note at the bottom of the window for a few seconds.

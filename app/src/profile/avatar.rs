@@ -146,10 +146,10 @@ pub fn shrink_avatar(bytes: &[u8]) -> Result<String, String> {
 /// decode off the UI thread, so the cache needs no wake.
 static IMAGES: LazyLock<ImageCache> = LazyLock::new(|| ImageCache::new(Arc::new(|| {})));
 
-/// An avatar's picture, decoded by Rune (PNG, JPEG and WebP: the React
-/// app saved WebP first), for [`face`]; None when it isn't one (the face
-/// falls back to the initial). It waits for the decode: call it off the
-/// UI thread.
+/// An avatar's picture, decoded by Rune (any raster it reads: Irori only
+/// saves PNG, JPEG and WebP, the React app WebP first), for [`face`]; None
+/// when it isn't one (the face falls back to the initial). It waits for
+/// the decode: call it off the UI thread.
 pub fn decode(avatar: &str) -> Option<Pixels> {
     if !is_avatar(avatar) {
         return None;
