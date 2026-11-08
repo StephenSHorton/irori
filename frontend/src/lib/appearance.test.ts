@@ -157,11 +157,9 @@ test("followSystem re-applies a system choice when the computer flips", () => {
     stop()
     expect(subs.size).toBe(0)
   } finally {
-    // Put back what was there, or leave nothing behind: a stray key makes
-    // other files (the ELK canvas tests) think a DOM exists.
-    if (had.window) g.window = saved.window
-    else delete g.window
-    if (had.document) g.document = saved.document
-    else delete g.document
+    for (const k of ["window", "document"] as const) {
+      if (had[k]) g[k] = saved[k]
+      else delete g[k]
+    }
   }
 })
