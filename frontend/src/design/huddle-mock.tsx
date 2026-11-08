@@ -840,7 +840,7 @@ export default function HuddleMock() {
           title="Roster · assistants"
           show={tab === "people"}
           wide={!narrow}
-          at="md:top-14 md:left-3"
+          at="md:top-[5rem] md:left-3"
           className="md:w-60"
         >
           {roster}
@@ -849,7 +849,7 @@ export default function HuddleMock() {
           title="Transcript · live"
           show={tab === "talk"}
           wide={!narrow}
-          at="md:top-14 md:right-3"
+          at="md:top-[5rem] md:right-3"
           className="md:bottom-3 md:w-[24rem]"
           flush
         >
