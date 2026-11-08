@@ -544,6 +544,10 @@ pub struct Task {
     /// Undo puts back. Empty when Irori never renamed it.
     #[serde(skip_serializing_if = "omit")]
     pub title_was: String,
+    /// What Irori did on this card (card #786), oldest first, one per
+    /// record id; `undone` once the person took it back.
+    #[serde(skip_serializing_if = "omit")]
+    pub did: Vec<super::tidy::Did>,
     pub objective: String,
     #[serde(skip_serializing_if = "omit")]
     pub done_criteria: String,

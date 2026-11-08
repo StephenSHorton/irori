@@ -95,7 +95,7 @@ pub const SUB_BUFFER: usize = 64;
 /// fold only these kinds, and so does [`super::Coord::fold_live`], so a
 /// test that folds a kind missing here fails as production would (card
 /// #614; `pr.state` was missed until #542).
-pub const FOLLOW_KINDS: [&str; 16] = [
+pub const FOLLOW_KINDS: [&str; 17] = [
     "task.",
     "lease.",
     "blocker.",
@@ -122,6 +122,8 @@ pub const FOLLOW_KINDS: [&str; 16] = [
     // What GitHub said about a card's PR (card #542): a phone has no gh, so
     // these rows are all it knows, and a restart must keep them.
     kinds::PR_STATE,
+    // What Irori did (card #786): a Board-readable record, replayed.
+    kinds::ASSISTANT_DID,
 ];
 
 /// Whether coord folds `kind`.
@@ -261,6 +263,12 @@ pub struct Fold {
     pub(crate) busy_elsewhere: Option<super::BusyFn>,
     pub(crate) on_board: bool,
     pub(crate) done_check: bool,
+    /// "Tidy the board" (card #786): the sweep writes records only when on.
+    pub(crate) tidy: bool,
+    /// Records about no card (a lease notice, card #786).
+    pub(crate) loose_did: Vec<super::tidy::Did>,
+    /// Records ahead of their card, by card id.
+    pub(crate) did_early: HashMap<String, Vec<super::tidy::Did>>,
     pub(crate) person: String,
     /// The sides each device runs (card #494), from `device.sides` rows.
     pub(crate) sides: crate::sides::Sides,
@@ -493,6 +501,9 @@ impl Fold {
             busy_elsewhere: o.busy_elsewhere,
             on_board,
             done_check: o.done_check,
+            tidy: false,
+            loose_did: Vec::new(),
+            did_early: HashMap::new(),
             person,
             key_person: o.key_person,
             sides: crate::sides::Sides::new(),
@@ -779,7 +790,12 @@ impl Fold {
         let wall = gotime::hlc_wall(ev.hlc);
         let at = |t: GoTime| if t.is_zero() { wall } else { t };
         match ev.kind.as_str() {
-            kinds::TASK_CREATED => self.fold_created(ev, &at),
+            kinds::TASK_CREATED => {
+                self.fold_created(ev, &at);
+                if let Some(p) = row::<TaskIdRow>(&ev.payload) {
+                    self.drain_early_did(&p.task_id);
+                }
+            }
             kinds::SPACE_BOARD_CREATED | kinds::SPACE_BOARD_RENAMED => self.fold_space_board(ev),
             kinds::DEVICE_SIDES => {
                 // Private log only: a board log never carries one.
@@ -1097,6 +1113,7 @@ impl Fold {
             kinds::TASK_ARCHIVED => self.fold_archived(ev),
             kinds::TASK_PAUSED => self.fold_paused(ev),
             kinds::TASK_WEIGHT => self.fold_weight(ev),
+            kinds::ASSISTANT_DID => self.fold_did(ev),
             kinds::TASK_OWNER => self.fold_owner(ev),
             kinds::TASK_PLACED => self.fold_placed(ev),
             kinds::TASK_COMMENT_EDITED => self.fold_comment_edited(ev, &at),

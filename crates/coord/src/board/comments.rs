@@ -1643,6 +1643,7 @@ impl Fold {
         if let Err(e) = self.release_gone(&now) {
             return (Vec::new(), Err(e));
         }
+        self.note_offline_leases(&now);
         let mut out = Vec::new();
         let r = self.sweep_rest(&now, &mut out);
         (out, r)
@@ -1958,7 +1959,14 @@ impl Fold {
                 if !last {
                     continue;
                 }
+                // Its PRs are all merged (card #786): ask whether it is
+                // done rather than start a new agent on finished work.
+                if self.tidy && matches!(self.flag_merged(&id), Ok(true)) {
+                    continue;
+                }
+                let mut handed = false;
                 if self.tasks[&id].state == WORKING {
+                    handed = true;
                     self.write(
                         SWEEPER,
                         kinds::TASK_STATUS,
@@ -1984,6 +1992,10 @@ impl Fold {
                         &id,
                         &format!("the person answered and the agent working it {went}"),
                     )?;
+                    handed = true;
+                }
+                if handed && !finished {
+                    self.did_hand_back(&id, &h, went, now);
                 }
                 self.stop_crashed_spawns(&id, now)?;
                 if !person && !finished {

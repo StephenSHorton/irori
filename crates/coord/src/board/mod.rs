@@ -64,6 +64,7 @@ pub use side_gate::ASK_THE_PERSON;
 mod spawn;
 mod subtasks;
 mod tasks;
+mod tidy;
 mod types;
 mod util;
 mod waits;
@@ -120,6 +121,10 @@ pub use short::{parse_ref, parse_short, short_suffix};
 pub use threads::{
     NOT_YOURS_TO_CLOSE as THREAD_NOT_YOURS, READING_LINES, TAKE_ANSWERED, agents_now_default,
     names_person,
+};
+pub use tidy::{
+    Did, JOB_HANDED, JOB_HANDED_ASK, JOB_LEASE, JOB_MERGED, LEASE_OFFLINE_AFTER, REASON_PR_STATE,
+    did_id,
 };
 pub use types::*;
 /// Talk's post and channel ids are made as comments' are (card #389).
@@ -1305,6 +1310,42 @@ impl Coord {
     /// The person ending a lease held on any device.
     pub fn steal_lease(&self, by: &str, resource: &str) -> Result<()> {
         self.lock().steal_lease(by, resource)
+    }
+
+    // ---- Irori tidies the board (card #786) ----
+
+    /// "Tidy the board" on or off: the Core keeps this in step with the
+    /// person's switch. Off (the default before the Core sets it) adds
+    /// nothing to the sweep.
+    pub fn set_tidy(&self, on: bool) {
+        self.lock().tidy = on;
+    }
+    /// Asks the person whether card `id` is done, if its PRs are all
+    /// merged, nobody is on it, and Irori hasn't asked before. True when
+    /// it asked now.
+    pub fn flag_merged(&self, id: &str) -> Result<bool> {
+        self.lock().flag_merged(id)
+    }
+    /// The person's Undo on Irori's record `did` on card `id` (`""` for
+    /// a lease notice).
+    pub fn undo_did(&self, by: &str, id: &str, did: &str) -> Result<Option<Task>> {
+        self.lock().undo_did(by, id, did)
+    }
+    /// Whether the person can still Undo record `d` on card `t`.
+    pub fn did_can_undo(&self, t: &Task, d: &Did) -> bool {
+        self.lock().did_can_undo(t, d)
+    }
+    /// The lease notices the person still has to see.
+    pub fn lease_notices(&self) -> Vec<Did> {
+        self.lock().lease_notices()
+    }
+    /// Whether Irori would hand card `id` out now (card #786 checks a
+    /// held-back card leaves the hand-out).
+    pub fn needs_agent(&self, id: &str) -> bool {
+        self.lock()
+            .tasks
+            .get(id)
+            .is_some_and(offers::needs_agent)
     }
     pub fn leases(&self) -> Vec<Lease> {
         self.lock().leases()

@@ -1798,6 +1798,7 @@ impl Fold {
                                     ..TakeStateRow::default()
                                 },
                             )?;
+                            self.did_hand_back_ask(id, &a.taker, "went away", &now);
                             again.insert(
                                 id.clone(),
                                 AskAgain {
@@ -1823,6 +1824,7 @@ impl Fold {
                             ..TakeStateRow::default()
                         },
                     )?;
+                    self.did_hand_back_ask(id, &a.taker, "went away", &now);
                     again.insert(
                         id.clone(),
                         AskAgain {

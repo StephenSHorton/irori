@@ -222,6 +222,15 @@ kinds! {
     /// person's new thread a short title. `{on, by, at}`, actor `user`,
     /// newest wins, none means on. Set in the app only.
     ASSISTANT_NAMES_SET = "assistant.names.set" => Replicated, Refuses;
+    /// "Tidy the board" (card #786): `{on, by, at}`, actor `user`, newest
+    /// wins, none means on. Set in the app only.
+    ASSISTANT_TIDY_SET = "assistant.tidy.set" => Replicated, Refuses;
+    /// What Irori did on the person's own board (card #786): a record the
+    /// card's thread shows, with an Undo. `{id, taskId?, job, key, text,
+    /// blockerId?, resource?, holder?, by, at, undo?}`. A deterministic id
+    /// makes two devices one record; `undo` marks it undone. Private
+    /// board only.
+    ASSISTANT_DID = "assistant.did" => Replicated, Refuses;
     // capture
     CAPTURE_TURN = "capture.turn" => Replicated, Refuses;
     CAPTURE_EDIT = "capture.edit" => Replicated, Refuses;

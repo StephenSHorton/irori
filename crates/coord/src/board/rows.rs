@@ -12,6 +12,24 @@ use super::types::{
 use crate::gojson::{GoDecode, decode, field, nil_vec, omit};
 
 crate::go_struct! {
+    /// What Irori did (card #786): the record, or with `undo` its undoing.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct DidRow {
+        pub id: String = "id",
+        pub task_id: String = "taskId" "omit",
+        pub job: String = "job" "omit",
+        pub key: String = "key" "omit",
+        pub text: String = "text" "omit",
+        pub blocker_id: String = "blockerId" "omit",
+        pub resource: String = "resource" "omit",
+        pub holder: String = "holder" "omit",
+        pub by: String = "by",
+        pub at: GoTime = "at",
+        pub undo: bool = "undo" "omit",
+    }
+}
+
+crate::go_struct! {
     #[derive(Debug, Clone, Default, PartialEq)]
     pub struct AskField {
         pub wake: bool = "wake" "omit",

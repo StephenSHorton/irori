@@ -352,6 +352,7 @@ impl Fold {
         self.note(Change {
             kind: TASK_CHANGED.into(),
             task_id: p.task_id,
+            reason: super::tidy::REASON_PR_STATE.into(),
             ..Change::default()
         });
     }
