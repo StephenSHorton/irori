@@ -70,6 +70,9 @@ pub struct Status {
     pub backlog: i64,
     /// Worktree roots watched.
     pub repos: i64,
+    /// Set at the end of every tail, per-file tails included, not only full
+    /// passes: it does not tick once per full pass. Repeated full passes show
+    /// as a capture thread at about 20% CPU in bursts.
     #[serde(rename = "lastScan")]
     pub last_scan: GoTime,
     /// The first pass hasn't finished.

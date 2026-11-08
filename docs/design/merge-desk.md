@@ -544,6 +544,16 @@ Done when: an appended board message, a relayed `send`, a spawned review agent, 
 Steps: with Stephen and one other member, a throwaway PR in a scratch repo both work in: it gets a PR card, the related agent is asked and claims, others are pinged and comment, the review posts under the owner's login, with the setting off it raises one blocker only the reviewer's person can answer, and a solo repo's PR gets no card.
 Done when: the person has seen each of those happen.
 
+## 13. Testing the desk
+
+Open a test PR with `gh api` (create the branch and file, then `POST repos/<owner>/<repo>/pulls`), not `gh pr create`. Capture links a PR made by `gh pr create` to the card its session holds (§3), so that PR maps by rule 1 or 2 and never exercises rule 4, the "PR #n" card. A PR made through the API has no link and no ledger author row.
+
+To watch the desk's posts with the person's own `gh`, run the ignored test `desk_posts::live_posts_on_a_real_pr`. It builds a real Core with `Options.desk_lister` set to `deskwatch::GhLister` (the default rigs use a fake lister), polls a minute apart and prints each post on the card that links the PR:
+
+`IRORI_DESK_LIVE_REPO=StephenSHorton/desk-scratch IRORI_DESK_LIVE_PR=<n> IRORI_DESK_LIVE_POLLS=10 cargo test -p irori-core --test it desk_posts::live_posts_on_a_real_pr -- --ignored --exact --nocapture`
+
+`StephenSHorton/desk-scratch` is a throwaway repo for this and for `desk_merged.rs`. Its CI fails any file containing `CHECK-FAIL`, so a test PR that adds one shows failing checks, and removing it shows them passing.
+
 ## Mockups
 
 | Id | Shows | Differs from the text |

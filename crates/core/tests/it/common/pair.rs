@@ -1,6 +1,10 @@
 //! Two devices of one person (Go pairedCores, newHCore): Cores whose
 //! meshes run on loopback iroh, B certified by A as pairing does. Shared by
-//! tests/boards.rs and tests/spawn_settings_devices.rs.
+//! tests/it/boards.rs and tests/it/spawn_settings_devices.rs.
+//!
+//! A test that needs an agent on another device uses a pair (`paired_with`
+//! when A needs options): a foreign agent can't be faked inside one Core,
+//! since the store refuses unsigned rows and routing answers "no agent called".
 
 use std::time::Duration;
 

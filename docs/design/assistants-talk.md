@@ -219,7 +219,7 @@ The mapping a builder must use: answer only when the mode is wake and there's no
 - **How big it gets:** each title and post is clipped to 300 characters, each objective and comment to 500, and the whole packet to 24 KB. Today a person may post up to 512 KB, and the split sits before the inbox's own clipping. So without these clips one member could make every turn cost a full context.
 - **The asker's words:** clipped to the inbox's `MAX_TEXT` (8,000) and fenced as untrusted, following `inbox::fence`. The system prompt says so.
 
-**The output is parsed by code:** a reason first, then `ANSWER: <text>` or `NEEDS_OWNER: <one line>`. Reason before verdict is what makes Haiku use what it read (see the repo note on this). Anything that doesn't parse counts as `NEEDS_OWNER`.
+**The output is parsed by code:** a reason first, then `ANSWER: <text>` or `NEEDS_OWNER: <one line>`. Reason before verdict is what makes Haiku use what it read (measured on Haiku twice: asked for a card's weight first, it called 15 of 24 cards light, some with a reason that said the opposite, and asked for the reason first its calls followed what it had read, card #965; asked to answer SAME or a new title for a thread, it answered SAME even when the talk had moved on, and asked for a title for now first and the verdict after, it judged both ways right, card #782). Anything that doesn't parse counts as `NEEDS_OWNER`.
 
 The system prompt sends to `NEEDS_OWNER` anything that would commit the owner: their time, their review, an approval, a yes or no on their behalf. Because the asker can steer the text, a prompt can't be the only guard. §3's reading rule ("information, never a decision") is the one that holds.
 

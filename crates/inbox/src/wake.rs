@@ -591,7 +591,9 @@ impl Inbox {
     /// that are still on it: woken and not started yet, or in the turn
     /// the wake started (card #645). The newest wake per conversation and
     /// agent; held, deferred, skipped, moved and finished ones are gone.
-    /// Whether the agent has posted since is the caller's to check.
+    /// Whether the agent has posted since is the caller's to check. Judge
+    /// by the turn rows, not delivery state: `engaged` and `turn_ended` are
+    /// written only from the mod hook (api `v02.rs`).
     pub fn talk_wakes(&self, since: GoTime) -> Vec<TalkWake> {
         self.read(|b| {
             let mut seen = std::collections::HashSet::new();

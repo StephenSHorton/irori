@@ -965,7 +965,9 @@ impl BoardMesh {
     }
 
     /// Called after rows from another member landed in the board log (the
-    /// Core refeeds the board's peers and its views).
+    /// Core refeeds the board's peers and its views). The rows are committed
+    /// before this and the log lines of `pull_loop` run: a test waits on this
+    /// hook, not on `has(&row)`.
     pub fn on_rows(&self, f: RowsFn) {
         *self.s.on_rows.lock().expect("on_rows") = Some(f);
     }
