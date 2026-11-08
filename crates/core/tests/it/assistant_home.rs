@@ -13,9 +13,9 @@ use std::time::Duration;
 use common::mesh::{Dev, Edit, free_udp, person, person_with};
 use common::wait_for;
 use gocompat::time::GoTime;
+use irori_core::SpawnHost;
 use irori_core::assistant_home::HomeRow;
 use irori_core::spawn::{SpawnStarted, Spawner};
-use irori_core::SpawnHost;
 use irori_core::{Core, CoreEvent, Options, Topic};
 use store::kinds;
 use store::{Event, Filter};
@@ -100,12 +100,7 @@ fn holds_for(secs: u64, what: &str, cond: impl Fn() -> bool) {
 
 type Links = Arc<Mutex<Vec<SocketAddr>>>;
 
-fn start_dyn(
-    data: &std::path::Path,
-    cl: &std::path::Path,
-    lan: SocketAddr,
-    links: Links,
-) -> Core {
+fn start_dyn(data: &std::path::Path, cl: &std::path::Path, lan: SocketAddr, links: Links) -> Core {
     let mut o = common::options(data, cl);
     o.pair_net = Some(Arc::new(move |ident, chain, guests| {
         let mut nc = irori_core::devices::default_net_config(ident, chain, guests);
@@ -121,13 +116,7 @@ fn start_dyn(
     Core::start(o).unwrap()
 }
 
-fn dev_dyn(
-    data: tempfile::TempDir,
-    name: &str,
-    sess: &str,
-    lan: SocketAddr,
-    links: Links,
-) -> Dev {
+fn dev_dyn(data: tempfile::TempDir, name: &str, sess: &str, lan: SocketAddr, links: Links) -> Dev {
     let (cl, w) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let sessions = cl.path().join("sessions");
     std::fs::create_dir_all(&sessions).unwrap();
@@ -340,7 +329,10 @@ fn a_home_that_loses_claude_code_stays_home() {
         home_is(&pc, &id(&mac))
     });
     let st = pc.core.assistant_home_status();
-    assert_eq!((st.device.as_str(), st.here, st.claude), (&*id(&mac), false, true));
+    assert_eq!(
+        (st.device.as_str(), st.here, st.claude),
+        (&*id(&mac), false, true)
+    );
     assert!(!st.name.is_empty());
     ready.store(false, Ordering::SeqCst);
     mac.core.set_spawner(Some(spawner(&ready)));
@@ -448,12 +440,13 @@ fn a_core_that_is_not_caught_up_does_not_claim() {
     });
     let _rp = able(&pc);
     holds_for(14, "the PC claimed while behind the Mac", || {
-        home_rows(&pc.core).iter().all(|(w, _)| *w != id(&pc))
-            && !pc.core.is_assistant_home()
+        home_rows(&pc.core).iter().all(|(w, _)| *w != id(&pc)) && !pc.core.is_assistant_home()
     });
     // Its clock catches up: the Mac's claim lands, and it is the answer.
     skew_pc.store(600, Ordering::SeqCst);
-    wait_for(WAIT, "the PC has the Mac's claim", || home_is(&pc, &id(&mac)));
+    wait_for(WAIT, "the PC has the Mac's claim", || {
+        home_is(&pc, &id(&mac))
+    });
     assert!(home_rows(&pc.core).iter().all(|(w, _)| *w != id(&pc)));
     mac.core.close().unwrap();
     pc.core.close().unwrap();

@@ -115,7 +115,10 @@ pub(crate) struct HomeState {
 
 impl HomeState {
     pub(crate) fn current(&self) -> Option<String> {
-        self.cached.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.cached
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 }
 

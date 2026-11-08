@@ -967,12 +967,7 @@ impl Node {
         let devices = self.o.chain.devices();
         let own: BTreeMap<String, Option<i64>> = devices
             .iter()
-            .map(|d| {
-                (
-                    d.cert.device_id.clone(),
-                    d.revoked.then_some(d.cut),
-                )
-            })
+            .map(|d| (d.cert.device_id.clone(), d.revoked.then_some(d.cut)))
             .collect();
         let connected: Vec<String> = self
             .session_list()

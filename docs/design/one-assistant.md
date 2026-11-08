@@ -93,6 +93,8 @@ Nothing else moves it: not being offline, asleep or unreachable, not a slow link
 
 A new `Node::caught_up() -> bool` (`crates/mesh/src/node.rs`): true when, for every one of the person's devices this one has a live session with, this device's vector covers that device's newest vector (the same `covers` check `check_step` makes). It leaves out writers in the node's `stopped` map (a fork or a bad HLC order: their rows will never arrive) and revoked devices' rows past their cut, so a stuck writer can't hold the assistant forever. With no own device connected, it is true. Both the claim and the worker (§5) use it.
 
+*Built in card 1 (#1101).* The peer's vector it compares with is the one the peer last sent: at connect and after it takes rows. Rows a peer wrote since arrive by push and are not in that vector, so `caught_up` can be true for a moment while a peer's newest rows are on their way. It is false while the peer's rows are held back (a clock ahead) once the peer has said so. Until a session is up it is true (a device that has just started and is not yet connected can claim; the sweep runs several seconds after start).
+
 ### Saying it can answer from other devices
 
 A new `assistantChat: true` field on `spawn.host`. Card 1 adds it to `SpawnHost` as a read-only field (`#[serde(default)]`), so the status can read it. Card 3 publishes it, never before. It is `assistantTurn && the chat hook is installed in this run` (`set_chat_turn`, §5). Like `assistantTurn`, it joins `publish_host`'s change tuple, or an upgraded desktop never publishes it. It must never ship in a build without the worker: then it would promise answers nobody gives.
