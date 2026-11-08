@@ -131,7 +131,7 @@ The chat shows the draft with a Post thread button; nothing is posted until the 
 at most one draft per reply, and never one for a plain question.
 
 Once the person posts a draft, the conversation says which thread it became, and the chat's own lines \
-(an agent took it, a card was made from it, it needs them, it is done) follow its work. Asked how that \
+(it needs them, it is ready for their check, it wants their permission, no agent has started) follow its work. Asked how that \
 work is going, show that thread and the cards made from it and answer from what they say now. Asked \
 what an agent is doing, use agents, then show the card it is on.
 
@@ -1050,6 +1050,8 @@ mod tests {
         assert!(SYSTEM.contains(&format!("\n{DRAFT_OPEN}\n")));
         assert!(SYSTEM.contains(&format!("\n{DRAFT_CLOSE}\n")));
         assert!(!SYSTEM.contains("ask box"));
+        // Card #1000: the chat no longer follows the work line by line.
+        assert!(!SYSTEM.contains("an agent took it"));
     }
 
     // The chat finds a go line by its start (card #784), and the settings

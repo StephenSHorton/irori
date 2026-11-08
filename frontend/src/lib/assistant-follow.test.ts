@@ -21,7 +21,6 @@ const thread = (over: Partial<WorkThread> = {}): WorkThread => ({
   cantStart: "",
   closed: false,
   outcome: "",
-  replies: [],
   asks: [],
   cards: [],
   ...over,
@@ -47,7 +46,6 @@ describe("Ask Irori follows the work it posted (card #785)", () => {
   test("the life of a small fix, in order", () => {
     const t = thread({
       taker: "otter",
-      replies: [{ id: "r1", by: "otter", text: "On it." }],
       cards: [
         card({
           state: "working",
@@ -65,24 +63,14 @@ describe("Ask Irori follows the work it posted (card #785)", () => {
       ],
     })
     const fs = facts(t)
-    expect(keys(fs)).toEqual([
-      "taken",
-      "reply:r1",
-      "made:c1",
-      "start:c1",
-      "ask:c1:b1",
-    ])
+    expect(keys(fs)).toEqual(["taken", "made:c1", "start:c1", "ask:c1:b1"])
     expect(fs[0].text).toBe("**otter** took your thread #20.")
-    expect(fs[1].act).toEqual({
-      kind: "reply",
-      thread: "t1",
-      to: "otter",
-      ref: "#20",
-    })
-    expect(fs[2].text).toBe("Your thread #20 became #21.")
-    expect(fs[3].text).toBe("otter started on #21.")
-    expect(fs[4].text).toBe("#21 needs you: Merge PR #9?")
-    expect(fs[4].act).toEqual({ kind: "answer", card: "c1", blocker: "b1" })
+    expect(fs[1].text).toBe("Your thread #20 became #21.")
+    expect(fs[2].text).toBe("otter started on #21.")
+    expect(fs[3].text).toBe("#21 needs you: Merge PR #9?")
+    expect(fs[3].act).toEqual({ kind: "answer", card: "c1", blocker: "b1" })
+    // Only what waits on the person is said (card #1000).
+    expect(fs.filter((f) => !f.silent).map((f) => f.key)).toEqual(["ask:c1:b1"])
   })
 
   test("a done check is ready, with Done to tap; a permission has no act", () => {
@@ -150,9 +138,15 @@ describe("Ask Irori follows the work it posted (card #785)", () => {
     expect(keys(facts({ ...t, taker: "otter" }))).toEqual(["taken"])
   })
 
-  test("a long reply is cut, the thread keeps it whole", () => {
-    const text = "word ".repeat(200)
-    const f = facts(thread({ replies: [{ id: "r1", by: "otter", text }] }))[0]
+  test("a long question is cut, the card keeps it whole", () => {
+    const question = "word ".repeat(200)
+    const f = facts(
+      thread({
+        asks: [
+          { id: "b1", question, by: "", doneCheck: false, permission: false },
+        ],
+      })
+    )[0]
     expect(f.text.length).toBeLessThan(320)
     expect(f.text.endsWith("…")).toBe(true)
   })
@@ -172,13 +166,20 @@ describe("Ask Irori follows the work it posted (card #785)", () => {
 describe("what the chat has said, once (card #785)", () => {
   test("a thread it just posted says each new fact once", () => {
     let seen = { said: [] as string[] }
-    const t1 = thread({ taker: "otter" })
+    const ask = (id: string) => ({
+      id,
+      question: "?",
+      by: "",
+      doneCheck: false,
+      permission: false,
+    })
+    const t1 = thread({ asks: [ask("b1")] })
     const a = news(seen, t1)
-    expect(keys(a.say)).toEqual(["taken"])
+    expect(keys(a.say)).toEqual(["ask:t1:b1"])
     seen = a.seen as { said: string[] }
     expect(news(seen, t1).say).toEqual([])
-    const t2 = thread({ taker: "otter", cards: [card()] })
-    expect(keys(news(seen, t2).say)).toEqual(["made:c1"])
+    const t2 = thread({ asks: [ask("b1"), ask("b2")] })
+    expect(keys(news(seen, t2).say)).toEqual(["ask:t1:b2"])
   })
 
   test("a thread from before (said unknown) only remembers at first", () => {
@@ -259,11 +260,12 @@ describe("the follower (card #785)", () => {
     h.set("t1", thread({ taker: "otter" }))
     h.f.follow("t1")
     await flush()
-    expect(h.said.at(-1)?.keys).toEqual(["taken"])
+    expect(h.said.at(-1)?.keys).toEqual([])
     h.set("t1", thread({ taker: "otter", cards: [card()] }))
     h.wake()
     await new Promise((r) => setTimeout(r, 5))
-    expect(h.said.at(-1)?.keys).toEqual(["made:c1"])
+    // Said nothing, but remembered: made:c1 keeps the card followed.
+    expect(h.said.at(-1)?.keys).toEqual([])
     expect(h.saved().t1.said).toEqual(["taken", "made:c1"])
   })
 
@@ -273,7 +275,7 @@ describe("the follower (card #785)", () => {
     h.set("t2", null)
     h.wake()
     await new Promise((r) => setTimeout(r, 5))
-    expect(h.said.find((s) => s.id === "t1")?.keys).toEqual(["closed"])
+    expect(h.said.find((s) => s.id === "t1")?.keys).toEqual([])
     expect(h.said.find((s) => s.id === "t2")?.gone).toBe(true)
     const n = h.reads()
     h.wake()
@@ -381,35 +383,6 @@ describe("review fixes (card #785)", () => {
     where: "",
   })
 
-  test("Irori's own comments and the person's are not passed on as replies", () => {
-    const t = workThread(
-      detail({
-        thread: [
-          {
-            id: "a",
-            kind: "comment",
-            text: "No agent can start.",
-            who: who("Irori", "irori"),
-          },
-          {
-            id: "b",
-            kind: "comment",
-            text: "Thanks",
-            who: who("You", "person"),
-          },
-          {
-            id: "c",
-            kind: "comment",
-            text: "On it.",
-            who: who("otter", "idle"),
-          },
-        ],
-      }),
-      undefined,
-      new Map()
-    )
-    expect(t.replies.map((r) => r.id)).toEqual(["c"])
-  })
   test("cards already said stay when the thread's row is gone", () => {
     const made = detail({
       id: "c1",
@@ -436,6 +409,125 @@ describe("review fixes (card #785)", () => {
     expect(t.cards.map((c) => c.id)).toEqual(["c1"])
     expect(finished(t)).toBe(false)
     expect(keys(facts(t))).not.toContain("closed")
+  })
+})
+
+describe("only what waits on the person is said (card #1000)", () => {
+  const ask = {
+    id: "b1",
+    question: "Steam or relay?",
+    by: "otter",
+    doneCheck: false,
+    permission: false,
+  }
+  const flush = () => new Promise((r) => setTimeout(r, 5))
+
+  test("taken, made, started, done and closed are remembered, never said", () => {
+    const t = thread({
+      taker: "otter",
+      closed: true,
+      cards: [
+        card({ id: "c1", state: "working", working: ["otter"] }),
+        card({ id: "c2", state: "completed" }),
+        card({ id: "c3", state: "failed" }),
+        card({ id: "c4", state: "canceled" }),
+        card({ id: "c5", changed: true }),
+      ],
+    })
+    const n = news({ said: [] }, t)
+    expect(n.say).toEqual([])
+    expect(n.seen.said).toEqual(keys(facts(t)))
+    expect(n.seen.said).toContain("made:c1")
+    expect(news({ said: [] }, thread({ closed: true })).say).toEqual([])
+  })
+
+  test("needs you, ready, permission and no agent are said", () => {
+    const t = thread({
+      cantStart: "No agent can start.",
+      cards: [
+        card({
+          asks: [
+            ask,
+            { ...ask, id: "d1", doneCheck: true },
+            { ...ask, id: "p1", permission: true },
+          ],
+        }),
+      ],
+    })
+    expect(keys(news({ said: [] }, t).say)).toEqual([
+      "cant",
+      "ask:c1:b1",
+      "ready:c1:d1",
+      "perm:c1:p1",
+    ])
+  })
+
+  test("a card whose thread row has left the list still says it needs you", async () => {
+    // The first read saw the card made: silent, but its key is kept.
+    const store: SeenStore = {
+      t1: { said: ["taken", "made:c1"] },
+    }
+    const said: string[][] = []
+    const wants: (readonly string[] | undefined)[] = []
+    const f = createFollower({
+      ids: () => ["t1"],
+      read: async (_ids, known) => {
+        wants.push(known.get("t1"))
+        const detail = (over: Record<string, unknown>) =>
+          ({
+            id: "t1",
+            short: "20",
+            tag: "",
+            title: "",
+            state: "completed",
+            working: [],
+            blockers: [],
+            thread: [],
+            ...over,
+          }) as unknown as Parameters<typeof workThread>[0]
+        const made = detail({
+          id: "c1",
+          short: "21",
+          state: "working",
+          fromThread: { id: "t1", short: "20", tag: "", title: "" },
+          blockers: [
+            {
+              id: "b1",
+              question: "Steam or relay?",
+              state: "open",
+              resolved: false,
+            },
+          ],
+        })
+        const closed = detail({
+          ask: {
+            state: "closed",
+            told: 1,
+            owner: "",
+            wake: true,
+            outcomeRef: "",
+          },
+        })
+        // No row: the thread list has dropped it.
+        return new Map([
+          [
+            "t1",
+            workThread(closed, undefined, new Map([["c1", made]]), [
+              ...(known.get("t1") ?? []),
+            ]),
+          ],
+        ])
+      },
+      listen: () => () => {},
+      load: () => store,
+      save: () => {},
+      say: (_id, lines) => said.push(keys(lines)),
+      delayMs: 0,
+    })
+    await flush()
+    f.stop()
+    expect(wants[0]).toEqual(["c1"])
+    expect(said[0]).toEqual(["ask:c1:b1"])
   })
 })
 

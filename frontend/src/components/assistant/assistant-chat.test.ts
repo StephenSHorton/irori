@@ -51,6 +51,21 @@ function render(p: { entries?: ChatEntry[]; reply?: Reply | null }) {
 }
 
 describe("Ask Irori's panel (card #783)", () => {
+  test("a followed thread's line has no reply box (card #1000)", () => {
+    const html = render({
+      entries: [
+        {
+          role: "assistant",
+          text: "#21 is waiting for your permission: Run it?",
+          update: "task:1",
+        },
+      ],
+    })
+    expect(html).toContain("data-assistant-update")
+    expect(html).toContain("waiting for your permission")
+    expect(html).not.toContain("data-assistant-reply")
+    expect(html).not.toContain("Reply to")
+  })
   test("a non-modal dialog named Office Assistant, with New chat and Close", () => {
     const html = render({})
     expect(html).toContain('role="dialog"')
