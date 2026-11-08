@@ -91,7 +91,10 @@ export function cardsOnPersonal(
 
 // cardInSpace is whether a card shows in the picked space: Personal's are
 // the private cards, a shared space's its own cards (on any of its boards).
-export function cardInSpace(c: CardSummary, space: string): boolean {
+export function cardInSpace(
+  c: { board?: string | null },
+  space: string
+): boolean {
   if (space === AllSpaces) return true
   if (space === Personal) return !c.board
   return c.board === space

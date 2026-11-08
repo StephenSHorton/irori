@@ -107,8 +107,10 @@ import {
   replace,
   sameSection,
   sectionFromHash,
+  sectionHash,
   type Section,
 } from "@/lib/nav"
+import { leftHomeFilter, startLeave, stepLeave } from "@/lib/space-leave"
 import {
   CommandPalette,
   PaletteJump,
@@ -688,6 +690,38 @@ export function App() {
     if (syncedPage.current === section.id) return
     if (section.id !== space && knownSpace(section.id)) setSpace(section.id)
     if (section.id === Personal || boardsLoaded) syncedPage.current = section.id
+  })
+  // And what's showing follows a change of the pick (card #994): off a
+  // thread or card the new pick doesn't hold, in place of it so Back doesn't
+  // reopen it. A link past the pick still opens: only a change moves it.
+  const leaving = useRef(startLeave(space))
+  useEffect(() => {
+    const { state, changed, to } = stepLeave(leaving.current, {
+      space,
+      boardsLoaded,
+      section,
+      open,
+      card: cards.find((c) => c.id === open) ?? detail,
+      cardFailed: !!detailError,
+      threads: allThreads,
+      conversations,
+      threadsLoading,
+      conversationsLoading,
+    })
+    leaving.current = state
+    if (changed && leftHomeFilter(filter, space)) pickHomeFilter("all")
+    if (!to) return
+    if (!open) {
+      replace(to)
+      return
+    }
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname + window.location.search + sectionHash(to)
+    )
+    setOpen("")
+    setSection(to)
   })
   const onPaletteBoard = useCallback(
     (id: string) => goTo({ kind: "board", id }),
