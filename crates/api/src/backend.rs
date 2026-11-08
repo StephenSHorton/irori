@@ -82,8 +82,9 @@ pub trait Backend: Send + Sync + 'static {
     fn record_usage_limits(
         &self,
         input: &[irori_core::usage::RateLimit],
+        account: Option<&str>,
     ) -> Option<Result<(), String>> {
-        let _ = input;
+        let _ = (input, account);
         None
     }
 
@@ -190,8 +191,9 @@ impl Backend for Core {
     fn record_usage_limits(
         &self,
         input: &[irori_core::usage::RateLimit],
+        account: Option<&str>,
     ) -> Option<Result<(), String>> {
-        Some(Core::record_usage_limits(self, input))
+        Some(Core::record_usage_limits(self, input, account))
     }
     fn permission_wait(
         &self,
