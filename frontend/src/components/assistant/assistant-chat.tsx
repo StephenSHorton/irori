@@ -16,13 +16,16 @@ import { createPortal } from "react-dom"
 import {
   ArrowUpIcon,
   CheckIcon,
+  ExternalLinkIcon,
   Loader2Icon,
+  LocateFixedIcon,
   MessageCircleIcon,
   SquareIcon,
   SquarePenIcon,
   XIcon,
 } from "lucide-react"
 
+import { goThere } from "@/components/assistant/go-there"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { RichText } from "@/components/common/rich-text"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
@@ -40,6 +43,7 @@ import {
   autoAsk,
   liftOver,
   newChat,
+  onGo,
   postDraft,
   replyText,
   setAssistantOpen,
@@ -52,6 +56,7 @@ import {
   type Posted,
   type Reply,
 } from "@/lib/assistant"
+import { goLabel, splitGo, type GoTarget } from "@/lib/goto"
 import { composing } from "@/lib/mentions"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
@@ -117,6 +122,25 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
     [ctx, narrow, close]
   )
 
+  // Take me there (card #784): a reply's go line, by itself once it comes
+  // in (lib/assistant.ts finish) or by its button. On a phone the panel
+  // gets out of the way first, so the place and its highlight show.
+  const goTo = useCallback(
+    (t: GoTarget): Promise<string> => {
+      if (!ctx) return Promise.resolve("The window isn't ready yet.")
+      if (narrow && t.kind !== "pr") close(false)
+      return goThere(t, {
+        openCard: ctx.onOpen,
+        openThread: ctx.onOpenThread ?? ctx.onOpen,
+      })
+    },
+    [ctx, narrow, close]
+  )
+  useEffect(() => {
+    onGo((t) => void goTo(t))
+    return () => onGo(null)
+  }, [goTo])
+
   // A window check's ?assistant-ask (lib/assistant.ts autoAsk).
   useEffect(() => {
     autoAsk((p) => cards?.onOpenThread(p.id))
@@ -137,6 +161,7 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
           onAsk={(t) => void ask(t)}
           onStop={stopAsking}
           onNew={newChat}
+          onGo={goTo}
           onPost={async (i) => {
             const p = await postDraft(i)
             // As the ask box does, the new thread opens (on a phone the
@@ -333,6 +358,7 @@ export function AssistantPanel({
   onAsk,
   onStop,
   onNew,
+  onGo,
   onPost,
   onClose,
   style,
@@ -344,6 +370,8 @@ export function AssistantPanel({
   onAsk: (text: string) => void
   onStop: () => void
   onNew: () => void
+  // onGo goes where a reply's go line says (card #784): "" or why not.
+  onGo: (t: GoTarget) => Promise<string>
   // onPost posts the drafted thread of the message at that index.
   onPost: (index: number) => Promise<void>
   onClose: () => void
@@ -460,7 +488,7 @@ export function AssistantPanel({
         ) : (
           <div ref={list} className="flex flex-col gap-4">
             {entries.map((e, i) => (
-              <Entry key={i} entry={e} onPost={() => onPost(i)} />
+              <Entry key={i} entry={e} onGo={onGo} onPost={() => onPost(i)} />
             ))}
             {reply && <Answering reply={reply} />}
           </div>
@@ -567,9 +595,11 @@ function Starters({ onPick }: { onPick: (q: string) => void }) {
 
 function Entry({
   entry,
+  onGo,
   onPost,
 }: {
   entry: ChatEntry
+  onGo: (t: GoTarget) => Promise<string>
   onPost: () => Promise<void>
 }) {
   if (entry.role === "person")
@@ -590,11 +620,13 @@ function Entry({
     )
   // A draft cut short (Stopped, or a reply that never closed it) shows
   // with no Post thread: it isn't the whole thread.
-  const { text, draft, partial } = splitDraft(entry.text)
+  const { text: said, go } = splitGo(entry.text)
+  const { text, draft, partial } = splitDraft(said)
   return (
     <Message>
       <MessageContent className="gap-2 text-[13.5px] leading-relaxed">
         {text && <RichText bold text={replyText(text)} />}
+        {go && <GoButton target={go} onGo={onGo} />}
         {draft && (
           <DraftThread
             draft={draft}
@@ -605,6 +637,42 @@ function Entry({
         )}
       </MessageContent>
     </Message>
+  )
+}
+
+// GoButton takes the person to what the reply's go line names (card
+// #784), and again on every tap: the chat went there by itself once.
+function GoButton({
+  target,
+  onGo,
+}: {
+  target: GoTarget
+  onGo: (t: GoTarget) => Promise<string>
+}) {
+  const [error, setError] = useState("")
+  const Icon = target.kind === "pr" ? ExternalLinkIcon : LocateFixedIcon
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-auto min-h-7 max-w-full justify-start py-1 text-left whitespace-normal"
+        data-assistant-go=""
+        onClick={() => {
+          setError("")
+          void onGo(target).then(setError)
+        }}
+      >
+        <Icon aria-hidden />
+        {goLabel(target)}
+      </Button>
+      {error && (
+        <span className="text-[12px] text-destructive" role="alert">
+          {error}
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -701,7 +769,7 @@ function DraftThread({
 // Answering is the reply being written: what it looks at now, then the
 // words so far, and a thread it is drafting (posted only once it's done).
 function Answering({ reply }: { reply: Reply }) {
-  const { text, draft, partial } = splitDraft(reply.text)
+  const { text, draft, partial } = splitDraft(splitGo(reply.text).text)
   const status = reply.status || (partial ? "Drafting a thread" : "")
   return (
     <Message>

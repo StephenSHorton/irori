@@ -27,6 +27,8 @@ function render(p: { entries?: ChatEntry[]; reply?: Reply | null }) {
       onAsk: () => {},
       onStop: () => {},
       onNew: () => {},
+      onGo: () => Promise.resolve(""),
+      onPost: () => Promise.resolve(),
       onClose: () => {},
     })
     return renderToStaticMarkup(
@@ -97,5 +99,25 @@ describe("Ask Irori's panel (card #783)", () => {
     })
     expect(html).not.toContain("<img")
     expect(html).toContain("&lt;img")
+  })
+  test("a go line shows as a button, never as its raw line (card #784)", () => {
+    const html = render({
+      entries: [
+        {
+          role: "assistant",
+          text: "It's the **Pause agents** button in the top bar.\n\n<<go setting pause-agents>>",
+        },
+      ],
+    })
+    expect(html).toContain("data-assistant-go")
+    expect(html).toContain("Show Pause agents")
+    expect(html).not.toContain("&lt;&lt;go")
+  })
+  test("while answering, a half-written go line doesn't show (card #784)", () => {
+    const html = render({
+      reply: { text: "It's #779.\n\n<<go car", status: "", end: "", error: "" },
+    })
+    expect(html).not.toContain("&lt;&lt;")
+    expect(html).not.toContain("data-assistant-go")
   })
 })

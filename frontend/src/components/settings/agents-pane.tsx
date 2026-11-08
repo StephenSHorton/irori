@@ -75,7 +75,10 @@ export function AgentsPane({ open }: { open: boolean }) {
       >
         {s ? (
           <div className="grid gap-4">
-            <div className="flex items-start justify-between gap-3">
+            <div
+              className="flex items-start justify-between gap-3"
+              data-setting="agents.each-card"
+            >
               <span className="flex flex-col">
                 <label htmlFor={id} className="cursor-pointer text-ink">
                   Start an agent for each card
@@ -98,7 +101,7 @@ export function AgentsPane({ open }: { open: boolean }) {
               />
             </div>
             <SpacesSection open={open} />
-            <section className="grid gap-2">
+            <section className="grid gap-2" data-setting="agents.model">
               <h3 className="text-sm font-medium text-ink">
                 What a new agent starts with
               </h3>
@@ -154,7 +157,11 @@ function SpacesSection({ open }: { open: boolean }) {
   const { boards } = useBoards()
   if (boards.length === 0) return null
   return (
-    <section className="grid gap-2" aria-label="Spaces">
+    <section
+      className="grid gap-2"
+      aria-label="Spaces"
+      data-setting="agents.spaces"
+    >
       <h3 className="text-sm font-medium text-ink">Spaces</h3>
       <p className="text-[12.5px] text-muted-foreground">
         Each space has its own switch, off until you turn it on. It runs your
@@ -217,7 +224,7 @@ function LimitsSection({
 }) {
   const { limits: l, error, setCap, releaseHold } = useLimits(open)
   return (
-    <section className="grid gap-2">
+    <section className="grid gap-2" data-setting="agents.limits">
       <h3 className="text-sm font-medium text-ink">Limits</h3>
       {l ? (
         <>
@@ -371,7 +378,7 @@ function RunningSection({ open }: { open: boolean }) {
   const { rows, error, loading, refresh } = useRunning(open)
   const [now] = useState(() => Date.now())
   return (
-    <section className="grid gap-2">
+    <section className="grid gap-2" data-setting="agents.running">
       <h3 className="text-sm font-medium text-ink">
         Running agents{rows.length > 0 && ` · ${rows.length}`}
       </h3>
@@ -504,7 +511,7 @@ function RunningRow({
 function TrustedSection({ open }: { open: boolean }) {
   const { rows, error, loading, trust } = useTrusted(open)
   return (
-    <section className="grid gap-2">
+    <section className="grid gap-2" data-setting="agents.trusted">
       <h3 className="text-sm font-medium text-ink">Trusted repos for agents</h3>
       <p className="text-[12.5px] text-muted-foreground">
         An agent Irori starts runs only in a repo Claude Code trusts on that

@@ -135,6 +135,47 @@
     background: transparent;
 }
 
+/* Ask Irori's "take me there" (card #784, lib/spotlight.ts): the thing it
+   took you to pulses its outline twice, once, then the mark comes off (the
+   animation fits SpotlightMs). Reduce Motion gets a still outline. */
+[data-spotlight] {
+    outline: 2px solid transparent;
+    outline-offset: 4px;
+    border-radius: var(--radius-md, 6px);
+}
+@keyframes irori-spotlight {
+    0% {
+        outline-color: transparent;
+        outline-offset: 12px;
+    }
+    18% {
+        outline-color: var(--primary);
+        outline-offset: 4px;
+    }
+    42% {
+        outline-color: color-mix(in oklch, var(--primary) 30%, transparent);
+        outline-offset: 7px;
+    }
+    66% {
+        outline-color: var(--primary);
+        outline-offset: 4px;
+    }
+    100% {
+        outline-color: transparent;
+        outline-offset: 4px;
+    }
+}
+@media (prefers-reduced-motion: no-preference) {
+    [data-spotlight] {
+        animation: irori-spotlight 2.7s ease-in-out 1 both;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    [data-spotlight] {
+        outline-color: var(--primary);
+    }
+}
+
 /* Indeterminate progress sweep (the update download line). */
 @keyframes irori-sweep {
     0% {

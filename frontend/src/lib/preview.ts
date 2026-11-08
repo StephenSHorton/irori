@@ -49,6 +49,8 @@
 //   ?assistant=open Ask Irori (card #783) open on a sample chat; busy with a
 //                   reply being written, new on an empty chat, draft with a
 //                   drafted thread and its Post thread button (lib/assistant.ts)
+//                   go with a reply that takes you somewhere and its button
+//                   (card #784, lib/goto.ts)
 //   ?assistant-ask=<q>  opens Ask Irori on a new chat and asks q (the real
 //                   assistant in a window check); &assistant-post then posts
 //                   its drafted thread (lib/assistant.ts autoAsk)

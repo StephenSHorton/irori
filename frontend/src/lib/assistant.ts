@@ -12,6 +12,7 @@
 
 import type { AssistantEvent, AssistantTurn } from "../gen/bindings"
 import { threads } from "./cards"
+import { goesByItself, splitGo, type GoTarget } from "./goto"
 import { AssistantService } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
@@ -186,6 +187,16 @@ function initial(): AssistantState {
           : null,
       unread: false,
     }
+  if (flag === "go")
+    return {
+      open: true,
+      entries: [
+        { role: "person", text: "Where do I turn off pausing agents?" },
+        { role: "assistant", text: sampleAnswer("pausing agents").text },
+      ],
+      reply: null,
+      unread: false,
+    }
   if (flag === "new")
     return { open: true, entries: [], reply: null, unread: false }
   if (flag === "draft")
@@ -256,6 +267,19 @@ function finish(r: Reply) {
     reply: null,
     unread: !s.open,
   })
+  // Take me there (card #784): a whole reply with a go line, come in
+  // while the chat is open, goes there by itself, once. Never from saved
+  // history, never a reply stopped or cut short, never a PR (that opens
+  // the browser: only a tap does).
+  const go = r.end === "done" ? splitGo(r.text).go : null
+  if (go && s.open && goesByItself(go)) goHandler?.(go)
+}
+
+// The chat's way to go somewhere (components/assistant/assistant-chat.tsx
+// registers it while it is mounted).
+let goHandler: ((t: GoTarget) => void) | null = null
+export function onGo(f: ((t: GoTarget) => void) | null) {
+  goHandler = f
 }
 
 // ask sends the person's question with the chat so far. Nothing while a
@@ -491,6 +515,19 @@ export function sampleAnswer(q: string): { tools: string[]; text: string } {
     )
   )
     return { tools: [`Searching for “${q.trim()}”`], text: sampleWork(q) }
+  // Take me there (card #784).
+  if (/paus/.test(s))
+    return {
+      tools: ["Reading the agents"],
+      text: "Pausing agents is the **Pause agents** button in the top bar, not in Settings. One click stops Irori starting agents on this computer; running ones keep going.\n\n<<go setting pause-agents>>",
+    }
+  const shown =
+    /\b(?:show|open|take me to|where(?:'s| is))\b.*?(\b[a-z0-9_-]*#\d+)/.exec(s)
+  if (shown)
+    return {
+      tools: [`Opening ${shown[1]}`],
+      text: `Here's ${shown[1]}. Opening it for you.\n\n<<go card ${shown[1]}>>`,
+    }
   if (/agent|doing|working|busy/.test(s))
     return {
       tools: ["Reading the agents", "Reading the Board"],

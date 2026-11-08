@@ -41,6 +41,7 @@ export function PauseAgentsButton() {
         title={title}
         aria-label={`Agents paused since ${at}. Start agents again`}
         aria-pressed
+        data-spot="pause-agents"
         className={cn(
           "border-warning/50 bg-warning-foreground text-warning hover:bg-warning-foreground/80 hover:text-warning",
           error && "ring-1 ring-destructive"
@@ -71,6 +72,7 @@ export function PauseAgentsButton() {
       }
       aria-label="Pause agents"
       aria-pressed={false}
+      data-spot="pause-agents"
       className={cn(error && "ring-1 ring-destructive")}
     >
       <PauseIcon aria-hidden className="size-3.5" />

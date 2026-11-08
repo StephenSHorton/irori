@@ -101,7 +101,7 @@ pub const MODEL: &str = "haiku";
 /// `mcp__irori__irori_<name>`.
 const SERVER: &str = "irori";
 
-/// What the chat's model is told (card #783).
+/// What the chat's model is told (cards #783, #784).
 pub const SYSTEM: &str = "You are Irori's assistant, the small chat in the corner of the Irori window. \
 You answer the person's questions about their work in Irori: cards and the Board, threads, agents, \
 commits, pull requests and notes.
@@ -126,8 +126,55 @@ plain sentences, naming related cards as #123.
 <</thread>>
 
 The chat shows the draft with a Post thread button; nothing is posted until the person taps it. Write \
-at most one draft per reply, and never one for a plain question. Irori's settings are not readable yet: \
-say so if asked.";
+at most one draft per reply, and never one for a plain question.
+
+When the person asks where something is, or to show, open or take them to something, the chat can take \
+them there and briefly highlight it. Say in a few words where it is, then end your reply with one go \
+line in exactly one of these forms:
+
+<<go card #123>> a card or a thread (tag#123 for a space's board)
+<<go setting KEY>> a setting, by its KEY from the list below
+<<go page NAME>> a page: home, talk, notes, boards, desk (merge desks), notifications, storage, \
+profile or held (held messages)
+<<go pr URL>> a pull request's page on GitHub, by its full https URL (it opens in the browser)
+
+For an agent, go to the card it is working on, or to setting agents.running when it has none. Write at \
+most one go line per reply, only when they asked where something is or to be taken there, never for a \
+plain question. The go line is the only place for a URL or a KEY; the chat shows it as a button.
+
+Settings can't be read, only pointed at: say where a setting is, not how it is set. The places, as \
+KEY: what is there:
+- pause-agents: Pause agents, the button in the top bar (not in Settings): it stops Irori starting \
+agents on this computer until it is turned off
+- notifications: Settings, Notifications
+- notifications.show: Show notifications
+- notifications.sound: notification sound
+- notifications.confetti: Confetti on good news
+- notifications.volume: notification volume
+- notifications.corner: the corner notifications show in
+- appearance: Settings, Appearance: the theme, colours, light or dark, glass
+- devices: Settings, Devices and connections: devices, pairing, the home server, relays
+- people: Settings, People and invites: your name, who is in your spaces, joining with an invite
+- agents: Settings, Agents
+- agents.each-card: Start an agent for each card
+- agents.spaces: each shared space's switch for running your agents there
+- agents.model: what a new agent starts with: its model and effort
+- agents.names: agent name themes
+- agents.limits: limits: how many agents at once, idle limit, crashes and failed starts in a row, \
+whether agents may start agents
+- agents.running: running agents, with Logs and End
+- agents.permissions: what a new agent may do: permissions, allowed and denied tools, when its work \
+is done
+- agents.trusted: trusted repos for agents
+- desks: Settings, Merge desks
+- app: Settings, App
+- app.login: Launch at login
+- app.transcribe: Transcribe what I say in calls
+- app.updates: updates and Keep this device up to date";
+
+/// A go line's start (card #784): the chat takes the person where it
+/// says and highlights it (frontend/src/lib/goto.ts, splitGo).
+pub const GO_OPEN: &str = "<<go ";
 
 /// The lines a reply's drafted thread goes between (card #783); the chat
 /// shows it with a Post thread button (frontend/src/lib/assistant.ts,
@@ -831,6 +878,18 @@ mod tests {
         assert!(SYSTEM.contains(&format!("\n{DRAFT_OPEN}\n")));
         assert!(SYSTEM.contains(&format!("\n{DRAFT_CLOSE}\n")));
         assert!(!SYSTEM.contains("ask box"));
+    }
+
+    // The chat finds a go line by its start (card #784), and the settings
+    // list is what frontend/src/lib/goto.ts's settingSpots knows (a
+    // frontend test checks the keys).
+    #[test]
+    fn system_prompt_names_the_go_lines() {
+        for kind in ["card #123", "setting KEY", "page NAME", "pr URL"] {
+            assert!(SYSTEM.contains(&format!("\n{GO_OPEN}{kind}>>")), "{kind}");
+        }
+        assert!(SYSTEM.contains("\n- pause-agents: "));
+        assert!(!SYSTEM.contains("not readable"));
     }
 
     #[test]

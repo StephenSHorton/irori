@@ -17,7 +17,11 @@ export function NamesThemesSection({ open }: { open: boolean }) {
       <p className="text-[12.5px] text-destructive">{error}</p>
     ) : null
   return (
-    <section className="grid gap-2" aria-label="Agent names">
+    <section
+      className="grid gap-2"
+      aria-label="Agent names"
+      data-setting="agents.names"
+    >
       <h3 className="text-sm font-medium text-ink">Agent names</h3>
       <p className="text-[12.5px] text-muted-foreground">
         Each new agent gets a short name nobody has used lately, from the themes
