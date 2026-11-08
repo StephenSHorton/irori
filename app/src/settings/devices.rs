@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use irori_window::devices::{DeviceView, HomeServerView, PairStatus, RelayView};
 use irori_window::events::{EVENT_DEVICES_CHANGED, EVENT_DEVICES_PAIRING, EVENT_ROSTER_CHANGED};
 use rune::{Color, El, TextEdit, Tx, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Switch, TextInput};
+use rune_kit::{Button, ButtonVariant, ColorSwatch, ControlSize, Switch, TextInput};
 
 use crate::ui::{Event, Frame, State};
 
@@ -559,23 +559,25 @@ fn rename_field(s: &State, f: &Frame, d: &DeviceView) -> El {
         })
 }
 
-/// A round colour button (the palettes' swatches).
-fn swatch(f: &Frame, key: String, color: Option<Color>, size: f32, on: bool, label: String) -> El {
-    let k = f.k;
-    let mut e = el()
-        .key(key)
-        .size(size, size)
-        .radius(size / 2.0)
-        .role("button")
+/// A round colour button (kit ColorSwatch, the palettes' swatches); with
+/// no colour, the default's empty ring.
+fn swatch(
+    f: &Frame,
+    key: String,
+    color: Option<Color>,
+    on: bool,
+    label: String,
+    press: impl Fn(&mut State) + 'static,
+) -> El {
+    ColorSwatch::new(color.unwrap_or(Color::TRANSPARENT))
+        .round()
+        .size(16.0)
+        .selected(on)
         .label(label.clone())
+        .on_press(press)
+        .build(f.k)
+        .key(key)
         .help(label)
-        .focusable(true)
-        .checked(on);
-    e = match color {
-        Some(c) => e.fill(c),
-        None => e.border(1.0, k.c.border_base),
-    };
-    if on { e.border(2.0, k.c.text_base) } else { e }
 }
 
 /// ColorPick: a device's colour (card #22), its swatch opening the palette.
@@ -593,16 +595,13 @@ fn color_pick(s: &State, f: &Frame, d: &DeviceView) -> El {
     if m.color_open.as_deref() == Some(d.device_id.as_str()) {
         for (c, _) in DEVICE_COLORS {
             let (id, c2) = (d.device_id.clone(), c.to_string());
-            out = out.child(
-                swatch(
-                    f,
-                    format!("settings-dc-{}-{c}", d.device_id),
-                    device_color(c),
-                    16.0,
-                    d.color == *c,
-                    format!("{c} for {name}"),
-                )
-                .on_press(move |s: &mut State| {
+            out = out.child(swatch(
+                f,
+                format!("settings-dc-{}-{c}", d.device_id),
+                device_color(c),
+                d.color == *c,
+                format!("{c} for {name}"),
+                move |s: &mut State| {
                     let (id, c) = (id.clone(), c2.clone());
                     let id2 = id.clone();
                     s.spawn(
@@ -618,8 +617,8 @@ fn color_pick(s: &State, f: &Frame, d: &DeviceView) -> El {
                             }
                         },
                     );
-                }),
-            );
+                },
+            ));
         }
     } else {
         let id = d.device_id.clone();
@@ -632,16 +631,16 @@ fn color_pick(s: &State, f: &Frame, d: &DeviceView) -> El {
             }
         );
         out = out.child(
+            // It opens the palette: a button, not one of its choices.
             swatch(
                 f,
                 format!("settings-dc-{}", d.device_id),
                 device_color(&d.color),
-                16.0,
                 false,
                 label,
+                move |s: &mut State| s.settings.devices.color_open = Some(id.clone()),
             )
-            .border(1.0, f.k.c.border_base)
-            .on_press(move |s: &mut State| s.settings.devices.color_open = Some(id.clone())),
+            .role("button"),
         );
     }
     if let Some(e) = m.color_err.get(&d.device_id) {
@@ -819,17 +818,14 @@ fn person_color(s: &State, f: &Frame) -> El {
     for (c, _) in DEVICE_COLORS {
         let on = color == *c;
         let next = if on { String::new() } else { c.to_string() };
-        pal = pal.child(
-            swatch(
-                f,
-                format!("settings-pc-{c}"),
-                device_color(c),
-                16.0,
-                on,
-                format!("{c} in shared spaces"),
-            )
-            .on_press(move |s: &mut State| pick_person_color(s, next.clone())),
-        );
+        pal = pal.child(swatch(
+            f,
+            format!("settings-pc-{c}"),
+            device_color(c),
+            on,
+            format!("{c} in shared spaces"),
+            move |s: &mut State| pick_person_color(s, next.clone()),
+        ));
     }
     let line = if !m.person_err.is_empty() {
         error_line(f, &m.person_err)

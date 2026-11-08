@@ -10,8 +10,8 @@ use std::collections::HashMap;
 
 use irori_window::boards::BoardSummary;
 use irori_window::events::EVENT_DEVICES_CHANGED;
-use rune::{El, Pixels, ScrollSpec, Tx, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant};
+use rune::{El, Pixels, ScrollSpec, Tx, col, icon, row, text};
+use rune_kit::{Button, ButtonVariant, ColorSwatch, ControlSize, IconButton, IconButtonVariant};
 
 use crate::settings::devices::{DEVICE_COLORS, device_color, pick_person_color};
 use crate::settings::people::{NameEdit, load_name, name_field};
@@ -300,21 +300,17 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     for (c, _) in DEVICE_COLORS {
         let on = p.color == *c;
         let next = if on { String::new() } else { c.to_string() };
-        let mut sw = el()
-            .key(format!("profile-color-{c}"))
-            .size(24.0, 24.0)
-            .radius(12.0)
-            .fill(device_color(c).unwrap_or(k.c.layer_03))
-            .role("button")
-            .label(format!("{c} as your colour"))
-            .help(c.to_string())
-            .checked(on)
-            .focusable(true)
-            .on_press(move |s: &mut State| pick_person_color(s, next.clone()));
-        if on {
-            sw = sw.border(2.0, k.c.text_base);
-        }
-        pal = pal.child(sw);
+        pal = pal.child(
+            ColorSwatch::new(device_color(c).unwrap_or(k.c.layer_03))
+                .round()
+                .size(24.0)
+                .selected(on)
+                .label(format!("{c} as your colour"))
+                .on_press(move |s: &mut State| pick_person_color(s, next.clone()))
+                .build(k)
+                .key(format!("profile-color-{c}"))
+                .help(c.to_string()),
+        );
     }
     let note = if !p.error.is_empty() {
         text(p.error.clone())
