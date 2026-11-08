@@ -397,3 +397,30 @@ describe("the cap keeps what the chat still follows (card #785)", () => {
     expect(capKeeping(all, new Set(), 4)).toEqual(lines.slice(1))
   })
 })
+
+describe("what the chat changed (card #987)", () => {
+  const r = fold(
+    ev("delta", "Done."),
+    ev("changed", "Resolved thread #983 “Mic button”."),
+    ev("changed", "  "),
+    ev("done")
+  )
+
+  test("each change is its own line after the reply", () => {
+    expect(settled(r)).toEqual([
+      { role: "assistant", text: "Done." },
+      {
+        role: "assistant",
+        text: "Resolved thread #983 “Mic button”.",
+        note: true,
+        changed: true,
+      },
+    ])
+  })
+
+  test("it survives a reload and isn't sent back as history", () => {
+    const back = parseHistory(serializeHistory(settled(r)))
+    expect(back[1].changed).toBe(true)
+    expect(historyFor(back).map((t) => t.text)).toEqual(["Done."])
+  })
+})

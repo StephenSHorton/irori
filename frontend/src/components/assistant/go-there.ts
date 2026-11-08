@@ -5,11 +5,10 @@
 // plain line saying why not, for the chat to show.
 
 import { PaletteJump } from "@/components/command-palette"
-import { openSettings } from "@/components/settings/settings-menu"
 import { cardRef, cards as cardsApi } from "@/lib/cards"
 import { runCommand } from "@/lib/commands"
 import { settingSpot, type GoPage, type GoTarget } from "@/lib/goto"
-import { go, type Section } from "@/lib/nav"
+import { go, openSettings, type Section } from "@/lib/nav"
 import { spotlight, type From } from "@/lib/spotlight"
 import { errorText } from "@/lib/talk"
 
@@ -90,6 +89,7 @@ export async function goThere(t: GoTarget, deps: GoDeps): Promise<string> {
           void spotlight(sel, { from: deps.from })
           return ""
         }
+        jump()
         openSettings(s.section)
         if (s.key !== s.section)
           void spotlight(`[data-setting="${CSS.escape(s.key)}"]`, {

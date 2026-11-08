@@ -4,7 +4,7 @@
 import type { AttachEvent, AttachView, PausedCard, Policy, ToolSpec, TrackedAppend } from '../types'
 
 /** Matches .claude-plugin/plugin.json; sent to `irori attach` and shown by /irori. */
-export const MOD_VERSION = '0.7.0'
+export const MOD_VERSION = '0.7.1'
 /** hello's `v` from which `irori attach --standby` is safe: the Core refuses it while another attach is live. */
 export const STANDBY_SINCE = 3
 
@@ -366,7 +366,7 @@ export type RateLimit = { kind: string; percentUsed: number; resetsAt?: string }
  * (card #599), or null when there is nothing to send: no window, or none
  * well formed. Rows that aren't a window are left out; the Core checks the rest.
  */
-export function usageBody(rateLimits: unknown): { rateLimits: RateLimit[] } | null {
+export function usageBody(rateLimits: unknown, account?: string): { rateLimits: RateLimit[]; account?: string } | null {
   if (!Array.isArray(rateLimits)) return null
   const out: RateLimit[] = []
   for (const r of rateLimits) {
@@ -376,7 +376,39 @@ export function usageBody(rateLimits: unknown): { rateLimits: RateLimit[] } | nu
     out.push(typeof resetsAt === 'string' && resetsAt ? { kind, percentUsed, resetsAt } : { kind, percentUsed })
     if (out.length >= MAX_USAGE_WINDOWS) break
   }
-  return out.length ? { rateLimits: out } : null
+  if (!out.length) return null
+  return account ? { rateLimits: out, account } : { rateLimits: out }
+}
+
+/**
+ * Where Claude Code keeps the login record (card #1040): `.claude.json` in
+ * `CLAUDE_CONFIG_DIR` when that is set, else in the home directory.
+ */
+export function claudeConfigPath(configDir: string | undefined, home: string | undefined): string | null {
+  const dir = configDir?.trim() || home?.trim()
+  if (!dir) return null
+  return `${dir.replace(/[\\/]+$/, '')}/.claude.json`
+}
+
+/**
+ * An opaque id of the Claude account a login record signs in as (card
+ * #1040): its account id, with the organization's when it has one (a
+ * subscription switch changes either). Undefined when the text is not a
+ * login record or names no account. Only ids are kept: never the email.
+ */
+export function accountFromConfig(text: unknown): string | undefined {
+  if (typeof text !== 'string') return undefined
+  let oauth: unknown
+  try {
+    oauth = (JSON.parse(text) as { oauthAccount?: unknown } | null)?.oauthAccount
+  } catch {
+    return undefined
+  }
+  if (!oauth || typeof oauth !== 'object') return undefined
+  const { accountUuid, organizationUuid } = oauth as Record<string, unknown>
+  if (typeof accountUuid !== 'string' || !accountUuid.trim()) return undefined
+  const org = typeof organizationUuid === 'string' ? organizationUuid.trim() : ''
+  return org ? `${accountUuid.trim()}/${org}` : accountUuid.trim()
 }
 
 /**

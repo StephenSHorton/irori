@@ -320,9 +320,12 @@ struct Services {
     secrets: Mutex<Vec<String>>,
     token: String,
     /// The window assistant's per-run secret (card #783): the API reads a
-    /// call carrying it as the person, through the read-only tools only.
+    /// call carrying it as the person, through its read tools, and its
+    /// two writes only per grant (card #987).
     /// Only in memory and in the assistant's own 0600 MCP config.
     assistant: String,
+    /// What the person's message lets the assistant change (card #987).
+    assistant_grants: tools::Grants,
     reviver: Arc<Mutex<Option<ReviveFn>>>,
     /// Spawned agents (card #446): the window's spawner, the boards'
     /// switches and the devices' caps.
@@ -418,6 +421,9 @@ impl tools::Attacher for ToolsView {
 }
 
 impl tools::Backend for ToolsView {
+    fn device_id(&self) -> String {
+        self.0.device.id.clone()
+    }
     fn agents(&self) -> Vec<presence::AgentCard> {
         self.0
             .roster
@@ -1568,6 +1574,7 @@ impl Core {
             secrets: Mutex::new(Vec::new()),
             token: token.clone(),
             assistant: assistant.clone(),
+            assistant_grants: Default::default(),
             reviver,
             spawn: spawn_state,
             hub: Hub::new(),
@@ -2437,9 +2444,16 @@ impl Core {
 
     /// The window assistant's secret for this run (card #783): sent as
     /// `X-Irori-Assistant`, it reads as the person through
-    /// `tools::ASSISTANT_TOOLS` only. A secret: never log it.
+    /// `tools::ASSISTANT_TOOLS` (writes per grant, card #987). A secret:
+    /// never log it.
     pub fn assistant_secret(&self) -> &str {
         &self.s.assistant
+    }
+
+    /// What the person's message lets the window assistant change, for
+    /// the run going now (card #987).
+    pub fn assistant_grants(&self) -> &tools::Grants {
+        &self.s.assistant_grants
     }
 
     /// Where the window assistant runs (card #783): its `claude -p` cwd,
@@ -2470,10 +2484,16 @@ impl Core {
     /// checked, merged into the kept reading and saved. Every reading taken
     /// is `usage:changed`, so the window's "as of" moves too; one with no
     /// window left after the checks changes nothing and is no event. `Err`
-    /// is why the reading was refused.
-    pub fn record_usage_limits(&self, input: &[crate::usage::RateLimit]) -> Result<(), String> {
+    /// is why the reading was refused. `account` is the Claude account the
+    /// session is signed in as, when the mod could tell (card #1040): a
+    /// different one replaces the kept windows.
+    pub fn record_usage_limits(
+        &self,
+        input: &[crate::usage::RateLimit],
+        account: Option<&str>,
+    ) -> Result<(), String> {
         let now = (self.s.now)().unix_milli_value();
-        if self.s.usage.record(input, now)? {
+        if self.s.usage.record(input, account, now)? {
             self.s.hub.publish(CoreEvent::Usage);
         }
         Ok(())
