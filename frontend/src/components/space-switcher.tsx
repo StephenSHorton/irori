@@ -97,7 +97,18 @@ export function SpaceSwitcher({
           />
         }
       >
-        <Mark s={cur} />
+        <span className="relative flex">
+          <Mark s={cur} />
+          {/* Folded, the rows are out of sight: a dot on the mark says some
+              other space has something waiting (card #1001). */}
+          {folded && [...(waiting ?? [])].some((id) => id !== cur.id) && (
+            <span
+              role="img"
+              aria-label="Something waits for you in another space"
+              className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary ring-2 ring-sidebar"
+            />
+          )}
+        </span>
         {!folded && (
           <>
             <span className="min-w-0 flex-1 truncate">
