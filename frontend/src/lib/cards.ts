@@ -39,7 +39,7 @@ import {
   type AgentRef,
   type CardActivity,
   type CardBlocker,
-  type CardDetail,
+  CardDetail,
   type CardHolder,
   type CardOption,
   type CardPR,
@@ -54,7 +54,7 @@ import {
   type Link,
   type Mention,
   type NewCardInput,
-  type Step,
+  Step,
   ThreadCard,
 } from "./models"
 import {
@@ -67,7 +67,13 @@ import {
 } from "./irori"
 import { safeHref } from "./rich"
 import { EventInboxChanged, useLatest } from "./talk"
-import { NoteItem, sampleAgents, sampleCards, sampleYou } from "./sample-cards"
+import {
+  NoteItem,
+  sampleAgents,
+  sampleCards,
+  sampleHolder,
+  sampleYou,
+} from "./sample-cards"
 import { nameOr, unknownAgent } from "./names"
 import { pending, type Pending } from "./pending"
 
@@ -292,18 +298,23 @@ const sampleThreadBoard = new Map<string, string>()
 // #391) once it differs from on.
 const sampleThreadAgentsNow = new Map<string, boolean>()
 
-// sampleThread is one of the sample's threads.
+// sampleThread is one of the sample's threads: an ask card (ask.thread
+// in the app), so a thread opens in the ask card view (card #780).
+// extra makes one real-looking: an agent on it, its steps.
 function sampleThread(
   id: string,
   short: string,
   text: string,
   at: string,
   thread: CardThreadItem[],
-  state: string
+  state: string,
+  extra: Partial<CardDetail> = {}
 ): CardDetail {
   sampleThreadIds.add(id)
   sampleThreadState.set(id, state)
-  return {
+  const working = extra.working ?? []
+  const taker = working[0] ?? null
+  return CardDetail({
     id,
     short,
     shortWas: "",
@@ -311,28 +322,46 @@ function sampleThread(
     goal: text,
     doneWhen: "",
     note: "",
-    state: TaskState.Submitted,
+    state: state === "resolved" ? TaskState.Completed : TaskState.Submitted,
     repoKey: "",
-    scope: "",
-    scopeLabel: "",
+    scope: "mine",
+    scopeLabel: "My devices",
     steps: [],
     blockers: [],
     prs: [],
     links: [],
     comments: [],
-    working: [],
     watching: [],
     progress: { done: 0, total: 0 },
     openBlockers: 0,
     waiting: 0,
     blockerQuestion: "",
     recent: [],
-    thread,
     threadEarlier: 0,
     historyTrimmed: false,
     updatedAt: at,
-    ask: null,
-  } as unknown as CardDetail
+    talking: [],
+    ...extra,
+    working,
+    holder: sampleHolder(working),
+    thread,
+    ask: CardAsk({
+      state:
+        state === "resolved"
+          ? AskState.Closed
+          : taker
+            ? AskState.Taken
+            : state === "handed"
+              ? AskState.Handed
+              : AskState.Open,
+      told: 3,
+      owner: "Macbook Pro (this one)",
+      wake: true,
+      taker,
+      outcome: null,
+      outcomeRef: "",
+    }),
+  })
 }
 
 // sampleThreadSeed is the preview's threads: one sample-heron answered,
@@ -346,6 +375,20 @@ function sampleThreadSeed(now: Date): CardDetail[] {
       "Is #3 still moving? And did anyone finish the release notes (#8)?",
       ago(120),
       [
+        CardThreadItem({
+          id: "sample-thread-1-asked",
+          kind: "event",
+          at: ago(120),
+          who: sampleYou,
+          text: "You asked the room",
+        }),
+        CardThreadItem({
+          id: "sample-thread-1-took",
+          kind: "event",
+          at: ago(100),
+          who: sampleAgents.heron,
+          text: "sample-heron took it",
+        }),
         CardThreadItem({
           id: "sample-thread-1-a",
           kind: "comment",
@@ -361,9 +404,33 @@ function sampleThreadSeed(now: Date): CardDetail[] {
           at: ago(30),
           who: sampleAgents.heron,
           text: "The build log is at builds/release/mac-universal/2026-11-01T18-37-38Z/irori-desktop-aarch64-apple-darwin-signed-notarized-stapled.log and the failing key was RELEASE_NOTES_EXPORT_PIPELINE_STAGE_THREE_MISSING_ARTIFACT_MANIFEST.",
+          attachments: [
+            {
+              sha256: "7".repeat(64),
+              name: "release-notes-draft.png",
+              size: 41870,
+              mime: "image/png",
+              device: sampleYou.deviceId ?? "",
+            },
+          ],
         }),
       ],
-      "answered"
+      "answered",
+      // An agent on it, with its steps (card #780): the ask view's
+      // Progress and Who's on it have something to show.
+      {
+        working: [sampleAgents.heron],
+        steps: [
+          Step({ id: "s1", text: "Check #3's blocker", done: true }),
+          Step({
+            id: "s2",
+            text: "Finish the release notes (#8)",
+            doing: true,
+          }),
+          Step({ id: "s3", text: "Post the build log" }),
+        ],
+        progress: { done: 1, total: 3 },
+      }
     ),
     sampleThread(
       "sample-thread-2",

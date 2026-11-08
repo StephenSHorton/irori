@@ -919,6 +919,9 @@ export function App() {
                       now={now}
                       onBack={back}
                       onOpen={openCard}
+                      // A thread opened from the Board has its bar too
+                      // (card #780): one view of it, here and in Talk.
+                      thread={allThreads.find((t) => t.id === open)}
                     />
                   </FocusComment.Provider>
                 </Scroll>
