@@ -33,13 +33,13 @@ The earlier check on #1023 read a checkout 265 commits behind main. On main:
 
 ## 3. Who the assistant is
 
-**The name.** #1029 owns it, in its build card "The assistant's name":
+**The name.** #1029 owns it, in its build card #1045 ("Huddles 4: name your Office Assistant"):
 
 - A private `assistant.name` row `{name, by, at}`, newest wins, set in the app.
 - An `assistantName` field on `member.profile` publishes it to other members.
 - With no name set, it is the default, `<profile name>'s assistant`. The default is computed, so nothing is written and every device agrees.
 
-This design only reads the name. Until #1029's card lands, every assistant has the default.
+#1045 also adds one label helper, `frontend/src/lib/assistant-label.ts`, which builds "Juno · Addam's assistant" from the signer's profile and `assistantName`. This design only reads the name and reuses that helper. Until #1045 lands, every assistant has the default.
 
 **The card.** A new `agent.card` row on the space's log:
 
@@ -84,7 +84,7 @@ A random id can't be claimed ahead of time, and the pointer needs no change to t
 
 - The person comes from the verifier's `card_person(id)`, never from the row's `personId`.
 - The kind and name come only from rows written by that person's devices. `fold_card` keeps, per card, the newest row by `ev.hlc` whose writer is a device of `card_person(id)`, for the label and for mentions. Today it keeps the last row to arrive. `card_of` can change after a row is kept (a person's first device certifies late), so the map is refolded when it does. Every reader of `maps.cards` (roster_of, offers, presence, space names, `board_mentionables`, `send_to`) then sees the same filtered map.
-- Show "Juno · Addam's assistant", or just "Addam's assistant" for a default name, only when that kind is `assistant` *and* the owner's profile points at the card.
+- Show "Juno · Addam's assistant", or just "Addam's assistant" for a default name, through #1045's `assistant-label.ts`, and only when that kind is `assistant` *and* the owner's profile points at the card. Card 3 adds that check around the helper rather than building a second label.
 - A card merely *named* "Addam's assistant" that fails either test shows as an ordinary agent ("Addam's assistant · Eve", agent tag).
 - Talk's member mapping keeps the member kind `agent`, so a typed mention still turns Agents answer now on (`agentsNowFor`), and adds an `assistant` flag. `conversation.tsx` shows an `assistant` tag.
 
@@ -359,7 +359,7 @@ On an older peer:
 
 ## 12. Build plan
 
-All cards come after #1030, and are on the Board as #1057–#1065 (cards 1–9 in order). Each is normal weight unless marked, and links here. Every card: tests from the repo's patterns, `sh scripts/check.sh`, scratch builds per CLAUDE.md. The order is: 1 and 2 can go side by side, then 3 after 2, 4 after 1 and 2, 5 after 4, 6 after 3 and 5, 7 and 8 after 6, and 9 at any time.
+All cards come after #1030, and are on the Board as #1057–#1065 (cards 1–9 in order). Each is normal weight unless marked, and links here. Every card: tests from the repo's patterns, `sh scripts/check.sh`, scratch builds per CLAUDE.md. The order is: 1 and 2 can go side by side, then 3 after 2 and #1029's name card #1045, 4 after 1 and 2, 5 after 4, 6 after 3 and 5, 7 and 8 after 6, and 9 at any time.
 
 **1. The channel.**
 Files: `crates/coord/src/talk.rs` (`assistants_channel_id`, `is_assistants_channel`, the fold's `ch_oa_` refusal), `crates/core/src/service/spaces.rs` (`ensure_assistants_channel`), `crates/core/src/service/spawn.rs` (call it from `sweep_spawns`), `crates/window/src/talk.rs` (a pinned flag on the channel binding), `frontend/src/lib/conversations.ts` (`listed()` puts it first).
@@ -374,7 +374,7 @@ Done when tests show:
 - A room ask passes the card by, and a card ask that mentions it isn't handed to it.
 - A profile written without `assistantCard` (an older build, or a rename through `keep_current`) doesn't clear the pointer.
 
-Until #1029's name card lands, the card's name is the default.
+Until #1045 lands, the card's name is the default.
 
 **3. The label and mentions.**
 Files: `crates/core/src/service/boards.rs` (`fold_card` keeping the owner's newest row by HLC, refolded when `card_of` changes), `crates/tools/src/shared.rs` and `crates/core/src/service/bridge.rs` (`board_mentionables`: the names, no squats), `crates/window/src/mentions.rs`, `frontend/src/lib/mentions.ts`, `frontend/src/components/common/mention-textarea.tsx`, `frontend/src/components/talk/*` (tag; an `assistant` flag on the member, whose kind stays `agent`).
@@ -385,7 +385,7 @@ Done when tests show:
 - `@Addam's assistant` resolves to the assistant, not to the person Addam, with a chosen name and without.
 - The picker offers assistants only in the assistants channel.
 
-Reading #1029's `assistantName` is a one-line addition on #1029's name card or a light follow-up, so this card doesn't wait on it.
+It comes after #1045, so it reuses that card's `assistant-label.ts` and reads `assistantName` through it, instead of building a second label.
 
 **4. The answering path, with a fake turn.**
 Files: `crates/coord/src/talk.rs` (`replyTo` and `waiting` on `PostRow`, `Post` and its fold), `crates/window/src/talk.rs` (`TalkPost`) and the generated bindings, `crates/core/src/service/spaces.rs` (the `pub` post wrapper writing raw rows), `crates/core/src/service/bridge.rs` (the split after the channel lookup, the moved `agents_now` return, the repeated-id skip), new `crates/core/src/service/assistant_answers.rs` (the checks, answer and waiting ids, queue, catch-up scan), `crates/core/src/service.rs` and `app/src/shell/mod.rs` (`set_answerer`), `crates/window/src/lib.rs` (the fifth `Runner`).
