@@ -58,7 +58,7 @@ pub use ids::IdGen;
 pub use messages::clip_show;
 pub use pr::normalize_pr;
 pub use progress::{ProgressBy, progress_of};
-pub use state::{Inbox, Subscription, decode_message};
+pub use state::{Inbox, SawOthers, Subscription, decode_message};
 pub use wake::TalkWake;
 
 // ---- errors ---------------------------------------------------------------
@@ -427,6 +427,10 @@ pub struct Message {
     pub attachments: Vec<FileRef>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub mentions: Vec<Mention>,
+    /// The sender had read another person's text (card #1075): the agent
+    /// that reads this is flagged too, as the hop count rides on a send.
+    #[serde(skip_serializing_if = "is_false")]
+    pub others: bool,
     /// The device that wrote the message.sent row (memory only).
     #[serde(skip)]
     pub writer: String,

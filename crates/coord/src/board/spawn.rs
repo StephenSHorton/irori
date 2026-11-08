@@ -125,6 +125,8 @@ pub struct Spawn {
     pub note: String,
     /// It counts toward "My agents may start agents" (card #575).
     pub counted: bool,
+    /// Its agent reads another person's text (card #1075).
+    pub others: bool,
     pub by: String,
     pub at: GoTime,
     /// The agent bound to this request, once presence listed it.
@@ -186,6 +188,9 @@ pub struct SpawnAsk {
     pub note: String,
     /// It counts toward "My agents may start agents" (card #575).
     pub counted: bool,
+    /// Its agent reads another person's text (card #1075): its brief
+    /// quotes it, or its card is on a shared board.
+    pub others: bool,
 }
 
 /// What the card itself says about getting an agent (card #574): what
@@ -209,6 +214,10 @@ pub enum SpawnHold {
     OffSide(String),
     /// An unmarked subtask of a card with a lead.
     ForLead,
+    /// An agent that had read another person's text made or changed it
+    /// (card #1075): it waits on the person's "OK to start an agent on
+    /// this?".
+    NeedsOk,
 }
 
 impl Task {
@@ -340,6 +349,7 @@ impl Fold {
             reason: p.reason,
             note: p.note,
             counted: p.counted,
+            others: p.others,
             by: p.by,
             at: at(p.at),
             key: String::new(),
@@ -360,6 +370,7 @@ impl Fold {
                 *o = Spawn {
                     key: o.key.clone(),
                     counted: s.counted || o.counted,
+                    others: s.others || o.others,
                     ..s
                 };
             }
@@ -524,6 +535,7 @@ impl Fold {
                 reason: String::new(),
                 note: a.note,
                 counted: a.counted,
+                others: a.others,
                 by,
                 at: now,
             },
@@ -1302,6 +1314,118 @@ impl Fold {
         v
     }
 
+    /// Whether card t, on the private log, waits for the person's OK
+    /// before Irori starts an agent for it (card #1075): an agent that had
+    /// read another person's text made or changed it, so it is a request
+    /// from a stranger in all but name (decision 50), and nothing starts
+    /// until the person says yes. Their own "Start an agent" on the card
+    /// is that yes. One yes starts one agent.
+    pub(crate) fn marked_waits(&self, t: &Task) -> bool {
+        !self.on_board && t.others && !Self::yes_unspent(t) && !self.spawn_now.contains(&t.id)
+    }
+
+    /// The marked cards that would get an agent but for the person's OK
+    /// and have not been asked yet, or whose last yes is spent. A Not now
+    /// stays until they ask for an agent on the card themselves.
+    pub(crate) fn marked_to_ask(&self) -> Vec<Task> {
+        self.spawn_candidates(true)
+            .into_iter()
+            .filter(|t| t.given_said.as_ref().is_none_or(|y| y.yes))
+            .filter(|t| {
+                !t.blockers
+                    .iter()
+                    .any(|b| b.open() && b.question == GIVEN_QUESTION)
+            })
+            .collect()
+    }
+
+    /// Asks the person "OK to start an agent on this?" about marked card
+    /// `id`, in their own name (card #1075).
+    pub(crate) fn ask_marked(&mut self, by: &str, id: &str, context: &str) -> Result<()> {
+        let t = self.open_task(id)?.clone();
+        if !t.others || self.on_board {
+            return Ok(());
+        }
+        let now = self.stamp();
+        let opt = |answer: &str, why: &str| BlockerOption {
+            answer: answer.into(),
+            why: why.into(),
+            by: by.to_string(),
+            at: now,
+            recommended: false,
+            link: None,
+        };
+        self.raise_locked(
+            by,
+            &t,
+            GIVEN_QUESTION,
+            GIVEN_QUESTION,
+            context,
+            vec![
+                opt(
+                    GIVEN_START,
+                    "It starts under your own settings and cap, never on Bypass.",
+                ),
+                opt(GIVEN_NOT_NOW, "The card stays yours, with no agent."),
+            ],
+            Some(BlockedBy {
+                kind: BLOCKED_ON_PERSON.into(),
+                reference: String::new(),
+            }),
+            false,
+            now,
+            Vec::new(),
+            Vec::new(),
+            false,
+            false,
+        )?;
+        Ok(())
+    }
+
+    /// What a `blocker.resolved` row says on a marked card's "OK to start
+    /// an agent on this?": the person's own yes or no (card #1075). An
+    /// agent closing it says nothing, so they are asked again.
+    pub(crate) fn marked_say(&self, p: &BlockerResolvedRow, person: bool) -> Option<GivenSaid> {
+        if self.on_board || !person {
+            return None;
+        }
+        let t = self.tasks.get(&p.task_id).filter(|t| t.others)?;
+        let b = t.blockers.iter().find(|b| b.id == p.blocker_id)?;
+        if b.question != GIVEN_QUESTION || !b.open() {
+            return None;
+        }
+        Some(GivenSaid {
+            yes: !p.closed && p.answer == GIVEN_START,
+            generation: t.spawn_request().map_or(0, |s| s.generation),
+            person: String::new(),
+        })
+    }
+
+    /// Marks card `id` when ev, a private-log row of an agent that had read
+    /// another person's text, says so (card #1075). Sticky.
+    pub(crate) fn note_others(&mut self, ev: &Event, id: &str) {
+        if self.on_board || !super::carries_others(&ev.kind) {
+            return;
+        }
+        let said = serde_json::from_slice::<serde_json::Value>(&ev.payload)
+            .ok()
+            .and_then(|v| v.get("others").and_then(serde_json::Value::as_bool))
+            .unwrap_or(false);
+        if said && let Some(t) = self.tasks.get_mut(id) {
+            t.others = true;
+        }
+    }
+
+    /// The agents whose spawn row says they read another person's text.
+    pub(crate) fn spawned_others(&self) -> Vec<String> {
+        self.tasks
+            .values()
+            .flat_map(|t| t.spawns.iter())
+            .filter(|s| s.others && !s.key.is_empty())
+            .map(|s| s.key.clone())
+            .collect()
+    }
+
     /// Asks the person about card `id` given to them, in their own name:
     /// a person's row, so every member's fold takes it from their device.
     pub(crate) fn ask_given(&mut self, by: &str, id: &str, context: &str) -> Result<()> {
@@ -1450,6 +1574,9 @@ impl Fold {
         if self.waits_for_lead(t) {
             return SpawnHold::ForLead;
         }
+        if self.marked_waits(t) {
+            return SpawnHold::NeedsOk;
+        }
         SpawnHold::Clear
     }
 
@@ -1466,6 +1593,12 @@ impl Fold {
     }
 
     pub(crate) fn cards_to_spawn(&self) -> Vec<Task> {
+        self.spawn_candidates(false)
+    }
+
+    /// [`Fold::cards_to_spawn`], or (`marked`) the cards it leaves out
+    /// because they wait on the person's OK (card #1075).
+    fn spawn_candidates(&self, marked: bool) -> Vec<Task> {
         if !self.spawning_on() {
             return Vec::new();
         }
@@ -1477,6 +1610,7 @@ impl Fold {
                 ((super::offers::needs_agent(t) || self.needs_lead(t)) && self.spawns_out(t))
                     || self.ask_needs_agent(t)
             })
+            .filter(|t| self.marked_waits(t) == marked)
             // Only on a device that runs the card's side (card #495),
             // unless the person asked for an agent on it here.
             .filter(|t| self.runs_here(t) || self.spawn_now.contains(&t.id))

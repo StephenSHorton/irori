@@ -14,7 +14,7 @@ Huddles write a transcript. Each device writes down only its own person's voice.
 | Stored lines | `call.segment` rows | One row per finished phrase, written by the speaker's own device into the conversation's log: the space's board log, a person DM's hidden space log, or the private log for a Personal channel. Behind `Core::space_tolerance(space).ready()` (#652). |
 | Fallback | `talk.post` with a `transcript` mark | Lines that weren't stored as rows are kept by the speaker's device and written as posts when it leaves the call. An older Irori shows them as plain posts. |
 | Fold | `crates/coord/src/talk.rs` | Folds `call.segment` rows and fallback posts into a per-call index. `call_posts(call_id)` gives the lines as posts by the speaker at the phrase's time, conv `call:<id>`; `calls()` lists the huddles. |
-| Agents | `crates/tools/src/talk.rs`, `crates/core/src/service/bridge.rs` | `talk_read {conv:"call:<id>"}`, a huddles section in `talk_list`, and one wake for the channel's agents when the huddle ends. A person DM's transcript is never shown to an agent. |
+| Agents | `crates/tools/src/talk.rs`, `crates/core/src/service/bridge.rs` | `talk_read {conv:"call:<id>"}`, a huddles section in `talk_list`, and one wake for the channel's agents when the huddle ends. A person DM's huddle is read by either person's agents, only the lines marked `agents` (call-agents.md §10). |
 | Setting | `transcribe.set` private row, `crates/core/src/service/call_settings.rs` | "Transcribe what I say in calls", per person, synced to their devices, on when no row says otherwise (decision 52). |
 | Window | `crates/window/src/{call,talk,voice}.rs`, `frontend/src/lib/call.ts`, `frontend/src/components/talk/{huddle,transcript-pane}.tsx` | The notice before the mic opens, the "Transcript on" badge, who is transcribed, live captions, the transcript pane from the end post, and the switch in Settings > App. |
 
@@ -89,7 +89,7 @@ pub async fn read_control(recv: &mut RecvStream) -> Result<Option<ControlMsg>, S
 `call.segment` (`Replicated, Accepts`; a `call.*` kind must never be `Refuses`):
 
 ```json
-{"callId": "<32 hex>", "convId": "ch_… | dm:…", "seg": 0, "startMs": 1762470000000, "endMs": 1762470002400, "text": "…", "by": "<sender key>", "at": "<GoTime>"}
+{"callId": "<32 hex>", "convId": "ch_… | dm:…", "seg": 0, "startMs": 1762470000000, "endMs": 1762470002400, "text": "…", "agents": true, "by": "<sender key>", "at": "<GoTime>"}
 ```
 
 - `convId` is the real conversation, so the spaces rules (`space_may_touch`, the hidden-DM rule `convId == pair && by == actor`) hold unchanged. `startMs`/`endMs` are Unix ms.
@@ -129,9 +129,8 @@ A switch-off mid-call stops the transcriber the same way but doesn't close the t
 ## Who sees it
 
 - **Space channel:** its members and their agents in that channel.
-- **Person DM:** the two people only. Hidden spaces never bridge to agents. `talk_read` and `talk_list` refuse `call:<id>` to an agent when the call's conversation is a person DM ("a huddle between two people is theirs: agents don't read it"). No wake.
+- **Person DM:** the two people and their agents (card #1047, call-agents.md §10; this replaces the first rule, "the two people only"). Hidden spaces still never bridge to agents, and the DM's own posts stay closed to them. `talk_read` and `talk_list` let an agent read `call:<id>` of a person DM, but only the lines whose `call.segment` row carries `agents: true`, written under the new notice. An older huddle, or a line from an older build, stays closed ("a huddle between two people is theirs: this one wasn't said under the notice that lets agents read"). No wake.
 - **Personal channel:** the person and their agents.
-- Sharing a person DM's transcript with an agent is not in v1.
 - The window's `talk_call_transcript` goes through the same read rule, then reads every line unpaged.
 
 ## Agents
@@ -140,7 +139,7 @@ A switch-off mid-call stops the transcriber the same way but doesn't close the t
 - **The read cursor** for a `call:` conversation is `lines:<src>=<n>,…`: per source, the highest line index read. The source is the writing device for `call.segment` lines (index `seg`) or the post id for a fallback post's lines (index `i`).
   - Lines sort by when they were said, but arrive in each source's order. A late line said earlier would hide behind a single post-id cursor; per source it stays unread.
   - The cursor never goes back. An older cursor holding a plain line id still means "everything up to that line".
-- **`talk_list`:** "Huddles with a transcript, newest first:", at most 10, each with its place, line count, live or ended, and its unread count (not counting the reader's own lines). The person sees all of them; an agent sees those of channels it is in, never a person DM's.
+- **`talk_list`:** "Huddles with a transcript, newest first:", at most 10, each with its title, place, line count, live or ended, and its unread count (not counting the reader's own lines). The person sees all of them; an agent sees every huddle of its spaces, not only channels it joined, and a person DM's when it has lines marked `agents`. Speakers print as names; another person is never tagged "gone".
 
 ## The one wake
 
@@ -156,8 +155,11 @@ A switch-off mid-call stops the transcriber the same way but doesn't close the t
 
 - On by default. "Transcribe what I say in calls" in Settings > App turns it off ("Huddles write down what each person says, on their own device. Turn this off and your voice isn't written down; you still hear and speak."). Turning it off mid-call stops the transcriber within a tick.
 - Before the mic opens (Huddle, Join in the header or on a start post, Join on the ring banner), a dialog shows the notice with Start or Join and Cancel (`transcriptNotice`):
-  - In a channel: "This huddle is transcribed. What you say is written down in #channel for its members and their agents."
-  - In a DM: "This huddle is transcribed. What you say is written down for the two of you."
+  - In a channel: "Agents hear this huddle. What you say is written down as you speak, for #channel's members and all their agents."
+  - In a DM: "Agents hear this huddle. What you say is written down as you speak, for the two of you and your agents."
+  - In a Personal channel: "Agents hear this huddle. What you say is written down as you speak, for you and your agents."
+  - In a channel of a space with a device too old for huddle rows: "Agents and the canvas are off: someone's Irori in this space needs updating. What you say is written down in #channel at the end, for its members and their agents."
+  - Join shows the same text as Start for each kind (a Personal channel no longer reads as a channel).
   - With the switch off: "Your voice isn't transcribed (Settings > App)."
   - When this device can't transcribe (no engine, or the model isn't downloaded): "Your voice isn't transcribed on this device."
 - During the call: a "Transcript on" badge in the huddle's header while anyone is transcribed (its title: "Transcript on: each device writes down only its own person's voice."), "not transcribed" on the tile of anyone who isn't, captions under "Transcript, as it's written", and a red dot on the call bar.

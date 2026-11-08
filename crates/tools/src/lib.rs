@@ -50,6 +50,7 @@ mod attachments;
 mod avatar;
 mod board;
 mod capturetools;
+mod devicefree;
 mod explore;
 mod format;
 mod later;
@@ -313,6 +314,11 @@ pub trait Backend: Send + Sync {
     fn device_id(&self) -> String {
         String::new()
     }
+    /// This device's free room for the folder `path` (empty: Irori's data
+    /// dir), read now; `None` when this backend can't read it.
+    fn device_free(&self, _path: &str) -> Option<DeviceFree> {
+        None
+    }
     /// This device's roster (presence plus Grok members).
     fn agents(&self) -> Vec<presence::AgentCard>;
     /// Whether this device's session `key` has a live attach stream
@@ -485,6 +491,8 @@ pub(crate) struct Inner {
     pub(crate) board_requests: Mutex<shared::Requests>,
 }
 
+pub use devicefree::DeviceFree;
+
 /// Heavy slots per device (device-free plan §2): advisory, fixed at two.
 pub const HEAVY_SLOTS: usize = 2;
 
@@ -513,7 +521,7 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 64] = [
+    let list: [(&'static str, Handler); 65] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -560,6 +568,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("prs", explore::prs),
         ("lease", board::lease),
         ("leases", board::leases),
+        ("device_free", devicefree::device_free),
         ("release", board::release),
         ("review_claim", review_claim::review_claim),
         ("timeline", capturetools::timeline),
@@ -885,6 +894,14 @@ impl Names<'_> {
         let k = format::one_line(key, 120);
         if self.owner(key) {
             return format!("the person ({k})");
+        }
+        // Another person (a huddle's speaker) is never a gone agent: they
+        // print by name, or as "another person" when this device has none.
+        if coord::talk::is_other_person_key(key) {
+            return match self.known.get(key).filter(|n| !n.trim().is_empty()) {
+                Some(name) => format::one_line(name, 80),
+                None => "another person".into(),
+            };
         }
         if let Some(c) = self.cards.get(key) {
             let name = format::one_line(&c.name, 80);

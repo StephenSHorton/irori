@@ -55,6 +55,7 @@ use crate::notice;
 use crate::timers::{self, Kick, Ticker};
 use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
+mod assistant_name;
 pub mod boards;
 mod boards_members;
 mod boards_own;
@@ -311,6 +312,7 @@ struct Services {
     faces: coord::avatar::Faces,
     /// The person's own avatar on shared spaces (card #393).
     person_avatar: coord::person_avatar::PersonAvatar,
+    assistant_name: coord::assistant_name::AssistantName,
     /// The person's names for their devices (card #184).
     device_names: Arc<coord::devname::Names>,
     /// Talk's channels, DMs and read cursors (card #389).
@@ -436,6 +438,22 @@ impl tools::Backend for ToolsView {
 
     fn device_id(&self) -> String {
         self.0.device.id.clone()
+    }
+    fn device_free(&self, path: &str) -> Option<tools::DeviceFree> {
+        let dir = if path.is_empty() {
+            self.0.data_dir.clone()
+        } else {
+            PathBuf::from(path)
+        };
+        let q = sys::meters::quick(&dir);
+        Some(tools::DeviceFree {
+            dir: dir.to_string_lossy().into_owned(),
+            disk: q.disk.map(|d| (d.free_bytes, d.total_bytes)),
+            mem: q
+                .mem
+                .map(|m| (m.total_bytes.saturating_sub(m.used_bytes), m.total_bytes)),
+            cpu: q.cpu.and_then(|c| c.pct.map(|p| (p, c.cores))),
+        })
     }
     fn agents(&self) -> Vec<presence::AgentCard> {
         self.0
@@ -947,6 +965,14 @@ struct PersonColor<'a> {
     color: &'a str,
 }
 
+/// The `assistant.name` payload (card #1045).
+#[derive(Serialize)]
+struct AssistantNameRow<'a> {
+    name: &'a str,
+    by: &'a str,
+    at: i64,
+}
+
 /// The `person.avatar` payload (card #393).
 #[derive(Serialize)]
 struct PersonAvatarRow<'a> {
@@ -1292,6 +1318,17 @@ impl Core {
                     is_owner: Some(is_owner.clone()),
                     revoked: Some(revoked.clone()),
                     done_check: true,
+                    // Whether an agent read another person's text (card
+                    // #1075): the inbox keeps the flag beside its lock, so
+                    // this write-time check never waits on it.
+                    others_of: Some({
+                        let sawn = ib.saw_others_handle();
+                        Arc::new(move |actor: &str| {
+                            actor
+                                .strip_prefix(store::kinds::AGENT_ACTOR_PREFIX)
+                                .is_some_and(|k| sawn.has(k))
+                        })
+                    }),
                     // The private board's spawned-agent switch (card #446).
                     spawning: Some({
                         let on = spawn_state.on.clone();
@@ -1418,8 +1455,16 @@ impl Core {
         let person_color = coord::devcolor::PersonPick::new();
         let faces = coord::avatar::Faces::new();
         let person_avatar = coord::person_avatar::PersonAvatar::new();
+        let assistant_name = coord::assistant_name::AssistantName::new();
         let colors_sub = Arc::new(st.subscribe());
-        load_colors(&st, &colors, &person_color, &faces, &person_avatar);
+        load_colors(
+            &st,
+            &colors,
+            &person_color,
+            &faces,
+            &person_avatar,
+            &assistant_name,
+        );
         let talk = Arc::new(coord::talk::Talk::new(Some(st.clone()), {
             let now = now.clone();
             Some(Arc::new(move || now().utc()))
@@ -1602,6 +1647,7 @@ impl Core {
             person_color,
             faces,
             person_avatar,
+            assistant_name,
             device_names,
             talk,
             notifications,
@@ -2040,6 +2086,7 @@ impl Core {
                             &s.person_color,
                             &s.faces,
                             &s.person_avatar,
+                            &s.assistant_name,
                         );
                         load_device_names(&s.store, &s.device_names);
                         s.follow_person_name();
@@ -2113,10 +2160,14 @@ impl Core {
                         }
                     } else if ev.kind == coord::devcolor::PERSON_KIND
                         || ev.kind == coord::person_avatar::KIND
+                        || ev.kind == coord::assistant_name::KIND
                     {
                         // The pick reaches every shared board on the
                         // person's member.profile (cards #385, #393).
-                        if s.person_color.apply(&ev) || s.person_avatar.apply(&ev) {
+                        if s.person_color.apply(&ev)
+                            || s.person_avatar.apply(&ev)
+                            || s.assistant_name.apply(&ev)
+                        {
                             s.follow_person_name();
                             s.hub.publish(CoreEvent::Devices);
                         }
@@ -3780,6 +3831,7 @@ fn load_colors(
     person: &coord::devcolor::PersonPick,
     faces: &coord::avatar::Faces,
     avatar: &coord::person_avatar::PersonAvatar,
+    assistant: &coord::assistant_name::AssistantName,
 ) {
     let mut f = Filter {
         kinds: vec![
@@ -3787,6 +3839,7 @@ fn load_colors(
             coord::devcolor::PERSON_KIND.into(),
             coord::avatar::KIND.into(),
             coord::person_avatar::KIND.into(),
+            coord::assistant_name::KIND.into(),
         ],
         limit: store::MAX_LIST_LIMIT,
         ..Filter::default()
@@ -3798,6 +3851,7 @@ fn load_colors(
             person.apply(ev);
             faces.apply(ev);
             avatar.apply(ev);
+            assistant.apply(ev);
         }
         if (evs.len() as i64) < f.limit {
             return;
