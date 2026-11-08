@@ -31,6 +31,22 @@ import {
   MessageSquareQuoteIcon,
 } from "lucide-react"
 
+import "@xyflow/react/dist/style.css"
+import {
+  Background,
+  BackgroundVariant,
+  Controls,
+  Handle,
+  MarkerType,
+  Position,
+  ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
+  type Edge,
+  type Node,
+  type NodeProps,
+} from "@xyflow/react"
+
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -387,7 +403,6 @@ export default function HuddleMock() {
     [itemsShown]
   )
   const items = useMemo(() => [...scripted, ...extra], [scripted, extra])
-  const visible = items.filter((i) => filter === "all" || i.kind === filter)
   const elapsed =
     SCRIPT.slice(0, shown).reduce((a, s) => a + s.secs, 0) + typed.length * 12
 
@@ -712,17 +727,17 @@ export default function HuddleMock() {
           </Button>
         ))}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
-        {visible.length === 0 && (
-          <p className="m-auto text-center text-sm text-muted-foreground">
-            The canvas is empty. Assistants write here as the talk goes.
+      <div className="relative min-h-0 flex-1">
+        {items.length === 0 && (
+          <p className="absolute inset-0 z-10 m-auto flex items-center justify-center p-6 text-center text-sm text-muted-foreground">
+            The canvas is empty. Assistants add to it as the talk goes.
           </p>
         )}
-        {visible.map((i) => (
-          <ItemCard key={i.id} item={i} nameOf={nameOf} />
-        ))}
+        <ReactFlowProvider>
+          <ItemGraph items={items} filter={filter} follow nameOf={nameOf} />
+        </ReactFlowProvider>
         {writing.length > 0 && phase !== "ended" && (
-          <div className="animate-pulse text-xs text-muted-foreground">
+          <div className="absolute bottom-2 left-2 z-10 animate-pulse rounded-md border border-border bg-background/90 px-2 py-1 text-xs text-muted-foreground">
             <SparklesIcon className="mr-1 inline size-3" />
             {writing.map(nameOf).join(", ")} writing…
           </div>
@@ -831,7 +846,8 @@ export default function HuddleMock() {
           )}
         >
           <Heading>
-            Canvas · written by assistants, nothing is a card yet
+            Canvas · written by assistants, nothing is a card yet · drag to
+            move, scroll to zoom
           </Heading>
           {canvas}
         </section>
@@ -922,6 +938,162 @@ function Pace(props: {
         </Button>
       ))}
     </div>
+  )
+}
+
+// ---------- the canvas as a graph ----------
+
+// How items hang together: an answer under its question (`re`), a decision
+// after the latest answer, a task after the latest decision, a question
+// raised at the end after the latest task. Notes stand alone. The columns are
+// the depth of that chain, so the canvas reads left to right as the talk goes.
+function parentOf(items: Item[]) {
+  const parent = new Map<string, string>()
+  let answer = "",
+    decision = "",
+    task = ""
+  for (const i of items) {
+    if (i.kind === "answer") {
+      if (i.re) parent.set(i.id, i.re)
+      answer = i.id
+    } else if (i.kind === "decision") {
+      if (answer) parent.set(i.id, answer)
+      decision = i.id
+    } else if (i.kind === "task") {
+      if (decision) parent.set(i.id, decision)
+      task = i.id
+    } else if (i.kind === "question" && i.why === "end" && task)
+      parent.set(i.id, task)
+  }
+  return parent
+}
+
+const NODE_W = 240
+const COL = 280
+const ROW = 190
+
+function layoutItems(items: Item[]) {
+  const parent = parentOf(items)
+  const pos = new Map<string, { col: number; y: number }>()
+  const taken = new Set<string>()
+  const next: number[] = []
+  for (const i of items) {
+    const par = parent.get(i.id)
+    const pp = par ? pos.get(par) : undefined
+    const col = pp ? pp.col + 1 : 0
+    let y = pp ? pp.y : (next[col] ?? 0)
+    while (taken.has(`${col}:${y}`)) y += 1
+    taken.add(`${col}:${y}`)
+    next[col] = Math.max(next[col] ?? 0, y + 1)
+    pos.set(i.id, { col, y })
+  }
+  return { parent, pos }
+}
+
+type ItemNodeData = { item: Item; nameOf: (a: string) => string }
+
+function ItemNode({ data }: NodeProps<Node<ItemNodeData>>) {
+  return (
+    <div style={{ width: NODE_W }}>
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!size-1.5 !border-0 !bg-border"
+      />
+      <ItemCard item={data.item} nameOf={data.nameOf} />
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!size-1.5 !border-0 !bg-border"
+      />
+    </div>
+  )
+}
+const nodeTypes = { item: ItemNode }
+
+function ItemGraph({
+  items,
+  filter,
+  follow,
+  nameOf,
+}: {
+  items: Item[]
+  filter: Kind | "all"
+  follow?: boolean
+  nameOf: (a: string) => string
+}) {
+  const { fitView } = useReactFlow()
+  const { nodes, edges } = useMemo(() => {
+    const { parent, pos } = layoutItems(items)
+    const show = (i: Item) => filter === "all" || i.kind === filter
+    const shown = new Set(items.filter(show).map((i) => i.id))
+    const nodes: Node<ItemNodeData>[] = items.map((item) => {
+      const p = pos.get(item.id)!
+      return {
+        id: item.id,
+        type: "item",
+        position: { x: p.col * COL, y: p.y * ROW },
+        data: { item, nameOf },
+        hidden: !shown.has(item.id),
+        draggable: true,
+      }
+    })
+    const edges: Edge[] = [...parent].map(([child, par]) => ({
+      id: `${par}-${child}`,
+      source: par,
+      target: child,
+      type: "smoothstep",
+      animated: true,
+      hidden: !shown.has(par) || !shown.has(child),
+      markerEnd: { type: MarkerType.ArrowClosed },
+      style: { strokeWidth: 1.5 },
+    }))
+    return { nodes, edges }
+  }, [items, filter, nameOf])
+
+  // Live: keep the newest items (and what they hang from) in view, not
+  // squeezed small; pan and zoom for the rest. After the call: all of it.
+  const count = items.length
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const last = items.slice(-4).flatMap((i) => {
+        const par = parentOf(items).get(i.id)
+        return par ? [{ id: i.id }, { id: par }] : [{ id: i.id }]
+      })
+      fitView(
+        follow && last.length
+          ? {
+              nodes: last,
+              duration: 300,
+              padding: 0.15,
+              minZoom: 0.6,
+              maxZoom: 1,
+            }
+          : { duration: 300, padding: 0.1, maxZoom: 1 }
+      )
+    }, 250)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [count, filter, follow, fitView])
+
+  const dark =
+    typeof document !== "undefined" &&
+    document.documentElement.classList.contains("dark")
+  return (
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      nodeTypes={nodeTypes}
+      colorMode={dark ? "dark" : "light"}
+      nodesConnectable={false}
+      fitView
+      fitViewOptions={{ padding: 0.1, maxZoom: 1 }}
+      minZoom={0.2}
+      proOptions={{ hideAttribution: true }}
+    >
+      <Background variant={BackgroundVariant.Dots} gap={18} />
+      <Controls showInteractive={false} />
+    </ReactFlow>
   )
 }
 
@@ -1109,24 +1281,11 @@ function AfterCall({
           <h2 className="mb-2 text-sm font-semibold">
             Finished canvas · {items.length} items
           </h2>
-          {(["decision", "task", "question", "answer", "note"] as const).map(
-            (k) => {
-              const list = items.filter((i) => i.kind === k)
-              if (!list.length) return null
-              return (
-                <div key={k} className="mb-3">
-                  <div className="mb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                    {KIND[k].label}s
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    {list.map((i) => (
-                      <ItemCard key={i.id} item={i} nameOf={nameOf} />
-                    ))}
-                  </div>
-                </div>
-              )
-            }
-          )}
+          <div className="h-[36rem] overflow-hidden rounded-xl border border-border">
+            <ReactFlowProvider>
+              <ItemGraph items={items} filter="all" nameOf={nameOf} />
+            </ReactFlowProvider>
+          </div>
         </section>
         <div className="flex items-center gap-1 pb-4 text-xs text-muted-foreground">
           <MicIcon className="size-3" /> The transcript stays with the huddle.
