@@ -2318,7 +2318,10 @@ impl Core {
                 let _ = h.join();
             }
         }
+        // Killed shells remove their bootstrap folders from the temp dir as
+        // they exit: wait for them, a stuck one at most CLOSE_WAIT (#960).
         self.terms.close_all();
+        self.terms.settle(CLOSE_WAIT);
         self.s.boards.close_all();
         self.s.hub.close();
         self.s.pairing.shutdown();
