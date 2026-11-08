@@ -382,7 +382,7 @@ function PeoplePane() {
       ) : (
         <div className="grid gap-1.5">
           <h3 className="text-sm font-medium text-ink">Join with an invite</h3>
-          <JoinInvite onJoined={setInvite} />
+          <JoinInvite onJoined={setInvite} autoFocus={false} />
         </div>
       )}
     </div>

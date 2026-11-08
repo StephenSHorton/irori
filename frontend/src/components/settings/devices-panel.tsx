@@ -1141,7 +1141,7 @@ export function Sides({
   }
   return (
     <div className="grid gap-1.5 border-t border-border pt-3">
-      <span className="text-sm">Work and personal sides</span>
+      <span className="text-sm">Sides this device runs</span>
       {all.length > 0 && (
         <span
           className="flex flex-wrap items-center gap-1.5"

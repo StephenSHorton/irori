@@ -32,7 +32,7 @@ export type GoTarget =
   | { kind: "pr"; url: string; number: string }
 
 export const pageLabels: Record<GoPage, string> = {
-  home: "Home",
+  home: "Dashboard",
   talk: "Talk",
   notes: "Notes",
   boards: "Boards",

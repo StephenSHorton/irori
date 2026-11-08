@@ -109,6 +109,7 @@ import {
   sectionFromHash,
   type Section,
 } from "@/lib/nav"
+import { leftHomeFilter, startLeave, stepLeave } from "@/lib/space-leave"
 import {
   CommandPalette,
   PaletteJump,
@@ -668,9 +669,9 @@ export function App() {
       if (id === space) return
       setSpace(id)
       if (section.kind === "boards") replace(boardsFor(id))
-      else if (onBoards(section)) go(boardsFor(id))
+      else if (onBoards(section)) (open ? replace : go)(boardsFor(id))
     },
-    [space, setSpace, section]
+    [space, setSpace, section, open]
   )
   // A known space: Personal, or a shared one the boards list has. Until
   // the list loads, useSpace keeps a stored pick it can't check yet.
@@ -696,6 +697,28 @@ export function App() {
     if (syncedPage.current === section.id) return
     if (section.id !== space && knownSpace(section.id)) setSpace(section.id)
     if (section.id === Personal || boardsLoaded) syncedPage.current = section.id
+  })
+  // And what's showing follows a change of the pick (card #994): off a
+  // thread or card the new pick doesn't hold, in place of it so Back doesn't
+  // reopen it. A link past the pick still opens: only a change moves it.
+  const leaving = useRef(startLeave(space))
+  useEffect(() => {
+    const { state, changed, to } = stepLeave(leaving.current, {
+      space,
+      spaceKnown: knownSpace(space),
+      section,
+      open,
+      card: cards.find((c) => c.id === open) ?? detail,
+      cardFailed: !!detailError,
+      threads: allThreads,
+      conversations,
+      threadsLoading,
+      conversationsLoading,
+    })
+    leaving.current = state
+    if (changed && knownSpace(space) && leftHomeFilter(filter, space))
+      pickHomeFilter("all")
+    if (to) replace(to)
   })
   const onPaletteBoard = useCallback(
     (id: string) => goTo({ kind: "board", id }),
@@ -744,10 +767,10 @@ export function App() {
     {
       id: "nav.home",
       shortcut: SectionShortcuts[0],
-      title: "Home",
+      title: "Dashboard",
       group: "Go to",
       order: 1,
-      keywords: ["my cards", "start"],
+      keywords: ["home", "my cards", "start"],
       run: () => goTo(Home),
     },
     {
@@ -915,7 +938,7 @@ export function App() {
     setNewCard(false)
   }
 
-  // A phone (card #395, mockup talk-5): Home, Talk and Boards are tabs at
+  // A phone (card #395, mockup talk-5): Dashboard, Talk and Boards are tabs at
   // the bottom (Boards the picked space's, card #689), and an open
   // conversation is the whole screen, its own header carrying Back.
   const narrow = useNarrow()
@@ -982,7 +1005,7 @@ export function App() {
                                     ? "Storage"
                                     : section.kind === "settings"
                                       ? "Settings"
-                                      : "Home"
+                                      : "Dashboard"
                 }
                 bar={
                   !open && section.kind === "board" ? (
