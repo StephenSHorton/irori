@@ -336,7 +336,7 @@ const awayInputEveryMs = 30_000
 export function inputReporter(
   send: () => void,
   everyMs: number,
-  now: () => number = Date.now,
+  now: () => number = Date.now
 ): () => void {
   let last: number | null = null
   return () => {

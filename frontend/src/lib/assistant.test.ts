@@ -388,7 +388,11 @@ describe("while you were away in the chat (card #786)", () => {
   test("the first input is reported at once, then at most every interval", () => {
     let t = 1000
     let sent = 0
-    const input = inputReporter(() => sent++, 30_000, () => t)
+    const input = inputReporter(
+      () => sent++,
+      30_000,
+      () => t
+    )
     input()
     expect(sent).toBe(1)
     t += 29_999
