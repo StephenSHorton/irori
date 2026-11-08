@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type RefObject } from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react"
 import { cn } from "cn"
 import {
   DownloadIcon,
@@ -42,14 +48,33 @@ import { FileKindIcon } from "./file-kind-icon"
 // is offline the item says so and offers Retry. Drop it under a comment:
 //
 //   <AttachmentList attachments={comment.attachments ?? []} />
+//
+// compact lists every file as a chip, a picture with a small thumbnail for
+// its icon: for going back to a card's files (its side column), when the
+// pictures show at size where they were posted.
 export function AttachmentList({
   attachments,
   className,
+  compact,
 }: {
   attachments: FileRef[]
   className?: string
+  compact?: boolean
 }) {
   if (attachments.length === 0) return null
+  if (compact) {
+    return (
+      <div className={cn("flex flex-wrap gap-2", className)}>
+        {attachments.map((f) => (
+          <FileChip
+            key={f.sha256}
+            file={f}
+            icon={looksLikeImage(f) ? <SmallThumbnail file={f} /> : undefined}
+          />
+        ))}
+      </div>
+    )
+  }
   const images = attachments.filter(looksLikeImage)
   const files = attachments.filter((f) => !looksLikeImage(f))
   return (
@@ -195,24 +220,124 @@ function Thumbnail({ file }: { file: FileRef }) {
         {name}
       </div>
       {state?.kind === "image" && (
-        <Dialog open={full} onOpenChange={setFull}>
-          <DialogContent className="sm:max-w-[min(90vw,1200px)]">
-            <DialogHeader>
-              <DialogTitle className="truncate">{name}</DialogTitle>
-              <DialogDescription>{humanSize(file.size)}</DialogDescription>
-            </DialogHeader>
-            <div className="flex max-h-[75vh] justify-center overflow-auto rounded-lg bg-muted/40">
-              <img
-                src={state.url}
-                alt={name}
-                className="max-h-[75vh] max-w-full object-contain"
-              />
-            </div>
-            <DialogFooter>
-              <FileActions file={file} />
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <FullSize file={file} url={state.url} open={full} onOpen={setFull} />
+      )}
+    </div>
+  )
+}
+
+// FullSize is a picture at full size, with Save and Open.
+function FullSize({
+  file,
+  url,
+  open: shown,
+  onOpen,
+}: {
+  file: FileRef
+  url: string
+  open: boolean
+  onOpen: (open: boolean) => void
+}) {
+  const name = fileName(file)
+  return (
+    <Dialog open={shown} onOpenChange={onOpen}>
+      <DialogContent className="sm:max-w-[min(90vw,1200px)]">
+        <DialogHeader>
+          <DialogTitle className="truncate">{name}</DialogTitle>
+          <DialogDescription>{humanSize(file.size)}</DialogDescription>
+        </DialogHeader>
+        <div className="flex max-h-[75vh] justify-center overflow-auto rounded-lg bg-muted/40">
+          <img
+            src={url}
+            alt={name}
+            className="max-h-[75vh] max-w-full object-contain"
+          />
+        </div>
+        <DialogFooter>
+          <FileActions file={file} />
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+const smallThumbnail =
+  "flex size-7 items-center justify-center overflow-hidden rounded border border-border bg-muted text-muted-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50 [&_svg]:size-3.5"
+
+// SmallThumbnail is a picture in a chip's icon place, doing what Thumbnail
+// does in less room: a click opens it full size, loads a big one, or tries
+// again after a failure, and its tooltip says which.
+function SmallThumbnail({ file }: { file: FileRef }) {
+  const [ref, visible] = useVisible<HTMLDivElement>()
+  const [wanted, setWanted] = useState(file.size <= MaxAutoPreview)
+  const { state, retry } = useLoaded(file.sha256, visible && wanted)
+  const [full, setFull] = useState(false)
+  const name = fileName(file)
+
+  let inner
+  if (state?.kind === "file") {
+    inner = (
+      <FileKindIcon
+        name={file.name}
+        mime={file.mime}
+        className="size-4 text-muted-foreground"
+      />
+    )
+  } else if (state?.kind === "image") {
+    inner = (
+      <button
+        type="button"
+        onClick={() => setFull(true)}
+        title="Open full size"
+        className={smallThumbnail}
+      >
+        <img
+          src={state.url}
+          alt={name}
+          draggable={false}
+          className="size-full object-cover"
+        />
+      </button>
+    )
+  } else if (state?.kind === "error") {
+    const why = state.offline ? offlineLine(state.message) : "Couldn't load it"
+    inner = (
+      <button
+        type="button"
+        onClick={retry}
+        title={`${why}. Click to retry`}
+        aria-label={`${why}. Retry`}
+        className={smallThumbnail}
+      >
+        {state.offline ? <WifiOffIcon /> : <ImageOffIcon />}
+      </button>
+    )
+  } else if (!wanted) {
+    const label = `Load preview (${humanSize(file.size)})`
+    inner = (
+      <button
+        type="button"
+        onClick={() => setWanted(true)}
+        title={label}
+        aria-label={label}
+        className={smallThumbnail}
+      >
+        <ImageIcon />
+      </button>
+    )
+  } else {
+    inner = (
+      <div className={smallThumbnail} aria-label={`Loading ${name}`}>
+        <LoaderCircleIcon className="animate-spin" />
+      </div>
+    )
+  }
+
+  return (
+    <div ref={ref} className="shrink-0">
+      {inner}
+      {state?.kind === "image" && (
+        <FullSize file={file} url={state.url} open={full} onOpen={setFull} />
       )}
     </div>
   )
@@ -225,15 +350,17 @@ function offlineLine(message: string): string {
   return m ? `On ${m[1]}, offline` : "Its device is offline"
 }
 
-function FileChip({ file }: { file: FileRef }) {
+function FileChip({ file, icon }: { file: FileRef; icon?: ReactNode }) {
   const name = fileName(file)
   return (
     <div className="flex max-w-full min-w-0 items-center gap-2 rounded-lg border border-border bg-muted/40 py-1 pr-1 pl-2 text-sm">
-      <FileKindIcon
-        name={file.name}
-        mime={file.mime}
-        className="size-4 shrink-0 text-muted-foreground"
-      />
+      {icon ?? (
+        <FileKindIcon
+          name={file.name}
+          mime={file.mime}
+          className="size-4 shrink-0 text-muted-foreground"
+        />
+      )}
       <span className="min-w-0 truncate" title={name}>
         {name}
       </span>

@@ -728,7 +728,7 @@ function AboutCard({
 
       {files.length > 0 && (
         <Section title="Files" last>
-          <AttachmentList attachments={files} />
+          <AttachmentList attachments={files} compact />
         </Section>
       )}
     </Card>
@@ -1542,8 +1542,9 @@ function Steps({
 }
 
 // cardFiles is every file on the card, once each: the ones on its
-// blockers and on its thread (blocker replies too). The side column shows
-// pictures as thumbnails and other files as chips.
+// blockers and on its thread (blocker replies too). The side column lists
+// them as chips, a picture with a small thumbnail: it shows at size where
+// it was posted.
 function cardFiles(d: CardDetail): FileRef[] {
   const seen = new Set<string>()
   const out: FileRef[] = []
