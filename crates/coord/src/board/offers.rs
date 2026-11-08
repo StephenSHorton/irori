@@ -668,6 +668,23 @@ impl Fold {
         (self.hands_out(t) && self.can_run(&self.dev)) || self.stands_in(t)
     }
 
+    /// Whether this device names the person's thread t (card #782): the
+    /// ask's owner when it can run Claude, else the computer standing in
+    /// for it (a thread posted on the phone). One device, so it isn't
+    /// named twice.
+    pub(crate) fn names_out(&self, t: &Task) -> bool {
+        let Some(a) = t.ask.as_ref() else {
+            return false;
+        };
+        if a.owner == self.dev {
+            return self.can_run(&self.dev);
+        }
+        !a.owner.is_empty()
+            && !self.can_run(&a.owner)
+            && self.same_person_dev(&a.owner, &self.dev)
+            && self.agent_home(&t.side).as_deref() == Some(self.dev.as_str())
+    }
+
     /// Whether this device runs card t's side (card #495): a card with no
     /// side, or a device with no pin, runs anywhere. A card this device
     /// hands out on a side it doesn't run waits: nothing here spawns it or

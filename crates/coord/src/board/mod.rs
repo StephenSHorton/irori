@@ -991,6 +991,11 @@ impl Coord {
     pub fn rename_task(&self, by: &str, id: &str, title: &str) -> Result<Task> {
         self.lock().rename_task(by, id, title)
     }
+    /// Irori's assistant names the person's thread (card #782), while its
+    /// title is still `was` and the person hasn't named it.
+    pub fn rename_as_irori(&self, id: &str, title: &str, was: &str) -> Result<Task> {
+        self.lock().rename_as_irori(id, title, was)
+    }
     /// [`Self::set_steps`] with a notice for each agent newly given a step
     /// (card #86).
     pub fn set_steps_notice(
@@ -1667,6 +1672,11 @@ impl Coord {
     pub fn hands_out_here(&self, id: &str) -> bool {
         let f = self.lock();
         f.tasks.get(id).is_some_and(|t| f.spawns_out(t))
+    }
+    /// Whether this device names the person's thread `id` (card #782).
+    pub fn names_here(&self, id: &str) -> bool {
+        let f = self.lock();
+        f.tasks.get(id).is_some_and(|t| f.names_out(t))
     }
     /// Takes to this device the waiting asks whose owner can't serve them,
     /// when work goes here (card #541).

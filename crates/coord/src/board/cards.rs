@@ -2750,6 +2750,62 @@ impl Fold {
         Ok(())
     }
 
+    /// Irori's assistant names the person's thread (card #782): only while
+    /// its title is still `was` and the person hasn't named it, and only a
+    /// thread the person posted. The thread's log says Irori renamed it,
+    /// and the title it had is kept for Undo.
+    pub(crate) fn rename_as_irori(&mut self, id: &str, title: &str, was: &str) -> Result<Task> {
+        let title = super::asks::ask_title(title);
+        if title.is_empty() {
+            return Err(invalid("a thread needs a title"));
+        }
+        let t = self.any_task(id)?.clone();
+        if !t.ask.as_ref().is_some_and(|a| a.thread && a.opener.is_empty()) {
+            return Err(not_allowed(format!(
+                "Irori names only the person's threads, and {} isn't one",
+                t.short_ref()
+            )));
+        }
+        if self.on_board {
+            return Err(not_allowed("Irori names threads on the person's own board only"));
+        }
+        if t.title_by_person {
+            return Err(not_allowed(format!(
+                "the person named {} themselves",
+                t.short_ref()
+            )));
+        }
+        if t.title != was {
+            return Err(super::error::Error::raw(
+                super::error::ErrorKind::BadState,
+                format!("coord: {} was renamed meanwhile", t.short_ref()),
+            ));
+        }
+        if t.title == title {
+            return Ok(t);
+        }
+        let at = self.stamp();
+        self.write(
+            SWEEPER,
+            kinds::TASK_EDITED,
+            &TaskEditedRow {
+                task_id: id.into(),
+                title: Some(title.clone()),
+                by: SWEEPER.into(),
+                at,
+                ..TaskEditedRow::default()
+            },
+        )?;
+        let now = &self.tasks[id];
+        if now.title != title {
+            return Err(super::error::Error::raw(
+                super::error::ErrorKind::BadState,
+                format!("coord: name {}: the change didn't apply", now.short_ref()),
+            ));
+        }
+        Ok(now.clone())
+    }
+
     /// The person renames a card or thread by hand (card #779), on its
     /// page: any state, an open ask or thread too. It is the same
     /// task.edited row an agent's board_edit writes, and from then on an
