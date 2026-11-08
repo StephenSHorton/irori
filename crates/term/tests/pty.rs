@@ -86,7 +86,11 @@ impl Drop for Scratch {
         // A panic here, during a failed test's unwind, aborts.
         if !std::thread::panicking() {
             assert!(settled, "the closed shells never exited");
-            assert_eq!(bootstrap_dirs(), Vec::<String>::new(), "shell bootstrap folders left in temp");
+            assert_eq!(
+                bootstrap_dirs(),
+                Vec::<String>::new(),
+                "shell bootstrap folders left in temp"
+            );
         }
     }
 }
