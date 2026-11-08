@@ -570,8 +570,9 @@ impl Services {
             repo_key: t.repo_key.clone(),
             permission_mode: perms.mode,
             name,
-            model: setting.model().into(),
-            effort: setting.effort().into(),
+            // By the card's weight (card #963); none is normal.
+            model: setting.pick_for(t).0,
+            effort: setting.pick_for(t).1,
             note,
             counted: self.start_counts(&self.coord, t),
             ..SpawnAsk::default()
