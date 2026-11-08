@@ -36,11 +36,15 @@ describe("Talk's list search (card #390)", () => {
   })
 })
 
-describe("Talk's count in the sidebar (card #390)", () => {
-  test("counts only threads an agent answered, waiting on the person", () => {
-    expect(needsYou({ state: "answered" })).toBe(true)
-    for (const state of ["waiting", "handed", "resolved"])
-      expect(needsYou({ state })).toBe(false)
+describe("Talk's count in the sidebar (card #390, #719)", () => {
+  test("counts threads with an agent reply the person hasn't read", () => {
+    expect(needsYou({ unread: true })).toBe(true)
+    expect(needsYou({ unread: false })).toBe(false)
+  })
+  test("and threads no agent can start for", () => {
+    expect(needsYou({ unread: false, noAgent: "No agent can start" })).toBe(
+      true
+    )
   })
 })
 

@@ -11,6 +11,7 @@ import type {
   AgentsLimits,
   AgentsPauseView,
   AgentsSettings,
+  NamesThemesView,
   RunningAgent,
   TermInfo,
   TrustedRepo,
@@ -25,6 +26,7 @@ export type {
   AgentsPauseView,
   AgentStartsView,
   AgentsSettings,
+  NamesThemesView,
   RunningAgent,
   TrustedRepo,
 }
@@ -98,6 +100,86 @@ function sampleStarts(): AgentStartsView {
     used: previewFlag("agentstarts") === "full" ? 100 : 3,
     ceiling: 1000,
   }
+}
+
+// The preview's themes (card #702): the real lists live in
+// crates/coord/src/names.rs. `?namesoff=movies,anime` turns some off.
+function sampleNamesThemes(): NamesThemesView {
+  const off = (previewFlag("namesoff") ?? "").split(",")
+  const t = (id: string, label: string, words: number, sample: string[]) => ({
+    id,
+    label,
+    on: !off.includes(id),
+    words,
+    sample,
+  })
+  return {
+    themes: [
+      t("nature", "Nature", 1021, ["kestrel", "cedar", "quartz", "heron"]),
+      t("produce", "Produce and things", 256, [
+        "onion",
+        "tomato",
+        "kettle",
+        "mitten",
+      ]),
+      t("movies", "Movie characters", 132, [
+        "ripley",
+        "marty",
+        "dorothy",
+        "atticus",
+      ]),
+      t("anime", "Anime characters", 168, [
+        "chihiro",
+        "spike",
+        "levi",
+        "sakura",
+      ]),
+      t("presidents", "US presidents", 29, [
+        "lincoln",
+        "adams",
+        "polk",
+        "taft",
+      ]),
+      t("myth", "Mythology", 225, ["zeus", "athena", "odin", "anubis"]),
+    ],
+  }
+}
+
+// useNamesThemes is the themes new agents' names come from (card #702):
+// read when Settings opens, and switched from there only.
+export function useNamesThemes(open: boolean) {
+  const [v, setV] = useState<NamesThemesView | null>(
+    inWails() ? null : sampleNamesThemes()
+  )
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AgentsService.NamesThemes().then(
+      (x) => live && (setV(x), setError("")),
+      (e: Error) => live && setError(e.message)
+    )
+    return () => {
+      live = false
+    }
+  }, [open])
+  const set = (id: string, on: boolean) => {
+    setV(
+      (p) =>
+        p && {
+          themes: p.themes.map((t) => (t.id === id ? { ...t, on } : t)),
+        }
+    )
+    if (!inWails()) return
+    AgentsService.NamesThemeSet(id, on).then(
+      (x) => (setV(x), setError("")),
+      (e: Error) => {
+        setError(e.message)
+        AgentsService.NamesThemes().then(setV, () => {})
+      }
+    )
+  }
+  return { view: v, error, set }
 }
 
 export function useAgentStarts(open: boolean) {
