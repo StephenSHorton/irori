@@ -59,12 +59,17 @@ export type WorkThread = {
   taker: string
   // Why no agent could start for it ("" when none failed).
   cantStart: string
-  // Resolved (its ask closed).
+  // Resolved, answered or closed with nothing (its ask closed). A thread
+  // closed as a card isn't: it is that card now (it heads cards).
   closed: boolean
+  // How its ask closed: "answered", "none", "edit", "card", or "".
+  outcome: string
   // The agents' replies on it, oldest first.
   replies: WorkReply[]
   asks: WorkAsk[]
-  // The cards made from it, first first.
+  // The cards made from it, first first. A thread its agent closed as a
+  // card (ask_close card) became that card in place, same # and id, and
+  // Irori hands it to a task agent: it comes first here, as itself.
   cards: WorkCard[]
 }
 
@@ -150,7 +155,10 @@ export function facts(t: WorkThread): Fact[] {
   for (const c of t.cards) {
     out.push({
       key: `made:${c.id}`,
-      text: `Your thread ${t.ref} became ${c.ref}.`,
+      text:
+        c.id === t.id
+          ? `Your thread ${t.ref} is now a card.`
+          : `Your thread ${t.ref} became ${c.ref}.`,
     })
     if (c.working.length && !over(c.state))
       out.push({
@@ -166,7 +174,13 @@ export function facts(t: WorkThread): Fact[] {
       out.push({ key: `done:${c.id}`, text: `${c.ref} was canceled.` })
   }
   if (t.closed && !t.cards.length)
-    out.push({ key: "closed", text: `${t.ref} was resolved.` })
+    out.push({
+      key: "closed",
+      text:
+        t.outcome === "answered"
+          ? `${t.ref} was answered.`
+          : `${t.ref} was resolved.`,
+    })
   return out
 }
 
@@ -207,7 +221,7 @@ function busyNames(c: CardDetail): string[] {
 export function workThread(
   thread: CardDetail,
   row: ThreadSummary | undefined,
-  made: Map<string, CardDetail | null>
+  byId: Map<string, CardDetail | null>
 ): WorkThread {
   const taker = thread.ask?.taker ? displayName(thread.ask.taker) : ""
   const replies: WorkReply[] = (thread.thread ?? [])
@@ -216,10 +230,25 @@ export function workThread(
         it.kind === "comment" && it.who.status !== "person" && it.text.trim()
     )
     .map((it) => ({ id: it.id, by: displayName(it.who), text: it.text }))
-  const cards: WorkCard[] = (row?.cards ?? [])
+  // Closed as a card: the thread is that card now.
+  const became =
+    thread.ask?.state === "closed" && thread.ask.outcome?.kind === "card"
+  const self: WorkCard[] = became
+    ? [
+        {
+          id: thread.id,
+          ref: cardRefOf(row ?? thread),
+          title: thread.title,
+          state: thread.state,
+          working: busyNames(thread),
+          asks: asksOf(thread),
+        },
+      ]
+    : []
+  const made: WorkCard[] = (row?.cards ?? [])
     .filter((c) => c.id !== thread.id)
     .map((rc) => {
-      const c = made.get(rc.id)
+      const c = byId.get(rc.id)
       if (!c)
         return {
           id: rc.id,
@@ -243,13 +272,17 @@ export function workThread(
     ref: cardRefOf(row ?? thread),
     taker,
     cantStart: row?.cantStart || thread.cantStart || "",
-    closed:
-      row?.state === "resolved" ||
-      thread.ask?.state === "closed" ||
-      over(thread.state),
+    closed: became
+      ? over(thread.state)
+      : row?.state === "resolved" ||
+        thread.ask?.state === "closed" ||
+        over(thread.state),
+    outcome:
+      thread.ask?.state === "closed" ? (thread.ask.outcome?.kind ?? "") : "",
     replies,
-    asks: asksOf(thread),
-    cards,
+    // As a card, its items are the card's (said once, there).
+    asks: became ? [] : asksOf(thread),
+    cards: [...self, ...made],
   }
 }
 

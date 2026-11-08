@@ -18,6 +18,7 @@ const thread = (over: Partial<WorkThread> = {}): WorkThread => ({
   taker: "",
   cantStart: "",
   closed: false,
+  outcome: "",
   replies: [],
   asks: [],
   cards: [],
@@ -277,5 +278,31 @@ describe("the follower (card #785)", () => {
     await flush()
     expect(Object.keys(h.saved())).toEqual([])
     expect(h.reads()).toBe(0)
+  })
+})
+
+describe("a thread closed as a card is that card (card #785)", () => {
+  test("its agent's card outcome makes it the first card, same #", () => {
+    const t = thread({
+      taker: "otter",
+      cards: [
+        card({ id: "t1", ref: "#20", state: "working", working: ["wren"] }),
+      ],
+    })
+    const fs = facts(t)
+    expect(keys(fs)).toEqual(["taken", "made:t1", "start:t1"])
+    expect(fs[1].text).toBe("Your thread #20 is now a card.")
+    expect(finished(t)).toBe(false)
+    const done = thread({
+      closed: true,
+      cards: [card({ id: "t1", ref: "#20", state: "completed" })],
+    })
+    expect(keys(facts(done))).toEqual(["made:t1", "done:t1"])
+    expect(finished(done)).toBe(true)
+  })
+  test("answered says so", () => {
+    expect(facts(thread({ closed: true, outcome: "answered" }))[0].text).toBe(
+      "#20 was answered."
+    )
   })
 })
