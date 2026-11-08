@@ -413,10 +413,12 @@ impl Services {
             .spawn(move || {
                 let mut wake = wake;
                 loop {
+                    // Short sleeps: a later hold must not wait behind a far
+                    // deadline (the running look's give-up time).
                     let wait = wake
                         .duration_since(SystemTime::now())
                         .unwrap_or_default()
-                        .max(Duration::from_millis(20));
+                        .clamp(Duration::from_millis(20), Duration::from_millis(250));
                     std::thread::sleep(wait);
                     let Some(s) = w.upgrade() else { return };
                     let (step, again) = {

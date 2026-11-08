@@ -312,13 +312,13 @@ impl Services {
         !wanted.is_empty() || !lock(&self.hosting.calls).is_empty()
     }
 
-    /// Whether this device's person is in `call` and this device is the one
-    /// the pick keeps, as the last sweep left it: cheap, for each line. The
+    /// Whether this device hosts `call` (it wrote `on`), as the last sweep
+    /// left it: cheap, for each line. The
     /// full pick runs before each look ([`Services::huddle_hosting`]).
     pub(crate) fn huddle_in(&self, call: &str) -> bool {
         lock(&self.hosting.calls)
             .get(call)
-            .is_some_and(|h| h.signed_out.is_none())
+            .is_some_and(|h| h.wrote_on && h.signed_out.is_none())
     }
 
     /// Runs the pick for `call` now, and says whether this device hosts it:
