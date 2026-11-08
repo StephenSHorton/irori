@@ -282,6 +282,9 @@ struct Services {
     /// Card #421: merged PRs the desk already settled, and the newest
     /// `gh pr merge` heard.
     desk_merges: crate::deskmerge::MergeHeard,
+    /// A `gh pr merge` was heard: the desks thread polls every desk this
+    /// device polls at its next turn (one thread polls desks, card #970).
+    desks_due: std::sync::atomic::AtomicBool,
     /// Card #427: whether to clear settled cards' builds, when it last
     /// looked, and whether a pass is deleting now.
     clear_builds: Option<Duration>,
@@ -487,6 +490,9 @@ impl tools::Backend for ToolsView {
     }
     fn spawn_wait(&self, task_id: &str, asked: bool) -> String {
         self.0.spawn_wait(task_id, asked)
+    }
+    fn recheck_prs(&self, co: &Arc<Coord>, caller: &str, task_id: &str) {
+        self.0.recheck_prs(co, caller, task_id)
     }
     fn avatar(&self, name: &str) -> String {
         self.0.faces.get(name)
@@ -1533,6 +1539,7 @@ impl Core {
             desk_lister: opts.desk_lister.clone(),
             desk_watch: Default::default(),
             desk_merges: Default::default(),
+            desks_due: Default::default(),
             clear_builds: opts.clear_builds,
             builds_looked: Default::default(),
             builds_busy: Default::default(),
@@ -2155,6 +2162,21 @@ impl Core {
             });
         }
 
+        // A `gh pr merge` heard on any device (cards #421, #970): this
+        // device's open PRs and its desks are asked about at once.
+        {
+            let s = s.clone();
+            let stop = self.stop.clone();
+            self.spawn("merges", move || {
+                loop {
+                    s.merge_heard();
+                    if stop.sleep(crate::prwatch::MERGE_TICK) {
+                        return;
+                    }
+                }
+            });
+        }
+
         // Merge desks' PR lists (card #415), and which repos are the
         // person's (card #625): a device that polls none still hides
         // stray desks.
@@ -2163,7 +2185,7 @@ impl Core {
             let stop = self.stop.clone();
             self.spawn("desks", move || {
                 loop {
-                    s.desk_merge_heard();
+                    s.desks_heard_merge();
                     s.check_desks();
                     if stop.sleep(crate::deskwatch::DESK_TICK) {
                         return;
@@ -4258,6 +4280,52 @@ impl Services {
         }
         // And what folded while gh answered.
         self.tell_pr_news();
+    }
+
+    /// [`tools::Backend::recheck_prs`] (card #970): asks GitHub about each
+    /// PR card `task_id` links that `co` last heard open, and records a
+    /// merge or a closing. The caller, completing the card, isn't told
+    /// what it just did; anyone else on the card is. An open answer or a
+    /// failure changes nothing here: the poller goes on as before.
+    fn recheck_prs(self: &Arc<Self>, co: &Arc<Coord>, caller: &str, task_id: &str) {
+        let Some(checker) = self.pr_checker.clone().filter(|c| c.ready()) else {
+            return;
+        };
+        for p in co.pr_states(task_id) {
+            if p.state != coord::PR_OPEN {
+                continue;
+            }
+            let c = checker.check(&p.pr);
+            // A failure is the poller's to note and say, not this one's.
+            if !c.error.is_empty() {
+                continue;
+            }
+            self.pr_watch.answered(task_id, &p.pr, true);
+            if c.state != coord::PR_MERGED && c.state != coord::PR_CLOSED {
+                continue;
+            }
+            // Overtaken while gh answered: what folded since stands.
+            if co.pr_state(task_id, &p.pr).map(|q| q.state).as_deref() != Some(coord::PR_OPEN) {
+                continue;
+            }
+            match co.record_pr_state(task_id, c) {
+                Ok((_, ns)) => {
+                    for mut n in ns {
+                        // A board card's recipients are in its board form.
+                        n.to.retain(|k| self.private_key(k) != caller);
+                        if n.to.is_empty() {
+                            continue;
+                        }
+                        if let Some(e) =
+                            notice::notice_err(&self.route_notice(&inbox::system_sender(), &n))
+                        {
+                            logf(format_args!("pr notice {}: {e}", n.reference));
+                        }
+                    }
+                }
+                Err(e) => logf(format_args!("pr {} on {task_id}: {e}", p.pr)),
+            }
+        }
     }
 
     fn ask_github(
