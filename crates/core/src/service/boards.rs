@@ -2426,6 +2426,9 @@ impl Services {
                 ns = n;
             }
             self.card_idle_agents(&b);
+            if notices {
+                self.review_claim_duties(&b);
+            }
             let (asks, aerr) = b.coord().sweep_asks_partial(&self.board_ask_agents(&b));
             if let Err(e) = aerr {
                 errs.push(e.to_string());

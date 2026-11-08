@@ -92,6 +92,32 @@ impl Services {
         if name.is_empty() { "an agent".into() } else { name }
     }
 
+    /// This device's part as a claimer on `b` (§12.3): renew each claim
+    /// whose agent still answers in the local roster, and let go of one
+    /// whose person posted a verdict on GitHub.
+    pub(crate) fn review_claim_duties(&self, b: &BoardLog) {
+        let agents: std::collections::HashSet<String> =
+            self.roster.agents().into_iter().map(|a| a.key).collect();
+        let alive = |holder: &str| {
+            let m = lock(&b.maps);
+            holder
+                .strip_prefix(store::kinds::AGENT_ACTOR_PREFIX)
+                .and_then(|id| m.by_id.get(id))
+                .is_some_and(|k| agents.contains(k))
+        };
+        let me = self.person_id();
+        let login = {
+            let own = self.own_github_login();
+            if own.is_empty() { b.verifier.profile_github_login(&me) } else { own }
+        };
+        let login_of = |_: &str| login.trim().to_string();
+        for st in b.coord().claim_duties(&alive, &login_of) {
+            if st.what == "verdict" {
+                crate::logf(format_args!("board {}: claim {} ended with a verdict", b.id, st.resource));
+            }
+        }
+    }
+
     /// `review_claim {pr, action}` for `agent` (§12.3).
     pub(crate) fn review_claim(
         &self,
