@@ -17,7 +17,9 @@ type FakeWorkerClass = new (url?: string) => Worker
 
 async function loadFakeWorker(): Promise<FakeWorkerClass> {
   const g = globalThis as { document?: unknown }
-  const had = "document" in g
+  // An undefined `document` (left by a test that restored a missing one)
+  // counts as none.
+  const had = g.document !== undefined
   const win = Object.getOwnPropertyDescriptor(globalThis, "window")
   if (!had) g.document = {}
   if (win) delete (globalThis as { window?: unknown }).window
