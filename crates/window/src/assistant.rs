@@ -184,6 +184,7 @@ is done
 - app.login: Launch at login
 - app.transcribe: Transcribe what I say in calls
 - app.names: Name new threads: Irori titling the threads you post
+- app.weighs: Weigh new cards: Irori setting each new card light, normal or heavy
 - app.updates: updates and Keep this device up to date";
 
 /// A go line's start (card #784): the chat takes the person where it
