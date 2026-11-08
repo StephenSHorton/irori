@@ -521,8 +521,15 @@ export function sampleAnswer(q: string): { tools: string[]; text: string } {
       tools: ["Reading the agents"],
       text: "Pausing agents is the **Pause agents** button in the top bar, not in Settings. One click stops Irori starting agents on this computer; running ones keep going.\n\n<<go setting pause-agents>>",
     }
+  if (/\b(model|effort)\b/.test(s))
+    return {
+      tools: [],
+      text: "A new agent's model and effort are in **Settings › Agents**, under What a new agent starts with. An agent already working keeps its own.\n\n<<go setting agents.model>>",
+    }
   const shown =
-    /\b(?:show|open|take me to|where(?:'s| is))\b.*?(\b[a-z0-9_-]*#\d+)/.exec(s)
+    /\b(?:show|open|take me to|where(?:'s| is))\b.*?(?:^|\s)([a-z0-9_-]*#\d+)/.exec(
+      s
+    )
   if (shown)
     return {
       tools: [`Opening ${shown[1]}`],
