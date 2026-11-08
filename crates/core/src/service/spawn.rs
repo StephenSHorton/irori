@@ -828,6 +828,9 @@ pub const BUILD_OUTPUT: &str = "Build output stays in your worktree's target/, s
 /// What every spawned agent is told about notes (§13.6, card #454).
 pub const PROPOSE_NOTE: &str = "If you learned something about this repo that the next agent needs, write it as a note (notes_propose) before you go.";
 
+/// What every spawned agent is told about Talk threads (card #1026): Irori
+/// tools are deferred, so it must also be told to load talk_thread first.
+pub const TALK_NOTE: &str = "You can start a Talk thread with the person (talk_thread) when you have a question or something to tell them that isn't work for a card, or when they ask you to. Irori tools are deferred: load it first with ToolSearch select:mcp__irori__talk_thread.";
 /// How an agent lays out larger work as cards (card #964): thinking and
 /// doing on separate cards, so each runs on the model its work needs.
 /// Carried by the briefs of agents that make cards.
@@ -1131,7 +1134,7 @@ pub(crate) fn build_brief(
     let mut b = String::new();
     b.push_str(&format!("# You were started for {short}\n\n"));
     b.push_str(&format!(
-        "Irori started you to work card {short} ({}). Take only {short}: don't join, claim or take any other card, except one merge card that lands it. When the work is done and it changed code, land it as the Board's rules say: with other ready work in one PR, one \"Can I merge…?\" blocker for the person, and on Merge it you merge it yourself. Never raise or sit on an external wait for a merge. Once it is on main, set {short} completed with proof (board_status); if that is refused because the PR still shows open, check it with gh pr view and set completed again once it shows merged. Before you finish, or if you stop for any reason, put what you found on the card: Where (commit and push your branch), Left off (board_step left_off), and a closing comment. {PROPOSE_NOTE} Irori ends you after that.\n\n",
+        "Irori started you to work card {short} ({}). Take only {short}: don't join, claim or take any other card, except one merge card that lands it. When the work is done and it changed code, land it as the Board's rules say: with other ready work in one PR, one \"Can I merge…?\" blocker for the person, and on Merge it you merge it yourself. Never raise or sit on an external wait for a merge. Once it is on main, set {short} completed with proof (board_status); if that is refused because the PR still shows open, check it with gh pr view and set completed again once it shows merged. Before you finish, or if you stop for any reason, put what you found on the card: Where (commit and push your branch), Left off (board_step left_off), and a closing comment. {PROPOSE_NOTE} {TALK_NOTE} Irori ends you after that.\n\n",
         t.refs()
     ));
     b.push_str(BUILD_OUTPUT);
@@ -1382,12 +1385,12 @@ pub(crate) fn build_ask_brief(
             "the person's thread"
         };
         b.push_str(&format!(
-            "Irori started you to answer {whose} {short} ({}). It's a question or a conversation, not a card. Take only {short}: don't join, claim or take any other card, ask or thread. You hold it: no ask_claim needed. Read the thread, then answer it in the thread with board_comment {short}, looking things up (board, show, search, the code here) as needed. Don't ask_close it: the person resolves it when they're done. If your answer says you'll do work, answer in the thread first (board_comment: what you'll do), then make the card with board_create from={short} (or board_edit the card it changes): that card gets its own agent, so don't work it yourself. If you do it with no card, say so plainly in the thread. Stay for follow-ups: the person's replies in the thread come to you. Irori ends you when the thread is resolved, or when you're idle and it has been quiet for {mins} minutes; your answer in the thread is your hand-off. {PROPOSE_NOTE}\n\n",
+            "Irori started you to answer {whose} {short} ({}). It's a question or a conversation, not a card. Take only {short}: don't join, claim or take any other card, ask or thread. You hold it: no ask_claim needed. Read the thread, then answer it in the thread with board_comment {short}, looking things up (board, show, search, the code here) as needed. Don't ask_close it: the person resolves it when they're done. If your answer says you'll do work, answer in the thread first (board_comment: what you'll do), then make the card with board_create from={short} (or board_edit the card it changes): that card gets its own agent, so don't work it yourself. If you do it with no card, say so plainly in the thread. Stay for follow-ups: the person's replies in the thread come to you. Irori ends you when the thread is resolved, or when you're idle and it has been quiet for {mins} minutes; your answer in the thread is your hand-off. {PROPOSE_NOTE} {TALK_NOTE}\n\n",
             t.refs()
         ));
     } else {
         b.push_str(&format!(
-            "Irori started you to take the person's ask {short} ({}). Take only {short}: don't join, claim or take any other card or ask. You hold it: no ask_claim needed. If it isn't clear what they want, talk it through with them on the ask (board_comment {short}) and wait for their reply. If it needs a choice only the person can make, ask_close it as a card first (it stays yours), then raise one board_block per question on that card. Otherwise ask_close it with what it became: a card (it stays yours: work it, and when it's done set it completed with proof with board_status), a change to another card, an answer, or nothing. Before you finish, or if you stop for any reason, leave a closing comment on {short} (or on the card it became, with Where and Left off if you changed code). {PROPOSE_NOTE} Irori ends you once it is closed, or when you're idle and it has been quiet for {mins} minutes.\n\n",
+            "Irori started you to take the person's ask {short} ({}). Take only {short}: don't join, claim or take any other card or ask. You hold it: no ask_claim needed. If it isn't clear what they want, talk it through with them on the ask (board_comment {short}) and wait for their reply. If it needs a choice only the person can make, ask_close it as a card first (it stays yours), then raise one board_block per question on that card. Otherwise ask_close it with what it became: a card (it stays yours: work it, and when it's done set it completed with proof with board_status), a change to another card, an answer, or nothing. Before you finish, or if you stop for any reason, leave a closing comment on {short} (or on the card it became, with Where and Left off if you changed code). {PROPOSE_NOTE} {TALK_NOTE} Irori ends you once it is closed, or when you're idle and it has been quiet for {mins} minutes.\n\n",
             t.refs()
         ));
     }
@@ -3935,6 +3938,31 @@ mod tests {
         for thread in [true, false] {
             let b = build_ask_brief(&card(), thread, &[], &named, &none, BriefMore::default());
             assert!(b.text.contains(SPLIT_WORK), "{}", b.text);
+        }
+    }
+
+    #[test]
+    fn every_brief_names_talk_thread_and_that_it_is_deferred() {
+        let named = |k: &str| k.to_string();
+        let others = |_: &str| None;
+        let card_brief = build_brief(
+            &card(),
+            &[],
+            &named,
+            &others,
+            None,
+            None,
+            BriefMore::default(),
+        );
+        let ask = build_ask_brief(&card(), false, &[], &named, &others, BriefMore::default());
+        let thread = build_ask_brief(&card(), true, &[], &named, &others, BriefMore::default());
+        for (what, b) in [("card", card_brief), ("ask", ask), ("thread", thread)] {
+            assert!(b.text.contains(TALK_NOTE), "{what}: {}", b.text);
+            assert!(b.text.contains("talk_thread"), "{what}");
+            assert!(
+                b.text.contains("ToolSearch select:mcp__irori__talk_thread"),
+                "{what}"
+            );
         }
     }
 

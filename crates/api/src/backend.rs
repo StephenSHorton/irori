@@ -20,6 +20,11 @@ pub trait Backend: Send + Sync + 'static {
     fn assistant_secret(&self) -> String {
         String::new()
     }
+    /// What the person's message lets the assistant change now (card
+    /// #987); `None` (the default) lets it change nothing.
+    fn assistant_grants(&self) -> Option<&tools::Grants> {
+        None
+    }
     /// This device (`device.json`, Go `device.Identity`).
     fn device(&self) -> DeviceJson;
     /// This device's roster (Go `LocalAgents`): presence plus Grok members.
@@ -87,8 +92,9 @@ pub trait Backend: Send + Sync + 'static {
     fn record_usage_limits(
         &self,
         input: &[irori_core::usage::RateLimit],
+        account: Option<&str>,
     ) -> Option<Result<(), String>> {
-        let _ = input;
+        let _ = (input, account);
         None
     }
 
@@ -118,6 +124,9 @@ impl Backend for Core {
     }
     fn assistant_secret(&self) -> String {
         Core::assistant_secret(self).to_string()
+    }
+    fn assistant_grants(&self) -> Option<&tools::Grants> {
+        Some(Core::assistant_grants(self))
     }
     fn device(&self) -> DeviceJson {
         Core::device(self).clone()
@@ -198,8 +207,9 @@ impl Backend for Core {
     fn record_usage_limits(
         &self,
         input: &[irori_core::usage::RateLimit],
+        account: Option<&str>,
     ) -> Option<Result<(), String>> {
-        Some(Core::record_usage_limits(self, input))
+        Some(Core::record_usage_limits(self, input, account))
     }
     fn permission_wait(
         &self,

@@ -163,3 +163,34 @@ fn only_a_live_attach_may_post() {
         .unwrap();
     assert_eq!(r.status, 405);
 }
+
+#[test]
+fn a_new_account_in_the_body_replaces_the_windows() {
+    let rig = common::Rig::new();
+    let hello = open_stream(
+        &rig,
+        &format!("/v1/attach?session={}&mod=0.7.1", common::SESS_A),
+    );
+    let secret = hello["attachSecret"].as_str().expect("attach secret");
+    let reset = in_a_day();
+    let reading = |five: f64, account: &str| {
+        format!(
+            r#"{{"rateLimits":[{{"kind":"five_hour","percentUsed":{five},"resetsAt":"{reset}"}},{{"kind":"seven_day","percentUsed":50,"resetsAt":"{reset}"}}],"account":"{account}"}}"#
+        )
+    };
+    let (s, v) = post(&rig, &[("X-Irori-Attach", secret)], &reading(80.0, "a/o"));
+    assert_eq!(s, 200, "{v}");
+    // The same account keeps the higher figure, another takes the lower.
+    let (s, _) = post(&rig, &[("X-Irori-Attach", secret)], &reading(10.0, "a/o"));
+    assert_eq!(s, 200);
+    assert_eq!(rig.core.usage_limits().windows[0].percent_used, 80.0);
+    let only_five = format!(
+        r#"{{"rateLimits":[{{"kind":"five_hour","percentUsed":4,"resetsAt":"{reset}"}}],"account":"b"}}"#
+    );
+    let (s, _) = post(&rig, &[("X-Irori-Attach", secret)], &only_five);
+    assert_eq!(s, 200);
+    let got = rig.core.usage_limits();
+    assert_eq!(got.windows.len(), 1);
+    assert_eq!(got.windows[0].percent_used, 4.0);
+    assert_eq!(got.account.as_deref(), Some("b"));
+}

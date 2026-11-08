@@ -110,6 +110,16 @@ impl Sampler {
     }
 }
 
+/// Filled in by card B.
+pub(super) fn cpu_now(_window: std::time::Duration) -> Option<Cpu> {
+    None
+}
+
+/// Filled in by card B.
+pub(super) fn mem_now() -> Option<Mem> {
+    None
+}
+
 fn mem() -> Mem {
     let mut st = MEMORYSTATUSEX {
         dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
