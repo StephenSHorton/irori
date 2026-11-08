@@ -55,6 +55,8 @@ export function PhoneTabs({
   return (
     <nav
       aria-label="Tabs"
+      // Ask Irori's button and panel sit above the tabs (card #783).
+      data-assistant-avoid="bar"
       className="grid shrink-0 grid-cols-3 border-x-0! border-b-0! pr-[var(--safe-right)] pb-[var(--safe-bottom)] pl-[var(--safe-left)] glass-panel"
     >
       {tabs(boards).map(({ tab, label, to, Icon }) => {

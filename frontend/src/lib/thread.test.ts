@@ -16,9 +16,6 @@ import {
   visible,
   workingLine,
   StoppedGrace,
-  toolPhrase,
-  ponderWord,
-  PonderWords,
   startAgentItem,
 } from "./thread"
 
@@ -93,6 +90,16 @@ describe("threadLabel", () => {
         CardThreadItem({ kind: "event", who: otter, blockerId: "b2" })
       ).badges
     ).toEqual([])
+  })
+
+  test("an unheard comment says an agent is starting for it (card #739)", () => {
+    const it = CardThreadItem({ kind: "comment", who: otter, unheard: true })
+    expect(threadLabel(it).badges).toEqual([
+      { label: "nobody has heard this yet", tone: "warning" },
+    ])
+    expect(threadLabel(it, false, true).badges).toEqual([
+      { label: "an agent is starting to answer", tone: "slate" },
+    ])
   })
 
   test("one file is singular", () => {
@@ -497,20 +504,6 @@ describe("workingLine", () => {
     ).toBeNull()
   })
 
-  test("a Talk thread, with no top row, says working while nobody is replying", () => {
-    const busy = roster({ "mac/oak": ["busy", 1] })
-    expect(workingLine([oak], [], busy, at(2), false, true)).toEqual({
-      text: "oak is working…",
-      tone: "working",
-      who: "oak",
-      verb: "is",
-      doing: "",
-    })
-    expect(workingLine([oak], [comment], busy, at(2), false, true)?.tone).toBe(
-      "replying"
-    )
-  })
-
   test("two busy agents are named together", () => {
     const l = workingLine(
       [oak, elm],
@@ -600,125 +593,6 @@ describe("workingLine", () => {
         at(2)
       )?.tone
     ).toBe("replying")
-  })
-})
-
-describe("working line on a Talk thread (cards #317, #980)", () => {
-  const oak = AgentRef({
-    key: "mac/oak",
-    name: "oak",
-    status: "idle",
-    live: true,
-  })
-  // Card #431: a background job between turns.
-  test("an agent running a background job: says so, not stopped or nothing", () => {
-    const shell = new Map([["mac/oak", { status: "shell", updatedAt: "" }]])
-    expect(workingLine([oak], [], shell, new Date(), false, true)).toEqual({
-      text: "oak is running a job…",
-      tone: "working",
-      who: "oak",
-      verb: "is",
-      doing: "running a job",
-    })
-    expect(workingLine([oak], [], shell, new Date())).toBeNull()
-  })
-  // Card #489: how long one job has run, from when its status began.
-  test("a job says how long it has run", () => {
-    const now = new Date("2026-11-03T05:12:00Z")
-    const since = (at: string) =>
-      new Map([["mac/oak", { status: "shell", statusSince: at }]])
-    expect(
-      workingLine([oak], [], since("2026-11-03T05:00:00Z"), now, false, true)
-        ?.text
-    ).toBe("oak is running a job · 12 min…")
-    expect(
-      workingLine([oak], [], since("2026-11-03T05:11:30Z"), now, false, true)
-        ?.text
-    ).toBe("oak is running a job…")
-  })
-})
-
-describe("working line for a background job (card #431)", () => {
-  const oak = AgentRef({
-    key: "mac/oak",
-    name: "oak",
-    status: "idle",
-    live: true,
-  })
-  const you = AgentRef({
-    key: "user:me",
-    name: "You",
-    status: "person",
-    live: true,
-  })
-  const t0 = new Date("2026-11-03T05:00:00Z")
-  const comment = CardThreadItem({
-    id: "c1",
-    kind: "comment",
-    who: you,
-    text: "how's it going?",
-    at: t0.toISOString(),
-    heardBy: ["mac/oak"],
-  })
-  const later = new Date(t0.getTime() + 60_000)
-  const roster = (status: string) =>
-    new Map([
-      [
-        "mac/oak",
-        { status, updatedAt: new Date(t0.getTime() + 5_000).toISOString() },
-      ],
-    ])
-  test("shell after the person's comment: running a job, not stopped", () => {
-    expect(
-      workingLine([oak], [comment], roster("shell"), later, false, true)?.text
-    ).toBe("oak is running a job…")
-  })
-  test("idle after the person's comment: stopped without replying, as before", () => {
-    expect(workingLine([oak], [comment], roster("idle"), later)).toEqual({
-      text: "oak stopped without replying",
-      tone: "stopped",
-    })
-  })
-})
-
-describe("ponderWord", () => {
-  test("changes word each tick, in turn, and wraps", () => {
-    expect(ponderWord(0)).toBe("working")
-    expect(ponderWord(1)).not.toBe(ponderWord(0))
-    expect(ponderWord(PonderWords.length)).toBe(ponderWord(0))
-    expect(ponderWord(-1)).toBe(PonderWords[PonderWords.length - 1])
-  })
-  test("Reduce Motion's still word is the plain one", () => {
-    expect(ponderWord(0)).toBe(PonderWords[0])
-  })
-})
-
-describe("toolPhrase", () => {
-  test("names what common tools do", () => {
-    expect(toolPhrase("")).toBe("")
-    expect(toolPhrase("Bash")).toBe("running a command")
-    expect(toolPhrase("Edit")).toBe("editing files")
-    expect(toolPhrase("mcp__irori__board_comment")).toBe("on the Board")
-    expect(toolPhrase("mcp__claude-in-chrome__navigate")).toBe(
-      "using the browser"
-    )
-    expect(toolPhrase("mcp__blender__look")).toBe("using blender")
-    expect(toolPhrase("Frobnicate")).toBe("using Frobnicate")
-  })
-
-  test("the working line adds it for one busy agent", () => {
-    const oak = AgentRef({
-      key: "mac/oak",
-      name: "oak",
-      status: "idle",
-      live: true,
-    })
-    const live = new Map([
-      ["mac/oak", { status: "busy", updatedAt: "", lastTool: "Grep" }],
-    ])
-    expect(workingLine([oak], [], live, new Date(), false, true)?.text).toBe(
-      "oak is searching files…"
-    )
   })
 })
 

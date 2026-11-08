@@ -5,6 +5,7 @@ import { TaskState } from "./models"
 import {
   refStatus,
   askLine,
+  askSpawn,
   busy,
   namesLine,
   withLive,
@@ -180,6 +181,43 @@ describe("asks", () => {
         ask({ state: "handed", taker: agent("idle", { name: "sample-heron" }) })
       )
     ).toBe("Handed to sample-heron")
+  })
+  test("an ask nobody took says the agent Irori starts for it (card #739)", () => {
+    const starting = { starting: "MacBook (this one)" }
+    expect(askLine(ask({ state: "unclaimed" }), starting)).toBe(
+      "Starting an agent on MacBook (this one)"
+    )
+    expect(askLine(ask({ told: 0 }), starting)).toBe(
+      "Starting an agent on MacBook (this one)"
+    )
+    expect(
+      askLine(ask({ state: "unclaimed" }), { atCap: "the PC", queuePlace: 2 })
+    ).toBe("Queued: 2nd for the PC")
+    expect(
+      askSpawn(ask({ state: "unclaimed" }), { cantStart: "not trusted: /x" })
+    ).toEqual({
+      text: "can't start: its repo isn't trusted here",
+      tone: "warn",
+    })
+    // Why it can't start is long: the line says it short.
+    expect(
+      askLine(ask({ state: "unclaimed" }), { cantStart: "not trusted: /x" })
+    ).toBe("Can't start an agent")
+    // Taken, handed or closed: who has it, not the spawn.
+    expect(
+      askLine(
+        ask({ state: "taken", taker: agent("idle", { name: "sample-heron" }) }),
+        starting
+      )
+    ).toBe("sample-heron took it")
+    expect(askSpawn(ask({ state: "handed" }), starting)).toBeNull()
+    // Nothing starting: as before.
+    expect(askLine(ask({ state: "unclaimed" }), {})).toBe(
+      "Nobody took this yet"
+    )
+    expect(askLine(ask({ state: "unclaimed" }), null)).toBe(
+      "Nobody took this yet"
+    )
   })
   test("only an ask without an outcome is open", () => {
     expect(openAsk({ ask: ask({}) })).toBe(true)

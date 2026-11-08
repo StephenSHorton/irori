@@ -8,6 +8,7 @@ import { SearchIcon, XIcon } from "lucide-react"
 
 import { Kbd } from "@/components/ui/kbd"
 import { useCommands } from "@/lib/commands"
+import { openDialogs, SearchShortcut } from "@/lib/app-shortcuts"
 import { cn } from "@/lib/utils"
 
 export function SearchBox({
@@ -26,7 +27,7 @@ export function SearchBox({
       if (e.metaKey || e.ctrlKey || e.altKey) return
       const t = e.target instanceof HTMLElement ? e.target : null
       if (t?.closest("input,textarea,select,[contenteditable]")) return
-      if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return
+      if (document.querySelector(openDialogs)) return
       e.preventDefault()
       box.current?.focus()
       box.current?.select()
@@ -38,7 +39,8 @@ export function SearchBox({
     {
       id: "search.cards",
       title: "Search cards on this page",
-      shortcut: "/",
+      // Cmd+F (card #733); "/" works too, and the box itself shows it.
+      shortcut: SearchShortcut,
       keywords: ["find", "filter"],
       run: () => {
         box.current?.focus()
