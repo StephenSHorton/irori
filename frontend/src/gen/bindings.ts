@@ -300,8 +300,6 @@ export const commands = {
 	devicesSetHomeServer: (on: boolean, outside: boolean, publicAddr: string) => __TAURI_INVOKE<HomeServerView>("devices_set_home_server", { on, outside, publicAddr }),
 	devicesSetHomeServerAwake: (on: boolean) => __TAURI_INVOKE<HomeServerView>("devices_set_home_server_awake", { on }),
 	devicesSetPublicRelays: (on: boolean) => __TAURI_INVOKE<HomeServerView>("devices_set_public_relays", { on }),
-	devicesRelay: () => __TAURI_INVOKE<RelayView>("devices_relay"),
-	devicesSetRelay: (credentialUrl: string) => __TAURI_INVOKE<RelayView>("devices_set_relay", { credentialUrl }),
 	settingsGetNotifications: () => __TAURI_INVOKE<NotifyOptions>("settings_get_notifications"),
 	settingsSetNotifications: (o: NotifyOptions) => __TAURI_INVOKE<NotifyOptions>("settings_set_notifications", { o }),
 	settingsTestNotification: () => __TAURI_INVOKE<null>("settings_test_notification"),
@@ -2728,13 +2726,6 @@ export type RefTarget = {
 	ready: boolean,
 	/**  Done steps over all (a parent's, its subtasks' rollup). */
 	progress: CardProgress,
-};
-
-/**  The advanced relay line (D4: no iroh meaning, always "none"). */
-export type RelayView = {
-	credentialUrl?: string,
-	state: string,
-	detail?: string,
 };
 
 /**

@@ -567,9 +567,6 @@ export const DevicesService = {
   SetHomeServerAwake: (on: boolean) =>
     call(commands.devicesSetHomeServerAwake(on)),
   SetPublicRelays: (on: boolean) => call(commands.devicesSetPublicRelays(on)),
-  Relay: () => call(commands.devicesRelay()),
-  SetRelay: (credentialUrl: string) =>
-    call(commands.devicesSetRelay(credentialUrl)),
 }
 
 export const SettingsService = {
