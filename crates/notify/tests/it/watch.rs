@@ -1121,6 +1121,43 @@ fn watch_unclaimed_ask_quiet_while_a_computer_takes_it() {
     r.fake.no_post(QUIET);
 }
 
+/// Card #995: an agent bound and its taken row not here yet holds the card
+/// by itself: no move, and by now no computer with room.
+#[test]
+fn watch_unclaimed_ask_quiet_between_bound_and_taken() {
+    const KEY: &str = "dev2/dddddddd-4444-4444-8444-444444444444";
+    let (r, devs) = room_rig(&["dev1"], Duration::from_secs(60));
+    let id = post_thread(&r).id;
+    let request = coord::rows::TaskSpawnRow {
+        task_id: id.clone(),
+        generation: 1,
+        op: coord::SPAWN_REQUESTED.into(),
+        device: "dev2".into(),
+        permission_mode: "default".into(),
+        by: "irori:sweeper".into(),
+        at: now(),
+        ..Default::default()
+    };
+    from_dev2(&r, 1, store::kinds::TASK_SPAWN, &request);
+    devs.write().unwrap().full.insert("dev2".into());
+    r.fake.no_post(QUIET);
+    let bound = coord::rows::TaskSpawnedRow {
+        task_id: id.clone(),
+        key: KEY.into(),
+        generation: 1,
+        device: "dev2".into(),
+        by: "irori:sweeper".into(),
+        at: now(),
+        ..Default::default()
+    };
+    from_dev2(&r, 2, store::kinds::TASK_SPAWNED, &bound);
+    let got = r.co.get_task(&id).unwrap();
+    assert!(!got.spawn_pending() && got.ask.unwrap().taker.is_empty());
+    assert!(r.co.full_target(&r.co.get_task(&id).unwrap()).is_none());
+    // Past the recheck, so a card would have come if nothing held it.
+    r.fake.no_post(Duration::from_millis(1300));
+}
+
 /// Card #995: every computer full: the card comes as it always did.
 #[test]
 fn watch_unclaimed_ask_every_computer_full() {
