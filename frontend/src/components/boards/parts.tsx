@@ -272,8 +272,12 @@ export function NewBoardDialog({
 // JoinInvite is Join with an invite: the irori-invite: link someone sent.
 export function JoinInvite({
   onJoined,
+  autoFocus = true,
 }: {
   onJoined: (s: InviteStatus) => void
+  // Settings shows it among other things, so it doesn't take the keyboard
+  // (a phone's would open) (card #1007).
+  autoFocus?: boolean
 }) {
   const [link, setLink] = useState("")
   const [busy, setBusy] = useState(false)
@@ -296,7 +300,7 @@ export function JoinInvite({
       <div className="flex gap-1.5">
         <Input
           value={link}
-          autoFocus
+          autoFocus={autoFocus}
           onChange={(e) => setLink(e.target.value)}
           placeholder="irori-invite:…"
           aria-label="The invite link someone sent you"

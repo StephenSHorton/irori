@@ -1732,7 +1732,7 @@
   },
   {
     "name": "lease",
-    "description": "Take or renew an advisory lease so other agents know you are working on something: files in a repo (path:\u003crepoKey\u003e:\u003cglob\u003e) or a named resource (gpu/qwen, port:8799). Leases last ttl_minutes (default 30, max 240) and are released when you go away. Overlapping path leases in one repo conflict; steal takes an unexpired one, so only steal when the holder is clearly done or stuck. Check leases first.",
+    "description": "Take or renew an advisory lease so other agents know you are working on something: files in a repo (path:\u003crepoKey\u003e:\u003cglob\u003e) or a named resource (gpu/qwen, port:8799). Lasts ttl_minutes (default 30, max 240). Overlapping path leases conflict; steal takes an unexpired one, only when the holder is clearly done or stuck. Check leases first. Heavy jobs: lease heavy/\u003cfirst 8 hex of this device id\u003e for one of two slots; repeat renews; steal and slot names refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1779,7 +1779,7 @@
   },
   {
     "name": "release",
-    "description": "Release a lease you hold, as soon as you are done with the resource. On a resource another person's agent holds in a shared space (nobody steals another person's lease), this asks its holder to release it instead: a comment on the shared card they hear at their next turn.",
+    "description": "Release a lease you hold, as soon as you are done with the resource. A slot is released by its base name (heavy/\u003cid\u003e) or its full name (heavy/\u003cid\u003e/slot-1). On a resource another person's agent holds in a shared space (nobody steals another person's lease), this asks its holder to release it instead: a comment on the shared card they hear at their next turn.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2183,5 +2183,48 @@
       "claude",
       "grok"
     ]
+  },
+  {
+    "name": "assistant_close",
+    "description": "Close a card or resolve a thread, as the person. Only when the person's own newest message clearly tells you to, and only the card or thread they named; anything else is refused. Give the ref exactly as they wrote it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "The card or thread the person named, as they wrote it: #12 or tag#12."
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": []
+  },
+  {
+    "name": "assistant_tick",
+    "description": "Tick one step of a card, as the person. Only when the person's own newest message clearly tells you to, and only the step and card they named; anything else is refused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "The card the person named, as they wrote it: #12 or tag#12."
+        },
+        "step_id": {
+          "type": "string",
+          "description": "The step as the person named it: s2, or 2 for the second one listed."
+        }
+      },
+      "required": [
+        "task_id",
+        "step_id"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": []
   }
 ]

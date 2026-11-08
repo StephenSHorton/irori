@@ -161,7 +161,13 @@ impl TestBackend {
     }
 }
 
+/// This fake device's id; its heavy family is `heavy/3dc30c94`.
+pub const DEVICE_ID: &str = "3dc30c94c6a74af3c59d39f4ca02d6f1";
+
 impl Backend for TestBackend {
+    fn device_id(&self) -> String {
+        DEVICE_ID.into()
+    }
     fn agents(&self) -> Vec<presence::AgentCard> {
         self.roster.cards()
     }

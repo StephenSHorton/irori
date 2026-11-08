@@ -14,7 +14,7 @@ export interface KeepUpToDateState {
 }
 
 // useKeepUpToDate reads and sets the per-device setting while `active`
-// (the settings dialog is open). With no choice saved it follows the home
+// (its Settings pane is open). With no choice saved it follows the home
 // server's switch, so the value read can change after the home server does.
 // Outside the app (sample data) it works on local state only.
 export function useKeepUpToDate(active: boolean): KeepUpToDateState {

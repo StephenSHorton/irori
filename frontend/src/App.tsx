@@ -66,7 +66,7 @@ import { nameLookup, SystemKey, useGone, useHeld, useInbox } from "@/lib/talk"
 import { startWindowLog } from "@/lib/window-log"
 import { deskShown, useDesks } from "@/lib/desk"
 import { DeskPage } from "@/components/desk/desk-page"
-import { openSettings } from "@/components/settings/settings-menu"
+import { SettingsPage } from "@/components/settings/settings-page"
 import { SpawnNotice } from "@/components/home/spawn-notice"
 import { HomeFreshness } from "@/components/common/freshness-line"
 import { WindDownLine } from "@/components/home/wind-down-line"
@@ -261,6 +261,14 @@ export function App() {
     // ?storage starts on Storage, ?storage=<kind> on one kind's page.
     const storageTab = previewFlag("storage")
     if (storageTab !== null) return { kind: "storage", tab: storageTab }
+    // ?settings[=<section>] and ?devices start on Settings (card #1007).
+    if (previewFlag("devices") !== null)
+      return { kind: "settings", tab: "devices" }
+    const settingsTab = previewFlag("settings")
+    if (settingsTab !== null)
+      return sectionFromHash(
+        settingsTab ? `#settings/${settingsTab}` : "#settings"
+      )
     return sectionFromHash(window.location.hash)
   })
   // A board page's own tab (All, Needs a decision, Closed).
@@ -922,6 +930,9 @@ export function App() {
   if (drawerAt !== where) {
     setDrawerAt(where)
     setDrawer(false)
+    // New card takes its space and board from the page: moved, it would
+    // quietly post somewhere else (card #1007).
+    setNewCard(false)
   }
 
   // A phone (card #395, mockup talk-5): Dashboard, Talk and Boards are tabs at
@@ -1011,7 +1022,9 @@ export function App() {
                                   ? "Notifications"
                                   : section.kind === "storage"
                                     ? "Storage"
-                                    : "Dashboard"
+                                    : section.kind === "settings"
+                                      ? "Settings"
+                                      : "Dashboard"
                 }
                 bar={
                   !open && section.kind === "board" ? (
@@ -1076,6 +1089,8 @@ export function App() {
                     />
                   </FocusComment.Provider>
                 </Scroll>
+              ) : section.kind === "settings" ? (
+                <SettingsPage tab={section.tab} />
               ) : section.kind === "talk" ? (
                 <TalkPage
                   threads={allThreads}
@@ -1121,7 +1136,7 @@ export function App() {
                   open={section.repo}
                   onOpen={(repo) => go({ kind: "desk", repo })}
                   onOpenCard={openCard}
-                  onSettings={() => openSettings("desks")}
+                  onSettings={() => go({ kind: "settings", tab: "desks" })}
                   nameOf={name}
                   now={now}
                 />
