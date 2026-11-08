@@ -340,6 +340,10 @@ const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 // ---------- the prototype ----------
 
+// The huddle chat: people and their assistants, typed. `to` is the assistant
+// a message is for.
+type ChatMsg = { id: string; from: string; to?: string; text: string }
+
 type Phase = "live" | "wrapping" | "ended"
 type Typed = { id: string; text: string }
 const BASE_MS = 2800
@@ -362,14 +366,21 @@ export default function HuddleMock() {
   const [phase, setPhase] = useState<Phase>(mode === "ended" ? "ended" : "live")
   const [names, setNames] = useState(DEFAULT_NAMES)
   const narrow = useNarrow()
-  const [tab, setTab] = useState<"talk" | "canvas" | "people">("canvas")
+  const [tab, setTab] = useState<"talk" | "canvas" | "chat" | "people">(
+    "canvas"
+  )
   const [filter, setFilter] = useState<Kind | "all">("all")
   const [draft, setDraft] = useState("")
+  const [chat, setChat] = useState<ChatMsg[]>([])
+  const [chatDraft, setChatDraft] = useState("")
+  const [chatTo, setChatTo] = useState<string>("auto")
+  const chatSeen = useRef(new Set<string>())
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState("")
   const [renameErr, setRenameErr] = useState("")
   const timers = useRef<number[]>([])
   const streamRef = useRef<HTMLDivElement>(null)
+  const chatRef = useRef<HTMLDivElement>(null)
   const seq = useRef(0)
 
   const later = useCallback((fn: () => void, ms: number) => {
@@ -405,6 +416,24 @@ export default function HuddleMock() {
     [itemsShown]
   )
   const items = useMemo(() => [...scripted, ...extra], [scripted, extra])
+  const posted = (item: Item) =>
+    `Added a ${KIND[item.kind].label.toLowerCase()} to the canvas: ${
+      item.text.length > 70 ? item.text.slice(0, 67) + "…" : item.text
+    }`
+  // Each assistant says in the chat what it just put on the canvas.
+  useEffect(() => {
+    const fresh = scripted.filter((i) => !chatSeen.current.has(i.id))
+    if (!fresh.length) return
+    fresh.forEach((i) => chatSeen.current.add(i.id))
+    setChat((c) => [
+      ...c,
+      ...fresh.map((i) => ({
+        id: `c${++seq.current}`,
+        from: i.by,
+        text: posted(i),
+      })),
+    ])
+  }, [scripted])
   const elapsed =
     SCRIPT.slice(0, shown).reduce((a, s) => a + s.secs, 0) + typed.length * 12
 
@@ -413,6 +442,11 @@ export default function HuddleMock() {
     const el = streamRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [shown, typed.length])
+
+  useEffect(() => {
+    const el = chatRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [chat.length])
 
   const nameOf = useCallback((aid: string) => names[aid], [names])
   const fill = useCallback(
@@ -460,6 +494,15 @@ export default function HuddleMock() {
     setWriting((w) => [...new Set([...w, aid])])
     later(() => {
       setExtra((x) => [...x, { ...item, id: `x${++seq.current}` }])
+      setChat((c) => [
+        ...c,
+        {
+          id: `c${++seq.current}`,
+          from: aid,
+          to: asker,
+          text: posted(item),
+        },
+      ])
       setWriting((w) => w.filter((a) => a !== aid))
     }, 1100 / speed)
   }
@@ -489,6 +532,29 @@ export default function HuddleMock() {
     else if (text.includes("?")) reply("a1", text, YOU, "own")
   }
 
+  function sendChat(e?: React.FormEvent) {
+    e?.preventDefault()
+    const text = chatDraft.trim()
+    if (!text || phase !== "live") return
+    const named = Object.keys(names).find((a) =>
+      new RegExp(`\\b${esc(names[a])}\\b`, "i").test(text)
+    )
+    const target = chatTo !== "auto" ? chatTo : named
+    setChat((c) => [
+      ...c,
+      { id: `c${++seq.current}`, from: YOU, to: target, text },
+    ])
+    setChatDraft("")
+    if (target)
+      reply(
+        target,
+        text.replace(new RegExp(`\\b${esc(names[target])}\\b[,:]?`, "i"), ""),
+        YOU,
+        "name"
+      )
+    else if (text.includes("?")) reply("a1", text, YOU, "own")
+  }
+
   function endHuddle() {
     if (phase !== "live") return
     setPlaying(false)
@@ -511,6 +577,8 @@ export default function HuddleMock() {
     setTyped([])
     setTypedAt({})
     setExtra([])
+    setChat([])
+    chatSeen.current = new Set()
     setWriting([])
     setPhase("live")
     setPlaying(true)
@@ -819,6 +887,114 @@ export default function HuddleMock() {
     </div>
   )
 
+  const chatLine = (m: ChatMsg, small?: boolean) => {
+    const person = m.from.startsWith("p") ? personById(m.from) : null
+    const sender = person ? person.name : `${nameOf(m.from)}`
+    return (
+      <div key={m.id} className={cn("flex gap-2", small && "text-xs")}>
+        {person ? (
+          <Dot p={person} className={small ? "size-5 text-[10px]" : "size-6"} />
+        ) : (
+          <span
+            className={cn(
+              "inline-flex shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary",
+              small ? "size-5" : "size-6"
+            )}
+          >
+            <BotIcon className="size-3.5" />
+          </span>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] text-muted-foreground">
+            <span className="font-medium text-foreground">{sender}</span>
+            {!person && ` · ${ownerOf(m.from).name}'s assistant`}
+            {m.to &&
+              ` → ${m.to.startsWith("p") ? personById(m.to).name : nameOf(m.to)}`}
+          </div>
+          <p className={cn("leading-snug", small ? "line-clamp-2" : "text-sm")}>
+            {person ? withNames(m.text) : m.text}
+          </p>
+        </div>
+      </div>
+    )
+  }
+  const chatForm = (small?: boolean) => (
+    <form
+      onSubmit={sendChat}
+      className="flex flex-col gap-1.5 border-t border-border p-2.5"
+    >
+      <div className="flex flex-wrap gap-1" role="group" aria-label="Send to">
+        {[
+          ["auto", "Anyone"],
+          ...Object.keys(names).map((a) => [a, nameOf(a)]),
+        ].map(([k, l]) => (
+          <Button
+            key={k}
+            type="button"
+            size="xs"
+            variant={chatTo === k ? "default" : "outline"}
+            onClick={() => setChatTo(k)}
+          >
+            {k === "auto" ? l : `→ ${l}`}
+          </Button>
+        ))}
+      </div>
+      <div className="flex gap-1.5">
+        <Input
+          value={chatDraft}
+          onChange={(e) => setChatDraft(e.target.value)}
+          disabled={phase !== "live"}
+          placeholder={
+            chatTo === "auto"
+              ? `Message, e.g. “${nameOf("a3")}, add a task for the spike”`
+              : `Message ${nameOf(chatTo)}`
+          }
+          aria-label="Chat message"
+          className={cn("min-w-0", small && "h-8 text-xs")}
+        />
+        <Button
+          type="submit"
+          size="icon-sm"
+          aria-label="Send"
+          disabled={!chatDraft.trim() || phase !== "live"}
+        >
+          <SendIcon />
+        </Button>
+      </div>
+    </form>
+  )
+  const chatBody = (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div
+        ref={(el) => {
+          chatRef.current = el
+          if (el) el.scrollTop = el.scrollHeight
+        }}
+        className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3"
+      >
+        {chat.length === 0 && (
+          <p className="m-auto text-center text-sm text-muted-foreground">
+            Type here when talking isn't enough. Pick an assistant, or say its
+            name, to ask it directly.
+          </p>
+        )}
+        {chat.map((m) => chatLine(m))}
+      </div>
+      {chatForm()}
+    </div>
+  )
+  const chatSummary = (
+    <div className="flex flex-col">
+      <div className="flex flex-col gap-1.5 p-2.5">
+        {chat.length === 0 && (
+          <p className="text-xs text-muted-foreground">No messages yet.</p>
+        )}
+        {chat.slice(-2).map((m) => chatLine(m, true))}
+      </div>
+      {chatForm(true)}
+    </div>
+  )
+
   // ---------- after the call ----------
 
   if (phase === "ended")
@@ -871,11 +1047,12 @@ export default function HuddleMock() {
         </Button>
       </header>
 
-      <nav className="grid grid-cols-3 border-b border-border md:hidden">
+      <nav className="grid grid-cols-4 border-b border-border md:hidden">
         {(
           [
             ["talk", "Transcript"],
             ["canvas", `Canvas ${items.length}`],
+            ["chat", "Chat"],
             ["people", "Roster"],
           ] as const
         ).map(([k, l]) => (
@@ -917,6 +1094,18 @@ export default function HuddleMock() {
           summary={rosterSummary}
         >
           {roster}
+        </FloatPane>
+        <FloatPane
+          title="Chat · people and assistants"
+          show={tab === "chat"}
+          wide={!narrow}
+          at="md:bottom-3 md:left-3"
+          className="md:h-[30rem] md:w-[22rem]"
+          foldedClassName="md:w-[20rem]"
+          summary={chatSummary}
+          flush
+        >
+          {chatBody}
         </FloatPane>
         <FloatPane
           title="Transcript · live"
