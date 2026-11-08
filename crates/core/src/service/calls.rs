@@ -1808,6 +1808,19 @@ impl Services {
             ) {
                 Ok(_) => {
                     self.hub.publish(CoreEvent::Talk);
+                    // The follows hear this row too; the feed drops the
+                    // second sighting by the line's id.
+                    self.huddle_line(&super::huddle_feed::Heard {
+                        call_id: call_id.to_string(),
+                        conv_id: conv.to_string(),
+                        device: self.device.id.clone(),
+                        seg: seq as i64,
+                        start_ms,
+                        end_ms,
+                        text: text.clone(),
+                        agents: true,
+                        by: self.user_sender().key,
+                    });
                     return;
                 }
                 // Kept for the fallback post, so nothing is lost (the gate
