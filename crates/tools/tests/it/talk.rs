@@ -343,6 +343,80 @@ fn an_agent_opens_a_thread_it_holds() {
     );
 }
 
+/// Card #1027: talk_thread's `agent` hands the thread to a named agent,
+/// who is woken and hears the person's reply; the opener hears it only
+/// with `watch`. `agent=new` goes through the backend's gate, which the
+/// test backend lacks, so it is refused and opens nothing.
+#[test]
+fn a_thread_goes_to_a_named_agent_and_watch_keeps_the_opener() {
+    let h = new_harness();
+    let a = call_a();
+    let threads = |h: &Harness| -> Vec<coord::Task> {
+        h.b.co
+            .list_tasks(&coord::TaskFilter::default())
+            .into_iter()
+            .filter(|t| t.ask.as_ref().is_some_and(|a| a.thread))
+            .collect()
+    };
+    let out = h.okj(
+        &a,
+        "talk_thread",
+        json!({"text": "Gamma, can you take this one?", "agent": "gamma"}),
+    );
+    has(&out, &["Opened thread #", "handed it to", "gamma"]);
+    let t = threads(&h).remove(0);
+    let ask = t.ask.clone().unwrap();
+    assert_eq!((ask.opener.as_str(), ask.taker.as_str()), (KEY_A, KEY_C));
+    assert!(ask.gave && ask.handed, "{ask:?}");
+    let ns: Vec<_> = h
+        .notices(KEY_C)
+        .into_iter()
+        .filter(|d| d.mode == WAKE)
+        .collect();
+    assert_eq!(ns.len(), 1, "{ns:?}");
+    has(&ns[0].message.text, &["started a thread", "handed it to you"]);
+    // The person's reply goes to gamma, not to the opener that gave it away.
+    let (_, ns) =
+        h.b.co
+            .person_comment(USER, &t.id, "Yes please.", true, &[], None)
+            .unwrap();
+    assert!(ns.iter().any(|n| n.to.contains(&KEY_C.to_string())), "{ns:?}");
+    assert!(!ns.iter().any(|n| n.to.contains(&KEY_A.to_string())), "{ns:?}");
+    // With watch the opener hears it too.
+    h.okj(
+        &a,
+        "talk_thread",
+        json!({"text": "And this one?", "agent": "gamma", "watch": true}),
+    );
+    let w = threads(&h)
+        .into_iter()
+        .find(|t| t.objective == "And this one?")
+        .unwrap();
+    let (_, ns) =
+        h.b.co
+            .person_comment(USER, &w.id, "Sure.", true, &[], None)
+            .unwrap();
+    for k in [KEY_A, KEY_C] {
+        assert!(ns.iter().any(|n| n.to.contains(&k.to_string())), "{k}: {ns:?}");
+    }
+    // Nobody by that name, and agent=new without the person's limit to
+    // check against: refused, and no thread is opened.
+    let before = threads(&h).len();
+    h.failsj(
+        &a,
+        "talk_thread",
+        json!({"text": "Anyone?", "agent": "nobody"}),
+        &["no agent nobody"],
+    );
+    h.failsj(
+        &a,
+        "talk_thread",
+        json!({"text": "A fresh one", "agent": "new"}),
+        &["can't start agents"],
+    );
+    assert_eq!(threads(&h).len(), before);
+}
+
 /// The next-turn reading (card #391): every agent in a channel but the
 /// poster and the woken hears what it hasn't read there, at most five
 /// lines and a count, a reply optional; a newer reading replaces one still

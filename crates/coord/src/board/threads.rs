@@ -252,8 +252,20 @@ impl Fold {
             .tasks
             .get(id)
             .and_then(|t| t.ask.as_ref())
-            .filter(|a| a.thread && !a.opener.is_empty() && !a.gave)
-            .map(|a| vec![a.opener.clone()])
+            .filter(|a| a.thread && !a.opener.is_empty())
+            .map(|a| {
+                // A thread its opener handed on (card #1027): the opener
+                // hears the person only if it watches, and the agent that
+                // holds it does, before it has answered too.
+                let mut v = Vec::new();
+                if !a.gave {
+                    v.push(a.opener.clone());
+                }
+                if !a.taker.is_empty() && a.taker != a.opener {
+                    v.push(a.taker.clone());
+                }
+                v
+            })
             .unwrap_or_default();
         for c in cs {
             if !out.contains(&c.by) {
