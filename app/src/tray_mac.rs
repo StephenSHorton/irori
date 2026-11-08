@@ -16,7 +16,9 @@ fn menu(lines: &[Line]) -> Result<Menu, String> {
     let menu = Menu::new();
     for l in lines {
         let item: Box<dyn IsMenuItem> = match l {
-            Line::Item { id, label, enabled } => Box::new(MenuItem::with_id(*id, label, *enabled, None)),
+            Line::Item { id, label, enabled } => {
+                Box::new(MenuItem::with_id(*id, label, *enabled, None))
+            }
             Line::Check { id, label, checked } => {
                 Box::new(CheckMenuItem::with_id(*id, label, true, *checked, None))
             }

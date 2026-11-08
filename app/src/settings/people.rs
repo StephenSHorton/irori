@@ -27,7 +27,9 @@ impl NameEdit {
     }
     /// The field differs from the saved name.
     pub fn changed(&self) -> bool {
-        self.name.as_deref().is_some_and(|n| self.edit.text.trim() != n)
+        self.name
+            .as_deref()
+            .is_some_and(|n| self.edit.text.trim() != n)
     }
     /// "Saved." shows after a save until the field is edited again (the
     /// field's accessor runs for focus and caret too, so it can't clear it).
@@ -55,10 +57,13 @@ pub struct Model {
 
 pub fn load(s: &mut State) {
     load_name(s, |s| &mut s.settings.people.name);
-    s.spawn(|w| w.boards_list(), |s, v| {
-        s.data.spaces = v;
-        s.settings.people.spaces_read = true;
-    });
+    s.spawn(
+        |w| w.boards_list(),
+        |s, v| {
+            s.data.spaces = v;
+            s.settings.people.spaces_read = true;
+        },
+    );
     // An invite opened elsewhere shows here in place of the form.
     crate::spaces::reload_invite_now(s);
 }
@@ -69,12 +74,15 @@ pub fn on_event(s: &mut State, ev: &Event) {
 
 /// Reads the name into a NameEdit (keeping an edit in progress).
 pub fn load_name(s: &mut State, at: fn(&mut State) -> &mut NameEdit) {
-    s.spawn(|w| w.get_your_name(), move |s, n| {
-        let ne = at(s);
-        if !ne.changed() {
-            ne.set(n);
-        }
-    });
+    s.spawn(
+        |w| w.get_your_name(),
+        move |s, n| {
+            let ne = at(s);
+            if !ne.changed() {
+                ne.set(n);
+            }
+        },
+    );
 }
 
 /// Saves the field (Enter or Save).
@@ -85,26 +93,47 @@ pub fn save_name(s: &mut State, at: fn(&mut State) -> &mut NameEdit) {
     }
     let draft = ne.edit.text.clone();
     ne.error = None;
-    s.spawn(move |w| w.set_your_name(&draft), move |s, r| match r {
-        Ok(kept) if !kept.is_empty() => {
-            s.data.your_name = kept.clone();
-            let ne = at(s);
-            ne.set(kept);
-            ne.saved = true;
-        }
-        Ok(_) => at(s).error = Some("A name can't be empty.".into()),
-        Err(e) => at(s).error = Some(e),
-    });
+    s.spawn(
+        move |w| w.set_your_name(&draft),
+        move |s, r| match r {
+            Ok(kept) if !kept.is_empty() => {
+                s.data.your_name = kept.clone();
+                let ne = at(s);
+                ne.set(kept);
+                ne.saved = true;
+            }
+            Ok(_) => at(s).error = Some("A name can't be empty.".into()),
+            Err(e) => at(s).error = Some(e),
+        },
+    );
+}
+
+/// A name is at most this many characters (the React field's maxLength).
+pub const MAX_NAME: usize = 60;
+
+/// Cuts a typed or pasted name to MAX_NAME characters.
+pub fn clamp_name(e: &mut TextEdit) {
+    if e.text.chars().count() > MAX_NAME {
+        let t: String = e.text.chars().take(MAX_NAME).collect();
+        e.replace_text(t);
+    }
 }
 
 /// The name field and Save; Escape drops the edit.
-pub fn name_field(f: &Frame, key: &str, ne: &NameEdit, width: Option<f32>, at: fn(&mut State) -> &mut NameEdit) -> El {
+pub fn name_field(
+    f: &Frame,
+    key: &str,
+    ne: &NameEdit,
+    width: Option<f32>,
+    at: fn(&mut State) -> &mut NameEdit,
+) -> El {
     let k = f.k;
     let field = TextInput::new(&ne.edit)
         .label("Your name")
         .width(width)
         .disabled(ne.name.is_none())
         .on_edit(move |s: &mut State| &mut at(s).edit)
+        .on_change(move |s: &mut State, _: &mut Tx| clamp_name(&mut at(s).edit))
         .on_submit(move |s: &mut State, _: &mut Tx| save_name(s, at))
         .on_key(move |s: &mut State, ev: &rune::KeyEvent, _: &mut Tx| {
             if ev.key == rune::Key::Escape {
@@ -119,7 +148,11 @@ pub fn name_field(f: &Frame, key: &str, ne: &NameEdit, width: Option<f32>, at: f
         })
         .build(k)
         .key(format!("{key}-field"));
-    let field = if width.is_none() { field.grow(1.0).min_w(0.0) } else { field };
+    let field = if width.is_none() {
+        field.grow(1.0).min_w(0.0)
+    } else {
+        field
+    };
     row()
         .key(key.to_string())
         .w_full()
@@ -148,24 +181,48 @@ fn your_name(s: &State, f: &Frame) -> El {
         .w_full()
         .gap(6.0)
         .child(text("Your name").font(k.ty.ui_medium).color(k.c.text_base))
-        .child(name_field(f, "settings-name", ne, Some(256.0), |s| &mut s.settings.people.name))
-        .child(if ne.error.is_some() { super::error_line(f, &line) } else { hint(f, &line) })
+        .child(name_field(f, "settings-name", ne, Some(256.0), |s| {
+            &mut s.settings.people.name
+        }))
+        .child(if ne.error.is_some() {
+            super::error_line(f, &line)
+        } else {
+            hint(f, &line)
+        })
 }
 
 pub fn view(s: &State, f: &mut Frame) -> El {
     let k = f.k;
-    let mut out = col().key("settings-people").w_full().gap(12.0).child(your_name(s, f));
+    let mut out = col()
+        .key("settings-people")
+        .w_full()
+        .gap(12.0)
+        .child(your_name(s, f));
     let spaces: Vec<_> = s.data.spaces.iter().filter(|b| !b.leaving).collect();
     if spaces.is_empty() && !s.settings.people.spaces_read {
-        out = out.child(super::loading(f, "settings-people-loading", "Loading your spaces"));
+        out = out.child(super::loading(
+            f,
+            "settings-people-loading",
+            "Loading your spaces",
+        ));
     } else if spaces.is_empty() {
-        out = out.child(muted_line(f, "No spaces yet. Make one on the Spaces page, then invite people to it."));
+        out = out.child(muted_line(f, "No spaces yet. Make one with New or join a space, in the space picker at the top of the sidebar, then invite people to it."));
     } else {
-        let mut list = col().key("settings-people-list").w_full().gap(6.0).role("list").label("People in your spaces");
+        let mut list = col()
+            .key("settings-people-list")
+            .w_full()
+            .gap(6.0)
+            .role("list")
+            .label("People in your spaces");
         for b in spaces {
             let id = b.board_id.clone();
             let name = super::plain_line(&b.name);
-            let people = b.people.iter().map(|p| super::plain_line(p)).collect::<Vec<_>>().join(", ");
+            let people = b
+                .people
+                .iter()
+                .map(|p| super::plain_line(p))
+                .collect::<Vec<_>>()
+                .join(", ");
             list = list.child(
                 row()
                     .key(format!("settings-people-{}", b.board_id))
@@ -185,10 +242,14 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                                     .gap(6.0)
                                     .center_y()
                                     .child(
-                                        text(if name.is_empty() { "(unnamed)".into() } else { name })
-                                            .font(k.ty.ui_medium)
-                                            .color(k.c.text_base)
-                                            .truncate(),
+                                        text(if name.is_empty() {
+                                            "(unnamed)".into()
+                                        } else {
+                                            name
+                                        })
+                                        .font(k.ty.ui_medium)
+                                        .color(k.c.text_base)
+                                        .truncate(),
                                     )
                                     .child(
                                         text(format!("{}#", super::plain_line(&b.tag)))
@@ -197,11 +258,15 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                                     ),
                             )
                             .child(
-                                text(if people.is_empty() { "Just you".into() } else { people })
-                                    .font(k.ty.small)
-                                    .color(k.c.text_muted)
-                                    .truncate()
-                                    .w_full(),
+                                text(if people.is_empty() {
+                                    "Just you".into()
+                                } else {
+                                    people
+                                })
+                                .font(k.ty.small)
+                                .color(k.c.text_muted)
+                                .truncate()
+                                .w_full(),
                             ),
                     )
                     .child(
@@ -210,7 +275,10 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                             .control_size(ControlSize::Small)
                             .on_press(move |s: &mut State| {
                                 s.close_dialog();
-                                s.go(Route::Board { space: id.clone(), board: None });
+                                s.go(Route::Board {
+                                    space: id.clone(),
+                                    board: None,
+                                });
                             })
                             .build(k),
                     ),
@@ -254,9 +322,18 @@ fn join_invite(s: &State, f: &Frame) -> El {
                         .grow(1.0)
                         .min_w(0.0),
                 )
-                .child(Button::new("Join").disabled(!ok).on_press(join_submit).build(k).key("settings-join-go")),
+                .child(
+                    Button::new("Join")
+                        .disabled(!ok)
+                        .on_press(join_submit)
+                        .build(k)
+                        .key("settings-join-go"),
+                ),
         )
-        .child(hint(f, "Paste the link, then give whoever sent it the five words you'll see."));
+        .child(hint(
+            f,
+            "Paste the link, then give whoever sent it the five words you'll see.",
+        ));
     if let Some(e) = &j.error {
         c = c.child(super::error_line(f, e));
     }
@@ -287,12 +364,21 @@ fn join_submit(s: &mut State) {
             }
         },
     );
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_is_cut_at_sixty_characters() {
+        let mut e = TextEdit::new("é".repeat(70));
+        clamp_name(&mut e);
+        assert_eq!(e.text.chars().count(), MAX_NAME);
+        let mut e = TextEdit::new("Stephen");
+        clamp_name(&mut e);
+        assert_eq!(e.text, "Stephen");
+    }
 
     #[test]
     fn saved_shows_until_the_name_is_edited_again() {

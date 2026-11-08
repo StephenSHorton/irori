@@ -168,11 +168,11 @@ pub fn pick_gpu(samples: &[MetersSample]) -> Option<String> {
     let first = last.gpus.first()?;
     let mut best: Option<(&str, f64)> = None;
     for g in last.gpus.iter().filter(|g| !g.integrated) {
-        let avg = average(
-            samples
-                .iter()
-                .map(|s| gpu_by_name(s, &g.name).and_then(|x| x.util_pct).map(f64::from)),
-        );
+        let avg = average(samples.iter().map(|s| {
+            gpu_by_name(s, &g.name)
+                .and_then(|x| x.util_pct)
+                .map(f64::from)
+        }));
         if best.is_none_or(|(_, b)| avg > b) {
             best = Some((&g.name, avg));
         }
@@ -346,6 +346,9 @@ mod tests {
         let s = at(vec![gpu("X", false, Some(7.0))], &[("0 C:", 3.0)]);
         assert_eq!(gpu_by_name(&s, "X").and_then(|g| g.util_pct), Some(7.0));
         assert!(gpu_by_name(&s, "Y").is_none());
-        assert_eq!(disk_by_name(&s, "0 C:").and_then(|d| d.active_pct), Some(3.0));
+        assert_eq!(
+            disk_by_name(&s, "0 C:").and_then(|d| d.active_pct),
+            Some(3.0)
+        );
     }
 }

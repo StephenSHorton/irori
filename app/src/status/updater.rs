@@ -32,8 +32,12 @@ use crate::ui::State;
 /// go to the Core's log (irori.log): the release exe is a GUI-subsystem
 /// program with no stderr.
 pub fn new(data: &Path) -> Arc<upd::Updater> {
-    let u = upd::Updater::new(upd::REPO, irori_roles::commands::version(), data.join("updates"))
-        .with_logger(Arc::new(irori_core::log));
+    let u = upd::Updater::new(
+        upd::REPO,
+        irori_roles::commands::version(),
+        data.join("updates"),
+    )
+    .with_logger(Arc::new(irori_core::log));
     // Test builds only (card #270's emulator run): IRORI_UPDATE_API at
     // build time points the release lookup at a local fake of the GitHub
     // API. Release builds never set it.

@@ -58,7 +58,10 @@ extern "C" fn on_exit() {
         .name("irori-exit".into())
         .spawn(f)
         .map_err(|e| e.to_string())
-        .and_then(|h| h.join().unwrap_or_else(|_| Err("the shutdown panicked".into())));
+        .and_then(|h| {
+            h.join()
+                .unwrap_or_else(|_| Err("the shutdown panicked".into()))
+        });
     if let Err(e) = r {
         irori_core::log(&format!("irori: closing: {e}"));
     }
@@ -193,7 +196,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         .args(rune_args);
     if startup || restarted_hidden {
         if restarted_hidden {
-            irori_core::log("start: restarted by Keep this device up to date; the window stays hidden");
+            irori_core::log(
+                "start: restarted by Keep this device up to date; the window stays hidden",
+            );
         }
         app = app.windowless();
     }
@@ -382,8 +387,11 @@ fn wire_events(window: &Arc<Window>, handle: &rune::AppHandle<State>) {
     }
 }
 
+/// A headless scene: it sets the state up for one snapshot.
+type Scene = fn(&mut State);
+
 /// The headless scenes: one per page (`irori --snap x.png --scene talk`).
-const SCENES: &[(&str, fn(&mut State))] = &[
+const SCENES: &[(&str, Scene)] = &[
     ("home", crate::home::scene),
     ("home-needs", crate::home::sample::needs_scene),
     ("wind-down", crate::home::sample::wind_down_scene),
@@ -474,7 +482,10 @@ fn install_tray(
     // Pause wakes: drops the window's snapshot and nudges its pump, so the
     // window and the tray both follow.
     let w = window.clone();
-    tray.set_pause(&core.device().name, Arc::new(move |paused| w.inbox_set_paused(paused)));
+    tray.set_pause(
+        &core.device().name,
+        Arc::new(move |paused| w.inbox_set_paused(paused)),
+    );
     let n = core.notifier().clone();
     tray.set_held_opener(Arc::new(move || {
         n.open(notify::Target {
@@ -507,10 +518,12 @@ fn install_native(handle: &AppHandle<State>, tray: &Arc<Tray>) -> bool {
     // main thread.
     std::thread::spawn(move || {
         let lines = t.lines();
-        t.app_update(move |s: &mut State| match crate::tray_mac::install(version(), &lines) {
-            Ok(icon) => s.tray = Some(Box::new(icon)),
-            Err(e) => irori_core::log(&format!("irori: tray: {e}")),
-        });
+        t.app_update(
+            move |s: &mut State| match crate::tray_mac::install(version(), &lines) {
+                Ok(icon) => s.tray = Some(Box::new(icon)),
+                Err(e) => irori_core::log(&format!("irori: tray: {e}")),
+            },
+        );
     });
     let _ = handle;
     true

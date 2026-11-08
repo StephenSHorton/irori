@@ -19,7 +19,9 @@ use rune_kit::{Button, ButtonVariant, ControlSize, Switch, TextInput};
 
 use crate::ui::{Event, Frame, State};
 
-use super::{Act, Confirm, choice, confirm_button, error_line, hint, loading, muted_line, ruled, warn_line};
+use super::{
+    Act, Confirm, choice, confirm_button, error_line, hint, loading, muted_line, ruled, warn_line,
+};
 
 // ---- lib/devices.ts ------------------------------------------------------------------
 
@@ -75,7 +77,11 @@ pub fn sides_line(pinned: &[String]) -> String {
     let list = if pinned.len() == 1 {
         pinned[0].clone()
     } else {
-        format!("{} and {}", pinned[..pinned.len() - 1].join(", "), pinned[pinned.len() - 1])
+        format!(
+            "{} and {}",
+            pinned[..pinned.len() - 1].join(", "),
+            pinned[pinned.len() - 1]
+        )
     };
     format!(
         "This device runs {list}, and cards with no side. New cards typed here go on {}. Every device still shows every card.",
@@ -122,7 +128,10 @@ pub mod pair_state {
 
 /// A pairing is still in progress.
 pub fn is_open(s: &PairStatus) -> bool {
-    matches!(s.state.as_str(), pair_state::WAITING | pair_state::CONFIRM | pair_state::GRANTED | pair_state::WORDS)
+    matches!(
+        s.state.as_str(),
+        pair_state::WAITING | pair_state::CONFIRM | pair_state::GRANTED | pair_state::WORDS
+    )
 }
 
 /// A device's state after its name: "this device", "online", "seen 3m ago"…
@@ -191,7 +200,14 @@ pub struct Model {
 pub fn load(s: &mut State) {
     load_devices(s);
     s.spawn(
-        |w| (w.side_names(), w.person_color(), w.relay(), w.seams.pairing.status()),
+        |w| {
+            (
+                w.side_names(),
+                w.person_color(),
+                w.relay(),
+                w.seams.pairing.status(),
+            )
+        },
         |s, (names, color, relay, pair)| {
             let d = &mut s.settings.devices;
             d.side_names = names;
@@ -206,17 +222,23 @@ pub fn load(s: &mut State) {
 }
 
 pub fn load_devices(s: &mut State) {
-    s.spawn(|w| w.devices(), |s, v| {
-        s.data.devices = v.clone();
-        s.settings.devices.devices = Some(v);
-        s.settings.devices.err = None;
-    });
+    s.spawn(
+        |w| w.devices(),
+        |s, v| {
+            s.data.devices = v.clone();
+            s.settings.devices.devices = Some(v);
+            s.settings.devices.err = None;
+        },
+    );
 }
 
 fn load_home(s: &mut State) {
-    s.spawn(|w| w.home_server(), |s, hs| {
-        s.settings.devices.home = Some(hs);
-    });
+    s.spawn(
+        |w| w.home_server(),
+        |s, hs| {
+            s.settings.devices.home = Some(hs);
+        },
+    );
 }
 
 /// Every few seconds: liveness changes without an event.
@@ -226,13 +248,16 @@ pub fn tick(s: &mut State) {
 }
 
 fn load_pair(s: &mut State) {
-    s.spawn(|w| w.seams.pairing.status(), |s, p| {
-        let d = &mut s.settings.devices;
-        // An ended pairing shows until OK; one that ended unseen stays away.
-        if d.pair.is_some() || is_open(&p) {
-            d.pair = Some(p);
-        }
-    });
+    s.spawn(
+        |w| w.seams.pairing.status(),
+        |s, p| {
+            let d = &mut s.settings.devices;
+            // An ended pairing shows until OK; one that ended unseen stays away.
+            if d.pair.is_some() || is_open(&p) {
+                d.pair = Some(p);
+            }
+        },
+    );
 }
 
 pub fn on_event(s: &mut State, ev: &Event) {
@@ -253,9 +278,20 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     let m = &s.settings.devices;
     let mut out = col().key("settings-devices").w_full().gap(12.0);
     match &m.devices {
-        None => out = out.child(loading(f, "settings-devices-loading", "Loading your devices")),
+        None => {
+            out = out.child(loading(
+                f,
+                "settings-devices-loading",
+                "Loading your devices",
+            ))
+        }
         Some(list) => {
-            let mut ul = col().key("settings-device-list").w_full().gap(6.0).role("list").label("Your devices");
+            let mut ul = col()
+                .key("settings-device-list")
+                .w_full()
+                .gap(6.0)
+                .role("list")
+                .label("Your devices");
             for d in list {
                 ul = ul.child(device_row(s, f, d));
             }
@@ -291,18 +327,25 @@ fn device_row(s: &State, f: &Frame, d: &DeviceView) -> El {
     let k = f.k;
     let m = &s.settings.devices;
     let name = super::plain_line(&d.name);
-    let shown = if name.is_empty() { d.device_id.clone() } else { name.clone() };
+    let shown = if name.is_empty() {
+        d.device_id.clone()
+    } else {
+        name.clone()
+    };
     let renaming = m.renaming.as_deref() == Some(d.device_id.as_str());
-    let mut top = row()
-        .w_full()
-        .gap(10.0)
-        .center_y()
-        .child(el().size(8.0, 8.0).radius(4.0).fill(dot(f, if d.revoked { "offline" } else { &d.state })));
+    let mut top = row().w_full().gap(10.0).center_y().child(
+        el().size(8.0, 8.0)
+            .radius(4.0)
+            .fill(dot(f, if d.revoked { "offline" } else { &d.state })),
+    );
     if renaming {
-        return col()
+        let out = col()
             .key(format!("settings-device-{}", d.device_id))
             .w_full()
+            .gap(2.0)
             .child(top.child(rename_field(s, f, d)));
+        // The warning stays while the name is edited (DeviceRow).
+        return with_warning(s, f, d, out);
     }
     let mut small = String::new();
     if d.role == "node" {
@@ -328,7 +371,13 @@ fn device_row(s: &State, f: &Frame, d: &DeviceView) -> El {
             .center_y()
             .flex_wrap()
             .child(name_el)
-            .child(text(small).font(k.ty.small).color(k.c.text_muted).wrap_anywhere().min_w(0.0)),
+            .child(
+                text(small)
+                    .font(k.ty.small)
+                    .color(k.c.text_muted)
+                    .wrap_anywhere()
+                    .min_w(0.0),
+            ),
     );
     if !d.revoked {
         let id = d.device_id.clone();
@@ -338,7 +387,11 @@ fn device_row(s: &State, f: &Frame, d: &DeviceView) -> El {
                 .control_size(ControlSize::Small)
                 .on_press(move |s: &mut State| {
                     let dm = &mut s.settings.devices;
-                    let name = dm.devices.as_ref().and_then(|l| l.iter().find(|x| x.device_id == id)).map(|x| x.name.clone());
+                    let name = dm
+                        .devices
+                        .as_ref()
+                        .and_then(|l| l.iter().find(|x| x.device_id == id))
+                        .map(|x| x.name.clone());
                     dm.rename = TextEdit::new(name.unwrap_or_default());
                     dm.renaming = Some(id.clone());
                     dm.rename_err.clear();
@@ -347,7 +400,11 @@ fn device_row(s: &State, f: &Frame, d: &DeviceView) -> El {
         );
         actions = actions.child(color_pick(s, f, d));
         if !d.this {
-            let who = if name.is_empty() { "this device".to_string() } else { name.clone() };
+            let who = if name.is_empty() {
+                "this device".to_string()
+            } else {
+                name.clone()
+            };
             actions = actions.child(confirm_button(
                 s,
                 f,
@@ -366,9 +423,22 @@ fn device_row(s: &State, f: &Frame, d: &DeviceView) -> El {
         }
         top = top.child(actions);
     }
-    let mut out = col().key(format!("settings-device-{}", d.device_id)).w_full().gap(2.0).child(top);
+    let out = col()
+        .key(format!("settings-device-{}", d.device_id))
+        .w_full()
+        .gap(2.0)
+        .child(top);
+    with_warning(s, f, d, out)
+}
+
+/// A device's warning under its row, with Reset when this device needs one.
+fn with_warning(s: &State, f: &Frame, d: &DeviceView, mut out: El) -> El {
     if !d.warning.is_empty() {
-        let mut w = row().pl(18.0).gap(8.0).center_y().child(warn_line(f, &super::plain_line(&d.warning)).grow(1.0));
+        let mut w = row()
+            .pl(18.0)
+            .gap(8.0)
+            .center_y()
+            .child(warn_line(f, &super::plain_line(&d.warning)).grow(1.0));
         if d.this && d.action == "reset" {
             w = w.child(confirm_button(
                 s,
@@ -390,7 +460,11 @@ fn device_row(s: &State, f: &Frame, d: &DeviceView) -> El {
 }
 
 fn name_el_len(name: &str, id: &str) -> usize {
-    if name.is_empty() { id.len() } else { name.len() }
+    if name.is_empty() {
+        id.len()
+    } else {
+        name.len()
+    }
 }
 
 /// RenameField: the name shows on all the person's devices, never on a
@@ -405,25 +479,33 @@ fn rename_field(s: &State, f: &Frame, d: &DeviceView) -> El {
         if dm.rename_busy {
             return;
         }
-        let name = dm.rename.text.chars().take(MAX_DEVICE_NAME).collect::<String>();
+        let name = dm
+            .rename
+            .text
+            .chars()
+            .take(MAX_DEVICE_NAME)
+            .collect::<String>();
         if name.trim() == current.trim() {
             dm.renaming = None;
             return;
         }
         dm.rename_busy = true;
         let id = id.clone();
-        s.spawn(move |w| w.rename_device(&id, &name), |s, r| {
-            let dm = &mut s.settings.devices;
-            dm.rename_busy = false;
-            match r {
-                Ok(_) => {
-                    dm.renaming = None;
-                    dm.rename_err.clear();
-                    load_devices(s);
+        s.spawn(
+            move |w| w.rename_device(&id, &name),
+            |s, r| {
+                let dm = &mut s.settings.devices;
+                dm.rename_busy = false;
+                match r {
+                    Ok(_) => {
+                        dm.renaming = None;
+                        dm.rename_err.clear();
+                        load_devices(s);
+                    }
+                    Err(e) => dm.rename_err = e,
                 }
-                Err(e) => dm.rename_err = e,
-            }
-        });
+            },
+        );
     };
     let save2 = save.clone();
     col()
@@ -468,7 +550,10 @@ fn rename_field(s: &State, f: &Frame, d: &DeviceView) -> El {
                 ),
         )
         .child(if m.rename_err.is_empty() {
-            hint(f, "Your devices show this name. Leave it empty for the computer's name.")
+            hint(
+                f,
+                "Your devices show this name. Leave it empty for the computer's name.",
+            )
         } else {
             error_line(f, &m.rename_err)
         })
@@ -498,18 +583,31 @@ fn color_pick(s: &State, f: &Frame, d: &DeviceView) -> El {
     let m = &s.settings.devices;
     let name = {
         let n = super::plain_line(&d.name);
-        if n.is_empty() { "this device".to_string() } else { n }
+        if n.is_empty() {
+            "this device".to_string()
+        } else {
+            n
+        }
     };
     let mut out = row().gap(4.0).center_y();
     if m.color_open.as_deref() == Some(d.device_id.as_str()) {
         for (c, _) in DEVICE_COLORS {
             let (id, c2) = (d.device_id.clone(), c.to_string());
             out = out.child(
-                swatch(f, format!("settings-dc-{}-{c}", d.device_id), device_color(c), 16.0, d.color == *c, format!("{c} for {name}"))
-                    .on_press(move |s: &mut State| {
-                        let (id, c) = (id.clone(), c2.clone());
-                        let id2 = id.clone();
-                        s.spawn(move |w| w.set_device_color(&id, &c), move |s, r| match r {
+                swatch(
+                    f,
+                    format!("settings-dc-{}-{c}", d.device_id),
+                    device_color(c),
+                    16.0,
+                    d.color == *c,
+                    format!("{c} for {name}"),
+                )
+                .on_press(move |s: &mut State| {
+                    let (id, c) = (id.clone(), c2.clone());
+                    let id2 = id.clone();
+                    s.spawn(
+                        move |w| w.set_device_color(&id, &c),
+                        move |s, r| match r {
                             Ok(()) => {
                                 s.settings.devices.color_open = None;
                                 s.settings.devices.color_err.remove(&id2);
@@ -518,20 +616,32 @@ fn color_pick(s: &State, f: &Frame, d: &DeviceView) -> El {
                             Err(e) => {
                                 s.settings.devices.color_err.insert(id2, e);
                             }
-                        });
-                    }),
+                        },
+                    );
+                }),
             );
         }
     } else {
         let id = d.device_id.clone();
         let label = format!(
             "{name}'s colour: {}. Change it",
-            if d.color.is_empty() { "default" } else { &d.color }
+            if d.color.is_empty() {
+                "default"
+            } else {
+                &d.color
+            }
         );
         out = out.child(
-            swatch(f, format!("settings-dc-{}", d.device_id), device_color(&d.color), 16.0, false, label)
-                .border(1.0, f.k.c.border_base)
-                .on_press(move |s: &mut State| s.settings.devices.color_open = Some(id.clone())),
+            swatch(
+                f,
+                format!("settings-dc-{}", d.device_id),
+                device_color(&d.color),
+                16.0,
+                false,
+                label,
+            )
+            .border(1.0, f.k.c.border_base)
+            .on_press(move |s: &mut State| s.settings.devices.color_open = Some(id.clone())),
         );
     }
     if let Some(e) = m.color_err.get(&d.device_id) {
@@ -550,17 +660,27 @@ fn sides(s: &State, f: &mut Frame, here: &DeviceView) -> El {
     let all = unique_sides(&all_in);
     let full = pinned.len() >= MAX_SIDES;
     let busy = m.sides_busy;
-    let mut sec = col()
-        .gap(6.0)
-        .child(text("Work and personal sides").font(k.ty.ui).color(k.c.text_base));
+    let mut sec = col().gap(6.0).child(
+        text("Work and personal sides")
+            .font(k.ty.ui)
+            .color(k.c.text_base),
+    );
     if !all.is_empty() {
-        let mut group = row().gap(6.0).flex_wrap().role("group").label("Sides this device runs");
+        let mut group = row()
+            .gap(6.0)
+            .flex_wrap()
+            .role("group")
+            .label("Sides this device runs");
         for side in &all {
             let runs = pinned.iter().any(|p| same_side(p, side));
             let (p2, s2) = (pinned.clone(), side.clone());
             group = group.child(
                 Button::new(side.clone())
-                    .variant(if runs { ButtonVariant::Contrast } else { ButtonVariant::Outline })
+                    .variant(if runs {
+                        ButtonVariant::Contrast
+                    } else {
+                        ButtonVariant::Outline
+                    })
                     .control_size(ControlSize::Small)
                     // A device runs at most MAX_SIDES: a ninth would be cut.
                     .disabled(busy || (full && !runs))
@@ -582,26 +702,47 @@ fn sides(s: &State, f: &mut Frame, here: &DeviceView) -> El {
         sec = sec.child(group);
     }
     if pinned.len() > 1 {
-        let choices: Vec<(String, String)> = pinned.iter().map(|p| (p.clone(), p.clone())).collect();
+        let choices: Vec<(String, String)> =
+            pinned.iter().map(|p| (p.clone(), p.clone())).collect();
         let p2 = pinned.clone();
         sec = sec.child(
             col()
                 .gap(4.0)
                 .child(hint(f, "New cards typed here go on"))
-                .child(choice(s, f, "settings-side-first", "New cards typed here go on", &pinned[0], &choices, 224.0, busy, move |s, v| {
-                    let mut next = vec![v.to_string()];
-                    next.extend(p2.iter().filter(|p| !same_side(p, v)).cloned());
-                    save_sides(s, next);
-                })),
+                .child(choice(
+                    s,
+                    f,
+                    "settings-side-first",
+                    "New cards typed here go on",
+                    &pinned[0],
+                    &choices,
+                    224.0,
+                    busy,
+                    move |s, v| {
+                        let mut next = vec![v.to_string()];
+                        next.extend(p2.iter().filter(|p| !same_side(p, v)).cloned());
+                        save_sides(s, next);
+                    },
+                )),
         );
     }
     let add = move |s: &mut State| {
-        let c: String = clean_side(&s.settings.devices.side_add.text).chars().take(MAX_SIDE).collect();
+        let c: String = clean_side(&s.settings.devices.side_add.text)
+            .chars()
+            .take(MAX_SIDE)
+            .collect();
         if c.is_empty() {
             return;
         }
         s.settings.devices.side_add = TextEdit::new("");
-        let here = s.settings.devices.devices.as_ref().and_then(|l| l.iter().find(|d| d.this)).map(|d| d.sides.clone()).unwrap_or_default();
+        let here = s
+            .settings
+            .devices
+            .devices
+            .as_ref()
+            .and_then(|l| l.iter().find(|d| d.this))
+            .map(|d| d.sides.clone())
+            .unwrap_or_default();
         if !here.iter().any(|p| same_side(p, &c)) {
             let mut v = here;
             v.push(c);
@@ -616,7 +757,11 @@ fn sides(s: &State, f: &mut Frame, here: &DeviceView) -> El {
             .child(
                 TextInput::new(&m.side_add)
                     .label("Name a side this device runs")
-                    .placeholder(if all.is_empty() { "Name a side, like Work" } else { "Another side" })
+                    .placeholder(if all.is_empty() {
+                        "Name a side, like Work"
+                    } else {
+                        "Another side"
+                    })
                     .width(Some(224.0))
                     .disabled(busy || full)
                     .on_edit(|s: &mut State| &mut s.settings.devices.side_add)
@@ -633,7 +778,11 @@ fn sides(s: &State, f: &mut Frame, here: &DeviceView) -> El {
                     .build(k),
             ),
     );
-    sec = sec.child(if m.sides_err.is_empty() { hint(f, &sides_line(&pinned)) } else { error_line(f, &m.sides_err) });
+    sec = sec.child(if m.sides_err.is_empty() {
+        hint(f, &sides_line(&pinned))
+    } else {
+        error_line(f, &m.sides_err)
+    });
     ruled(f, "settings-sides", sec)
 }
 
@@ -641,7 +790,10 @@ fn save_sides(s: &mut State, next: Vec<String>) {
     let next = clean_sides(&next);
     s.settings.devices.sides_busy = true;
     s.spawn(
-        move |w| w.set_device_sides(&next).map(|_| (w.devices(), w.side_names())),
+        move |w| {
+            w.set_device_sides(&next)
+                .map(|_| (w.devices(), w.side_names()))
+        },
         |s, r| {
             let dm = &mut s.settings.devices;
             dm.sides_busy = false;
@@ -668,16 +820,29 @@ fn person_color(s: &State, f: &Frame) -> El {
         let on = color == *c;
         let next = if on { String::new() } else { c.to_string() };
         pal = pal.child(
-            swatch(f, format!("settings-pc-{c}"), device_color(c), 16.0, on, format!("{c} in shared spaces"))
-                .on_press(move |s: &mut State| pick_person_color(s, next.clone())),
+            swatch(
+                f,
+                format!("settings-pc-{c}"),
+                device_color(c),
+                16.0,
+                on,
+                format!("{c} in shared spaces"),
+            )
+            .on_press(move |s: &mut State| pick_person_color(s, next.clone())),
         );
     }
     let line = if !m.person_err.is_empty() {
         error_line(f, &m.person_err)
     } else if !color.is_empty() {
-        hint(f, "Friends see you and your agents in it. Click it again for the default.")
+        hint(
+            f,
+            "Friends see you and your agents in it. Click it again for the default.",
+        )
     } else {
-        hint(f, "Friends see you and your agents in a colour none of their devices wear. Pick one to choose it.")
+        hint(
+            f,
+            "Friends see you and your agents in a colour none of their devices wear. Pick one to choose it.",
+        )
     };
     ruled(
         f,
@@ -688,7 +853,11 @@ fn person_color(s: &State, f: &Frame) -> El {
                 row()
                     .w_full()
                     .center_y()
-                    .child(text("Your colour in shared spaces").font(k.ty.ui).color(k.c.text_base))
+                    .child(
+                        text("Your colour in shared spaces")
+                            .font(k.ty.ui)
+                            .color(k.c.text_base),
+                    )
                     .child(el().grow(1.0))
                     .child(pal),
             )
@@ -698,21 +867,27 @@ fn person_color(s: &State, f: &Frame) -> El {
 
 pub fn pick_person_color(s: &mut State, c: String) {
     let c2 = c.clone();
-    s.spawn(move |w| w.set_person_color(&c2), move |s, r| match r {
-        Ok(()) => {
-            s.settings.devices.person_color = Some(c.clone());
-            s.settings.devices.person_err.clear();
-            s.profile.color = c;
-            s.profile.error.clear();
-        }
-        Err(e) => {
-            s.settings.devices.person_err = e.clone();
-            s.profile.error = e;
-        }
-    });
+    s.spawn(
+        move |w| w.set_person_color(&c2),
+        move |s, r| match r {
+            Ok(()) => {
+                s.settings.devices.person_color = Some(c.clone());
+                s.settings.devices.person_err.clear();
+                s.profile.color = c;
+                s.profile.error.clear();
+            }
+            Err(e) => {
+                s.settings.devices.person_err = e.clone();
+                s.profile.error = e;
+            }
+        },
+    );
 }
 
-fn set_home(s: &mut State, work: impl FnOnce(&irori_window::Window) -> Result<HomeServerView, String> + Send + 'static) {
+fn set_home(
+    s: &mut State,
+    work: impl FnOnce(&irori_window::Window) -> Result<HomeServerView, String> + Send + 'static,
+) {
     s.settings.devices.home_err.clear();
     s.spawn(work, |s, r| match r {
         Ok(hs) => s.settings.devices.home = Some(hs),
@@ -726,7 +901,11 @@ fn home_server(s: &State, f: &Frame) -> El {
     let k = f.k;
     let m = &s.settings.devices;
     let Some(hs) = &m.home else {
-        return if m.home_failed { el() } else { loading(f, "settings-home-loading", "Loading the home server") };
+        return if m.home_failed {
+            el()
+        } else {
+            loading(f, "settings-home-loading", "Loading the home server")
+        };
     };
     let mut sec = col().key("settings-home").w_full().gap(6.0);
     if hs.can && (hs.on || hs.suggest || !hs.elsewhere) {
@@ -739,7 +918,11 @@ fn home_server(s: &State, f: &Frame) -> El {
         let (outside, public) = (hs.outside, hs.public.clone());
         let on = hs.on;
         let p1 = public.clone();
-        let mut label = col().grow(1.0).min_w(0.0).child(text("Home server: run it on this PC").font(k.ty.ui).color(k.c.text_base));
+        let mut label = col().grow(1.0).min_w(0.0).child(
+            text("Home server: run it on this PC")
+                .font(k.ty.ui)
+                .color(k.c.text_base),
+        );
         if !reach.is_empty() {
             label = label.child(hint(f, reach));
         }
@@ -760,14 +943,23 @@ fn home_server(s: &State, f: &Frame) -> El {
             if hs.suggest {
                 t.push_str("This device is on most of the time, so it suits the server: your devices can reach each other through it from anywhere, even with public relays off. It's optional: any device that's on often keeps the others up to date. ");
             }
-            t.push_str("Windows asks once to allow Irori on private networks; the server needs it.");
+            t.push_str(
+                "Windows asks once to allow Irori on private networks; the server needs it.",
+            );
             sec = sec.child(hint(f, &t));
         } else {
             let p2 = public.clone();
-            sec = sec.child(small_switch(f, "settings-home-outside", "Reachable from outside home", None, hs.outside, move |s| {
-                let p = p2.clone();
-                set_home(s, move |w| w.set_home_server(true, !outside, &p))
-            }));
+            sec = sec.child(small_switch(
+                f,
+                "settings-home-outside",
+                "Reachable from outside home",
+                None,
+                hs.outside,
+                move |s| {
+                    let p = p2.clone();
+                    set_home(s, move |w| w.set_home_server(true, !outside, &p))
+                },
+            ));
             let awake = hs.awake;
             let awake_line = (!hs.awake_line.is_empty()).then(|| {
                 let ok = hs.awake && hs.awake_line == "Keeping this PC awake";
@@ -810,7 +1002,12 @@ fn home_server(s: &State, f: &Frame) -> El {
                             .build(k)
                             .grow(1.0),
                     )
-                    .child(Button::new("Save").variant(ButtonVariant::Outline).on_press(move |s: &mut State| save2(s)).build(k)),
+                    .child(
+                        Button::new("Save")
+                            .variant(ButtonVariant::Outline)
+                            .on_press(move |s: &mut State| save2(s))
+                            .build(k),
+                    ),
             );
         }
     }
@@ -840,13 +1037,17 @@ fn home_server(s: &State, f: &Frame) -> El {
         sec = sec.child(error_line(f, &m.home_err));
     }
     sec = sec.child(
-        Button::new(if m.advanced { "Hide advanced" } else { "Advanced" })
-            .variant(ButtonVariant::GhostMuted)
-            .control_size(ControlSize::Small)
-            .expanded(m.advanced)
-            .on_press(|s: &mut State| s.settings.devices.advanced = !s.settings.devices.advanced)
-            .build(k)
-            .self_start(),
+        Button::new(if m.advanced {
+            "Hide advanced"
+        } else {
+            "Advanced"
+        })
+        .variant(ButtonVariant::GhostMuted)
+        .control_size(ControlSize::Small)
+        .expanded(m.advanced)
+        .on_press(|s: &mut State| s.settings.devices.advanced = !s.settings.devices.advanced)
+        .build(k)
+        .self_start(),
     );
     if m.advanced {
         sec = sec.child(relay(s, f));
@@ -855,9 +1056,22 @@ fn home_server(s: &State, f: &Frame) -> El {
 }
 
 /// A muted switch row with an optional line under (ok: muted, else amber).
-fn small_switch(f: &Frame, key: &str, label: &str, under: Option<(String, bool)>, on: bool, toggle: impl Fn(&mut State) + 'static) -> El {
+fn small_switch(
+    f: &Frame,
+    key: &str,
+    label: &str,
+    under: Option<(String, bool)>,
+    on: bool,
+    toggle: impl Fn(&mut State) + 'static,
+) -> El {
     let k = f.k;
-    let mut words = col().grow(1.0).min_w(0.0).child(text(label.to_string()).font(k.ty.ui).color(k.c.text_muted).w_full().wrap());
+    let mut words = col().grow(1.0).min_w(0.0).child(
+        text(label.to_string())
+            .font(k.ty.ui)
+            .color(k.c.text_muted)
+            .w_full()
+            .wrap(),
+    );
     if let Some((t, ok)) = under {
         words = words.child(if ok { hint(f, &t) } else { warn_line(f, &t) });
     }
@@ -867,7 +1081,13 @@ fn small_switch(f: &Frame, key: &str, label: &str, under: Option<(String, bool)>
         .gap(8.0)
         .center_y()
         .child(words)
-        .child(Switch::new(on).label(label.to_string()).hide_label().on_toggle(toggle).build(k))
+        .child(
+            Switch::new(on)
+                .label(label.to_string())
+                .hide_label()
+                .on_toggle(toggle)
+                .build(k),
+        )
 }
 
 /// Relay: the advanced TURN relay you run or rent elsewhere (§4.4, §9).
@@ -879,17 +1099,20 @@ fn relay(s: &State, f: &Frame) -> El {
     let save = |s: &mut State| {
         let url = s.settings.devices.relay_url.text.trim().to_string();
         s.settings.devices.relay_err.clear();
-        s.spawn(move |w| w.set_relay(&url), |s, r| {
-            let dm = &mut s.settings.devices;
-            match r {
-                Ok(v) => {
-                    dm.relay = Some(v);
-                    dm.relay_editing = false;
-                    dm.relay_url = TextEdit::new("");
+        s.spawn(
+            move |w| w.set_relay(&url),
+            |s, r| {
+                let dm = &mut s.settings.devices;
+                match r {
+                    Ok(v) => {
+                        dm.relay = Some(v);
+                        dm.relay_editing = false;
+                        dm.relay_url = TextEdit::new("");
+                    }
+                    Err(e) => dm.relay_err = e,
                 }
-                Err(e) => dm.relay_err = e,
-            }
-        });
+            },
+        );
     };
     if m.relay_editing {
         out = out.child(
@@ -905,7 +1128,12 @@ fn relay(s: &State, f: &Frame) -> El {
                         .build(k)
                         .grow(1.0),
                 )
-                .child(Button::new("Save").variant(ButtonVariant::Contrast).on_press(move |s: &mut State| save(s)).build(k))
+                .child(
+                    Button::new("Save")
+                        .variant(ButtonVariant::Contrast)
+                        .on_press(move |s: &mut State| save(s))
+                        .build(k),
+                )
                 .child(
                     Button::new("Back")
                         .variant(ButtonVariant::Ghost)
@@ -914,14 +1142,25 @@ fn relay(s: &State, f: &Frame) -> El {
                 ),
         );
     } else {
-        let url = m.relay.as_ref().map(|r| super::plain_line(&r.credential_url)).unwrap_or_default();
+        let url = m
+            .relay
+            .as_ref()
+            .map(|r| super::plain_line(&r.credential_url))
+            .unwrap_or_default();
         out = out.child(
             row()
                 .w_full()
                 .gap(8.0)
                 .center_y()
                 .child(text("Other relay:").font(k.ty.ui).color(k.c.text_muted))
-                .child(text(if direct { "none".into() } else { url }).font(k.ty.ui).color(k.c.text_base).truncate().grow(1.0).min_w(0.0))
+                .child(
+                    text(if direct { "none".into() } else { url })
+                        .font(k.ty.ui)
+                        .color(k.c.text_base)
+                        .truncate()
+                        .grow(1.0)
+                        .min_w(0.0),
+                )
                 .child(
                     Button::new("Change")
                         .variant(ButtonVariant::Ghost)
@@ -932,7 +1171,10 @@ fn relay(s: &State, f: &Frame) -> El {
         );
     }
     if let Some(r) = m.relay.as_ref().filter(|r| r.state == "error") {
-        out = out.child(warn_line(f, &format!("The relay is failing: {}", super::plain_line(&r.detail))));
+        out = out.child(warn_line(
+            f,
+            &format!("The relay is failing: {}", super::plain_line(&r.detail)),
+        ));
     }
     if !m.relay_err.is_empty() {
         out = out.child(error_line(f, &m.relay_err));
@@ -943,7 +1185,10 @@ fn relay(s: &State, f: &Frame) -> El {
 // ---- pairing ------------------------------------------------------------------------------
 
 /// Runs a pairing call that answers a status; the status shows.
-fn pair_run(s: &mut State, work: impl FnOnce(&irori_window::Window) -> Result<PairStatus, String> + Send + 'static) {
+fn pair_run(
+    s: &mut State,
+    work: impl FnOnce(&irori_window::Window) -> Result<PairStatus, String> + Send + 'static,
+) {
     let dm = &mut s.settings.devices;
     dm.pair_busy = true;
     dm.pair_err.clear();
@@ -970,7 +1215,11 @@ fn join(s: &mut State) {
     if code.is_empty() {
         return;
     }
-    let server = if dm.away { dm.server.text.trim().to_string() } else { String::new() };
+    let server = if dm.away {
+        dm.server.text.trim().to_string()
+    } else {
+        String::new()
+    };
     pair_run(s, move |w| w.seams.pairing.join(&code, &server));
 }
 
@@ -1027,8 +1276,15 @@ fn start(s: &State, f: &mut Frame) -> El {
         });
         out = out.child(form);
     } else {
-        let roles: Vec<(String, String)> = vec![("desktop".into(), "Desktop".into()), ("node".into(), "Often-on PC".into())];
-        let role = if m.role.is_empty() { "desktop".to_string() } else { m.role.clone() };
+        let roles: Vec<(String, String)> = vec![
+            ("desktop".into(), "Desktop".into()),
+            ("node".into(), "Often-on PC".into()),
+        ];
+        let role = if m.role.is_empty() {
+            "desktop".to_string()
+        } else {
+            m.role.clone()
+        };
         let r2 = role.clone();
         out = out.child(
             row()
@@ -1047,9 +1303,17 @@ fn start(s: &State, f: &mut Frame) -> El {
                         .build(k)
                         .key("settings-pair-device"),
                 )
-                .child(choice(s, f, "settings-pair-role", "The new device's role", &role, &roles, 150.0, false, |s, v| {
-                    s.settings.devices.role = v.to_string()
-                }))
+                .child(choice(
+                    s,
+                    f,
+                    "settings-pair-role",
+                    "The new device's role",
+                    &role,
+                    &roles,
+                    150.0,
+                    false,
+                    |s, v| s.settings.devices.role = v.to_string(),
+                ))
                 .child(el().grow(1.0))
                 .child(
                     Button::new("Join with a code")
@@ -1103,7 +1367,11 @@ fn ended(f: &Frame, line: &str, failed: bool) -> El {
         .child(
             text(super::plain_line(line))
                 .font(k.ty.ui)
-                .color(if failed { k.c.danger.fg } else { k.c.text_muted })
+                .color(if failed {
+                    k.c.danger.fg
+                } else {
+                    k.c.text_muted
+                })
                 .grow(1.0)
                 .min_w(0.0)
                 .wrap(),
@@ -1161,13 +1429,28 @@ fn pairing(s: &State, f: &Frame, p: &PairStatus) -> El {
                 ),
             ));
         if !p.fingerprint.is_empty() {
-            out = out.child(hint(f, &format!("The new device will ask for this device's key: {}", p.fingerprint)));
+            out = out.child(hint(
+                f,
+                &format!(
+                    "The new device will ask for this device's key: {}",
+                    p.fingerprint
+                ),
+            ));
         }
         if !p.server_addr.is_empty() {
-            out = out.child(hint(f, &format!("Joining from outside your home? Server address {}", p.server_addr)));
+            out = out.child(hint(
+                f,
+                &format!(
+                    "Joining from outside your home? Server address {}",
+                    p.server_addr
+                ),
+            ));
         }
         if m.copied {
-            out = out.child(warn_line(f, "Copied. Any agent on this machine can read the clipboard."));
+            out = out.child(warn_line(
+                f,
+                "Copied. Any agent on this machine can read the clipboard.",
+            ));
         }
         let code = p.code.clone();
         return out.child(
@@ -1193,7 +1476,14 @@ fn pairing(s: &State, f: &Frame, p: &PairStatus) -> El {
         // goes on only when the typed words match.
         let j = p.joiner.clone().unwrap_or_default();
         let who = super::plain_line(&j.name);
-        let mut line = format!("{} ", if who.is_empty() { "A device".to_string() } else { who });
+        let mut line = format!(
+            "{} ",
+            if who.is_empty() {
+                "A device".to_string()
+            } else {
+                who
+            }
+        );
         if !j.os.is_empty() {
             line.push_str(&format!("({}) ", super::plain_line(&j.os)));
         }
@@ -1208,21 +1498,30 @@ fn pairing(s: &State, f: &Frame, p: &PairStatus) -> El {
             }
             s.settings.devices.pair_busy = true;
             s.settings.devices.words_err.clear();
-            s.spawn(move |w| w.seams.pairing.confirm_words(&words), |s, r| {
-                let dm = &mut s.settings.devices;
-                dm.pair_busy = false;
-                if let Err(e) = r {
-                    dm.words_err = e;
-                    dm.words = TextEdit::new("");
-                }
-                load_pair(s);
-            });
+            s.spawn(
+                move |w| w.seams.pairing.confirm_words(&words),
+                |s, r| {
+                    let dm = &mut s.settings.devices;
+                    dm.pair_busy = false;
+                    if let Err(e) = r {
+                        dm.words_err = e;
+                        dm.words = TextEdit::new("");
+                    }
+                    load_pair(s);
+                },
+            );
         };
         let mut out = col()
             .key("settings-pair-words")
             .w_full()
             .gap(8.0)
-            .child(text(line).font(k.ty.ui).color(k.c.text_base).w_full().wrap())
+            .child(
+                text(line)
+                    .font(k.ty.ui)
+                    .color(k.c.text_base)
+                    .w_full()
+                    .wrap(),
+            )
             .child(
                 TextInput::new(&m.words)
                     .label("The words the new device shows")
@@ -1240,30 +1539,63 @@ fn pairing(s: &State, f: &Frame, p: &PairStatus) -> El {
         return out.child(row().w_full().child(el().grow(1.0)).child(cancel_button(f)));
     }
     if p.mode == "add" && p.state == GRANTED {
-        let who = p.joiner.as_ref().map(|j| super::plain_line(&j.name)).filter(|n| !n.is_empty()).unwrap_or_else(|| "the new device".into());
+        let who = p
+            .joiner
+            .as_ref()
+            .map(|j| super::plain_line(&j.name))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "the new device".into());
         return col()
             .key("settings-pair-granted")
             .w_full()
             .gap(8.0)
-            .child(text(format!("The words match. Now type this device's key on {who}:")).font(k.ty.ui).color(k.c.text_base).w_full().wrap())
+            .child(
+                text(format!(
+                    "The words match. Now type this device's key on {who}:"
+                ))
+                .font(k.ty.ui)
+                .color(k.c.text_base)
+                .w_full()
+                .wrap(),
+            )
             .child(big(f, "settings-pair-key", &p.fingerprint, 16.0))
-            .child(row().w_full().center_y().child(hint(f, &format!("Waiting for {who}…")).grow(1.0)).child(cancel_button(f)));
+            .child(
+                row()
+                    .w_full()
+                    .center_y()
+                    .child(hint(f, &format!("Waiting for {who}…")).grow(1.0))
+                    .child(cancel_button(f)),
+            );
     }
     if p.state == WORDS {
         // ReadWords: the joining device. The pairing is taken only from the
         // device whose connection proved the key typed here.
         let who = {
             let n = super::plain_line(&p.peer);
-            if n.is_empty() { "the other device".to_string() } else { n }
+            if n.is_empty() {
+                "the other device".to_string()
+            } else {
+                n
+            }
         };
         let mut out = col()
             .key("settings-pair-read")
             .w_full()
             .gap(8.0)
-            .child(text(format!("Type these words on {who}:")).font(k.ty.ui).color(k.c.text_base))
+            .child(
+                text(format!("Type these words on {who}:"))
+                    .font(k.ty.ui)
+                    .color(k.c.text_base),
+            )
             .child(big(f, "settings-pair-our-words", &p.words.join(" "), 16.0));
         if p.key_ok {
-            return out.child(row().w_full().center_y().child(hint(f, &format!("Waiting for {who}…")).grow(1.0)).child(cancel_button(f)));
+            return out.child(
+                row()
+                    .w_full()
+                    .center_y()
+                    .child(hint(f, &format!("Waiting for {who}…")).grow(1.0))
+                    .child(cancel_button(f)),
+            );
         }
         let submit = |s: &mut State| {
             let key = s.settings.devices.key.text.trim().to_string();
@@ -1272,15 +1604,18 @@ fn pairing(s: &State, f: &Frame, p: &PairStatus) -> El {
             }
             s.settings.devices.pair_busy = true;
             s.settings.devices.key_err.clear();
-            s.spawn(move |w| w.seams.pairing.confirm_key(&key), |s, r| {
-                let dm = &mut s.settings.devices;
-                dm.pair_busy = false;
-                if let Err(e) = r {
-                    dm.key_err = e;
-                    dm.key = TextEdit::new("");
-                }
-                load_pair(s);
-            });
+            s.spawn(
+                move |w| w.seams.pairing.confirm_key(&key),
+                |s, r| {
+                    let dm = &mut s.settings.devices;
+                    dm.pair_busy = false;
+                    if let Err(e) = r {
+                        dm.key_err = e;
+                        dm.key = TextEdit::new("");
+                    }
+                    load_pair(s);
+                },
+            );
         };
         out = out.child(
             TextInput::new(&m.key)
@@ -1351,7 +1686,10 @@ mod tests {
 
     #[test]
     fn clean_sides_trims_drops_blanks_and_repeats_keeps_order() {
-        assert_eq!(clean_sides(&["  Work ", "work", "", " ", "Home  lab", "Personal"]), vec!["Work", "Home lab", "Personal"]);
+        assert_eq!(
+            clean_sides(&["  Work ", "work", "", " ", "Home  lab", "Personal"]),
+            vec!["Work", "Home lab", "Personal"]
+        );
         let many: Vec<String> = (0..MAX_SIDES + 3).map(|i| format!("s{i}")).collect();
         assert_eq!(clean_sides(&many).len(), MAX_SIDES);
     }
@@ -1369,28 +1707,46 @@ mod tests {
             sides_line(&["Work".into()]),
             "This device runs Work, and cards with no side. New cards typed here go on Work. Every device still shows every card."
         );
-        assert!(sides_line(&["Personal".into(), "Garden".into(), "Work".into()]).contains("runs Personal, Garden and Work"));
+        assert!(
+            sides_line(&["Personal".into(), "Garden".into(), "Work".into()])
+                .contains("runs Personal, Garden and Work")
+        );
     }
 
     #[test]
     fn device_names_are_one_line_and_capped() {
         assert_eq!(clean_device_name("  My\n  Mac  "), "My Mac");
-        assert_eq!(clean_device_name(&"x".repeat(50)).chars().count(), MAX_DEVICE_NAME);
+        assert_eq!(
+            clean_device_name(&"x".repeat(50)).chars().count(),
+            MAX_DEVICE_NAME
+        );
     }
 
     #[test]
     fn device_states() {
-        let d = DeviceView { this: true, ..Default::default() };
+        let d = DeviceView {
+            this: true,
+            ..Default::default()
+        };
         assert_eq!(state_line(&d, 0), "this device");
-        let d = DeviceView { state: "offline".into(), ..Default::default() };
+        let d = DeviceView {
+            state: "offline".into(),
+            ..Default::default()
+        };
         assert_eq!(state_line(&d, 0), "offline · never seen");
-        let d = DeviceView { state: "connected".into(), ..Default::default() };
+        let d = DeviceView {
+            state: "connected".into(),
+            ..Default::default()
+        };
         assert_eq!(state_line(&d, 0), "online");
     }
 
     #[test]
     fn open_pairings() {
-        let p = |st: &str| PairStatus { state: st.into(), ..Default::default() };
+        let p = |st: &str| PairStatus {
+            state: st.into(),
+            ..Default::default()
+        };
         assert!(is_open(&p("words")));
         assert!(!is_open(&p("done")));
         assert!(!is_open(&p("code_used")));
