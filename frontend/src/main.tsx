@@ -9,6 +9,7 @@ import { commands } from "./gen/bindings"
 import { inHost } from "./lib/irori"
 import {
   applyAppearance,
+  followSystem,
   clean,
   loadAppearance,
   onAppearanceApplied,
@@ -69,6 +70,7 @@ async function mount() {
       glass: previewFlag("glass") ?? saved.glass,
     })
   )
+  followSystem()
   setToast((title, reason) =>
     toast.add({ title, description: reason, type: "error", timeout: 8000 })
   )

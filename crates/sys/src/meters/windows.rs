@@ -13,12 +13,14 @@ use windows_sys::Wdk::Graphics::Direct3D::{
     KMTQAITYPE_ADAPTERREGISTRYINFO, KMTQAITYPE_ADAPTERTYPE, KMTQAITYPE_GETSEGMENTSIZE,
     KMTQUERYADAPTERINFOTYPE,
 };
+use windows_sys::Win32::Foundation::FILETIME;
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_FRIENDLY_NAME,
     GAA_FLAG_SKIP_MULTICAST, GAA_FLAG_SKIP_UNICAST, GetAdaptersAddresses, GetIfEntry2,
     IP_ADAPTER_ADDRESSES_LH, MIB_IF_ROW2,
 };
 use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
+use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 use windows_sys::Win32::System::Performance::{
     PDH_FMT_COUNTERVALUE, PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY,
     PDH_MORE_DATA, PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData,
@@ -26,7 +28,7 @@ use windows_sys::Win32::System::Performance::{
 };
 use windows_sys::Win32::System::Power::CallNtPowerInformation;
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
-use windows_sys::Win32::System::Threading::GetActiveProcessorCount;
+use windows_sys::Win32::System::Threading::{GetActiveProcessorCount, GetSystemTimes};
 
 use super::{Cpu, Disk, Gpu, Mem, Net, Sample, clamp_pct, rate};
 
@@ -110,28 +112,74 @@ impl Sampler {
     }
 }
 
-/// Filled in by card B.
-pub(super) fn cpu_now(_window: std::time::Duration) -> Option<Cpu> {
-    None
-}
-
-/// Filled in by card B.
-pub(super) fn mem_now() -> Option<Mem> {
-    None
-}
-
 fn mem() -> Mem {
+    mem_now().unwrap_or_default()
+}
+
+/// Physical memory in use; `None` when the OS call fails or reports no memory.
+pub(super) fn mem_now() -> Option<Mem> {
     let mut st = MEMORYSTATUSEX {
         dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
         ..Default::default()
     };
-    if unsafe { GlobalMemoryStatusEx(&mut st) } == 0 {
-        return Mem::default();
+    if unsafe { GlobalMemoryStatusEx(&mut st) } == 0 || st.ullTotalPhys == 0 {
+        return None;
     }
-    Mem {
+    Some(Mem {
         used_bytes: st.ullTotalPhys.saturating_sub(st.ullAvailPhys),
         total_bytes: st.ullTotalPhys,
+    })
+}
+
+/// (idle, kernel + user) 100 ns ticks since boot; kernel time includes idle.
+fn system_times() -> Option<(u64, u64)> {
+    let z = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let (mut idle, mut kernel, mut user) = (z, z, z);
+    if unsafe { GetSystemTimes(&mut idle, &mut kernel, &mut user) } == 0 {
+        return None;
     }
+    let n = |f: FILETIME| ((f.dwHighDateTime as u64) << 32) | f.dwLowDateTime as u64;
+    Some((n(idle), n(kernel).saturating_add(n(user))))
+}
+
+/// Busy share over `window`, from two `GetSystemTimes` reads.
+pub(super) fn cpu_now(window: Duration) -> Option<Cpu> {
+    let (idle0, total0) = system_times()?;
+    std::thread::sleep(window);
+    let (idle1, total1) = system_times()?;
+    let total = total1.checked_sub(total0).filter(|&t| t > 0)?;
+    let idle = idle1.saturating_sub(idle0).min(total);
+    Some(Cpu {
+        pct: clamp_pct((total - idle) as f64 / total as f64 * 100.0),
+        ghz: None,
+        cores: unsafe { GetActiveProcessorCount(ALL_GROUPS) },
+    })
+}
+
+/// Free (to this user) and total bytes of the volume holding `path`, a
+/// folder, or the nearest existing parent of anything else.
+pub(super) fn space(path: &std::path::Path) -> Option<super::Space> {
+    if path.to_string_lossy().contains('\0') {
+        return None;
+    }
+    let mut dir = super::existing_ancestor(path);
+    if !dir.is_dir() {
+        dir = dir.parent()?.to_path_buf();
+    }
+    let w = wide(&dir.to_string_lossy());
+    let (mut free, mut total, mut _all) = (0u64, 0u64, 0u64);
+    if unsafe { GetDiskFreeSpaceExW(w.as_ptr(), &mut free, &mut total, &mut _all) } == 0
+        || total == 0
+    {
+        return None;
+    }
+    Some(super::Space {
+        free_bytes: free.min(total),
+        total_bytes: total,
+    })
 }
 
 /// The processors' base clock in MHz, which `% Processor Performance` scales.
