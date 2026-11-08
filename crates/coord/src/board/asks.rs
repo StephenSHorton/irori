@@ -533,6 +533,8 @@ impl Fold {
                         .then(|| self.moved_line(b))
                 });
                 let another = self.edited_by_another(ev, &p.task_id, &p.by);
+                // A name the person gave stays theirs (card #779).
+                let by_person = self.person_row(ev, &p.by);
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -542,7 +544,11 @@ impl Fold {
                 let moved_lines = changed.len();
                 if let Some(title) = &p.title
                     && !trim_space(title).is_empty()
+                    && (by_person || !t.title_by_person)
                 {
+                    if by_person {
+                        t.title_by_person = true;
+                    }
                     if *title != t.title {
                         changed.push(format!(
                             "renamed it from “{}” to “{}”",
