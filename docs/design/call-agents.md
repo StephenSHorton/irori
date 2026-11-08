@@ -71,7 +71,7 @@ The huddle is identified by its `callId`, as now. It stays in its conversation (
 |---|---|---|---|
 | People in the call | Captions, canvas | Everything | Title, canvas |
 | People in the space, not in the call | No | The page, the transcript, the canvas | Title, canvas |
-| Office assistants of people in the call | **Yes, always** | The huddle; the space's work (§7) | The canvas only |
+| Office assistants of people in the call | **Yes, always** | The huddle and a packet of the space's open work, with no tools (§7) | The canvas only, items as open |
 | Ordinary agents in the space | **No** | `talk_read`, `huddle_status`, `huddle_canvas` | The canvas, with `huddle_note` (§11) |
 
 "Always connected" needs no switch ([decision 52](../decisions.md)): an assistant connects when its person joins. Settings only turn it off (§12).
@@ -81,18 +81,22 @@ The huddle is identified by its `callId`, as now. It stays in its conversation (
 **Storage.**
 - `assistant.name` private row: `{name, by, at}`, actor `user`, newest wins, `Replicated, Refuses`, set in the app only (the shape of `assistant.names.set`).
 - Other people's devices need the name to display and match it, so it also rides `member.profile` as an unsigned field (`assistantName`), as colour, avatar and GitHub login do.
-- No row means the default. It is computed, so nothing is written and every device agrees: a stable hash of the person id indexes a fixed list of 16 short names that Whisper spells reliably (Juno, Milo, Otis, Nova, Ivy, Theo, Iris, Hugo, Zara, Arlo, Cleo, Felix, Maya, Oscar, Ada, Leo). Agent-name themes (decision 2026-11-07, #702) don't suit: names like Zhongkui transcribe badly.
-- 1 to 24 characters, letters and spaces. Set in Settings › Agents. The chat header and the assistant's system prompt use it.
-- On a canvas item the name comes from the writer's `member.profile`, never from the row, so nobody can write under someone else's assistant's name.
+- **No row means the default, "\<profile name\>'s assistant"** ("Addam's assistant"). It is computed, so nothing is written and every device agrees. It's unique per person, it follows a rename of the person, and it's how people already talk. #1030 uses the same default and the same row: there is one name store for both designs, owned by card 3 here.
+- A chosen name is 1 to 24 characters, letters and spaces. Set in Settings › Agents. The chat header and the assistant's system prompt use it.
+- **Shown as "Juno · Addam's assistant"** wherever others see it (canvas, roster). "Addam" comes from the person who signed the row, through their `member.profile`, never from the row's text. So nobody can write under someone else's assistant's name, and a chosen name can't pose as a person. With no chosen name it's just "Addam's assistant".
 
 **Matching it in speech.** A plain Rust function over each line, no model. Whisper mishears names, so matching is loose in spelling and strict in position:
 
-1. Lower-case, strip punctuation, split into words.
-2. A word matches a name if it's equal, or within edit distance 1 for names of 4+ letters, or has the same phonetic key. A two-word name matches as two adjacent words.
-3. **Address position only:** within the first three words of the line, right after `hey`, `ok`, `so`, `and` or `ask`, or as the line's last word ("…right, Juno?"). "I was telling Juno yesterday" doesn't count.
-4. "Stephen's Juno" (a person's name before the assistant's) picks that person's assistant, and is tried first.
+1. Lower-case, strip punctuation, split into words. "Addam's" becomes `addam` plus a possessive mark.
+2. A word matches a name if it's equal, or within edit distance 1 for names of 4+ letters, or has the same phonetic key. A two-word name matches as two adjacent words. Whisper writes "Adam's assistant" for "Addam's assistant": rule 2 covers it.
+3. **The forms that call an assistant:**
+   - its chosen name ("Juno");
+   - \<person\>'s assistant, where \<person\> is the first word of their profile name or the whole of it ("Addam's assistant", "Addam Lee's assistant"), with or without a chosen name;
+   - "my assistant", from its own person only;
+   - "\<person\>'s Juno", a person's name before a chosen name, to pick one of two Junos. Tried first.
+4. **Address position only:** within the first three words of the line, right after `hey`, `ok`, `so`, `and` or `ask`, or at the line's end ("…right, Juno?"). "I was telling Addam's assistant yesterday" doesn't count.
 
-**Two assistants with one name in a huddle.** The speaker's own wins. If neither is theirs, no look runs and a note goes on the canvas: "Two assistants are called Juno. Say whose." Defaults avoid this: a collision within a space moves to the next list entry, in person-id order. Setting a name that matches another member's name, or their assistant's, shows a warning but is allowed.
+**Two assistants answer to one form.** Two people both called Stephen, or two Junos. The speaker's own wins. If neither is theirs, no look runs and a note goes on the canvas: "Two assistants answer to Juno. Say whose." Setting a name that matches another member's name, or another assistant's, shows a warning but is allowed.
 
 Seeding Whisper's prompt with the roster's names would help further (`crates/voice` has no such option yet). It's a tuning step, not v1.
 
@@ -132,12 +136,12 @@ It's the Office Assistant, not an agent: still off the roster, not counted again
 **Which device hosts it.** The person's devices each work this out, with no messages: among their online devices that can run Claude Code and aren't stopped (Stop here, Stop everywhere), prefer one in the call, then the smallest device id. If none qualifies (a person on a phone with their computer off) the roster shows "not connected: needs a computer that's on". The host writes `call.assist` when it connects and when it stops.
 
 **The held session.** A new kind of run beside `Job`:
-- The same flags as `assistant::args` (`--no-session-persistence`, `--tools ""`, `--strict-mcp-config`, `--permission-mode dontAsk`), plus `--input-format stream-json`, with stdin kept open.
+- The flags of a no-tools job (`job_args` with `tools: false`, as the thread namer and weigher use): `--no-session-persistence`, `--strict-mcp-config` with no `--mcp-config`, `--tools ""`, `--permission-mode dontAsk`. No assistant secret is written. Add `--input-format stream-json`, with stdin kept open.
 - Started when the person joins, so the first look is warm.
 - It has its own pool, not `MAX_RUNS`.
 - Each look writes one user message and reads until `result`, with a 60 s timeout.
 - If it dies, the next look starts a new one seeded with the title, the canvas and the last 5 minutes.
-- Model: the Office Assistant's setting (#1014).
+- Model: the Office Assistant's, `assistant::MODEL` (Haiku today), and #1014's setting once that lands.
 
 **Measured** (spike, 2026-11-08, Claude Code 2.1.319, Haiku, no tools, no MCP, about 5k tokens of system prompt and talk; four looks each way, costs at API rates):
 
@@ -151,29 +155,38 @@ Not measured: looks that call tools, an hour-long session, and Sonnet on low eff
 
 **A trust boundary.** A transcript line is untrusted: anyone in the call can say anything, and a phone-transcribed line is no proof of who means what.
 - Lines reach the model as data, one line each, marked with the speaker. They're never `trust="user"`, even for the person's own voice.
-- The assistant has **no write tools**. It writes by putting blocks in its reply, which the Core parses. That's the `<<thread>>` pattern, and the Core binds every block to this huddle. The model can't name another huddle, space or card.
-- So the worst a spoken instruction can do is put an item on this huddle's canvas.
+- The assistant has **no tools at all**. It writes by putting blocks in its reply, which the Core parses. That's the `<<thread>>` pattern, and the Core binds every block to this huddle. The model can't name another huddle, space or card.
+- So the worst a spoken instruction can do is put an open item on this huddle's canvas.
 
-**What it may read.** `ASSISTANT_TOOLS` read **as the person**, which includes their private cards and notes, and an item goes on a canvas other people see. "Juno, what's on Stephen's private board?", said by Addam, must not work. So a huddle's assistant gets a new client, `CLIENT_HUDDLE`, with `HUDDLE_TOOLS` (`board`, `show`, `search`, `agents`), filtered to **what everyone in the huddle's space can already see**. Other tools aren't listed, and the API refuses them. The rule follows the conversation:
+**What it knows: a packet, not tools.** The Office Assistant's chat reads **as the person** (`ASSISTANT_TOOLS`), which includes their private cards and notes, and a huddle's items go on a canvas other people see. "Juno, what's on Stephen's private board?", said by Addam, must not work. So a huddle look gets no reads at all. Instead the Core builds a **packet** from the folded view of the huddle's own space log and puts it in the session's first message:
+- the space's open cards: ref, title, state, holders, at most 40, newest activity first;
+- the agents working in the space, with the card each holds;
+- the huddle's title and canvas so far.
 
-| Huddle in | The assistant reads |
+Each later look carries the lines since the last look, plus cards that changed since then. That answers the person's own example, "do we have anyone working on X?", from the space's cards and holders. A question the packet can't answer gets an open item saying so, for after the call.
+
+**The rule, shared with #1030:** no turn that runs unattended and contains another person's words has person-level reads. A person's own chat may hold both, because nothing leaves it without that person's tap (§9).
+
+| Huddle in | The packet comes from |
 |---|---|
-| A shared space's channel | That space's boards and agents |
-| A Personal channel | Everything the Office Assistant can read today: only the person is there |
-| A person DM | Spaces both people are members of |
+| A shared space's channel | That space's log |
+| A Personal channel | The person's Personal boards and their spaces: only the person is there, so nobody else's words are in the turn |
+| A person DM | The spaces both people are members of (a hidden DM space has no boards of its own) |
 
-This is stricter than #1030's "shared-space cards fine, private cards with the owner's OK", on purpose: there's no moment in a live call to ask.
+This is stricter than #1030's "shared-space cards fine, private cards with the owner's OK", on purpose: there's no moment in a live call to ask. It's also faster: no tool round trips (§12).
 
 **Output.** One or more blocks, anything else ignored, so a chatty reply writes nothing (the spike's model did not reliably say NOTHING). At most 5 items per look, each at most 2000 characters:
 
 ```
-<<item kind="answer" status="open" reply="ITEM-ID">>Addam has #412 on Windows signing.<</item>>
+<<item kind="answer" reply="ITEM-ID">>Addam has #412 on Windows signing.<</item>>
 <<title>>Release planning and the call canvas<</title>>
 ```
 
-**The firm rule, in the code.** No block makes a card, task or anything else, because no such block exists, and `HUDDLE_TOOLS` has no write tool. The Office Assistant's corner chat can still draft a thread for the person to post, on their own tap, as today.
+A block has no status: the Core writes every assistant item as `open` (§8).
 
-**Fast acknowledgement.** On an L1 match, before the model runs, the host writes a placeholder item: "Juno is looking: do we have anyone on signing?". The answer replaces it, or it says "Juno found nothing". Everyone sees that within about a second of the line landing, which matters more to how it feels than the 10 s behind it.
+**The firm rule, in the code.** No block makes a card, task or anything else, because no such block exists, and the look has no tools. The Office Assistant's corner chat can still draft a thread for the person to post, on their own tap, as today.
+
+**Fast acknowledgement.** On an L1 match, before the model runs, the host writes a placeholder item: "Juno is looking: do we have anyone on signing?". The answer replaces it, or it says "Juno found nothing". Everyone sees that within about a second of the line landing, which matters more to how it feels than the few seconds behind it.
 
 **De-duplication.** Mostly structural: one digest writer, and one addressee per ask. On top of that, each look's message lists what others added since the last look, and the Core drops an item whose normalised text equals one already on the canvas.
 
@@ -191,7 +204,9 @@ call.assist   {"callId","convId","device","state":"on|off","by","at"}
 - **`kind`:** `question`, `answer`, `decision`, `task`, `note`, `summary`.
 - **`status`:** `open`, `settled`, `dropped`, `carded`, shown by kind (a question reads open or answered, a decision proposed or agreed). `summary` and `note` have none.
 - **`call.item.set`** folds per field, newest wins. Only the writer's person edits `text`. Any person sets `status` or `x`/`y`.
-- **Append-mostly:** an assistant adds items and edits only its own placeholder. Nothing is deleted: `dropped` is a status. Agents never move anything.
+- **New kinds, read only by this fold.** No other fold reads `call.item`: a `task` item is never a board task, and nothing on the Board, in agent starts or in the inbox looks at canvas rows.
+- **An assistant's row is never the person's decision.** An assistant writes items as `open` only, and the fold refuses a `call.item` or `call.item.set` with `assistant: true` that carries any other status. Only a person's own row (no `assistant` flag) settles, drops or cards an item. During the call a question with an answer shows as "open · 1 answer" until a person settles it.
+- **Append-mostly:** an assistant adds items and edits only its own placeholder's text. Nothing is deleted: `dropped` is a status. Agents never move anything.
 - **`card`** is a plain ref string set when an item becomes a card (§9). It isn't `taskId`, because `store::board::resolves` refuses a `taskId` that isn't on that board, and a DM's cards live on the promoter's Personal.
 - **Writes after the fact:** `status: carded` and `card` are refused while the huddle is live.
 
@@ -210,7 +225,7 @@ call.assist   {"callId","convId","device","state":"on|off","by","at"}
 Promotion is one step, and only after the huddle is over.
 
 1. The page's canvas becomes **the finished canvas**: items grouped by kind, open questions and proposed tasks first.
-2. **Divide with my assistant** opens the Office Assistant chat with this huddle in context (any person can, whether or not they were in the call). They talk it through: merge these, split that, this one's Addam's.
+2. **Divide with my assistant** opens the Office Assistant chat with this huddle in context (any person can, whether or not they were in the call). They talk it through: merge these, split that, this one's Addam's. This chat keeps its person-level reads while holding other people's words, which §7's rule allows only because the person is there: the canvas and transcript go in fenced as untrusted data (as `inbox::fence` does), and nothing leaves the chat until the person taps Make cards, seeing the exact text first.
 3. The assistant ends its reply with a draft block, in the `<<thread>>` pattern:
    ```
    <<cards>>
@@ -239,7 +254,7 @@ Two people may divide the same canvas. `carded` shows up live, and the drafts le
 **Changes to #656's agent rules:**
 - `call_parent` no longer refuses a person DM's `call:<id>`.
 - `talk_list`'s huddles section shows every huddle of the agent's spaces with its title, not only channels it joined, and includes DMs.
-- `call_end_bridge`, `tell_call_end` and the hidden-space gate in `boards.rs` keep their checks: the end wake stays as it is for channel members, and **no wake is added for a person DM's agents.** Reading it by tool is enough (decision 7 above).
+- `call_end_bridge`, `tell_call_end` and the hidden-space gate in `boards.rs` keep their checks: the end wake stays as it is for channel members, and **no wake is added for a person DM's agents.** Reading it by tool is enough (row 7 of §1's table).
 
 **Earlier DM huddles stay closed.** Those people were told "written down for the two of you". Each `call.segment` row gains `agents: true` when it's written under the new notice. In a person DM, agents see only lines with the mark, so older huddles and lines from an older build stay closed. A channel needs no mark: its notice has always said "and their agents".
 
@@ -276,9 +291,9 @@ Listing rules follow `talk_read`: the same `call_parent` check. `talk_read`'s cu
 | End of speech to a finished line (800 ms pause + Whisper final) | about 0.9 s | at least 1.9 s | 4.5–5.1 s |
 | Line to the assistant's host (row) | not measured; should be under 1 s | same | same |
 | Hold for the rest of the sentence | up to 1.5 s | same | same |
-| The look, with 2–3 tool reads | estimated 4–8 s (1.1–1.9 s measured with none) | same | same |
+| The look: no tools, the packet already in the session | 1.1–1.9 s measured with about 5k tokens; estimated 2–4 s with a 40-card packet | same | same |
 | Item to everyone's canvas (row) | under 1 s | same | same |
-| **Spoken to answer on canvas** | **about 7–12 s** | **about 8–13 s** | **about 11–16 s** |
+| **Spoken to answer on canvas** | **about 4–8 s** | **about 5–9 s** | **about 8–13 s** |
 
 The acknowledgement (§7) shows at about 2–3 s (about 7 s from a phone). A busy machine, or a cold session (+2–3 s), can push the answer towards 30 s.
 
@@ -286,12 +301,12 @@ Finals only is a hard floor: a word isn't known until its phrase ends, and unbro
 
 **What would speed it up, best first:**
 1. Keep the session warm (already in the design).
-2. Fewer tool calls per answer: a small list of the space's live work in the first message.
+2. No tool calls per answer: the packet is in the session (already in the design, §7). A tool round trip would add 1–3 s each.
 3. A smaller Whisper model on Android for calls. It's the biggest single number, and it costs accuracy.
 4. Partials for address detection only: `Options.partials` exists, but needs a new frame type, and costs a pass per 700 ms, which nearly fills the phone. Not v1.
 5. Taking live frames on an in-call host: saves only the row hop.
 
-**Cost.** Every look spends the owner's own Claude usage, with one assistant per person in the call. From the spike, a held look on Haiku is a fraction of a tenth of a cent: **cents per assistant-hour**, more if looks use tools, and Sonnet on low costs more (not measured). That fits decision 52.
+**Cost.** Every look spends the owner's own Claude usage, with one assistant per person in the call. From the spike, a held look on Haiku is a fraction of a tenth of a cent: **cents per assistant-hour**. A 40-card packet adds cached input, and Sonnet on low costs more (neither measured). That fits decision 52.
 
 **Settings** (Settings › App, on by default; the setting only turns things off):
 - "Connect my assistant to huddles": off means no assistant from this person.
@@ -305,7 +320,7 @@ Dependencies, not preference: the place first, then who can read, then the names
 1 Place ──────────────┬─> 6 Canvas rows ──> 7 Canvas UI ──> 9 After-call
 2 Access and notice   │        ^                 ^
 3 Names ──> 5 Feed, L1, L2 ────┘                 │
-4 Held run, scoped tools ──^      8 Note-taker ──┘
+4 Held run, packet ────────^      8 Note-taker ──┘
                                   10 Agent tools, after 6
                                   11 Real-device check, last
 ```
@@ -322,19 +337,19 @@ Done when: an agent of either person reads a new DM huddle and is refused an old
 
 **3. The assistant's name.**
 Files: `crates/store/src/kinds.rs`, a new `crates/core/src/service/assistant_name.rs`, `crates/identity/src/person.rs` (the profile field), `crates/core/src/service/boards.rs` (profile refresh), `crates/window/src/assistant.rs` (prompt), Settings › Agents, `frontend/src/components/assistant/assistant-chat.tsx`. Coordinate with #1030, which needs the same name.
-Done when: a person can set a name and see it on all their devices and on another member's; a person who hasn't has a stable default; colliding defaults in a space differ; the 16 default names were each spoken into `base.en` and matched by §5's matcher.
+Done when: a person can set a name and see it on all their devices and on another member's, shown as "Juno · Addam's assistant" with the person taken from the row's signer; a person who hasn't reads as "Addam's assistant" everywhere with nothing written, and follows a rename; #1030's agent has this card's number (#1030's build cards sit on it).
 
-**4. Held run and scoped tools. (heavy: a security boundary)**
-Files: `crates/window/src/assistant.rs` (held runner, block parser), `crates/core/src/service/thread_names.rs` (the seam it copies), `crates/tools/src/lib.rs` (`HUDDLE_TOOLS`, `CLIENT_HUDDLE`), `crates/tools/src/shared.rs`, `crates/api/src/server.rs`, `crates/mcp/src/lib.rs`.
-Done when: a held session takes several looks and restarts from a seed after being killed; a test shows Addam's question can't reach Stephen's private card, note or another space in every read tool; no other tool can be called; a reply with no blocks writes nothing; cost per look is recorded for Haiku and Sonnet low, with tool use, in this doc.
+**4. Held run and the packet.**
+Files: `crates/window/src/assistant.rs` (held runner on `job_args` with `tools: false`, block parser), `crates/core/src/service/thread_names.rs` (the seam it copies), a new `crates/core/src/service/huddle_packet.rs` (the packet from a space's folded log; share it with #1030's `assistant_answers.rs` packet if that lands first), `app/src/shell/mod.rs` (installing the hook).
+Done when: a held session takes several looks and restarts from a seed after being killed; its arguments carry no `--mcp-config` and no secret; a packet test with a private card, a Personal card and another space's card contains none of them, for a channel and a DM huddle; a reply with no blocks writes nothing; cost and time per look are recorded in this doc for Haiku and Sonnet low with a 40-card packet.
 
 **5. Feed, L1, L2.**
 Files: `crates/core/src/service/calls.rs`, `boards.rs` and the private-log follower (`huddle_line`), a new `crates/core/src/service/huddle_feed.rs` (host pick, per-huddle buffer, matcher, layers, caps, `call.assist`).
-Done when: pure tests cover §5's matching (position, near-spellings, possessive, collisions) and §6's rules (one look at a time, the hold, the cap); a line naming an assistant in a two-Core test gets a look, a mid-line mention doesn't; another person's question wakes nothing; a refold at start triggers no look; a person with no computer on shows "not connected".
+Done when: pure tests cover §5's matching (each form: chosen name, "Addam's assistant", "my assistant" only from its own person, "Stephen's Juno"; position; near-spellings such as "Adam's"; collisions) and §6's rules (one look at a time, the hold, the cap); a line naming an assistant in a two-Core test gets a look, a mid-line mention doesn't; another person's question wakes nothing; a refold at start triggers no look; a person with no computer on shows "not connected".
 
 **6. Canvas rows and writes.**
 Files: `crates/store/src/kinds.rs`, `crates/coord/src/talk.rs` (fold), `crates/core/src/service/dm_spaces.rs`, `spaces.rs`, `huddle_feed.rs` (placeholder, block to row, de-dupe), `crates/window/src/talk.rs`.
-Done when: blocks become items on all members' devices in a channel, a DM and a Personal channel; `dm_conv_of` still refuses anything not by the pair; `carded` is refused while live; a person's item and an assistant's show differently.
+Done when: blocks become items on all members' devices in a channel, a DM and a Personal channel; `dm_conv_of` still refuses anything not by the pair; `carded` is refused while live; an `assistant: true` row with any status but `open` is refused; no fold but this one reads the new kinds; a person's item and an assistant's show differently.
 
 **7. Canvas UI.**
 Files: `frontend/src/components/canvas/data.ts` (a `NoteNode`, in `GraphNode`), `elk.ts` (a huddle layout), `reactflow/index.tsx`, a new `canvas/huddle.tsx`, `huddle-page.tsx`.
