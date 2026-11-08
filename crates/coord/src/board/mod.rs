@@ -78,10 +78,10 @@ use gocompat::time::GoTime;
 use store::{Event, Store, kinds};
 
 pub use asks::{
-    ALL_FULL, ASK_FILES_NOTE, ASK_FULL_GRACE, ASK_FULL_SETTLE, ASK_FULL_WINDOW, ASK_UNCLAIMED,
-    ASK_WAIT, MAX_FULL_MOVES, MAX_OUTCOME, OUTCOME_ANSWERED, OUTCOME_CARD, OUTCOME_EDIT,
-    OUTCOME_NONE, TAKE_CLAIM, TAKE_GONE, TAKE_HANDED, TAKE_PASSED, TAKE_POSTED, TAKE_RELEASE,
-    TAKE_RELEASED, TAKE_REOPEN, TAKE_REOPENED, TAKE_TAKEN, TAKE_UNCLAIMED, ask_title,
+    ALL_FULL, ASK_FILES_NOTE, ASK_FULL_GRACE, ASK_FULL_SETTLE, ASK_FULL_WINDOW, ASK_ROOM_HOLD,
+    ASK_UNCLAIMED, ASK_WAIT, MAX_FULL_MOVES, MAX_OUTCOME, OUTCOME_ANSWERED, OUTCOME_CARD,
+    OUTCOME_EDIT, OUTCOME_NONE, TAKE_CLAIM, TAKE_GONE, TAKE_HANDED, TAKE_PASSED, TAKE_POSTED,
+    TAKE_RELEASE, TAKE_RELEASED, TAKE_REOPEN, TAKE_REOPENED, TAKE_TAKEN, TAKE_UNCLAIMED, ask_title,
 };
 pub use board_search::{DEFAULT_DOC_PAGE, SHOW_COMMENT_CUT, SHOW_COMMENTS};
 pub use cards::{SentBack, merge_watch, watch_text};
@@ -303,6 +303,8 @@ pub struct Options {
     pub gone_grace: Duration,
     /// Zero means [`HOLDER_GRACE`].
     pub holder_grace: Duration,
+    /// Zero means [`ASK_ROOM_HOLD`].
+    pub ask_room_hold: Duration,
     /// The person's keys; `None` accepts exactly `user:<store device>` (on
     /// a board, exactly `person`).
     pub is_owner: Option<KeyFn>,

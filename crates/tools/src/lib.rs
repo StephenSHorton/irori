@@ -45,6 +45,7 @@
 //!   attach or member secret resolved to.
 
 mod args;
+pub mod assistant_writes;
 mod attachments;
 mod avatar;
 mod board;
@@ -100,7 +101,8 @@ pub const CLIENT_GROK: &str = "grok";
 /// may call only [`ASSISTANT_TOOLS`].
 pub const CLIENT_ASSISTANT: &str = "assistant";
 
-/// The tools the window's assistant may call (card #783), all read-only:
+/// The tools the window's assistant may read with (card #783), all
+/// read-only (its two writes are [`ASSISTANT_WRITE_TOOLS`], card #987):
 /// the API refuses any other for its caller, and `GET
 /// /v1/tools?client=assistant` lists exactly these. None of them marks
 /// anything delivered or read (inbox and talk_* are left out for that).
@@ -120,6 +122,8 @@ pub const ASSISTANT_TOOLS: [&str; 14] = [
     "waits",
     "events",
 ];
+
+pub use assistant_writes::{ASSISTANT_WRITE_TOOLS, Grant, Grants, grants_for};
 
 /// Who is calling, established by the transport (attach secret or member
 /// secret), never by the arguments.
@@ -250,6 +254,11 @@ pub trait BoardViewer: Send + Sync {
 
 /// What the tools act on (Go `Backend`); the Core provides it.
 pub trait Backend: Send + Sync {
+    /// This device's id (`deviceId` in `irori.json`); empty when the backend
+    /// has none, which turns heavy slots off.
+    fn device_id(&self) -> String {
+        String::new()
+    }
     /// This device's roster (presence plus Grok members).
     fn agents(&self) -> Vec<presence::AgentCard>;
     /// Whether this device's session `key` has a live attach stream
@@ -417,6 +426,21 @@ pub(crate) struct Inner {
     pub(crate) board_requests: Mutex<shared::Requests>,
 }
 
+/// Heavy slots per device (device-free plan §2): advisory, fixed at two.
+pub const HEAVY_SLOTS: usize = 2;
+
+/// The name of this device's heavy family, `heavy/<first 8 hex of the
+/// device id>`; `None` when the id is unknown.
+pub fn heavy_family(device_id: &str) -> Option<String> {
+    let id: String = device_id
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .take(8)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    (id.len() == 8).then(|| format!("heavy/{id}"))
+}
+
 /// The read-only tools that read as the caller.
 const CALLER_READS: [&str; 8] = [
     "inbox",
@@ -430,7 +454,7 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 60] = [
+    let list: [(&'static str, Handler); 62] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -458,6 +482,8 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("board_move", board::board_move),
         ("board_assign", board::board_assign),
         ("board_status", board::board_status),
+        ("assistant_close", assistant_writes::assistant_close),
+        ("assistant_tick", assistant_writes::assistant_tick),
         ("board_link", board::board_link),
         ("board_edit", board::board_edit),
         ("board_later", later::board_later),
@@ -549,13 +575,17 @@ impl Set {
                 .inner
                 .specs
                 .iter()
-                .filter(|sp| ASSISTANT_TOOLS.contains(&sp.name.as_str()))
+                .filter(|sp| {
+                    ASSISTANT_TOOLS.contains(&sp.name.as_str())
+                        || ASSISTANT_WRITE_TOOLS.contains(&sp.name.as_str())
+                })
                 .cloned()
                 .collect();
         }
         self.inner
             .specs
             .iter()
+            .filter(|sp| !ASSISTANT_WRITE_TOOLS.contains(&sp.name.as_str()))
             .filter(|sp| client.is_empty() || sp.clients.iter().any(|c| c == client))
             .cloned()
             .collect()

@@ -106,6 +106,13 @@ pub const ASK_FULL_SETTLE: Duration = Duration::from_secs(60);
 /// from under that start.
 pub const ASK_FULL_GRACE: Duration = Duration::from_secs(5);
 
+/// How long the "Nobody took" notice holds off for a computer that looks
+/// about to take the ask (card #995): well past [`ASK_FULL_GRACE`] and the
+/// new owner's next sweep, and short enough that a move that never comes
+/// still gets said. After a move it counts from the end of
+/// [`ASK_FULL_SETTLE`], since the next move can't come sooner.
+pub const ASK_ROOM_HOLD: Duration = Duration::from_secs(30);
+
 /// How many times an ask may move within [`ASK_FULL_WINDOW`] and still
 /// move because its owner is full (card #686): past this it waits where it
 /// is for a free slot. A thread that goes on for days isn't held by moves
@@ -1508,6 +1515,60 @@ impl Fold {
             return None;
         }
         self.room_home(&t.side, &a.owner)
+    }
+
+    /// How much longer the "Nobody took" notice holds off for ask t (card
+    /// #995), or None when it doesn't: a computer with room is about to
+    /// take it, it just moved to one that has room, or its agent was just
+    /// bound and the row saying it took the ask hasn't folded here yet.
+    /// Each counts from its own moment and runs out by itself, so an ask
+    /// nobody ends up taking is still said. A request still waiting for its
+    /// agent is [`Task::spawn_pending`], which the notice checks itself.
+    pub(crate) fn ask_notice_hold(&self, t: &Task) -> Option<Duration> {
+        let a = t.open_ask()?;
+        if !a.unclaimed || !a.taker.is_empty() {
+            return None;
+        }
+        let opened = a.since.unix_nano().max(t.created_at.unix_nano());
+        // From this opening only: an agent or move from an earlier one says
+        // nothing about this one.
+        let bound = t
+            .spawn_request()
+            .filter(|s| s.op == super::spawn::SPAWN_REQUESTED && !s.key.is_empty())
+            .and_then(|s| self.spawned_for(&s.key))
+            .map(|s| s.at.unix_nano())
+            .filter(|at| *at >= opened);
+        let moved = self
+            .asks
+            .moved_at
+            .get(&t.id)
+            .and_then(|v| v.last())
+            .map(GoTime::unix_nano)
+            .filter(|at| *at >= opened && !self.is_full(&a.owner));
+        // What pull_asks needs before it would write the move. One that
+        // just moved can't move again until it settles, so the hold counts
+        // from then.
+        let settled = self
+            .asks
+            .moved_at
+            .get(&t.id)
+            .and_then(|v| v.last())
+            .map_or(0, |at| {
+                at.unix_nano()
+                    .saturating_add(ASK_FULL_SETTLE.as_nanos() as i64)
+            });
+        let target = (self.would_wait_for_agent(t)
+            && (self.on_board || self.reads_moves(&a.owner))
+            && self.full_target(t).is_some())
+        .then_some(opened.max(settled));
+        let from = [bound, moved, target].into_iter().flatten().max()?;
+        let hold = self.ask_room_hold;
+        let gone = self.stamp().unix_nano().saturating_sub(from).max(0) as u128;
+        // A moment still ahead of this clock (the settle, or another
+        // device's stamp within the skew the store allows) holds until this
+        // clock reaches it, then for the bound.
+        hold.checked_sub(Duration::from_nanos(gone.min(u64::MAX as u128) as u64))
+            .filter(|left| !left.is_zero())
     }
 
     /// Where an ask whose owner can't serve it goes (card #541): the ask
