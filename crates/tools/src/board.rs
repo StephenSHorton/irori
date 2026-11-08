@@ -232,6 +232,10 @@ impl Inner {
         if t.pinned {
             b += "; pinned by the person";
         }
+        // Its weight (card #963): what its agent runs on.
+        if let Some(w) = &t.weight {
+            b += &format!("; {}", weight_text(w, n));
+        }
         let holders: Vec<String> = t
             .holders
             .iter()
@@ -874,6 +878,7 @@ const CREATE_ARGS: &[(&str, Ty)] = &[
     ("waits_on", Ty::Str),
     ("after", Ty::Strs),
     ("later", Ty::Struct(LATER_FIELDS)),
+    ("weight", Ty::Struct(WEIGHT_FIELDS)),
 ];
 
 /// board_create's later: what brings the card back, and why it waits.
@@ -948,6 +953,20 @@ pub(crate) fn waits_on(s: &Inner, v: &str) -> Result<Option<(String, BlockedBy)>
     Ok(Some((reason, bb)))
 }
 
+/// A new card's weight hint (card #964): board_create's and each
+/// board_split subtask's weight {level, why}, as (level, why); none is
+/// ("", ""), which runs as normal.
+pub(crate) fn new_weight(a: &Args) -> (String, String) {
+    a.object("weight")
+        .map(|w| {
+            (
+                trim(w.str("level")).to_string(),
+                trim(w.str("why")).to_string(),
+            )
+        })
+        .unwrap_or_default()
+}
+
 /// Step arguments as coord's steps.
 pub(crate) fn steps_of(v: &[StepArg]) -> Vec<Step> {
     v.iter()
@@ -1012,6 +1031,12 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let mut personal = None;
     if !board.is_empty() {
         match s.resolve_board(board) {
+            Ok(crate::shared::BoardTarget::Personal(p)) if p.closed => {
+                return err_text(&format!(
+                    "{} on Personal is closed, so it takes no new cards. Reopen it in Irori first, or pick another board (the board tool lists them).",
+                    crate::format::q(&p.name)
+                ));
+            }
             Ok(crate::shared::BoardTarget::Personal(p)) => personal = Some(p),
             Ok(crate::shared::BoardTarget::Space(_)) => {
                 return crate::shared::create_on_board(
@@ -1042,6 +1067,7 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         }
     }
     let private = Arc::ptr_eq(&co, s.b.coord());
+    let weight = new_weight(&a);
     let t = match co.create_task(
         &keys[0],
         NewTask {
@@ -1066,6 +1092,8 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 .map(|p| p.inner().to_string())
                 .unwrap_or_default(),
             board_named: personal.is_some(),
+            weight: weight.0,
+            weight_reason: weight.1,
             ..NewTask::default()
         },
     ) {
@@ -2331,6 +2359,45 @@ pub(crate) fn board_leave(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     )
 }
 
+const MOVE_ARGS: &[(&str, Ty)] = &[
+    ("task_id", Ty::Str),
+    ("direction", Ty::Str),
+    ("why", Ty::Str),
+    ("left_off", Ty::Str),
+];
+
+/// Moves the caller's card one weight up or down and leaves it (card #966):
+/// Irori starts a fresh agent on the new weight from its Left off.
+pub(crate) fn board_move(s: &Inner, c: &Caller, raw: &[u8]) -> String {
+    let a = match decode(raw, MOVE_ARGS) {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
+    let id = match s.task_id(a.str("task_id")) {
+        Ok(id) => id,
+        Err(m) => return m,
+    };
+    let up = match trim(a.str("direction")) {
+        "up" => true,
+        "down" => false,
+        _ => return err_text("give direction: up or down."),
+    };
+    let (co, as_) = match s.on(&id, std::slice::from_ref(&c.sender.key)) {
+        Ok(v) => v,
+        Err(e) => return map_err(e),
+    };
+    let t = match co.move_weight(&as_[0], &id, up, a.str("why"), a.str("left_off")) {
+        Ok(t) => t,
+        Err(e) => return map_err(e),
+    };
+    format!(
+        "{} moved {} and you left it: Irori ends you and starts its next agent from your Left off.\n{}",
+        t.short_ref(),
+        if up { "up" } else { "down" },
+        s.line(&t)
+    )
+}
+
 const ASSIGN_ARGS: &[(&str, Ty)] = &[("task_id", Ty::Str), ("to", Ty::Str), ("note", Ty::Str)];
 
 pub(crate) fn board_assign(s: &Inner, c: &Caller, raw: &[u8]) -> String {
@@ -2466,6 +2533,11 @@ pub(crate) fn board_status(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     } else {
         trim(a.str("note"))
     };
+    // Card #970: a PR last heard open may have just been merged by the
+    // caller; GitHub is asked now, so completed isn't refused on old news.
+    if completing && co.pr_states(&id).iter().any(|p| p.state == coord::PR_OPEN) {
+        s.b.recheck_prs(&co, &c.sender.key, &id);
+    }
     let t = match co.set_task_state_with(
         &as_[0],
         &id,
@@ -2579,7 +2651,12 @@ const EDIT_ARGS: &[(&str, Ty)] = &[
     ("from", Ty::Str),
     ("after", Ty::Strs),
     ("not_after", Ty::Strs),
+    ("weight", Ty::Struct(WEIGHT_FIELDS)),
 ];
+
+/// board_edit's weight (card #963): light, normal or heavy ("" clears
+/// it), and one line on why.
+const WEIGHT_FIELDS: &[(&str, Ty)] = &[("level", Ty::Str), ("why", Ty::Str)];
 
 /// A list of card refs, blanks dropped.
 fn refs_in(v: Vec<String>) -> Vec<String> {
@@ -2609,11 +2686,17 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         from: trim(a.str("from")).into(),
     };
     let (after, not_after) = (refs_in(a.strs("after")), refs_in(a.strs("not_after")));
+    let weight = a.object("weight").map(|w| {
+        (
+            trim(w.str("level")).to_string(),
+            trim(w.str("why")).to_string(),
+        )
+    });
     let words =
         e.title.is_some() || e.objective.is_some() || e.done_when.is_some() || e.repo.is_some();
-    if !words && after.is_empty() && not_after.is_empty() {
+    if !words && after.is_empty() && not_after.is_empty() && weight.is_none() {
         return err_text(
-            "give title, objective, done_when or repo (what the card is for now), or after or not_after (its order).",
+            "give title, objective, done_when or repo (what the card is for now), after or not_after (its order), or weight.",
         );
     }
     let repo_set = e.repo.is_some();
@@ -2652,6 +2735,23 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         match co.remove_after(&as_[0], &id, &not_after) {
             Ok(nt) => {
                 done.push(format!("it no longer comes after {}", ref_list(&not_after)));
+                t = Some(nt);
+            }
+            Err(e) => return format!("{}{}", map_err(e), so_far(&done)),
+        }
+    }
+    // Card #963: its weight. A weight the person set is theirs: the
+    // refusal says so.
+    if let Some((level, why)) = &weight {
+        match co.set_weight(&as_[0], &id, level, why) {
+            Ok((nt, _)) => {
+                done.push(match &nt.weight {
+                    Some(w) => format!(
+                        "it is {}: Irori starts its next agent on the model the board maps that to",
+                        w.level
+                    ),
+                    None => "its weight is cleared: it runs as normal".into(),
+                });
                 t = Some(nt);
             }
             Err(e) => return format!("{}{}", map_err(e), so_far(&done)),
@@ -2847,6 +2947,7 @@ const SUBTASK_FIELDS: &[(&str, Ty)] = &[
     ("steps", Ty::Strs),
     ("assign_to", Ty::Str),
     ("spawn", Ty::Bool),
+    ("weight", Ty::Struct(WEIGHT_FIELDS)),
 ];
 
 const SPLIT_ARGS: &[(&str, Ty)] = &[
@@ -2885,12 +2986,15 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 Err(e) => return map_err(e),
             }
         }
+        let (weight, weight_reason) = new_weight(st);
         subs.push(NewSubtask {
             title: trim(st.str("title")).into(),
             objective: trim(st.str("objective")).into(),
             done_criteria: trim(st.str("done_when")).into(),
             steps: st.strs("steps"),
             spawn: st.bool("spawn"),
+            weight,
+            weight_reason,
         });
     }
     // Subtasks go in the parent's log.
@@ -2918,10 +3022,15 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     for (i, k) in made.iter().enumerate() {
         b += &format!(
-            "\nCreated {} {}{}.",
+            "\nCreated {} {}{}{}.",
             k.short_ref(),
             quoted(&one_line(&k.title, MAX_CARD_TITLE), MAX_CARD_TITLE),
-            if k.spawn { " (spawn)" } else { "" }
+            if k.spawn { " (spawn)" } else { "" },
+            // Its weight (card #964), as the board shows it.
+            k.weight
+                .as_ref()
+                .map(|w| format!("; {}", weight_text(w, &n)))
+                .unwrap_or_default()
         );
         if to.get(i).is_none_or(|t| t.is_empty()) {
             let why = s.no_agent_line(&k.id, true);
@@ -2955,4 +3064,19 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     b += &format!("\n{}", s.card_line(&p, None, &n, &s.now()));
     b
+}
+
+/// A card's weight as the board shows it (card #963): "heavy, set by the
+/// person: planning the split".
+pub(crate) fn weight_text(w: &coord::Weight, n: &Names<'_>) -> String {
+    let by = match w.set_by.as_str() {
+        coord::SET_BY_PERSON => "the person".to_string(),
+        coord::SET_BY_ASSISTANT => "Irori's assistant".to_string(),
+        _ => n.who(&w.by),
+    };
+    let mut out = format!("{}, set by {by}", w.level);
+    if !w.reason.is_empty() {
+        out += &format!(": {}", one_line(&w.reason, coord::MAX_WEIGHT_REASON));
+    }
+    out
 }

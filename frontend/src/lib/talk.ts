@@ -567,7 +567,7 @@ export function useInbox(): InboxState {
   useEffect(() => {
     void reload()
     if (!inWails()) return onSample(() => void reload())
-    return Events.On(EventInboxChanged, () => void reload())
+    return Events.OnShown(EventInboxChanged, () => void reload())
   }, [reload])
 
   return { ...value, loading, error, reload }
@@ -625,7 +625,7 @@ export function useHeld(history: boolean): HeldState {
   useEffect(() => {
     void reload()
     if (!inWails()) return onSample(() => void reload())
-    return Events.On(EventInboxChanged, () => void reload())
+    return Events.OnShown(EventInboxChanged, () => void reload())
   }, [reload])
 
   return { ...value, loading, error, reload }
@@ -655,7 +655,7 @@ export function useRepoNames(): (key: string) => string {
   useEffect(() => {
     void reload()
     if (!inWails()) return
-    return Events.On(EventInboxChanged, () => void reload())
+    return Events.OnShown(EventInboxChanged, () => void reload())
   }, [reload])
   return useMemo(() => {
     const names = new Map(value)

@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Weak};
+use std::time::Duration;
 
 use base64::Engine as _;
 use parking_lot::Mutex;
@@ -14,6 +15,10 @@ use crate::{NO_TERM, OpenSpec, Scope, TermId, TermInfo, TermMsg, Viewer};
 pub struct Terms {
     next: AtomicU32,
     map: Arc<Mutex<HashMap<TermId, Entry>>>,
+    /// Panes closed but maybe not gone yet, for [`Terms::settle`]. A pane
+    /// removes its shell's bootstrap folder (rsz-zdot-*, rsz-bash-* in the
+    /// temp dir) only once the shell has exited, on its own thread (#960).
+    closing: Mutex<Vec<Arc<Pane>>>,
 }
 
 struct Entry {
@@ -49,6 +54,7 @@ impl Terms {
         Terms {
             next: AtomicU32::new(0),
             map: Arc::new(Mutex::new(HashMap::new())),
+            closing: Mutex::new(Vec::new()),
         }
     }
 
@@ -103,7 +109,7 @@ impl Terms {
         match map.get_mut(&id) {
             // The shell may already have exited; then the entry keeps no pane.
             Some(e) if e.cache.exit.is_none() => e.pane = Some(pane),
-            _ => pane.close(),
+            _ => self.closed(vec![pane]),
         }
         Ok(TermInfo {
             id,
@@ -191,9 +197,7 @@ impl Terms {
     /// Kills the shell and forgets the terminal.
     pub fn close(&self, id: TermId) -> Result<(), String> {
         let e = self.map.lock().remove(&id).ok_or(NO_TERM)?;
-        if let Some(p) = e.pane {
-            p.close();
-        }
+        self.closed(e.pane.into_iter().collect());
         Ok(())
     }
 
@@ -230,8 +234,8 @@ impl Terms {
     }
 
     /// Closes every shell (Irori is quitting). It never joins: a stuck
-    /// shell must not hold up quit (design section 6.3; S2 adds the
-    /// deadline join).
+    /// shell must not hold up quit (design section 6.3). [`Terms::settle`]
+    /// waits for them, up to a deadline.
     pub fn close_all(&self) {
         let panes: Vec<_> = self
             .map
@@ -239,9 +243,40 @@ impl Terms {
             .drain()
             .filter_map(|(_, e)| e.pane)
             .collect();
-        for p in panes {
+        self.closed(panes);
+    }
+
+    /// Waits, at most `within`, for every shell closed so far to be gone:
+    /// its threads ended and its bootstrap folder removed from the temp
+    /// dir. Without it a process that exits right after closing leaves
+    /// rsz-zdot-* behind (#960). Panes still running past the deadline are
+    /// abandoned (design section 6.3); returns whether all were gone.
+    pub fn settle(&self, within: Duration) -> bool {
+        let panes = std::mem::take(&mut *self.closing.lock());
+        if panes.is_empty() {
+            return true;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let joined = std::thread::Builder::new()
+            .name("irori-term-settle".into())
+            .spawn(move || {
+                for p in &panes {
+                    p.join();
+                }
+                let _ = tx.send(());
+            });
+        joined.is_ok() && rx.recv_timeout(within).is_ok()
+    }
+
+    /// Closes `panes` and keeps them for [`Terms::settle`], forgetting
+    /// the ones whose shell has already gone.
+    fn closed(&self, panes: Vec<Arc<Pane>>) {
+        for p in &panes {
             p.close();
         }
+        let mut closing = self.closing.lock();
+        closing.retain(|p| p.state() != rsz_term::State::Closed);
+        closing.extend(panes);
     }
 
     fn pane(&self, id: TermId) -> Result<Arc<Pane>, String> {

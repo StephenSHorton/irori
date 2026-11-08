@@ -1597,3 +1597,84 @@ fn a_permission_wait_is_raised_and_resolved_only_on_the_agents_device() {
     );
     t2.close();
 }
+
+/// Wind down "all my devices" (card #787): the PC holds the Mac's agent
+/// starts too, from the moment it goes on; Off lifts it and the card
+/// starts there. A device the person had paused before stays paused.
+#[test]
+fn wind_down_holds_another_device_and_off_lifts_only_what_it_set() {
+    let t2 = Two::new();
+    let a_id = t2.a.core.device_id().to_string();
+    let b_id = t2.b_id();
+    t2.spawner_b();
+    t2.spawner_a();
+    t2.a_sees_b_host(true);
+    let paused =
+        t2.a.core
+            .wind_down_pause(&[a_id.clone(), b_id.clone()])
+            .unwrap();
+    assert_eq!(paused.len(), 2, "{paused:?}");
+    wait_for(WAIT, "the Mac sees its own pause", || {
+        t2.b.core.set_spawn_cap(t2.b.core.spawn_cap()).unwrap();
+        let p = t2.b.core.agents_pause();
+        p.on && irori_core::spawn_pause::by_wind_down(&p.by)
+    });
+    let t = t2.card("Waits while Wind down is on");
+    t2.spawning_on_a();
+    t2.kick();
+    assert!(t2.on_a(&t.id).spawn_request().is_none());
+    assert_eq!(t2.fb.started(), 0);
+    assert_eq!(t2.fa.started(), 0);
+    // Off from the Mac: lifts both, as one switch.
+    let lifted = t2.b.core.wind_down_lift().unwrap();
+    assert_eq!(lifted.len(), 2, "{lifted:?}");
+    wait_for(WAIT, "the card starts once Wind down is off", || {
+        t2.a.core.set_spawn_cap(t2.a.core.spawn_cap()).unwrap();
+        t2.fa.started() + t2.fb.started() == 1
+    });
+    // The person pauses the Mac themselves; Wind down on and off again
+    // leaves that pause alone.
+    t2.b.core.set_agents_paused(true).unwrap();
+    wait_for(WAIT, "the PC sees the Mac paused", || {
+        t2.a.core.set_spawn_cap(t2.a.core.spawn_cap()).unwrap();
+        t2.a.core.agents_pause_on(&b_id).on
+    });
+    let paused =
+        t2.a.core
+            .wind_down_pause(&[a_id.clone(), b_id.clone()])
+            .unwrap();
+    assert_eq!(paused, vec![a_id.clone()], "the Mac was paused already");
+    t2.a.core.wind_down_lift().unwrap();
+    assert!(!t2.a.core.agents_pause().on);
+    assert!(
+        t2.a.core.agents_pause_on(&b_id).on,
+        "the person's pause stays"
+    );
+    t2.close();
+}
+
+/// Stop here (card #787): the PC stopped starts nothing itself, and the
+/// card it would have started (one its agent left, or a new one) goes to
+/// the Mac, which has a free slot.
+#[test]
+fn a_stopped_device_hands_its_cards_to_one_with_a_free_slot() {
+    let t2 = Two::new();
+    let b_id = t2.b_id();
+    t2.spawner_b();
+    t2.spawner_a();
+    t2.a_sees_b_host(true);
+    t2.a.core.set_agents_paused(true).unwrap();
+    let t = t2.card("Moves to the Mac while the PC is stopped");
+    t2.spawning_on_a();
+    wait_for(WAIT, "the Mac starts it", || {
+        t2.a.core.set_spawn_cap(t2.a.core.spawn_cap()).unwrap();
+        t2.fb.started() == 1
+    });
+    assert_eq!(t2.fa.started(), 0, "nothing starts on the stopped PC");
+    assert!(
+        t2.on_a(&t.id)
+            .spawn_request()
+            .is_some_and(|s| s.device == b_id)
+    );
+    t2.close();
+}

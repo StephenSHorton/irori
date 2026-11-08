@@ -309,8 +309,11 @@ impl Services {
             folder: folder.clone().unwrap_or_default(),
             permission_mode: perms.mode,
             name: name.clone(),
-            model: setting.model().into(),
-            effort: setting.effort().into(),
+            // By the card's weight (card #963); none is normal.
+            model: setting.pick_for(t).0,
+            effort: setting.pick_for(t).1,
+            weight: t.run_level().to_string(),
+            advisor: super::spawn::advisor_in(std::path::Path::new(&self.presence.claude_dir())),
             counted: self.start_counts(&log.co, t),
             ..SpawnAsk::default()
         };
@@ -321,6 +324,7 @@ impl Services {
         else {
             return Ok(false);
         };
+        super::spawn::log_asked(t, t.spawn_request(), g, &name, "this device", &(self.now)());
         self.settle_ask(&t.id);
         if t.given.is_some() {
             self.spawn
@@ -407,8 +411,16 @@ impl Services {
                     continue;
                 }
             };
-            if let Err(e) = co.bind_spawn(&t.id, s.generation, &key) {
-                logf(format_args!("spawn {}: bind {key}: {e}", t.short_ref()));
+            match co.bind_spawn(&t.id, s.generation, &key) {
+                Ok(true) => logf(format_args!(
+                    "spawn {} gen {}: {} showed {}s after it was asked; bound to {key}",
+                    t.short_ref(),
+                    s.generation,
+                    s.name,
+                    super::spawn::secs_since(&(self.now)(), &s.at)
+                )),
+                Ok(false) => {}
+                Err(e) => logf(format_args!("spawn {}: bind {key}: {e}", t.short_ref())),
             }
         }
     }

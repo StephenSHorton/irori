@@ -234,8 +234,7 @@ function FileChip({ file }: { file: FileRef }) {
         mime={file.mime}
         className="size-4 shrink-0 text-muted-foreground"
       />
-      {/* The name gives way first, so a long one can't push Open out. */}
-      <span className="min-w-0 shrink-[999] truncate" title={name}>
+      <span className="min-w-0 truncate" title={name}>
         {name}
       </span>
       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
@@ -273,7 +272,15 @@ function FileActions({ file, compact }: { file: FileRef; compact?: boolean }) {
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-1">
+    // In a chip the buttons keep their width and the name truncates
+    // instead: shrinking here pushed Open past the chip's edge in a narrow
+    // column (card #780).
+    <div
+      className={cn(
+        "flex items-center gap-1",
+        compact ? "shrink-0" : "min-w-0"
+      )}
+    >
       <Button
         size={compact ? "xs" : "sm"}
         variant="ghost"
@@ -307,7 +314,7 @@ function FileActions({ file, compact }: { file: FileRef; compact?: boolean }) {
       {note && (
         <span
           className={cn(
-            "max-w-64 truncate text-xs",
+            compact ? "max-w-40 truncate text-xs" : "max-w-64 truncate text-xs",
             note.error ? "text-destructive" : "text-muted-foreground"
           )}
           title={note.text}

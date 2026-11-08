@@ -23,11 +23,11 @@ import {
 } from "@/lib/cards"
 import { inWails, plainLine, relativeTime } from "@/lib/irori"
 import { AgentsService } from "@/lib/host"
+import { sampleTrustAndStart } from "@/lib/trust-sample"
 import {
   GIVEN_QUESTION,
   goneTitle,
   loopLine,
-  mergeLine,
   NOT_TRUSTED,
   refOf,
   spawnNeed,
@@ -97,8 +97,6 @@ export function NeedsYou({
             <li key={`${n.kind}:${n.id}`} className="min-w-0">
               {n.kind === "check" || n.kind === "decision" ? (
                 <CardNeed need={n} now={now} onOpen={onOpenCard} />
-              ) : n.kind === "merge" ? (
-                <MergeNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "gone" ? (
                 <GoneNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "noAgent" ? (
@@ -135,8 +133,6 @@ export function NeedsYou({
 const kinds = {
   check: { label: "Done check", variant: "success" },
   decision: { label: "Decision", variant: "destructive" },
-  // Card #509: an agent waits on the person to merge its PR.
-  merge: { label: "Merge", variant: "warning" },
   // Card #520: a wait on an agent that is gone, on a card nobody holds.
   gone: { label: "Gone", variant: "warning" },
   // Card #541: no computer can start its agent. Nothing to decide.
@@ -353,51 +349,6 @@ function StuckNeed({
   )
 }
 
-// MergeNeed is a card whose agent waits on the person to merge a PR (card
-// #509): such waits sat in Blocked, unseen, for days. It names the PR and
-// opens it on GitHub; the wait ends when Irori hears the PR merged, or on
-// the card. New work asks "Can I merge…?" instead, a decision row.
-function MergeNeed({
-  need,
-  now,
-  onOpen,
-}: {
-  need: Extract<Need, { kind: "merge" }>
-  now: Date
-  onOpen: (id: string) => void
-}) {
-  const c = need.card
-  const { error, done, run } = useAct()
-  const said = plainLine(c.waitQuestion ?? "")
-  return (
-    <Row
-      kind="merge"
-      where={<Where card={c} />}
-      at={need.at}
-      now={now}
-      title={plainLine(c.title)}
-    >
-      <p className="text-sm break-words text-muted-foreground">
-        {mergeLine(need.pr)} in {need.pr.repo}: its agent waits on you to merge
-        it.{said ? ` “${said}”` : ""}
-      </p>
-      <span className="flex flex-wrap gap-1.5">
-        <Button
-          size="sm"
-          title={need.pr.url}
-          onClick={() => run(() => cardsApi.openURL(need.pr.url), "")}
-        >
-          Open PR #{need.pr.number}
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => onOpen(c.id)}>
-          Open card
-        </Button>
-      </span>
-      <Said error={error} done={done} />
-    </Row>
-  )
-}
-
 // GoneNeed is a card nobody holds whose wait no agent will end (card
 // #520): it waits on an agent that is gone, or its gone agent raised an
 // outside wait. It sat as an amber line on the card's page, unseen. Hand
@@ -552,8 +503,12 @@ function TrustRow({
             disabled={act.busy || !!act.done}
             onClick={() =>
               void act.run(
-                () => AgentsService.TrustAndStart(c.id),
-                "Trusted. Starting its agent…"
+                () =>
+                  host
+                    ? AgentsService.TrustAndStart(c.id)
+                    : sampleTrustAndStart(folder),
+                // What happens next (card #717): started, or why not.
+                (r) => r?.said || "Trusted."
               )
             }
           >
