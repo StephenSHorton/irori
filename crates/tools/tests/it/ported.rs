@@ -447,6 +447,7 @@ fn test_specs() {
         "leases",
         "device_free",
         "release",
+        "review_claim",
         "timeline",
         "why",
         "commits",
@@ -728,6 +729,57 @@ fn test_events_redacts_text() {
     let out = h.okj(&c, "events", json!({"limit": 500}));
     has_not(&out, &["the secret plan"]);
     has(&out, &["newest first"]);
+}
+
+/// The assistant's conversation (card #1102): the events tool shows its
+/// rows, never their text, whether asked for by kind or not.
+#[test]
+fn test_events_leave_out_the_assistants_conversation() {
+    let h = new_harness();
+    let c = call_c();
+    h.b.st
+        .append(
+            "user",
+            store::kinds::ASSISTANT_CHAT_ASKED,
+            &json!({"turn": "t1", "text": "my private question", "screen": "the board I see", "device": "dev1", "at": 1}),
+        )
+        .unwrap();
+    h.b.st
+        .append(
+            "irori",
+            store::kinds::ASSISTANT_CHAT_SAID,
+            &json!({"turn": "t1", "text": "the private answer", "changed": ["closed the secret card"], "error": "", "device": "dev1", "at": 2}),
+        )
+        .unwrap();
+    h.b.st
+        .append(
+            "irori",
+            store::kinds::ASSISTANT_ANSWER_DRAFT,
+            &json!({"request": "r1", "text": "a drafted reply", "device": "dev1", "at": 3}),
+        )
+        .unwrap();
+    let secret = [
+        "my private question",
+        "the board I see",
+        "the private answer",
+        "closed the secret card",
+        "a drafted reply",
+    ];
+    let out = h.okj(&c, "events", json!({"kinds": ["assistant."]}));
+    has(
+        &out,
+        &[
+            "3 events",
+            "assistant.chat.asked",
+            "assistant.chat.said",
+            "assistant.answer.draft",
+            "[left out]",
+            "t1",
+        ],
+    );
+    has_not(&out, &secret);
+    let out = h.okj(&c, "events", json!({"limit": 500}));
+    has_not(&out, &secret);
 }
 
 #[test]

@@ -56,6 +56,7 @@ use crate::timers::{self, Kick, Ticker};
 use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
 pub mod assistant_answers;
+pub mod assistant_chat;
 mod assistant_name;
 pub mod boards;
 mod boards_members;
@@ -81,6 +82,7 @@ pub mod name_themes;
 pub mod notes;
 mod notifications;
 mod prcard;
+mod review_claim;
 pub mod space_move;
 pub mod spaces;
 pub mod spawn;
@@ -324,6 +326,8 @@ struct Services {
     talk: Arc<coord::talk::Talk>,
     /// The person's notification history (card #377).
     notifications: Arc<coord::notifications::History>,
+    /// The Office Assistant's one conversation (card #1102).
+    assistant_chat: Arc<assistant_chat::Fold>,
     files: blob::Files,
     scrubber: Arc<scrub::Scrubber>,
     secrets: Mutex<Vec<String>>,
@@ -643,6 +647,15 @@ impl tools::TaskRouter for ToolsView {
         why: &str,
     ) -> Result<(String, coord::Comment, Notice), coord::Error> {
         self.0.request_release(by, resource, why)
+    }
+    fn review_claim(
+        &self,
+        key: &str,
+        pr: &str,
+        action: &str,
+        reason: &str,
+    ) -> Result<tools::ClaimAnswer, String> {
+        self.0.review_claim(key, pr, action, reason)
     }
     fn comment_coord(&self, id: &str) -> Option<Arc<Coord>> {
         // Not a hidden DM space's (card #538): no agent works there.
@@ -1482,6 +1495,8 @@ impl Core {
         }
         let notifications = Arc::new(coord::notifications::History::new());
         load_notifications(&st, &notifications);
+        let assistant_chat = Arc::new(assistant_chat::Fold::new());
+        assistant_chat::load(&st, &assistant_chat);
         laps.lap("colors+names");
         let decisions_sub = Arc::new(st.subscribe());
 
@@ -1654,6 +1669,7 @@ impl Core {
             device_names,
             talk,
             notifications,
+            assistant_chat,
             files,
             scrubber,
             secrets: Mutex::new(Vec::new()),
@@ -2101,6 +2117,8 @@ impl Core {
                         s.settle_notifications();
                         s.hub.publish(CoreEvent::Devices);
                         s.hub.publish(CoreEvent::Notifications);
+                        s.assistant_chat.reload(&s.store);
+                        s.hub.publish(CoreEvent::AssistantChat);
                         // Card #538: this thread doesn't wait for the
                         // reconcile, which reads the markers too.
                         if let Err(e) = s.dm_spaces.load(&s.store) {
@@ -2141,6 +2159,12 @@ impl Core {
                             .map_or(true, |m| tools::talk::mirrors(&m))
                         {
                             s.hub.publish(CoreEvent::Talk);
+                        }
+                    } else if assistant_chat::KINDS.contains(&ev.kind.as_str()) {
+                        // The assistant's conversation (card #1102); a row
+                        // written here was folded when it was written.
+                        if s.assistant_chat.apply(&ev) {
+                            s.hub.publish(CoreEvent::AssistantChat);
                         }
                     } else if ev.kind == coord::notifications::POSTED
                         || ev.kind == coord::notifications::READ

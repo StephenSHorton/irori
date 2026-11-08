@@ -128,7 +128,7 @@ const SINCE_GO: [&str; 31] = [
 /// history, card #377; spawned agents, card #446; the sides a device
 /// runs, card #494; spawning across the person's devices, card #455; a
 /// hidden DM space's marker, card #538; the names themes, card #702).
-const SINCE_GO_REFUSED: [&str; 30] = [
+const SINCE_GO_REFUSED: [&str; 38] = [
     kinds::AGENT_OFFER,
     kinds::SPAWN_HOST,
     kinds::SPAWN_END_REQUESTED,
@@ -164,6 +164,15 @@ const SINCE_GO_REFUSED: [&str; 30] = [
     kinds::ASSISTANT_NAMES_SET,
     // "Weigh new cards" (card #965).
     kinds::ASSISTANT_WEIGHS_SET,
+    // The Office Assistant's one conversation (card #1102).
+    kinds::ASSISTANT_CHAT_ASKED,
+    kinds::ASSISTANT_CHAT_SAID,
+    kinds::ASSISTANT_CHAT_UPDATE,
+    kinds::ASSISTANT_CHAT_POSTED,
+    kinds::ASSISTANT_CHAT_CLEARED,
+    kinds::ASSISTANT_CHAT_STOP,
+    kinds::ASSISTANT_ANSWER_REQUESTED,
+    kinds::ASSISTANT_ANSWER_DRAFT,
 ];
 
 /// Device-local kinds added after the Go port: the last hello this device

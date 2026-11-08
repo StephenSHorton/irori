@@ -226,6 +226,35 @@ kinds! {
     /// card. `{on, by, at}`, actor `user`, newest wins, none means on. Set
     /// in the app only.
     ASSISTANT_WEIGHS_SET = "assistant.weighs.set" => Replicated, Refuses;
+    /// The Office Assistant's one conversation (card #1102,
+    /// docs/design/one-assistant.md §4): private rows every one of the
+    /// person's devices folds the same (`core::service::assistant_chat`).
+    /// No tool writes them, and the events tool leaves their text out. Every
+    /// `at` is Unix milliseconds. A question the person typed: `{turn, text,
+    /// screen, device, at, again?, imported?, callId?}`, actor `user`,
+    /// written only by a host command.
+    ASSISTANT_CHAT_ASKED = "assistant.chat.asked" => Replicated, Refuses;
+    /// The assistant's reply to a question: `{turn, text, changed?, posted?,
+    /// looked?, error?, skipped?, device, at, imported?}`, actor `irori`,
+    /// written by the assistant's computer. The first per turn wins.
+    ASSISTANT_CHAT_SAID = "assistant.chat.said" => Replicated, Refuses;
+    /// A follow-up line: `{key, thread?, text, act?, request?, at,
+    /// imported?}`, actor `irori`. The first per key wins.
+    ASSISTANT_CHAT_UPDATE = "assistant.chat.update" => Replicated, Refuses;
+    /// The person posted a reply's draft as a thread: `{turn, posted}`,
+    /// actor `user`. The first per turn wins.
+    ASSISTANT_CHAT_POSTED = "assistant.chat.posted" => Replicated, Refuses;
+    /// New chat: `{by, at}`, actor `user`. The newest hides what came before.
+    ASSISTANT_CHAT_CLEARED = "assistant.chat.cleared" => Replicated, Refuses;
+    /// The person stopped a turn: `{turn, by, at}`, actor `user`.
+    ASSISTANT_CHAT_STOP = "assistant.chat.stop" => Replicated, Refuses;
+    /// Let it answer or Answer this, tapped on any device (§9): `{request,
+    /// post, space, how: let|draft, by, at}`, actor `user`.
+    ASSISTANT_ANSWER_REQUESTED = "assistant.answer.requested" => Replicated, Refuses;
+    /// The owner's-OK draft of an answer to another person (§9): `{request,
+    /// post, space, text, device, at}`, actor `irori`. The first per request
+    /// wins.
+    ASSISTANT_ANSWER_DRAFT = "assistant.answer.draft" => Replicated, Refuses;
     // capture
     CAPTURE_TURN = "capture.turn" => Replicated, Refuses;
     CAPTURE_EDIT = "capture.edit" => Replicated, Refuses;

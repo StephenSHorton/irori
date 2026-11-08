@@ -2796,6 +2796,9 @@ const LEASE_ARGS: &[(&str, Ty)] = &[
     ("base_sha", Ty::Str),
 ];
 
+/// Why `lease` and `release` refuse a `pr/` resource (merge desk §12.3).
+const PR_CLAIM_USE: &str = "pr/ names a PR's review claim: take, check, release or decline it with review_claim, not lease or release.";
+
 pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let a = match decode(raw, LEASE_ARGS) {
         Ok(a) => a,
@@ -2804,6 +2807,9 @@ pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let res = trim(a.str("resource"));
     if res.is_empty() {
         return err_text("give resource: path:<repoKey>:<glob> or a name like gpu/qwen.");
+    }
+    if coord::is_pr_claim(&res.to_ascii_lowercase()) {
+        return err_text(PR_CLAIM_USE);
     }
     let max = (coord::MAX_TTL.as_secs() / 60) as i64;
     let mut ttl = Duration::ZERO;
@@ -2965,6 +2971,9 @@ pub(crate) fn release(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let res = trim(a.str("resource"));
     if res.is_empty() {
         return err_text("give resource, exactly as the leases tool shows it.");
+    }
+    if coord::is_pr_claim(&res.to_ascii_lowercase()) {
+        return err_text(PR_CLAIM_USE);
     }
     let r = s.b.coord().release(&c.sender.key, res);
     if let Some(rt) = s.b.router() {

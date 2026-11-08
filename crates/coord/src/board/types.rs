@@ -1096,6 +1096,10 @@ pub struct Comment {
     /// A reviewer's verdict on a private card: approved or changes.
     #[serde(skip_serializing_if = "omit")]
     pub verdict: String,
+    /// The PR this comment declines the review of (merge desk §12.3): its
+    /// URL, on a PR card, from the declining agent. Empty on any other.
+    #[serde(skip_serializing_if = "omit")]
+    pub declines: String,
     /// When the person last edited it before an agent read it (card #105).
     #[serde(skip_serializing_if = "crate::gojson::omit_zero_time")]
     pub edited_at: GoTime,
