@@ -27,6 +27,7 @@ export type AssistantChatReply = B.AssistantChatReply
 export type AssistantChatTurn = B.AssistantChatTurn
 export type AssistantChatUpdate = B.AssistantChatUpdate
 export type AssistantEvent = B.AssistantEvent
+export type AssistantFile = B.AssistantFile
 export type AssistantTurn = B.AssistantTurn
 export type AttachmentInfo = B.AttachmentInfo
 export type BlockedBy = B.BlockedBy
@@ -317,6 +318,11 @@ export function AssistantChatUpdate(p: Partial<B.AssistantChatUpdate> = {}): B.A
 /** AssistantEvent with Go's zero values for every field left out. */
 export function AssistantEvent(p: Partial<B.AssistantEvent> = {}): B.AssistantEvent {
   return { "kind": "", "text": "", ...p } as B.AssistantEvent
+}
+
+/** AssistantFile with Go's zero values for every field left out. */
+export function AssistantFile(p: Partial<B.AssistantFile> = {}): B.AssistantFile {
+  return { "sha256": "", "name": "", "size": 0, "device": "", ...p } as B.AssistantFile
 }
 
 /** AssistantTurn with Go's zero values for every field left out. */

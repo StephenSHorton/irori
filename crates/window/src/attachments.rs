@@ -127,6 +127,8 @@ impl Window {
     /// may read ([`irori_core::Core::post_attachment`]), then one on a
     /// message the person may read, as `attachment_get` looks first: a DM
     /// mirrored from a message an agent sent the person shows its files.
+    /// Last, one the person gave the assistant's chat (card #999): only
+    /// those in its own index, never any file merely in the store.
     fn file_ref(&self, sha: &str) -> Result<FileRef, String> {
         let sha = crate::trim(sha).to_lowercase();
         if !blob::valid_id(&sha) {
@@ -147,6 +149,7 @@ impl Window {
                     device: f.device,
                 })
             })
+            .or_else(|| crate::assistant::chat_file(&self.core, &sha))
             .ok_or_else(|| NO_ATTACHMENT.to_string())?;
         r.sha256 = sha;
         Ok(r)

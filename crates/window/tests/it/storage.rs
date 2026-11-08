@@ -209,6 +209,25 @@ fn attachments_are_listed_and_deleted() {
     assert!(items(&r, storage::FILES).is_empty());
 }
 
+/// A file only the assistant chat holds (card #999) was never offered: it
+/// is listed by its own name and warned about as the only copy.
+#[test]
+fn a_chat_file_is_named_and_marked_only_here() {
+    let r = Rig::new();
+    let got =
+        r.w.assistant_attach(&[irori_window::board::UploadFile {
+            name: "note.txt".into(),
+            data: "aGVsbG8=".into(),
+        }])
+        .unwrap();
+    let listed = items(&r, storage::FILES);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, got[0].sha256);
+    assert_eq!(listed[0].name, "note.txt");
+    assert_eq!(listed[0].detail, "From the assistant chat");
+    assert!(listed[0].only_here, "nothing else holds a chat file");
+}
+
 /// Resolved threads clear like done cards: they leave the threads list and
 /// Storage's cleared list shows them, with Put back.
 #[test]
