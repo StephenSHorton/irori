@@ -231,7 +231,7 @@ export function AgentsPauseView(p: Partial<B.AgentsPauseView> = {}): B.AgentsPau
 
 /** AgentsSettings with Go's zero values for every field left out. */
 export function AgentsSettings(p: Partial<B.AgentsSettings> = {}): B.AgentsSettings {
-  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "lightModel": "", "lightEffort": "", "heavyModel": "", "heavyEffort": "", "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
+  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "lightModel": "", "lightEffort": "", "heavyModel": "", "heavyEffort": "", "assistantModel": "", "assistantEffort": "", "assistantModels": [], "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
 }
 
 /** AgentStartsView with Go's zero values for every field left out. */
