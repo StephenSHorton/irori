@@ -897,25 +897,20 @@ export function sampleCards(now: Date): CardDetail[] {
         url: "https://github.com/sample-org/example-app/pull/212",
       },
     }),
-    // Card #509: an older wait on a PR's merge is the person's merge, a
-    // Needs you row that opens the PR.
+    // Card #970: an agent's wait on a PR stays its agent's: no Needs you
+    // row, and Irori tells the agent when the PR merges.
     card({
       id: "sample-card-merge",
       short: "18",
       title: "Asks and Talk threads get their own agent",
       goal: "Each ask and Talk thread gets its own background agent that goes when the thread closes.",
       state: TaskState.Blocked,
-      working: [],
+      working: [idleHolder],
       waitingOn: 1,
       waitKind: "external",
       waitOn: "https://github.com/sample-org/example-app/pull/41",
-      waitQuestion: "Review and merge PR #41 so it lands on main",
+      waitQuestion: "PR #41 shows open on GitHub after its merge",
       updatedAt: at(2),
-      mergePr: {
-        repo: "sample-org/example-app",
-        number: 41,
-        url: "https://github.com/sample-org/example-app/pull/41",
-      },
     }),
     // A wait on that card waits on its PR, not on the person (card #471).
     card({

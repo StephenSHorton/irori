@@ -1634,15 +1634,9 @@ export type CardSummary = {
 	 */
 	waitPr?: WaitPr | null,
 	/**
-	 *  The PR an agent's open external wait asks the person to merge (card
-	 *  #509): a Needs you row with the PR's link, until it is known merged
-	 *  or closed.
-	 */
-	mergePr?: WaitPr | null,
-	/**
 	 *  A wait no agent will end (card #520): on a card nobody holds, an
-	 *  item waits on an agent that is gone, or an outside wait (not a PR's
-	 *  merge) was raised by one. A Needs you row with Hand to an agent,
+	 *  item waits on an agent that is gone, or an outside wait (a PR's
+	 *  too, card #970) was raised by one. A Needs you row with Hand to an agent,
 	 *  until it is handed on, the card is stopped or someone takes it.
 	 */
 	goneWait?: GoneWait | null,

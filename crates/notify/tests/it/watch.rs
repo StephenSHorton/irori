@@ -576,11 +576,10 @@ fn watch_board_needs_you() {
     r.fake.wait_post(&id);
 }
 
-/// Card #509: an agent's external wait on a PR is the person's merge. It
-/// used to sit in Blocked, unseen; now it pops up and names the PR, and a
-/// wait on CI stays quiet.
+/// Card #970: an agent's external wait on a PR stays its agent's, like a
+/// wait on CI: no notification asks the person to merge it.
 #[test]
-fn watch_board_a_wait_on_a_pr_asks_the_person_to_merge() {
+fn watch_board_a_wait_on_a_pr_never_asks_the_person_to_merge() {
     let r = rig();
     let ci = r.co.create_task(KEY_A, new_task("wait on CI")).unwrap();
     r.co.claim_task(KEY_A, &ci.id).unwrap();
@@ -609,15 +608,8 @@ fn watch_board_a_wait_on_a_pr_asks_the_person_to_merge() {
         }),
     )
     .unwrap();
-    let id = needs_id(&task.id);
-    r.fake.wait_post(&id);
-    let c = r.fake.card(&id);
-    assert_eq!(c.title, "alpha waits on you to merge PR #41 (#2)");
-    assert!(
-        c.body.starts_with("Review and merge PR #41"),
-        "{:?}",
-        c.body
-    );
+    r.fake.no_post(QUIET);
+    assert!(!posted(&r.fake, &needs_id(&task.id)));
 }
 
 /// Card #520: a card nobody holds whose wait's agent is gone pops up as
