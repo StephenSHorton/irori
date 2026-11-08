@@ -34,6 +34,8 @@ export function pageName(s: Section): string {
       return "Home"
     case "talk":
       return "Talk"
+    case "huddle":
+      return "A huddle"
     case "notes":
       return "Notes"
     case "desk":

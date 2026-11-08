@@ -21,6 +21,7 @@ import {
   AgentStartsControls,
   WholeNumberField,
 } from "@/components/settings/agent-starts"
+import { AssistantNameSection } from "@/components/settings/assistant-name"
 import { NamesThemesSection } from "@/components/settings/names-themes"
 import { WeighsSwitch } from "@/components/settings/settings-parts"
 import { SpaceAgentSwitch } from "@/components/settings/space-agents"
@@ -85,6 +86,7 @@ export function AgentsPane({ open }: { open: boolean }) {
             <WhenSection open={open} settings={s} set={set} />
             <WeightsSection settings={s} set={set} />
             <AssistantSection settings={s} set={set} />
+            <AssistantNameSection open={open} />
           </div>
         ) : (
           <AgentsShape />
