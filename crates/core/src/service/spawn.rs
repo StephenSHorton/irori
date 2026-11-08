@@ -879,7 +879,11 @@ pub const NO_HANDOFF_ASK: &str = "The agent Irori started for this ended without
 
 /// What every spawned agent is told about build output (card #565): a
 /// build outside the worktree outlives the card, and 500 GB of them did.
-pub const BUILD_OUTPUT: &str = "Build output stays in your worktree's target/, so it goes when the card settles. Irori sets CARGO_TARGET_DIR for you when it knows your worktree: don't set or override it, and don't build into a shared or temp folder.";
+pub const BUILD_OUTPUT: &str = "Build output stays in your worktree's target/, so it goes when the card settles. Irori sets CARGO_TARGET_DIR for you when it knows your worktree: don't set or override it, and don't build into a shared or temp folder. An agent you start in another worktree inherits it: run env -u CARGO_TARGET_DIR there.";
+
+/// Told to a card's agent (not an ask's): its worktree is made from the main
+/// checkout's HEAD, which Irori never fetches.
+pub const BASE_CHECK: &str = "Your worktree starts from the main checkout's last commit, which can be far behind: git fetch and compare with origin/main before you rely on it.";
 
 /// What every spawned agent is told about notes (§13.6, card #454).
 pub const PROPOSE_NOTE: &str = "If you learned something about this repo that the next agent needs, write it as a note (notes_propose) before you go.";
@@ -1151,7 +1155,7 @@ fn quote_said(
         )
     } else {
         format!(
-            "Before you start, say in one line on {short} (board_comment) whether any of these change it. If one does, change its title, objective, done-when and steps first (board_edit, board_steps), and work to that."
+            "Before you start, say in one line on {short} (board_comment) whether any of these change it. If one does, change its title, objective, done-when and steps first (board_edit, board_steps), and work to that. Edit the cards that share the premise the same way, and the design doc if it states it."
         )
     };
     b.push_str(&format!(
@@ -1173,6 +1177,8 @@ pub(crate) type OthersFn<'a> = &'a dyn Fn(&str) -> Option<String>;
 /// information rather than instructions; then what the agent is and how it
 /// ends. Lines by other people are counted, not quoted. `answer` is the
 /// person's latest words for it (a "Not done", a blocker answer; part 3).
+/// A test holds the whole brief free of the substring "side", so fixed text
+/// here must avoid words like inside, beside and consider.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_brief(
     t: &Task,
@@ -1194,6 +1200,8 @@ pub(crate) fn build_brief(
         t.refs()
     ));
     b.push_str(BUILD_OUTPUT);
+    b.push(' ');
+    b.push_str(BASE_CHECK);
     b.push_str("\n\n");
     weight_words(&mut b, t, &short);
     // Card #496: which side this device runs, and that other sides' cards
@@ -1429,7 +1437,8 @@ fn weight_words(b: &mut String, t: &Task, short: &str) {
 /// The brief for an ask or a thread (card #470): what the person asked,
 /// quoted as data, and how an agent answers it. A plain ask is talked
 /// through and closed with ask_close; a thread is answered in the thread
-/// and only the person resolves it.
+/// and only the person resolves it. Its text must not mention board_status or
+/// Left off, and, like the card brief, holds no "side" substring.
 pub(crate) fn build_ask_brief(
     t: &Task,
     thread: bool,

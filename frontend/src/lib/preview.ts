@@ -45,7 +45,8 @@
 //                   one from 40 minutes ago; ?usage=80 both windows 80%
 //                   used (lib/usage.ts)
 //   ?term           a card page's Terminal section with one blank stand-in
-//                   shell and its height handle (lib/term.ts, card #730)
+//                   shell and its height handle (lib/term.ts, card #730);
+//                   ?term=open also opens the bottom terminal panel
 //   ?assistant=open Ask Irori (card #783) open on a sample chat; busy with a
 //                   reply being written, new on an empty chat, draft with a
 //                   check-first thread and its Post thread button, follow a

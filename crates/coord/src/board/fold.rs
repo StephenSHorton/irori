@@ -2595,6 +2595,8 @@ pub(crate) fn may_record(by: &str, to: &str, by_recipient: bool, dev: &str) -> b
 }
 
 /// Records who as working t: added once on a shared task, else replaces.
+/// So `holders` is not the card's owner: binding an agent drops the person.
+/// Read the owner with `owner_person`.
 pub(crate) fn add_holder(t: &mut Task, who: &str) {
     if !t.shared {
         t.holders = vec![who.to_string()];
@@ -2703,7 +2705,8 @@ pub const MADE_KIND: &str = "task.made";
 
 /// The card refs in text: `#12` (tag None) or `mlg#12`, each a whole word
 /// (start, whitespace or "(" before; not a digit or letter after). The
-/// number is returned as written.
+/// number is returned as written. "Whitespace" is ASCII here; the window's
+/// `cardRefs` (mentions.ts) uses JS `\s`, which also takes NBSP and U+3000.
 pub fn card_refs(text: &str) -> Vec<(Option<String>, String)> {
     let b = text.as_bytes();
     let mut out = Vec::new();

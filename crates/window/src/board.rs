@@ -782,6 +782,8 @@ impl Window {
             // gone on a card nobody holds (card #485): the answer goes on
             // its thread and the card back on the Board, so the agent Irori
             // starts for it reads it in its brief and answers it there.
+            // A test of the nobody-can-act route drives this Window answer:
+            // `coord.answer` with `resolve: false` never reaches it.
             resolve: !bl.done_check
                 && !brings_lead
                 && self.nobody_can_act(&t, &bl.raised_by)
