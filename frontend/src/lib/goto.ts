@@ -7,7 +7,7 @@
 // once, when the reply comes in while the chat is open. The history keeps
 // the reply whole; the chat splits the line out as it shows it.
 
-import type { SettingsSection } from "@/components/settings/settings-dialog"
+import type { SettingsSection } from "@/lib/nav"
 
 export const GoOpen = "<<go "
 export const GoClose = ">>"
@@ -87,16 +87,27 @@ export const settingSpots: SettingSpot[] = [
   {
     key: "agents.each-card",
     section: "agents",
-    label: "Start an agent for each card",
+    label: "Personal",
   },
   { key: "agents.spaces", section: "agents", label: "Spaces" },
+  {
+    key: "agents.given",
+    section: "agents",
+    label: "Cards someone gives you",
+  },
   {
     key: "agents.model",
     section: "agents",
     label: "What a new agent starts with",
   },
   { key: "agents.names", section: "agents", label: "Agent names" },
-  { key: "agents.limits", section: "agents", label: "Limits" },
+  { key: "agents.limits", section: "agents", label: "How many at once" },
+  {
+    key: "agents.stops",
+    section: "agents",
+    label: "When Irori stops and asks",
+  },
+  { key: "agents.weighs", section: "agents", label: "Weigh new cards" },
   { key: "agents.running", section: "agents", label: "Running agents" },
   {
     key: "agents.permissions",
@@ -112,15 +123,20 @@ export const settingSpots: SettingSpot[] = [
   {
     key: "app.transcribe",
     section: "app",
-    label: "Transcribe what I say in calls",
+    label: "Transcribe what I say in huddles",
   },
   { key: "app.names", section: "app", label: "Name new threads" },
-  { key: "app.weighs", section: "app", label: "Weigh new cards" },
   { key: "app.updates", section: "app", label: "Updates" },
 ]
 
+// Spots that moved, by their old key, so a saved chat's go line still
+// lands: Weigh new cards moved from App to Agents (card #1007). Kept out
+// of settingSpots, so the assistant's prompt list doesn't name them.
+const movedSpots: Record<string, string> = { "app.weighs": "agents.weighs" }
+
 export function settingSpot(key: string): SettingSpot | undefined {
-  return settingSpots.find((s) => s.key === key)
+  const k = movedSpots[key] ?? key
+  return settingSpots.find((s) => s.key === k)
 }
 
 // parseGo reads a go line's body ("card #779"), or null when it names
@@ -140,10 +156,10 @@ export function parseGo(body: string): GoTarget | null {
       const r = /^([a-z0-9_-]*)#(\d+)$/i.exec(arg)
       return r ? { kind: "card", ref: `${r[1].toLowerCase()}#${r[2]}` } : null
     }
-    case "setting":
-      return settingSpot(arg.toLowerCase())
-        ? { kind: "setting", key: arg.toLowerCase() }
-        : null
+    case "setting": {
+      const spot = settingSpot(arg.toLowerCase())
+      return spot ? { kind: "setting", key: spot.key } : null
+    }
     case "pr": {
       const u =
         /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)\/?$/i.exec(arg)

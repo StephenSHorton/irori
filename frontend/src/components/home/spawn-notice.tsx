@@ -6,7 +6,7 @@
 
 import { BotIcon } from "lucide-react"
 
-import { openSettings } from "@/components/settings/settings-menu"
+import { openSettings } from "@/lib/nav"
 import { Button } from "@/components/ui/button"
 import { useAgents } from "@/lib/agents"
 

@@ -173,7 +173,7 @@ export type Rect = { left: number; top: number; right: number; bottom: number }
 // linePath is the line from the go button (its left edge's middle) to the
 // nearest point of the target's box, curving out level from the button
 // and into the target, as an SVG path; null when the two overlap. A
-// target running under the chat (a card's header, the Settings dialog)
+// target running under the chat (a card's header, a Settings pane)
 // is aimed at where it shows, left of the chat's panel.
 export function linePath(
   from: Rect,
