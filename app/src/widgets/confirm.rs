@@ -18,8 +18,9 @@ pub type Work = Arc<dyn Fn(&Window) -> Result<(), String> + Send + Sync>;
 /// What a confirm step asks and does.
 #[derive(Clone)]
 pub struct Ask {
-    /// The question, wrapped under `confirm_label` (the dialog's title):
-    /// plain, it reads as the heading; with `rich`, as muted body text.
+    /// The question: plain, it is the dialog's title; with `rich`, the
+    /// title is `confirm_label` and the question its description
+    /// (confirm-button.tsx).
     pub question: String,
     pub rich: bool,
     pub confirm_label: String,
@@ -146,10 +147,12 @@ pub fn dialog(s: &State, f: &mut Frame) {
     let k = f.k;
     let busy = s.widgets.busy.contains(&o.key);
     let a = &o.ask;
-    // rune-kit's Dialog doesn't wrap its title or description, so the
-    // question is a wrapped body line under the confirm label, and the
-    // panel fits it (a long question ran past the dialog's edge).
-    let title = a.confirm_label.clone();
+    // The kit Dialog wraps a long title or description in its header.
+    let title = if a.rich {
+        a.confirm_label.clone()
+    } else {
+        a.question.clone()
+    };
     let confirm = Button::new(if busy {
         "Working…".to_string()
     } else {
@@ -171,7 +174,7 @@ pub fn dialog(s: &State, f: &mut Frame) {
         .disabled(busy)
         .on_press(|s: &mut State| s.widgets.confirm = None)
         .build(k);
-    let d = rune_kit::Dialog::new("widgets-confirm", title)
+    let mut d = rune_kit::Dialog::new("widgets-confirm", title)
         .open(true)
         .width(420.0)
         .fit()
@@ -186,35 +189,19 @@ pub fn dialog(s: &State, f: &mut Frame) {
                 s.widgets.confirm = None;
             }
         });
+    if a.rich {
+        d = d.description(a.question.clone());
+    }
     d.child(
-        col()
-            .key("widgets-confirm-body")
+        row()
+            .key("widgets-confirm-foot")
             .w_full()
-            .min_w(0.0)
             .px(16.0)
             .pb(16.0)
-            .gap(16.0)
-            .child(
-                text(a.question.clone())
-                    .key("widgets-confirm-question")
-                    .font(if a.rich { k.ty.ui } else { k.ty.ui_medium })
-                    .color(if a.rich {
-                        k.c.text_muted
-                    } else {
-                        k.c.text_base
-                    })
-                    .w_full()
-                    .wrap(),
-            )
-            .child(
-                row()
-                    .key("widgets-confirm-foot")
-                    .w_full()
-                    .gap(8.0)
-                    .child(rune::el().grow(1.0))
-                    .child(cancel)
-                    .child(confirm),
-            ),
+            .gap(8.0)
+            .child(rune::el().grow(1.0))
+            .child(cancel)
+            .child(confirm),
     )
     .build(k, f.layer);
 }
