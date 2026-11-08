@@ -342,7 +342,7 @@ impl Services {
     }
 
     /// Every space this person shares with `other`, hidden ones aside.
-    fn dm_shared(&self, other: &str) -> Vec<Arc<BoardLog>> {
+    pub(crate) fn dm_shared(&self, other: &str) -> Vec<Arc<BoardLog>> {
         self.shown_boards()
             .into_iter()
             .filter(|b| self.dm_rides_on(b, other))

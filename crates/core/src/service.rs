@@ -68,6 +68,8 @@ pub mod card_weights;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
+pub mod huddle_packet;
+pub mod huddle_session;
 mod liveness;
 mod mirror;
 pub mod name_themes;
@@ -353,6 +355,8 @@ struct Services {
     naming: thread_names::Naming,
     /// Irori's assistant weighing new cards (card #965).
     weighing: card_weights::Weighing,
+    /// The assistant's held session per huddle (card #1046).
+    held: huddle_session::HeldSessions,
     /// The themes new agents' names come from (card #702), shared with
     /// `names`.
     name_themes: Arc<name_themes::NameThemes>,
@@ -1599,6 +1603,7 @@ impl Core {
             call_settings,
             naming,
             weighing,
+            held: Default::default(),
             name_themes,
             invites,
         });
@@ -2794,6 +2799,49 @@ impl Core {
     /// Installs the turn that weighs a new card (card #965).
     pub fn set_weigher(&self, n: Option<thread_names::Namer>) {
         self.s.set_weigher(n);
+    }
+
+    /// Gives the Core the desktop app's held huddle sessions (card #1046):
+    /// one `claude -p` per huddle, kept up between looks. A headless Core,
+    /// or the phone, has none and runs no looks.
+    pub fn set_huddle_runner(&self, r: Option<Arc<dyn huddle_session::HuddleRunner>>) {
+        self.s.set_huddle_runner(r);
+    }
+
+    /// The packet huddle `seed` starts a session with (tests; card #1046).
+    #[doc(hidden)]
+    pub fn huddle_packet_text(&self, seed: &huddle_session::HuddleSeed) -> Result<String, String> {
+        self.s.huddle_packet_text(seed)
+    }
+
+    /// Opens `seed`'s huddle's held session with its priming turn (tests;
+    /// card 7a calls it when the person joins).
+    #[doc(hidden)]
+    pub fn huddle_open(&self, seed: &huddle_session::HuddleSeed) -> Result<(), String> {
+        self.s.huddle_open(seed)
+    }
+
+    /// One look of `seed`'s huddle's assistant (tests; card 7b's feed
+    /// calls it).
+    #[doc(hidden)]
+    pub fn huddle_look(
+        &self,
+        seed: &huddle_session::HuddleSeed,
+        message: &str,
+    ) -> Result<huddle_session::Look, String> {
+        self.s.huddle_look(seed, message)
+    }
+
+    /// Ends `call`'s held session (tests; card 7a).
+    #[doc(hidden)]
+    pub fn huddle_close(&self, call: &str) {
+        self.s.huddle_close(call)
+    }
+
+    /// Whether `call` has an open held session (tests).
+    #[doc(hidden)]
+    pub fn huddle_is_open(&self, call: &str) -> bool {
+        self.s.huddle_is_open(call)
     }
 
     /// "Weigh new cards" (card #965): on unless the person turned it off.
