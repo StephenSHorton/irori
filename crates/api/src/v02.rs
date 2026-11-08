@@ -131,7 +131,9 @@ fn tool_specs(h: &Handler) -> Resp {
     let client = match client.as_str() {
         "" => "claude",
         "claude" | "grok" | tools::CLIENT_ASSISTANT => client.as_str(),
-        _ => return http::error(400, "client must be claude, grok or assistant"),
+        // The assistant's client is Irori's own, so the error names only
+        // the public two (as Go's does; api golden).
+        _ => return http::error(400, "client must be claude or grok"),
     };
     let specs = h.s.tools().map(|t| t.specs(client)).unwrap_or_default();
     http::json(200, &specs)
