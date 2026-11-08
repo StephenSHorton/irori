@@ -297,7 +297,8 @@ impl Window {
     }
 
     /// Every agent Irori started that is still running, and every card an
-    /// agent is starting for, newest first (card #448).
+    /// agent is starting for, newest first (card #448). A shared space's
+    /// card shows as a Personal one does (card #1070).
     pub fn agents_running(&self) -> Vec<RunningAgent> {
         let p = self.people();
         let co = self.core.coord();
@@ -311,11 +312,28 @@ impl Window {
             let Some(sp) = co.spawned(&a.key) else {
                 continue;
             };
-            let t = co.get_task(&sp.task_id);
+            // A shared space's card lives in that space's log; the mark in
+            // the person's own log only names it (card #455). A space it
+            // can't read now still lists the agent, without its card.
+            let t = if sp.board.is_empty() {
+                co.get_task(&sp.task_id)
+            } else {
+                self.core
+                    .board_coord(&sp.board)
+                    .ok()
+                    .and_then(|b| b.get_task(&sp.task_id))
+            };
+            // The request it was started for, bound to its key here; a
+            // space binds it to agent:<cardId>, so else by its part.
             let req = t.as_ref().and_then(|t| {
                 t.spawns
                     .iter()
                     .find(|s| s.key == a.key)
+                    .or_else(|| {
+                        t.spawns
+                            .iter()
+                            .find(|s| s.step == sp.step && s.subtask == sp.subtask)
+                    })
                     .or_else(|| t.spawn_request())
                     .cloned()
             });
@@ -343,28 +361,44 @@ impl Window {
                 started_at: sp.at.unix_milli_value(),
             });
         }
-        for t in co.list_tasks(&coord::TaskFilter {
+        // The person's own log, then each shared space they see, where only
+        // their own cards count: another member's start isn't theirs.
+        let mut logs = vec![(co.clone(), false)];
+        for b in self.core.board_list() {
+            if b.ready
+                && let Ok(bco) = self.core.board_coord(&b.board_id)
+            {
+                logs.push((bco, true));
+            }
+        }
+        let open = coord::TaskFilter {
             open: true,
             ..coord::TaskFilter::default()
-        }) {
-            let Some(r) = t.spawn_request().filter(|r| r.pending()) else {
-                continue;
-            };
-            if cards.contains(&t.id) {
-                continue;
+        };
+        for (lco, shared) in &logs {
+            for t in lco.list_tasks(&open) {
+                if *shared && !lco.mine_to_serve(&t) {
+                    continue;
+                }
+                let Some(r) = t.spawn_request().filter(|r| r.pending()) else {
+                    continue;
+                };
+                if !cards.insert(t.id.clone()) {
+                    continue;
+                }
+                out.push(RunningAgent {
+                    status: "starting".into(),
+                    card_id: t.id.clone(),
+                    card_short: t.short_ref(),
+                    card_title: t.title.clone(),
+                    device: p.where_(&r.device),
+                    here: r.device == me,
+                    model: r.model.clone(),
+                    effort: r.effort.clone(),
+                    started_at: r.at.unix_milli_value(),
+                    ..RunningAgent::default()
+                });
             }
-            out.push(RunningAgent {
-                status: "starting".into(),
-                card_id: t.id.clone(),
-                card_short: t.short_ref(),
-                card_title: t.title.clone(),
-                device: p.where_(&r.device),
-                here: r.device == me,
-                model: r.model.clone(),
-                effort: r.effort.clone(),
-                started_at: r.at.unix_milli_value(),
-                ..RunningAgent::default()
-            });
         }
         out.sort_by_key(|r| std::cmp::Reverse(r.started_at));
         out
