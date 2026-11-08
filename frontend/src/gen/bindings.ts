@@ -3098,6 +3098,11 @@ export type TalkConversation = {
 	 */
 	spaceId?: string,
 	/**
+	 *  The space's #office-assistants channel (assistants-talk.md §4): the
+	 *  list puts it first. Absent otherwise.
+	 */
+	pinned?: boolean,
+	/**
 	 *  A DM with another person that hasn't reached them yet (card #538):
 	 *  `them` ("Waiting for Bob's Irori") or `update` ("Bob's Irori needs
 	 *  updating"). Absent otherwise. `name` is who they are.

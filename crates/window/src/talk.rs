@@ -74,6 +74,11 @@ pub struct TalkConversation {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub space_id: String,
+    /// The space's #office-assistants channel (assistants-talk.md §4): the
+    /// list puts it first. Absent otherwise.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub pinned: bool,
     /// A DM with another person that hasn't reached them yet (card #538):
     /// `them` ("Waiting for Bob's Irori") or `update` ("Bob's Irori needs
     /// updating"). Absent otherwise. `name` is who they are.
@@ -242,7 +247,11 @@ impl Window {
         let cs = self.core.talk_conversations(&self.me())?;
         Ok(cs
             .into_iter()
-            .map(|c| TalkConversation {
+            .map(|c| {
+                let pinned = coord::talk::is_assistants_channel(&c.conv_id, &c.space_id);
+                (c, pinned)
+            })
+            .map(|(c, pinned)| TalkConversation {
                 conv_id: c.conv_id,
                 kind: c.kind,
                 name: c.name,
@@ -265,6 +274,7 @@ impl Window {
                 last_by: c.last_by,
                 read_only: c.read_only,
                 agents_now: c.agents_now,
+                pinned,
                 space_id: c.space_id,
                 waiting: c.waiting,
             })
