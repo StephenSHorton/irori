@@ -353,7 +353,7 @@ export function StartSheet({
     }
   }, [])
   return (
-    <div className="grid gap-3 text-[12.5px]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3 text-[12.5px]">
       <div className="grid gap-1">
         <h3 className="flex items-center gap-2 text-[14px] font-semibold text-ink">
           <HeadphonesIcon className="size-4 shrink-0" />
@@ -365,11 +365,14 @@ export function StartSheet({
         </h3>
         <p className="text-muted-foreground">{toldText(start)}</p>
       </div>
-      <div className="grid gap-1.5 rounded-lg border border-border bg-card/60 p-2.5">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-1.5 rounded-lg border border-border bg-card/60 p-2.5">
         <span className="flex items-center gap-2">
           <MicIcon className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="text-muted-foreground">Microphone</span>
-          <span className="ml-auto min-w-0 truncate text-right text-ink">
+          <span
+            className="ml-auto min-w-0 truncate text-right text-ink"
+            title={mic || undefined}
+          >
             {mic === null ? "…" : mic || "the default microphone"}
           </span>
         </span>
@@ -1190,7 +1193,8 @@ export function PhoneCallBar({
   const mine = useCallPart((s) => s.mine)
   if (!mine || mine.convId === here) return null
   return (
-    <div className="pt-2">
+    // Ask Irori's button and panel sit above it (card #783).
+    <div className="pt-2" data-assistant-avoid="bar">
       <CallBar
         mine={mine}
         onOpen={() => onOpen(mine.convId)}

@@ -6,6 +6,7 @@ import {
   boards,
   boardsNow,
   inviteOpen,
+  MaxBoardDescription,
   presenceLine,
   reloadBoards,
   subscribeBoards,
@@ -13,6 +14,8 @@ import {
   validTag,
   type SummaryMember,
 } from "./boards"
+import { cards } from "./cards"
+import { Personal } from "./spaces"
 
 // settled waits for the reloads a change started (the sample's list is a
 // resolved promise, so a few turns of the queue are enough).
@@ -155,5 +158,143 @@ describe("presenceLine", () => {
     ).toBe("offline · seen 2h ago")
     expect(presenceLine(m({ presence: "offline" }), now)).toBe("offline")
     expect(presenceLine(m({ presence: "" }), now)).toBe("offline")
+  })
+})
+
+describe("closing a board on the sample (card #690)", () => {
+  const g = globalThis as unknown as { window?: unknown }
+  g.window ??= { location: { search: "" } }
+  const space = "sample-board-mlg"
+  const find = async (id: string) =>
+    (await boards.list())
+      .find((b) => b.boardId === space)
+      ?.boards.find((x) => x.boardId === id)
+  const mine = async (id: string) =>
+    (await boards.personal()).find((x) => x.boardId === id)
+
+  test("the first board and Personal's default are never closed", async () => {
+    await expect(boards.close(space, space, "keep")).rejects.toThrow(
+      "first board"
+    )
+    await expect(boards.close(Personal, Personal, "keep")).rejects.toThrow(
+      "default board"
+    )
+  })
+
+  test("keep refuses while a card is open, naming it; with none open it closes and reopens", async () => {
+    // A board of its own, so other tests' sample changes don't reach it.
+    await boards.addToSpace(space, "Keep me", "keep", "Try closing")
+    const id = `${space}-keep`
+    const made = await cards.create({
+      title: "Still open",
+      board: space,
+      spaceBoard: id,
+    })
+    try {
+      await expect(boards.close(space, id, "keep")).rejects.toThrow(
+        "1 open card (keep#"
+      )
+      expect((await find(id))?.closed).toBeFalsy()
+      await cards.move(made.task.id, space)
+      await boards.close(space, id, "keep")
+      const x = await find(id)
+      expect(x?.closed).toBe(true)
+      expect(x?.closedAt).toBeTruthy()
+      // Read-only: nothing moves onto it, and its description stays.
+      await expect(cards.move(made.task.id, id)).rejects.toThrow("is closed")
+      await expect(
+        boards.setDescription(space, id, "Something else")
+      ).rejects.toThrow("is closed")
+      await boards.reopen(space, id)
+      expect((await find(id))?.closed).toBe(false)
+      expect((await find(id))?.description).toBe("Try closing")
+      // Reopening an open board does nothing, as in core.
+      await boards.reopen(space, id)
+      expect((await find(id))?.closed).toBe(false)
+    } finally {
+      await cards.remove(made.task.id)
+      await boards.deleteFromSpace(space, id)
+    }
+  })
+
+  test("move takes the open cards to another open board, then closes", async () => {
+    await boards.addToSpace(space, "Move me", "mv", "")
+    const id = `${space}-mv`
+    const made = await cards.create({
+      title: "Goes elsewhere",
+      board: space,
+      spaceBoard: id,
+    })
+    try {
+      // Not onto itself, nor a closed board, nor with nowhere named.
+      await expect(boards.close(space, id, "move", id)).rejects.toThrow(
+        "another board"
+      )
+      await expect(
+        boards.close(space, id, "move", "sample-board-mlg-proto")
+      ).rejects.toThrow("is closed")
+      await expect(boards.close(space, id, "move", "")).rejects.toThrow(
+        "pick a board"
+      )
+      expect((await find(id))?.closed).toBeFalsy()
+      await boards.close(space, id, "move", "sample-board-mlg-net")
+      expect((await find(id))?.closed).toBe(true)
+      const d = await cards.detail(made.task.id)
+      expect(d.spaceBoard).toBe("sample-board-mlg-net")
+      expect(d.tag).toBe("net")
+      expect(d.state).not.toBe("canceled")
+    } finally {
+      await cards.remove(made.task.id)
+      await boards.reopen(space, id)
+      await boards.deleteFromSpace(space, id)
+    }
+  })
+
+  test("cancel ends the open cards with a note, then closes", async () => {
+    const list = await boards.addToPersonal("Cancel me", "cx", "")
+    const id = list.find((x) => x.tag === "cx")!.boardId
+    const made = await cards.create({ title: "Never mind", spaceBoard: id })
+    try {
+      await boards.close(Personal, id, "cancel")
+      expect((await mine(id))?.closed).toBe(true)
+      const d = await cards.detail(made.task.id)
+      expect(d.state).toBe("canceled")
+      expect(d.note).toBe("its board was closed")
+      await boards.reopen(Personal, id)
+      expect((await mine(id))?.closed).toBe(false)
+    } finally {
+      await cards.remove(made.task.id)
+      await boards.deleteFromPersonal(id)
+    }
+  })
+
+  test("Personal's move goes to its default board by its id", async () => {
+    const list = await boards.addToPersonal("Move home", "mh", "")
+    const id = list.find((x) => x.tag === "mh")!.boardId
+    const made = await cards.create({ title: "Back home", spaceBoard: id })
+    try {
+      await boards.close(Personal, id, "move", Personal)
+      expect((await mine(id))?.closed).toBe(true)
+      expect((await cards.detail(made.task.id)).spaceBoard).toBe(Personal)
+    } finally {
+      await cards.remove(made.task.id)
+      await boards.deleteFromPersonal(id)
+    }
+  })
+
+  test("a description is written and cleared, 2000 characters at most", async () => {
+    const art = "sample-board-mlg-art"
+    expect(MaxBoardDescription).toBe(2000)
+    await boards.setDescription(space, art, " Paint the boats ")
+    expect((await find(art))?.description).toBe("Paint the boats")
+    await boards.setDescription(space, art, "x".repeat(2000))
+    await expect(
+      boards.setDescription(space, art, "x".repeat(2001))
+    ).rejects.toThrow("2000")
+    await boards.setDescription(space, art, "")
+    expect((await find(art))?.description).toBeFalsy()
+    await expect(
+      boards.addToSpace(space, "Too long", "toolong", "y".repeat(2001))
+    ).rejects.toThrow("2000")
   })
 })

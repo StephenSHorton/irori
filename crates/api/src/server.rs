@@ -31,7 +31,7 @@ use crate::backend::{Backend, ToolSet};
 use crate::body::MAX_REQUEST_BODY;
 use crate::conn::{Deadlines, DoneBody, TimedIo, Timeouts};
 use crate::http::{self, Query, Req, Resp, Sink};
-use crate::{AGENT_VIEWER, HEADER_PERSON};
+use crate::{AGENT_VIEWER, HEADER_ASSISTANT, HEADER_PERSON};
 
 /// Event query limits for `GET /v1/events`.
 pub const DEFAULT_EVENT_LIMIT: i64 = 100;
@@ -55,6 +55,9 @@ pub(crate) struct Shared {
     token: Vec<u8>,
     /// The person's per-run secret (decision D10(a)): only in memory.
     person: Vec<u8>,
+    /// The window assistant's per-run secret (card #783), from the
+    /// backend; empty accepts none.
+    assistant: Vec<u8>,
     pub streams: Streams,
     pub stop: Arc<AtomicBool>,
     pub keepalive: RwLock<Duration>,
@@ -83,9 +86,11 @@ impl Server {
     /// A server that checks `token` on every authenticated route. It mints
     /// the person's secret for this run ([`Server::person_secret`]).
     pub fn new(b: Arc<dyn Backend>, token: &str) -> Server {
+        let assistant = b.assistant_secret().into_bytes();
         Server {
             s: Arc::new(Shared {
                 b,
+                assistant,
                 tools: RwLock::new(None),
                 token: token.as_bytes().to_vec(),
                 person: new_secret(32).into_bytes(),
@@ -489,6 +494,17 @@ pub(crate) struct Caller {
     pub path: String,
     /// Through a mod attach secret (not a member).
     pub attach: bool,
+    /// The window assistant (card #783): reads as the person, through
+    /// `tools::ASSISTANT_TOOLS` only. Only [`Handler::assistant`] makes one.
+    pub assistant: bool,
+}
+
+/// Whether the assistant header was sent, and whether it is this run's
+/// secret (constant-time).
+pub(crate) enum AssistantHeader {
+    Absent,
+    Wrong,
+    Ok,
 }
 
 impl Handler<'_> {
@@ -516,6 +532,7 @@ impl Handler<'_> {
                 sender: snd,
                 path: inbox::path::MOD.into(),
                 attach: true,
+                assistant: false,
             });
         }
         if !m.is_empty() && a.is_empty() {
@@ -524,9 +541,56 @@ impl Handler<'_> {
                 sender: Sender::new(&mb.key, &mb.name, "grok"),
                 path: inbox::path::CHANNEL.into(),
                 attach: false,
+                assistant: false,
             });
         }
         None
+    }
+
+    /// The `X-Irori-Assistant` header as sent: one value, alone (no other
+    /// identity header), equal to this run's secret.
+    pub fn assistant_header(&self) -> AssistantHeader {
+        let vals = self.r.header_values(HEADER_ASSISTANT);
+        if vals.is_empty() {
+            return AssistantHeader::Absent;
+        }
+        let s = &self.s.assistant;
+        let alone = !self.r.has_header(HEADER_ATTACH)
+            && !self.r.has_header(HEADER_MEMBER)
+            && !self.r.has_header(HEADER_PERSON);
+        let ok = alone
+            && vals.len() == 1
+            && !s.is_empty()
+            && vals[0].len() == s.len()
+            && bool::from(vals[0].as_bytes().ct_eq(s));
+        if ok {
+            AssistantHeader::Ok
+        } else {
+            AssistantHeader::Wrong
+        }
+    }
+
+    /// The window assistant (card #783), from this run's
+    /// `X-Irori-Assistant` sent alone: the person at this device
+    /// (`user:<device>`, the key the Board's person view reads as), so
+    /// search, show and board read exactly what the person sees. Only the
+    /// tool routes take it, and only for `tools::ASSISTANT_TOOLS`.
+    pub fn assistant(&self) -> Option<Caller> {
+        if !matches!(self.assistant_header(), AssistantHeader::Ok) {
+            return None;
+        }
+        let d = self.s.b.device();
+        let name = if d.name.is_empty() {
+            "the person".to_string()
+        } else {
+            d.name.clone()
+        };
+        Some(Caller {
+            sender: Sender::new(&format!("user:{}", d.id), &name, tools::CLIENT_ASSISTANT),
+            path: String::new(),
+            attach: false,
+            assistant: true,
+        })
     }
 
     /// Whether rows read as the person (this run's `X-Irori-Person`);

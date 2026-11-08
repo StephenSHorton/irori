@@ -12,6 +12,8 @@ import {
   threadsSpace,
   withLine,
   cardsOnPersonal,
+  closedBoards,
+  openBoards,
 } from "./spaces"
 import { cropSquare, initials, isAvatar } from "./avatar"
 
@@ -176,5 +178,25 @@ describe("cardsOnPersonal", () => {
   })
   test("an inner board has its own, and a space's card is on none", () => {
     expect(cardsOnPersonal(cards, "b-home").map((c) => c.id)).toEqual(["h"])
+  })
+})
+
+// Card #690: closed boards leave the lists for the Closed boards fold.
+describe("openBoards and closedBoards", () => {
+  const list = [
+    { boardId: "s", closed: false },
+    { boardId: "n" },
+    { boardId: "p", closed: true },
+    { boardId: "a", closed: false },
+  ]
+  test("open keeps the first board and the unclosed, in order", () => {
+    expect(openBoards(list).map((x) => x.boardId)).toEqual(["s", "n", "a"])
+    expect(closedBoards(list).map((x) => x.boardId)).toEqual(["p"])
+  })
+  test("the first board is never closed, even if a row says so", () => {
+    const odd = [{ boardId: "s", closed: true }, { boardId: "n" }]
+    expect(openBoards(odd).map((x) => x.boardId)).toEqual(["s", "n"])
+    expect(closedBoards(odd)).toEqual([])
+    expect(openBoards([])).toEqual([])
   })
 })

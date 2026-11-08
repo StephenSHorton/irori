@@ -168,6 +168,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// The note on a delivery the sweeper took away from a session that ended.
 pub const NOTE_RECIPIENT_GONE: &str = "recipient gone";
+/// The note on a wind-down the person turned off before it reached its
+/// agent (card #787).
+pub const NOTE_WIND_DOWN_OFF: &str = "wind down turned off";
 
 pub const MAX_TEXT: usize = 8000;
 /// The person's own message may run to this many bytes (card #265); it
@@ -319,6 +322,8 @@ pub mod choice {
     pub const RELEASE: &str = "release";
     pub const DISMISS: &str = "dismiss";
     pub const MOVE: &str = "move";
+    /// Wind down turned off (card #787): a wind-down not reached yet closes.
+    pub const CANCEL: &str = "cancel";
 }
 
 // ---- types ----------------------------------------------------------------
