@@ -71,6 +71,20 @@ describe("the §3 state table (card #417)", () => {
     expect(l.note).toBe("no author card yet")
     expect(l.author).toEqual({})
   })
+  test("a PR waiting on a space's devices says so after its own note (card #1077)", () => {
+    const p = pr({ checks: "success" })
+    const l = one(p, {
+      authors: {
+        [p.number]: {
+          card: "c",
+          reviewNote: "waiting for bob/ab12 to update or be heard from",
+        },
+      },
+    })
+    expect(l.note).toBe(
+      "ready for review · waiting for bob/ab12 to update or be heard from"
+    )
+  })
   test("Draft is listed, never queued", () => {
     expect(one(pr({ isDraft: true })).state).toBe("draft")
   })
