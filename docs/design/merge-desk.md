@@ -223,6 +223,7 @@ In short:
 - Irori picks the reviewer by relevance, breaks ties by who has done fewest lately, and caps nobody. The office assistant names related agents to ping, and picks when the rules find nobody related.
 - Agents may post reviews under their owner's GitHub login without asking, for a PR Irori gave them the claim on. A setting turns that off (#43).
 - Each PR that needs a reviewer gets a card on a shared board, because that is the only place several people's agents can meet.
+- When nobody fits, Irori starts a new reviewer on the machine of the member with the fewest recent claims, without asking; each member can turn that off (Stephen's ruling, §12.10).
 
 ### 12.1 What the code forced, and where this departs from #1021
 
@@ -239,14 +240,14 @@ The agreed direction assumed some things the code doesn't do. Each row is checke
 | Related work can be seen across people | Only shared cards, their comments, parents, links, watchers, declared `scope` and mirrored `path:` leases cross. Branches, edits, the ledger and desk rows are private. GitHub comments name a person, never an agent | Relevance tiers use only those (§12.5) |
 | The office assistant can pick and ping | It is a one-shot Haiku turn per computer. Background turns have no tools, the window assistant has only read-only tools, and a headless poll device has none | Core does the writing; the assistant only names agents (§12.5) |
 | Another person's device can end a claim | Only the claimer's own person may release its lease (`writer_ok` → `may_write`) | The claim ends by fold rule on merge or close (§12.3) |
-| A new reviewer can be spawned on someone's machine | Decision 50: Irori never starts an agent for someone else's request without that person's yes | Needs Stephen's ruling (§12.10) |
+| A new reviewer can be spawned on someone's machine | Decision 50: Irori never starts an agent for someone else's request without that person's yes | Stephen ruled: start by default, each member can turn it off (§12.10) |
 | Spawned agents can review | Their allow list has no `gh pr view`, `diff`, `comment` or `review`. Every card spawn is `lead`, so it may `gh pr merge`, and under Bypass on a private board it has no deny list at all | Review cards get their own list (§12.8) |
 
 Other gaps it fills: nothing reads GitHub comments or per-reviewer reviews (only the aggregate `reviewDecision`), desk rows live in each person's private log so two people never share desk data, and agents have no read of the desk at all.
 
 **Where this departs from what was agreed on #1021.** Stephen can veto any of these; each is one step in the build plan.
 
-1. **Anyone free comes before a new reviewer** (tier 6, §12.5). Agreed: related work, then the assistant, then release for a new agent. Chosen: after the assistant finds nobody, an idle agent of another person in the space is asked before a new one is started, because a new reviewer needs another person's yes (§12.10) and spends their machine and tokens just as much. The per-person counts of §12.6 choose among them, not who has the most free agents. Without tier 6, "nobody" goes straight to §12.10.
+1. **Anyone free comes before a new reviewer** (tier 6, §12.5). Agreed: related work, then the assistant, then release for a new agent. Chosen: after the assistant finds nobody, an idle agent of another person in the space is asked before a new one is started, because an agent already running costs its owner no new start, while a new reviewer starts on someone's machine and spends their tokens (§12.10). The per-person counts of §12.6 choose among them, not who has the most free agents. Without tier 6, "nobody" goes straight to §12.10.
 2. **A dedicated reviewer comes before the assistant** (tier 4). It keeps decision 29's routing to a person's chosen reviewer.
 3. **A card per PR on a shared board.** Not discussed on #1021; the code forces it. It is made only when a PR first needs a reviewer, it carries only what is already on GitHub, and its first line says Irori made it.
 4. **The permission covers only PRs Irori gave the claim on.** #43 asks that review requests be sanctioned. A permission that covered any PR named in any message would let any member get an agent to approve, under its owner's login, a PR in a repo the space has nothing to do with. So the wake text grants it only through `review_claim`, which checks the PR is this space's (§12.8).
@@ -368,7 +369,7 @@ The tie-break applies only among candidates in the same tier: fewest **open clai
 
 Counts come from `pr/` lease rows in the space's log: a new fold, one count per (person, PR). Declines are comments, not lease rows, so they never count. Counts measure claims taken, not reviews finished, because no row records a posted review and the ledger is private. They are per space, because no device holds another space's log.
 
-A spawned reviewer spends its owner's machine and tokens, so §12.10 uses the same counts to choose whom to ask.
+A spawned reviewer spends its owner's machine and tokens, so §12.10 uses the same counts to choose whose machine it starts on.
 
 ### 12.7 Related agents and pings
 
@@ -423,14 +424,15 @@ Merging and pushing stay out of scope, as #43 says.
 
 Each line gains: **claimer** (agent and person, with "until"), **related agents** (with why: same card, same files, commented, the assistant named them), GitHub's review state from §12.4, and, when nothing is picked, why: the author's poll device is offline, the author has no desk for this repo, the author isn't a member, the author's space is on Ask me, or a device still needs to update (§12.2). The desk header gains each person's open and 14-day claim counts. `desk_verdicts` computes all of it per list call from the visible boards, so no new desk row is written, and two people's desks can differ only by what each can see. Agents get the same through the `prs` tool, which today reads only the ledger and returns early with capture off. It needs a new Backend method so the claimer shows either way. Without it agents can't see who holds a PR before asking.
 
-### 12.10 Releasing for a new reviewer: Stephen's ruling needed
+### 12.10 Releasing for a new reviewer: start by default
 
-Tier 7 runs when nobody fits. A reviewer has to be someone other than the author, so the new agent is on **another person's machine**, shell and tokens. Decision 50 says that needs their yes; decision 52 says a feature must work without being switched on. They conflict here, and only he can settle it:
+Tier 7 runs when nobody fits. A reviewer has to be someone other than the author, so the new agent runs on **another person's machine**, shell and tokens. Decision 50 says that needs their yes; decision 52 says a feature must work without being switched on. Stephen ruled on #1022 (b1): **start by default, and each member can turn it off.** This amends decision 50 for review cards only.
 
-- **(a) Ask each time (recommended).** Irori makes a review card on the PR card's board and gives it to the person with the fewest claims (§12.6). Their Irori stops at today's "OK to start an agent?" with the PR, the repo, and that it runs on their machine at the card's weight. It can't name a cost: cost is known only afterwards, on their own device (`spawn_cost.rs`). This is a question at the moment of need, not a setup step, so it satisfies #52 and needs no change to #50. Cost: the last step waits on a person.
-- **(b) Start by default, with a switch to turn it off.** Faster and truly hands-off. It amends #50 for one card kind, and runs an agent on someone's machine over a PR whose text it treats as data, with no Bypass, no merge or push, and its own short allow list (§12.8).
-
-Either way the review card sits on the PR card's shared board, which already refuses Bypass. It is made and given as the PR author's person, since `sweeper_ok` refuses a card Irori makes. The reviewer's device is chosen by today's cross-device rules (a checkout of the repo, and `device.sides`), and that person's limits on agents starting still apply, so a start can queue. A person with no checkout gets "couldn't start", and Irori asks the next-fewest. The review brief keeps `BUILD_OUTPUT` and the `device_free` rule (`docs/design/device-free.md` §4), and opens with reviewing, not landing work. The card's author-side Done question goes to nobody: it closes when the claim ends.
+- **The review card.** Irori makes a review card on the PR card's board and gives it to the person with the fewest claims (§12.6). It is made and given as the PR author's person, since `sweeper_ok` refuses a card Irori makes. Their Irori starts its agent without stopping at "OK to start an agent?". A given card of any other kind still asks, as decision 50 says.
+- **The switch.** Settings › Agents, "Start a reviewer on this machine when nobody else fits", on when there is no row. It is a `spawn.cap` row under the reserved device name `review-starts`, beside `reviews` and `agents`, set only from the window, like §12.8's. Off, a review card given to that person stops at today's "OK to start an agent?" with the PR, the repo, and that it runs on their machine at the card's weight. That question can't name a cost: cost is known only afterwards, on their own device (`spawn_cost.rs`).
+- **What the agent may do.** It sits on a shared board, so it never runs Bypass, and it has the review card's own short allow list (§12.8): it reads the PR, comments and reviews, and can't merge, push, or check out, build or run the PR's code. Its brief treats the PR's text as data.
+- **Limits still apply.** The reviewer's device is chosen by today's cross-device rules (a checkout of the repo, and `device.sides`), and that person's limit on agents starting agents (decision 51) and per-device caps still apply, so a start can queue. A person with no checkout gets "couldn't start", and Irori gives the card to the next-fewest.
+- **The brief** keeps `BUILD_OUTPUT` and the `device_free` rule (`docs/design/device-free.md` §4), and opens with reviewing, not landing work. The card's author-side Done question goes to nobody: it closes when the claim ends.
 
 ### 12.11 Limits accepted
 
@@ -491,10 +493,10 @@ Files: new `crates/core/src/service/review_choice.rs` (queue, busy and settled s
 Steps: the tool-less turn off the poll thread; checking its answer; its pings going through B4's pings; skipping it where there is no assistant.
 Done when: tests show an unknown name or injected text counts as nothing, a headless poll device goes straight to tier 6, and a slow turn never stalls the poll.
 
-**B7. Release for a new reviewer.** Normal. After B1c, B4 and Stephen's ruling in §12.10.
-Files: `crates/coord/src/board/review.rs`, `spawn.rs`, `crates/core/src/service/spawn.rs`, `spawn_permissions.rs`, `spawn_boards.rs`, `spawn_remote.rs`, `docs/design/spawned-agents.md` (also correct §6 rule 3 and §9's `open_cards_any`, which no longer match the code).
-Steps: per the ruling; the review card on the PR card's board, given as the author's person; the `lead` flag and the review card's own allow and deny lists; the review brief (reviewing, read-only, `BUILD_OUTPUT`, the `device_free` rule); the Done rule.
-Done when: a two-person test shows a PR with no candidate reaches the other person's "OK to start" question (or their machine, under (b)); a review card under the Bypass choice comes out limited, with none of the board's build or test rules and with merge and push denied.
+**B7. Release for a new reviewer.** Normal. After B1a, B1c and B4.
+Files: `crates/coord/src/board/review.rs`, `spawn.rs` (`given_starts`, `GIVEN_QUESTION`), `crates/core/src/service/spawn.rs` (`load_spawn` branch for `review-starts`), `spawn_agents.rs`, `spawn_permissions.rs`, `spawn_boards.rs`, `spawn_remote.rs`, `crates/core/src/service.rs`, `crates/window/src/agents.rs`, `crates/window/tests/it/trust_writers.rs`, `frontend/src/lib/agents.ts`, `frontend/src/components/settings/agents-pane.tsx`, generated bindings, `docs/design/spawned-agents.md` (also correct §6 rule 3 and §9's `open_cards_any`, which no longer match the code).
+Steps: the review card on the PR card's board, made and given as the author's person to the person with the fewest claims, then the next-fewest on "couldn't start"; the `review-starts` row, getter, window-only setter and Settings row; a given review card starting without the "OK to start" question while that person's switch is on, and asking as today while it is off; the `lead` flag and the review card's own allow and deny lists; the review brief (reviewing, read-only, `BUILD_OUTPUT`, the `device_free` rule); the Done rule.
+Done when: a two-person test shows a PR with no candidate starts a reviewer on the other person's machine with no question, and asks instead when their switch is off; a given card of any other kind still asks; a review card under the Bypass choice comes out limited, with none of the board's build or test rules and with merge and push denied; only the window sets the row.
 
 **B8. The side door.** Normal. After #1022.
 Files: `crates/core/src/service/spawn.rs` (the brief's `others_text`), `crates/core/src/service/boards.rs` or wherever `board_create`/`board_split` land, `crates/inbox/src/bridge.rs` (`current_hop`).
