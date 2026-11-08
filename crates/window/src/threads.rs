@@ -572,6 +572,7 @@ impl Window {
                         sp.op == coord::SPAWN_FAILED
                             && !coord::usage_limited(sp)
                             && state == THREAD_WAITING
+                            && crate::cards::failed_wait_applies(&t, &p)
                     })
                     .map(|sp| crate::cards::cant_start_text(&t, sp, &p))
                     .unwrap_or_default(),

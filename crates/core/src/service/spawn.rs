@@ -1748,6 +1748,7 @@ impl Services {
         self.reap_ended();
         self.sweep_permission_waits();
         self.say_ask_crashes();
+        self.drop_held_waits();
         // A device that runs agents asks about given cards, paused or not.
         if self
             .spawn
