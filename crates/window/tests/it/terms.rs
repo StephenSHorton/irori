@@ -102,6 +102,9 @@ fn a_card_can_hold_several_shells() {
     r.w.core.terms().close(a.id).unwrap();
     r.w.core.terms().close(b.id).unwrap();
     assert!(r.w.term_list(&t.id).is_empty());
+    // A closed shell removes its bootstrap folder (rsz-zdot-*) from the temp
+    // dir as it exits; settle waits for that (card #960).
+    assert!(r.w.core.terms().settle(std::time::Duration::from_secs(20)));
     // A killed shell may stay in its folder for a moment, and Windows can't
     // delete a folder in use. TempDir's own drop would give up at once.
     wait("the shells to leave their folder", || {
