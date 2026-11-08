@@ -814,26 +814,6 @@ fn links_pr(t: &Task, pr: &str) -> bool {
         .any(|l| coord::pr_link(l).is_some() && l.reference.trim() == pr.trim())
 }
 
-#[cfg(test)]
-mod links_pr_tests {
-    use super::*;
-
-    #[test]
-    fn only_a_linked_pr_passes() {
-        let pr = "https://github.com/o/r/pull/7";
-        let mut t = Task::default();
-        t.links.push(coord::Link {
-            kind: "url".into(),
-            reference: pr.into(),
-            ..coord::Link::default()
-        });
-        assert!(links_pr(&t, pr));
-        assert!(!links_pr(&t, "https://github.com/o/r/pull/8"));
-        assert!(!links_pr(&t, ""));
-        assert!(!links_pr(&Task::default(), pr));
-    }
-}
-
 /// A card row's plan: a comment, an assignment, a blocker change, a review
 /// request or a release request.
 fn row_plan(co: &Coord, me: &str, ev: &Event, f: RowFields, t: &Task) -> Option<Plan> {
@@ -1085,5 +1065,25 @@ impl Services {
             ..Default::default()
         }));
         out
+    }
+}
+
+#[cfg(test)]
+mod links_pr_tests {
+    use super::*;
+
+    #[test]
+    fn only_a_linked_pr_passes() {
+        let pr = "https://github.com/o/r/pull/7";
+        let mut t = Task::default();
+        t.links.push(coord::Link {
+            kind: "url".into(),
+            reference: pr.into(),
+            ..coord::Link::default()
+        });
+        assert!(links_pr(&t, pr));
+        assert!(!links_pr(&t, "https://github.com/o/r/pull/8"));
+        assert!(!links_pr(&t, ""));
+        assert!(!links_pr(&Task::default(), pr));
     }
 }
