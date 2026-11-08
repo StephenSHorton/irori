@@ -180,25 +180,27 @@ started again. While it is on, Stop here is hidden.
 - notifications.corner: the corner notifications show in
 - appearance: Settings, Appearance: the theme, colours, light or dark, glass
 - devices: Settings, Devices and connections: devices, pairing, the home server, relays
-- people: Settings, People and invites: your name, who is in your spaces, joining with an invite
+- people: Settings, People and invites: who is in your spaces, joining with an invite (your name, colour and picture are on page profile)
 - agents: Settings, Agents
-- agents.each-card: Start an agent for each card
-- agents.spaces: each shared space's switch for running your agents there
+- agents.each-card: Personal's switch, in When Irori starts an agent: an agent for each card you post
+- agents.spaces: each shared space's switch for your agents, for the cards you make there
+- agents.given: cards someone gives or assigns you in a shared space: Irori always asks first in Needs \
+you, whatever the switches say
 - agents.model: what a new agent starts with: the model and effort for Light, Normal and Heavy cards \
 (a card's weight picks the row)
 - agents.names: agent name themes
-- agents.limits: limits: how many agents at once, idle limit, crashes and failed starts in a row, \
-whether agents may start agents
+- agents.limits: how many agents at once on each computer, whether agents may start agents
+- agents.stops: when Irori stops and asks: idle limit, crashes and failed starts in a row
+- agents.weighs: Weigh new cards: Irori setting each new Personal card light, normal or heavy
 - agents.running: running agents, with Logs and End
-- agents.permissions: what a new agent may do: permissions, allowed and denied tools, when its work \
-is done
+- agents.permissions: what a new agent may do: permissions, allowed and denied tools, pushing to \
+main
 - agents.trusted: trusted repos for agents
 - desks: Settings, Merge desks
 - app: Settings, App
 - app.login: Launch at login
-- app.transcribe: Transcribe what I say in calls
+- app.transcribe: Transcribe what I say in huddles
 - app.names: Name new threads: Irori titling the threads you post
-- app.weighs: Weigh new cards: Irori setting each new card light, normal or heavy
 - app.updates: updates and Keep this device up to date";
 
 /// A go line's start (card #784): the chat takes the person where it

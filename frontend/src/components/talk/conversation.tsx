@@ -658,6 +658,7 @@ export function ConversationView({
         // A space's channel makes its cards in the space (card #558).
         board={boards.find((b) => b.boardId === conv.spaceId)}
         from={prefill}
+        draftLost
         onClose={() => setMaking(null)}
         onMade={(id) => {
           if (making) void talkApi.linkCard(making.postId, id).catch(() => {})

@@ -22,6 +22,7 @@ import {
   WholeNumberField,
 } from "@/components/settings/agent-starts"
 import { NamesThemesSection } from "@/components/settings/names-themes"
+import { WeighsSwitch } from "@/components/settings/settings-parts"
 import { SpaceAgentSwitch } from "@/components/settings/space-agents"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -56,16 +57,18 @@ import { SpawnedActions } from "@/components/cards/spawned-actions"
 import { agentStatus } from "@/lib/agent-status"
 import { useBoards } from "@/lib/boards"
 import { plainLine } from "@/lib/irori"
+import { go } from "@/lib/nav"
 import { LiveRoster } from "@/lib/thread"
 import { AgentRef } from "@/lib/models"
 
 export function AgentsPane({ open }: { open: boolean }) {
   const { settings: s, error, loading, set } = useAgents(open)
-  const id = useId()
-  // Running, permissions and trusted repos read on their own, beside the
-  // settings rather than after them, each with its own skeleton (card #598).
+  // Read in the order someone asks (card #1007): when one starts, what it
+  // starts with, what it may do, how many, when Irori stops, then what's
+  // running now. Running, permissions and trusted repos read on their own,
+  // each with its own skeleton (card #598).
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-5">
       <Loading
         loading={loading}
         label="Loading agent settings"
@@ -77,47 +80,132 @@ export function AgentsPane({ open }: { open: boolean }) {
         }
       >
         {s ? (
-          <div className="grid gap-4">
-            <div
-              className="flex items-start justify-between gap-3"
-              data-setting="agents.each-card"
-            >
-              <span className="flex flex-col">
-                <label htmlFor={id} className="cursor-pointer text-ink">
-                  Start an agent for each card
-                </label>
-                <span
-                  id={`${id}-hint`}
-                  className="text-xs text-muted-foreground"
-                >
-                  In Personal, Irori starts a fresh agent for every card you
-                  post instead of waiting for a free one, and ends it when the
-                  card is done.
-                </span>
-              </span>
-              <Switch
-                id={id}
-                checked={s.on}
-                aria-describedby={`${id}-hint`}
-                onCheckedChange={(v) => set({ on: v })}
-                className="mt-0.5"
-              />
-            </div>
-            <SpacesSection open={open} />
+          <div className="grid gap-5">
+            <WhenSection open={open} settings={s} set={set} />
             <WeightsSection settings={s} set={set} />
-            <HistorySection open={open} />
-            <NamesThemesSection open={open} />
-            <LimitsSection open={open} settings={s} set={set} />
           </div>
         ) : (
           <AgentsShape />
         )}
       </Loading>
-      <RunningSection open={open} />
+      {/* Reads on its own, so it stays when the read above fails. The gap
+          pulls it up under the table it picks rows of. */}
+      <div className="-mt-3">
+        <WeighsSwitch />
+      </div>
+      <HistorySection open={open} />
       <PermissionsSection open={open} />
       <TrustedSection open={open} />
+      {/* Only while it loads: a failed read says so above, with no empty
+          headings under it. */}
+      {(s || loading) && (
+        <Loading loading={loading} label="Loading agent limits">
+          {s ? (
+            <LimitsSection open={open} settings={s} set={set} />
+          ) : (
+            <LimitsShape />
+          )}
+        </Loading>
+      )}
+      <NamesThemesSection open={open} />
+      <RunningSection open={open} />
       {s && error && <p className="text-[12.5px] text-destructive">{error}</p>}
     </div>
+  )
+}
+
+// WhenSection answers "when does Irori start an agent" in one place (card
+// #1007, decision 50, docs/design/spawned-agents.md §9): Personal, each
+// shared space, and cards given to you, side by side, since the last of
+// those is under no switch at all. Nothing here changes when one starts.
+function WhenSection({
+  open,
+  settings: s,
+  set,
+}: {
+  open: boolean
+  settings: AgentsSettings
+  set: (c: Omit<AgentsChange, "boardId">) => void
+}) {
+  const { boards } = useBoards()
+  const id = useId()
+  return (
+    <section className="grid gap-2" aria-labelledby={`${id}-when`}>
+      <h3 id={`${id}-when`} className="text-sm font-medium text-ink">
+        When Irori starts an agent
+      </h3>
+      <p className="text-[12.5px] text-muted-foreground">
+        By itself, only for the cards a switch here covers. Each computer has
+        its own switches: what counts is the one on the computer that made the
+        card or, for a card made on a phone, the computer that picks it up.
+      </p>
+      <ul className="grid divide-y divide-border rounded-md border border-border">
+        <li
+          data-setting="agents.each-card"
+          className="flex items-start justify-between gap-3 px-3 py-2"
+        >
+          <span className="flex min-w-0 flex-col">
+            <label htmlFor={id} className="cursor-pointer text-ink">
+              Personal
+            </label>
+            <span id={`${id}-hint`} className="text-xs text-muted-foreground">
+              {s.on
+                ? "On: Irori starts a fresh agent for each card you post here, and ends it when the card is done."
+                : "Off: Irori doesn't start agents for the cards you post here. They wait for a free agent that takes offered cards."}
+            </span>
+          </span>
+          <Switch
+            id={id}
+            checked={s.on}
+            aria-describedby={`${id}-hint`}
+            onCheckedChange={(v) => set({ on: v })}
+            className="mt-0.5"
+          />
+        </li>
+        {boards.length > 0 && (
+          <li data-setting="agents.spaces">
+            <ul className="grid divide-y divide-border" aria-label="Spaces">
+              {boards.map((b) => (
+                <li key={b.boardId} className="px-3 py-2">
+                  <SpaceAgentSwitch
+                    boardId={b.boardId}
+                    name={plainLine(b.name) || "(unnamed)"}
+                    open={open}
+                  />
+                </li>
+              ))}
+            </ul>
+          </li>
+        )}
+        <li data-setting="agents.given" className="grid gap-0.5 px-3 py-2">
+          {/* The badge sits on the title's line so the description gets the
+              row's full width (at 390px it was squeezed beside the badge). */}
+          <span className="flex items-start justify-between gap-3">
+            <span className="min-w-0 text-ink">Cards someone gives you</span>
+            <Badge variant="info" className="mt-0.5 shrink-0">
+              Always asks
+            </Badge>
+          </span>
+          <span className="text-xs text-muted-foreground">
+            When someone in a shared space gives or assigns you a card, Irori
+            asks &ldquo;OK to start an agent on this?&rdquo; in Needs you.
+            Nothing starts without your yes, whatever the switches above say.
+          </span>
+        </li>
+      </ul>
+      <p className="text-xs text-muted-foreground">
+        A computer starts agents only for the sides it runs. Set those in{" "}
+        <Button
+          variant="link"
+          size="xs"
+          className="h-auto px-0 align-baseline"
+          onClick={() => go({ kind: "settings", tab: "devices" })}
+        >
+          Devices and connections
+        </Button>
+        .
+      </p>
+    </section>
   )
 }
 
@@ -171,8 +259,10 @@ function WeightsSection({
         What a new agent starts with
       </h3>
       <p className="text-[12.5px] text-muted-foreground">
-        A card&apos;s weight picks its row; a card with no weight runs as
-        Normal. One already working keeps what it started with.
+        For your Personal cards, on this computer; each computer has its own. A
+        card&apos;s weight picks its row, and a card with no weight runs as
+        Normal. Agents in a shared space use the defaults. One already working
+        keeps what it started with.
       </p>
       <ul className="grid divide-y divide-border rounded-md border border-border">
         <li
@@ -227,7 +317,7 @@ function HistorySection({ open }: { open: boolean }) {
   const rows = useRunHistory(open)
   return (
     <section className="grid gap-2" data-setting="agents.history">
-      <h3 className="text-sm font-medium text-ink">How cards ended</h3>
+      <h3 className="text-sm font-medium text-ink">How Personal cards ended</h3>
       <p className="text-[12.5px] text-muted-foreground">
         Each agent&apos;s done check you answered, by what it ran on. A crash or
         a card you send back starts its next agent one weight higher.
@@ -265,38 +355,6 @@ function HistorySection({ open }: { open: boolean }) {
 // offers it, so the select still names what is set.
 function withValue(list: string[], v: string): string[] {
   return !v || list.includes(v) ? list : [...list, v]
-}
-
-// SpacesSection is each shared space's own switch (card #573): off until
-// the person turns it on, and only for cards they make there.
-function SpacesSection({ open }: { open: boolean }) {
-  const { boards } = useBoards()
-  if (boards.length === 0) return null
-  return (
-    <section
-      className="grid gap-2"
-      aria-label="Spaces"
-      data-setting="agents.spaces"
-    >
-      <h3 className="text-sm font-medium text-ink">Spaces</h3>
-      <p className="text-[12.5px] text-muted-foreground">
-        Each space has its own switch, off until you turn it on. It runs your
-        agents on your computers, for the cards you make there. A card someone
-        gives you always asks you first, whatever the switch says.
-      </p>
-      <ul className="grid gap-2">
-        {boards.map((b) => (
-          <li key={b.boardId}>
-            <SpaceAgentSwitch
-              boardId={b.boardId}
-              name={plainLine(b.name) || "(unnamed)"}
-              open={open}
-            />
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
 }
 
 // LimitRow is one limit: what it is, what it does, and its control. Every
@@ -340,127 +398,141 @@ function LimitsSection({
 }) {
   const { limits: l, error, setCap, releaseHold } = useLimits(open)
   return (
-    <section className="grid gap-2" data-setting="agents.limits">
-      <h3 className="text-sm font-medium text-ink">Limits</h3>
-      {l ? (
-        <>
-          <p className="text-[12.5px] text-muted-foreground">
-            {l.today === 0
-              ? "No agents started today."
-              : `${l.today} agent${l.today === 1 ? "" : "s"} started today${
-                  l.todayHere !== l.today
-                    ? `, ${l.todayHere} on this computer`
-                    : ""
-                }, using about ${costLabel(l.costUsd)} at API prices${
-                  l.todayHere !== l.today ? " here" : ""
-                }. On a Claude plan that is plan usage, not a bill.`}
-            {l.queued > 0 && ` ${l.queued} queued for a slot.`}
-          </p>
-          {l.heldUntil != null && (
-            <div
-              role="status"
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[12.5px] text-ink"
-            >
-              <span className="min-w-0 flex-1 basis-56">
-                A Claude usage limit is holding new agents on this computer (
-                {usageResets(new Date(l.heldUntil).toISOString())}). Queued
-                cards start then; agents that stopped on it aren&apos;t counted
-                as crashes.
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                title="Starts queued cards now. If the limit still stands, Irori holds again at the first one."
-                onClick={releaseHold}
-              >
-                Try now
-              </Button>
-            </div>
-          )}
-          <ul className="grid divide-y divide-border rounded-md border border-border">
-            {l.devices.map((d) => (
-              <LimitRow
-                key={d.device}
-                title={d.name}
-                hint={
-                  <span className="tabular-nums">
-                    {d.cap > 0
-                      ? `${d.running} of ${d.cap} running`
-                      : `${d.running} running · starts no more`}
-                  </span>
-                }
-              >
-                {/* A whole number from 0 (starts no more there) to
-                    l.maxCap, saved on Enter or blur (card #703). */}
-                <WholeNumberField
-                  label="At most"
-                  ariaLabel={`At most on ${d.name}`}
-                  value={d.cap}
-                  ceiling={l.maxCap}
-                  onSave={(n) => setCap(d.device, n)}
-                />
-              </LimitRow>
-            ))}
-          </ul>
-        </>
-      ) : (
+    <div className="grid gap-5">
+      <section className="grid gap-2" data-setting="agents.limits">
+        <h3 className="text-sm font-medium text-ink">How many at once</h3>
         <p className="text-[12.5px] text-muted-foreground">
-          {error ? `Could not load: ${error}` : "Loading…"}
+          Each computer runs at most this many agents Irori started, Personal
+          and spaces together. Any more wait in line.
         </p>
-      )}
-      <ul className="grid divide-y divide-border rounded-md border border-border">
-        <LimitRow
-          title="Idle limit"
-          hint="An agent that waits this long on a question for you writes where it left off and goes. Your answer starts a fresh one."
-        >
-          <ChoiceSelect
-            label="Idle limit"
-            size="sm"
-            value={String(s.idleMins)}
-            choices={s.idleChoices.map((m) => ({
-              value: String(m),
-              label: idleLabel(m),
-            }))}
-            onValueChange={(v) => set({ idleMins: Number(v) })}
-            className="w-44 text-[13px]"
-          />
-        </LimitRow>
-        <LimitRow
-          title="Crashes in a row"
-          hint="After this many of a card's agents go away before finishing, Irori asks you before starting another. Each computer has its own number, for the cards it hands out."
-        >
-          <ChoiceSelect
-            label="Crashes in a row"
-            size="sm"
-            value={String(s.crashLimit)}
-            choices={withChoice(TRIES_CHOICES, s.crashLimit).map((n) => ({
-              value: String(n),
-              label: countLabel(n, s.defaultCrashLimit, "crash", "crashes"),
-            }))}
-            onValueChange={(v) => set({ crashLimit: Number(v) })}
-            className="w-44 text-[13px]"
-          />
-        </LimitRow>
-        <LimitRow
-          title="Failed starts in a row"
-          hint="After this many tries that couldn't start an agent for a card, Irori asks you before trying again."
-        >
-          <ChoiceSelect
-            label="Failed starts in a row"
-            size="sm"
-            value={String(s.startTries)}
-            choices={withChoice(TRIES_CHOICES, s.startTries).map((n) => ({
-              value: String(n),
-              label: countLabel(n, s.defaultStartTries, "try", "tries"),
-            }))}
-            onValueChange={(v) => set({ startTries: Number(v) })}
-            className="w-44 text-[13px]"
-          />
-        </LimitRow>
+        {l ? (
+          <>
+            <p className="text-[12.5px] text-muted-foreground">
+              {l.today === 0
+                ? "No agents started today."
+                : `${l.today} agent${l.today === 1 ? "" : "s"} started today${
+                    l.todayHere !== l.today
+                      ? `, ${l.todayHere} on this computer`
+                      : ""
+                  }, using about ${costLabel(l.costUsd)} at API prices${
+                    l.todayHere !== l.today ? " here" : ""
+                  }. On a Claude plan that is plan usage, not a bill.`}
+              {l.queued > 0 &&
+                ` ${l.queued} Personal card${l.queued === 1 ? "" : "s"} queued here.`}
+            </p>
+            {l.heldUntil != null && (
+              <div
+                role="status"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[12.5px] text-ink"
+              >
+                <span className="min-w-0 flex-1 basis-56">
+                  A Claude usage limit is holding new agents on this computer (
+                  {usageResets(new Date(l.heldUntil).toISOString())}). Queued
+                  cards start then; agents that stopped on it aren&apos;t
+                  counted as crashes.
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  title="Starts queued cards now. If the limit still stands, Irori holds again at the first one."
+                  onClick={releaseHold}
+                >
+                  Try now
+                </Button>
+              </div>
+            )}
+            <ul className="grid divide-y divide-border rounded-md border border-border">
+              {l.devices.map((d) => (
+                <LimitRow
+                  key={d.device}
+                  title={d.name}
+                  hint={
+                    <span className="tabular-nums">
+                      {d.cap > 0
+                        ? `${d.running} of ${d.cap} running`
+                        : `${d.running} running · starts no more`}
+                    </span>
+                  }
+                >
+                  {/* A whole number from 0 (starts no more there) to
+                    l.maxCap, saved on Enter or blur (card #703). */}
+                  <WholeNumberField
+                    label="At most"
+                    ariaLabel={`At most on ${d.name}`}
+                    value={d.cap}
+                    ceiling={l.maxCap}
+                    onSave={(n) => setCap(d.device, n)}
+                  />
+                </LimitRow>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="text-[12.5px] text-muted-foreground">
+            {error ? `Could not load: ${error}` : "Loading…"}
+          </p>
+        )}
         <AgentStartsRow open={open} />
-      </ul>
-      {error && l && <p className="text-[12.5px] text-destructive">{error}</p>}
-    </section>
+        {error && l && (
+          <p className="text-[12.5px] text-destructive">{error}</p>
+        )}
+      </section>
+      <section className="grid gap-2" data-setting="agents.stops">
+        <h3 className="text-sm font-medium text-ink">
+          When Irori stops and asks
+        </h3>
+        <ul className="grid divide-y divide-border rounded-md border border-border">
+          <LimitRow
+            title="Idle limit"
+            hint="In Personal, an agent that waits this long on a question for you writes where it left off and goes. Your answer starts a fresh one. This computer's number, for the agents running on it."
+          >
+            <ChoiceSelect
+              label="Idle limit"
+              size="sm"
+              value={String(s.idleMins)}
+              choices={s.idleChoices.map((m) => ({
+                value: String(m),
+                label: idleLabel(m),
+              }))}
+              onValueChange={(v) => set({ idleMins: Number(v) })}
+              className="w-44 text-[13px]"
+            />
+          </LimitRow>
+          <LimitRow
+            title="Crashes in a row"
+            hint="After this many of a card's agents go away before finishing, Irori asks you before starting another. Each computer has its own number, for the cards it hands out."
+          >
+            <ChoiceSelect
+              label="Crashes in a row"
+              size="sm"
+              value={String(s.crashLimit)}
+              choices={withChoice(TRIES_CHOICES, s.crashLimit).map((n) => ({
+                value: String(n),
+                label: countLabel(n, s.defaultCrashLimit, "crash", "crashes"),
+              }))}
+              onValueChange={(v) => set({ crashLimit: Number(v) })}
+              className="w-44 text-[13px]"
+            />
+          </LimitRow>
+          <LimitRow
+            title="Failed starts in a row"
+            hint="In Personal, after this many tries that couldn't start an agent for a card, Irori asks you before trying again. Each computer has its own number."
+          >
+            <ChoiceSelect
+              label="Failed starts in a row"
+              size="sm"
+              value={String(s.startTries)}
+              choices={withChoice(TRIES_CHOICES, s.startTries).map((n) => ({
+                value: String(n),
+                label: countLabel(n, s.defaultStartTries, "try", "tries"),
+              }))}
+              onValueChange={(v) => set({ startTries: Number(v) })}
+              className="w-44 text-[13px]"
+            />
+          </LimitRow>
+        </ul>
+      </section>
+    </div>
   )
 }
 
@@ -470,20 +542,24 @@ function AgentStartsRow({ open }: { open: boolean }) {
   const { starts: s, error, set } = useAgentStarts(open)
   if (!s) return null
   return (
-    <LimitRow
-      title={AGENT_STARTS_TITLE}
-      hint={
-        <>
-          {AGENT_STARTS_HINT}{" "}
-          <span className="tabular-nums">
-            {s.on ? `${s.used} of ${s.max} in use.` : `Off; ${s.used} in use.`}
-          </span>
-          {error && <span className="text-destructive"> {error}</span>}
-        </>
-      }
-    >
-      <AgentStartsControls starts={s} set={set} />
-    </LimitRow>
+    <ul className="grid divide-y divide-border rounded-md border border-border">
+      <LimitRow
+        title={AGENT_STARTS_TITLE}
+        hint={
+          <>
+            {AGENT_STARTS_HINT}{" "}
+            <span className="tabular-nums">
+              {s.on
+                ? `${s.used} of ${s.max} in use.`
+                : `Off; ${s.used} in use.`}
+            </span>
+            {error && <span className="text-destructive"> {error}</span>}
+          </>
+        }
+      >
+        <AgentStartsControls starts={s} set={set} />
+      </LimitRow>
+    </ul>
   )
 }
 
@@ -709,44 +785,62 @@ function TrustedRow({
 // line's length; skullet-block draws a control's stand-in as one block.
 function AgentsShape() {
   return (
-    <div className="grid gap-4">
-      <div className="flex items-start justify-between gap-3">
-        <span className="flex flex-col">
-          <span className="text-ink">Start an agent for each card</span>
-          <span className="text-xs text-muted-foreground">
-            In Personal, Irori starts a fresh agent for every card you post
-            instead of waiting for a free one, and ends it when the card is
-            done.
-          </span>
-        </span>
-        <span
-          skullet-block=""
-          className="mt-0.5 block h-5 w-9 shrink-0 rounded-full"
-        />
-      </div>
+    <div className="grid gap-5">
+      <section className="grid gap-2">
+        <h3 className="text-sm font-medium text-ink">
+          When Irori starts an agent
+        </h3>
+        <p className="text-[12.5px] text-muted-foreground">
+          By itself, only for the cards a switch here covers. Each computer has
+          its own switches: what counts is the one on the computer that made the
+          card or, for a card made on a phone, the computer that picks it up.
+        </p>
+        <ul className="grid divide-y divide-border rounded-md border border-border">
+          {["Personal", "Sample space", "Cards someone gives you"].map(
+            (title) => (
+              <li
+                key={title}
+                className="flex items-start justify-between gap-3 px-3 py-2"
+              >
+                <span className="flex flex-col">
+                  <span className="text-ink">{title}</span>
+                  <span className="text-xs text-muted-foreground">
+                    On: Irori starts a fresh agent for each card you post here.
+                  </span>
+                </span>
+                <span
+                  skullet-block=""
+                  className="mt-0.5 block h-5 w-9 shrink-0 rounded-full"
+                />
+              </li>
+            )
+          )}
+        </ul>
+      </section>
       <section className="grid gap-2">
         <h3 className="text-sm font-medium text-ink">
           What a new agent starts with
         </h3>
         <p className="text-[12.5px] text-muted-foreground">
-          Every agent Irori starts uses these. One already working keeps what it
-          started with.
+          For your Personal cards, on this computer; each computer has its own.
+          A card&apos;s weight picks its row, and a card with no weight runs as
+          Normal.
         </p>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <span className="text-sm font-medium text-ink">Model</span>
-          <span skullet-block="" className="block h-7 w-[130px] rounded-lg" />
-          <span className="text-sm font-medium text-ink">Effort</span>
-          <span skullet-block="" className="block h-7 w-[138px] rounded-lg" />
-        </div>
+        <span skullet-block="" className="block h-28 w-full rounded-md" />
       </section>
-      <section className="grid gap-2">
-        <h3 className="text-sm font-medium text-ink">Idle limit</h3>
-        <p className="text-[12.5px] text-muted-foreground">
-          An agent Irori started that waits this long on a question for you
-          writes where it left off and goes. Your answer starts a fresh one.
-        </p>
-        <span skullet-block="" className="block h-7 w-48 rounded-lg" />
-      </section>
+    </div>
+  )
+}
+
+function LimitsShape() {
+  return (
+    <div className="grid gap-5">
+      {["How many at once", "When Irori stops and asks"].map((title) => (
+        <section key={title} className="grid gap-2">
+          <h3 className="text-sm font-medium text-ink">{title}</h3>
+          <span skullet-block="" className="block h-24 w-full rounded-md" />
+        </section>
+      ))}
     </div>
   )
 }
