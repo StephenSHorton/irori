@@ -686,11 +686,14 @@ impl IrohNet {
     }
 
     /// Whether this device's own network is up (card #1043): its home relay
-    /// is connected, or the endpoint has an address of its own to be
-    /// reached at. Says nothing of any other device.
+    /// is connected (or, with no home relay at all, the endpoint has an
+    /// address of its own to be reached at). Says nothing of any other device.
     pub fn link_up(&self) -> bool {
-        if self.home_relays().iter().any(|(_, up)| *up) {
-            return true;
+        // With a home relay in play, its status is the answer: a device's
+        // own addresses stay listed when its link drops.
+        let relays = self.home_relays();
+        if !relays.is_empty() {
+            return relays.iter().any(|(_, up)| *up);
         }
         self.inner
             .ep

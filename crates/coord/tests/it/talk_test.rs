@@ -1885,8 +1885,8 @@ fn a_fallback_rings_only_past_the_cursor() {
 
 /// Another person in a space, as their rows name them.
 const PEER: &str = "person:alice";
-/// Another person in a space, as their rows name them.const PEER: &str = "person:alice";
 
+#[allow(clippy::too_many_arguments)]
 fn title_row(
     dev: &str,
     seq: i64,
@@ -1988,7 +1988,8 @@ fn a_persons_title_beats_an_assistants() {
     assert_eq!(info(&t, "call_1").title, "Signing, v2");
     assert_eq!(t.call_title("call_1").as_deref(), Some("Signing, v2"));
 
-    // A fresh fold of the same rows reads the same.
+    // A fresh fold of only the stored rows (the applied ones above aren't in
+    // the store) reads what they say.
     let again = Talk::new(Some(e.st.clone()), None);
     again.load().unwrap();
     assert_eq!(info(&again, "call_1").title, "Signing plan");
