@@ -444,7 +444,7 @@ describe("localRef (card #144)", () => {
     const own = [{ id: "t5", short: "5", title: "Thread five" }]
     expect(localRef(ref("#5"), live, own)?.id).toBe("c5")
   })
-  test("thread rows are marked, so their titles can't hold the token (#982)", () => {
+  test("a ref then a space closes the token when no title given holds it (#982)", () => {
     expect(cardTokenAt("see #12 ", 8, [])).toBeNull()
   })
 
