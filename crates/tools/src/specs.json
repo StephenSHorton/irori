@@ -2074,6 +2074,14 @@
         "space": {
           "type": "string",
           "description": "Optional: the shared space it goes in, or the one conv's name is in, by its tag or id. Without it, Personal."
+        },
+        "agent": {
+          "type": "string",
+          "description": "Optional: who holds the thread instead of you. \"new\" starts a fresh agent for it (it counts toward the person's limit on agents starting agents, and is refused as agent_start is); a name or key hands it to that live agent. You then no longer hear the replies unless watch is true. Without it, you hold the thread. Not for a thread in a shared space."
+        },
+        "watch": {
+          "type": "boolean",
+          "description": "With agent: true keeps you hearing the person's replies after you give the thread away. Default false."
         }
       },
       "required": [
