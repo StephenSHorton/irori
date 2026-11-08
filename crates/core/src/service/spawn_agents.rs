@@ -39,6 +39,13 @@ const SWEEPER: &str = "irori";
 /// The reserved `spawn.cap` device the person's limit rides on. Device ids
 /// are hex, so it names no device, and an older Irori only stores it.
 pub const AGENT_STARTS_ROW: &str = "agents";
+/// The reserved `spawn.cap` device the person's "Agents review other
+/// people's PRs without asking" rides on (merge-desk §12.8). Like
+/// [`AGENT_STARTS_ROW`], hex device ids never match it; an older Irori
+/// files it as a cap for a device with that name, which does nothing.
+pub const REVIEWS_ROW: &str = "reviews";
+/// On when there is no row (decision 52).
+pub const REVIEWS_ON: bool = true;
 /// On for a new person (Stephen, #575 b1).
 pub const AGENT_STARTS_ON: bool = true;
 /// The maximum for a new person (Stephen, #575 b1).
@@ -88,6 +95,41 @@ impl Services {
             .agent_starts
             .read()
             .unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Whether agents may review other people's PRs without asking.
+    pub(crate) fn reviews_unasked(&self) -> bool {
+        !self
+            .spawn
+            .reviews_off
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Hands the setting to the inbox, whose fence reads it.
+    pub(crate) fn push_reviews(&self) {
+        self.inbox.set_reviews_unasked(self.reviews_unasked());
+    }
+
+    /// The person sets "review without asking", from the app only: no tool
+    /// reaches this. Only the person's own `spawn.cap` row counts.
+    pub(crate) fn set_reviews_unasked(&self, on: bool) -> Result<(), String> {
+        let row = SpawnCap {
+            device: REVIEWS_ROW.into(),
+            cap: 0,
+            on: Some(on),
+            by: format!("user:{}", self.device.id),
+            at: (self.now)(),
+        };
+        let rows = self.spawn.rows.lock().unwrap_or_else(|e| e.into_inner());
+        self.store
+            .append("user", kinds::SPAWN_CAP, &row)
+            .map_err(|e| e.to_string())?;
+        self.spawn
+            .reviews_off
+            .store(!on, std::sync::atomic::Ordering::SeqCst);
+        drop(rows);
+        self.push_reviews();
+        Ok(())
     }
 
     /// The person sets the limit, from the app only: no tool reaches this.

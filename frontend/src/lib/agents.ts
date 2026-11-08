@@ -336,6 +336,36 @@ export function useAgentStarts(open: boolean) {
   return { starts: s, error, set }
 }
 
+// useAgentReviews is "Agents review other people's PRs without asking"
+// (merge-desk §12.8): on until the person turns it off, on all their
+// devices.
+export function useAgentReviews(open: boolean) {
+  const [on, setOn] = useState<boolean | null>(inWails() ? null : true)
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AgentsService.Reviews().then(
+      (v) => live && (setOn(v), setError("")),
+      (e: Error) => live && setError(e.message)
+    )
+    return () => {
+      live = false
+    }
+  }, [open])
+  const set = (v: boolean): Promise<void> => {
+    if (!inWails()) {
+      setOn(v)
+      return Promise.resolve()
+    }
+    return AgentsService.SetReviews(v).then(
+      (r) => (setOn(r), setError("")),
+      (e: Error) => setError(e.message)
+    )
+  }
+  return { on, error, set }
+}
+
 // The preview's settings by board; a space's switch starts off, as it does
 // in the app.
 const sampleSaved = new Map<string, AgentsSettings>()

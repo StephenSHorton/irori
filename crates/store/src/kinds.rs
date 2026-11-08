@@ -376,6 +376,10 @@ kinds! {
     /// `{callId, convId, seg, startMs, endMs, text, by, at}`: one finished
     /// phrase of a huddle, written only by the speaker's own device (card #656).
     CALL_SEGMENT = "call.segment" => Replicated, Accepts;
+    /// `{callId, convId, title, assistant, by, at}`: a huddle's title, set by
+    /// a person or proposed by an assistant (`assistant: true`); a person's
+    /// newest title beats an assistant's (docs/design/call-agents.md §8).
+    CALL_TITLE = "call.title" => Replicated, Accepts;
     // device-local board rows
     /// `{cardId, agentKey}`; still read, no longer written.
     BOARD_CARD_KEY = "board.cardkey" => Local;
