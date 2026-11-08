@@ -1,5 +1,5 @@
-// Ask Irori follows the work it posted (card #785). Once the person taps
-// Post thread, the chat keeps an eye on that thread and the cards made
+// Ask Irori follows the work it posted (card #785). Once a thread is
+// posted, the chat keeps an eye on that thread and the cards made
 // from it, and says in the chat when the work moves: an agent took the
 // thread or replied on it, a card was made from it, an agent started on
 // that card, it needs the person, it is ready, it is done.

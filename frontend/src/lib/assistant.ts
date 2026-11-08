@@ -34,8 +34,8 @@ export type { Act, WorkThread }
 
 // ChatEntry is one message in the chat. A note is a plain line of the
 // chat's own (an error, "Stopped."): shown, kept, never sent as history.
-// posted is the thread an assistant message's draft became, once the
-// person tapped Post thread (so it is never posted twice).
+// posted is the thread an assistant message's draft became, once it was
+// posted, by itself or by a tap on Post thread (so never twice).
 //
 // Card #785: an update is a line the chat says about a thread it posted
 // (its id): an agent took it, a card was made, it needs you, it is done.
@@ -144,7 +144,7 @@ export function historyFor(entries: readonly ChatEntry[]): AssistantTurn[] {
 function turnText(e: ChatEntry): string {
   if (e.to) return `(My reply on ${e.to}) ${e.text}`
   if (e.posted)
-    return `${e.text}\n\n(The person posted this draft as thread ${e.posted.tag ?? ""}#${e.posted.short}.)`
+    return `${e.text}\n\n(This draft was posted as thread ${e.posted.tag ?? ""}#${e.posted.short}.)`
   return e.text
 }
 
@@ -270,6 +270,9 @@ export type AssistantState = {
   // The work of each thread the chat posted, as last read (card #785):
   // the posted draft lists the cards made from it. Not kept: read again.
   work: Record<string, WorkThread>
+  // The message whose thread is posting by itself (card #988), so its
+  // draft says so rather than offering Post thread.
+  autoPosting: ChatEntry | null
 }
 
 let state: AssistantState | null = null
@@ -279,7 +282,7 @@ const subs = new Set<() => void>()
 // ?assistant=busy with a reply half written (lib/preview.ts).
 function initial(): AssistantState {
   const flag = typeof window === "undefined" ? null : previewFlag("assistant")
-  const base = { work: {} }
+  const base = { work: {}, autoPosting: null }
   // ?assistant=follow: a thread the chat posted, sample #20, followed
   // from nothing said, so the first read says how its work went (#785).
   if (flag === "follow")
@@ -334,11 +337,13 @@ function initial(): AssistantState {
         sampleHistory[3],
         {
           role: "person",
-          text: "Can you add a changelog page to the release notes?",
+          text: "Can you add a changelog page to the release notes? Check with me first.",
         },
         {
           role: "assistant",
-          text: sampleWork("Add a changelog page to the release notes"),
+          text: sampleWork(
+            "Add a changelog page to the release notes, check with me first"
+          ),
         },
       ],
       reply: null,
@@ -408,6 +413,28 @@ function finish(r: Reply) {
   // the browser: only a tap does).
   const go = r.end === "done" ? splitReply(r.text).go : null
   if (go && s.open && goesByItself(go)) goHandler?.(go)
+  // A whole reply's thread posts by itself, once (card #988), the panel
+  // open or not: the person asked for the work, and Stop is how to call it
+  // off. Only here, where a live reply ends: saved history never comes
+  // through, so a reload or a reopened chat can't post.
+  if (postsByItself(r)) autoPost()
+}
+
+// autoPost posts the thread of the reply just added at the chat's end. It
+// stays in the chat, naming the thread; it doesn't open it, as a tap does.
+// If it fails the chat says so and the draft keeps Post thread to retry.
+function autoPost() {
+  const { entries } = assistantState()
+  const entry = entries[entries.length - 1]
+  set({ autoPosting: entry })
+  postDraft(entries.length - 1)
+    .catch((err) => {
+      if (assistantState().entries.includes(entry))
+        addNote(
+          `Couldn't post that thread: ${errorLine(err)} Tap Post thread to try again.`
+        )
+    })
+    .finally(() => set({ autoPosting: null }))
 }
 
 // addNote puts a plain line of the chat's own at its end (a go that
@@ -488,11 +515,13 @@ function errorLine(err: unknown): string {
 
 // ---- drafted threads -----------------------------------------------------------
 
-// Asked for work, the assistant ends its reply with a thread for the
-// person to post, between these lines (crates/window/src/assistant.rs,
-// DRAFT_OPEN and DRAFT_CLOSE). The chat shows it with a Post thread
-// button; the assistant itself never posts.
+// Asked for work, the assistant ends its reply with a thread between
+// these lines (crates/window/src/assistant.rs, DRAFT_OPEN and DRAFT_CLOSE).
+// The chat posts it by itself when the reply ends (card #988). Asked to
+// check first, the assistant opens it with DraftOpenCheck instead, and the
+// chat shows it with a Post thread button and posts only on a tap.
 export const DraftOpen = "<<thread>>"
+export const DraftOpenCheck = "<<thread check>>"
 export const DraftClose = "<</thread>>"
 
 export type Split = {
@@ -502,6 +531,8 @@ export type Split = {
   draft: string
   // The draft is still being written (its closing line hasn't come).
   partial: boolean
+  // The person asked to check it first: only a tap posts it.
+  check: boolean
 }
 
 // cutMarkerTail drops a marker's first characters from the end of text
@@ -515,28 +546,41 @@ function cutMarkerTail(s: string, marker: string): string {
 // splitDraft takes a reply's drafted thread out of its text. The history
 // keeps the reply whole; the chat splits it as it shows it.
 export function splitDraft(raw: string): Split {
-  const at = raw.indexOf(DraftOpen)
-  if (at < 0)
+  const open = /<<thread( check)?>>/.exec(raw)
+  if (!open)
     return {
-      text: cutMarkerTail(raw, DraftOpen).trim(),
+      text: cutMarkerTail(cutMarkerTail(raw, DraftOpen), DraftOpenCheck).trim(),
       draft: "",
       partial: false,
+      check: false,
     }
-  const before = raw.slice(0, at).trim()
-  const rest = raw.slice(at + DraftOpen.length)
+  const check = open[1] !== undefined
+  const before = raw.slice(0, open.index).trim()
+  const rest = raw.slice(open.index + open[0].length)
   const end = rest.indexOf(DraftClose)
   if (end < 0)
     return {
       text: before,
       draft: cutMarkerTail(rest, DraftClose).trim(),
       partial: true,
+      check,
     }
   const after = rest.slice(end + DraftClose.length).trim()
   return {
     text: after ? `${before}\n\n${after}`.trim() : before,
     draft: rest.slice(0, end).trim(),
     partial: false,
+    check,
   }
+}
+
+// postsByItself is whether an ended reply's thread posts with no tap: the
+// reply finished (not Stopped or failed), and it holds a whole thread the
+// person didn't ask to check first.
+export function postsByItself(r: Reply): boolean {
+  if (r.end !== "done") return false
+  const { draft, partial, check } = splitDraft(r.text)
+  return Boolean(draft) && !partial && !check
 }
 
 // splitReply splits a reply as the chat shows it: its drafted thread
@@ -556,7 +600,8 @@ export function splitReply(
 // as the ask box does (lib/cards' threads.start: the room's thread, its
 // #refs telling the agents on those cards). It notes the thread on the
 // message and returns it. Posted already: that thread again; being
-// posted (a second tap after the panel closed and opened): that post.
+// posted (a tap while it posts by itself, or a second tap after the panel
+// closed and opened): that post.
 const posting = new Map<ChatEntry, Promise<Posted>>()
 
 export function postDraft(index: number): Promise<Posted> {
@@ -717,7 +762,8 @@ export async function answerAsk(
 // A window check (scripts/window-shot.sh, ?dev) can't type: its
 // ?assistant-ask=<question> opens the chat on a new conversation and asks
 // it, through the real assistant in the app, and with assistant-post then
-// posts the drafted thread as a tap on Post thread would, handing it to
+// posts the drafted thread as a tap on Post thread would (a check-first
+// one too; one posting by itself is the same post), handing it to
 // onPosted. Once a page load; nothing without the flag.
 let autoAsked = false
 export function autoAsk(onPosted: (p: Posted) => void) {
@@ -778,10 +824,19 @@ const sampleHistory: ChatEntry[] = [
   },
 ]
 
+// checkFirst is how the stand-in hears "check with me first".
+const checkFirst =
+  /[,;.]?\s*(?:but\s+)?(?:check(?: with me)? first|show me first|let me (?:see|look|check)[^,.?!]*|(?:don't|do not) post[^,.?!]*)/i
+
 // sampleWork is the stand-in's answer to a request for work: a line and
-// a drafted thread.
-const sampleWork = (q: string) =>
-  `I found #8, which is close: drafted a thread that names it.\n\n${DraftOpen}\n${q
+// a thread, which waits for a tap if the request said to check first.
+const sampleWork = (q: string) => {
+  const check = checkFirst.test(q)
+  const line = check
+    ? "I found #8, which is close: here's a thread that names it, waiting for you."
+    : "I found #8, which is close: posting a thread that names it."
+  return `${line}\n\n${check ? DraftOpenCheck : DraftOpen}\n${q
+    .replace(checkFirst, "")
     .trim()
     .replace(/^(please|can you|could you)\s+/i, "")
     .replace(/^./, (c) => c.toUpperCase())
@@ -789,6 +844,7 @@ const sampleWork = (q: string) =>
       /[?.!]*$/,
       "."
     )} #8 already covers the release notes, so build on what it has.\n${DraftClose}`
+}
 
 // sampleAnswer picks a canned answer by the question's words.
 export function sampleAnswer(q: string): { tools: string[]; text: string } {
