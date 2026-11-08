@@ -10,7 +10,11 @@
 // AssistantEvents by foldEvent, a pure reducer. Outside the app (the bun
 // preview) a stand-in streams a canned answer that cites sample cards.
 
-import type { AssistantEvent, AssistantTurn } from "../gen/bindings"
+import type {
+  AssistantEvent,
+  AssistantFile,
+  AssistantTurn,
+} from "../gen/bindings"
 import {
   createFollower,
   finished,
@@ -28,8 +32,9 @@ import { goesByItself, splitGo, type GoTarget } from "./goto"
 import { AssistantService } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
+import { checkUploads, uploadOf } from "./uploads"
 
-export type { AssistantEvent, AssistantTurn }
+export type { AssistantEvent, AssistantFile, AssistantTurn }
 export type { Act, WorkThread }
 
 // ChatEntry is one message in the chat. A note is a plain line of the
@@ -44,6 +49,9 @@ export type { Act, WorkThread }
 // the line lets the person do: answer the card's question. A person's
 // message with to was a reply sent on a thread (its #ref) from the chat
 // by an older build, not a question.
+//
+// Card #999: files are what the person attached to a message, as references
+// only (the bytes are in Core's store). A message may be files and no words.
 export type ChatEntry = {
   role: "person" | "assistant"
   text: string
@@ -54,6 +62,7 @@ export type ChatEntry = {
   update?: string
   act?: Act
   to?: string
+  files?: AssistantFile[]
 }
 
 export type Posted = { id: string; short: string; tag?: string }
@@ -146,7 +155,9 @@ export function historyFor(entries: readonly ChatEntry[]): AssistantTurn[] {
       continue
     }
     flush()
-    out.push({ role: e.role, text: turnText(e) })
+    const turn: AssistantTurn = { role: e.role, text: turnText(e) }
+    if (e.files?.length) turn.files = e.files
+    out.push(turn)
   }
   flush()
   return capHistory(out)
@@ -173,16 +184,16 @@ export function parseHistory(raw: string | null): ChatEntry[] {
   const out: ChatEntry[] = []
   for (const x of v) {
     if (!x || typeof x !== "object") continue
-    const { role, text, note, changed, posted, update, act, to } = x as Record<
-      string,
-      unknown
-    >
+    const { role, text, note, changed, posted, update, act, to, files } =
+      x as Record<string, unknown>
     if ((role !== "person" && role !== "assistant") || typeof text !== "string")
       continue
-    if (!text.trim()) continue
+    const refs = role === "person" ? parseFiles(files) : []
+    if (!text.trim() && !refs.length) continue
     const e: ChatEntry =
       note === true ? { role, text, note: true } : { role, text }
     if (note === true && changed === true) e.changed = true
+    if (refs.length) e.files = refs
     const p = posted as Record<string, unknown> | null | undefined
     if (
       role === "assistant" &&
@@ -206,6 +217,37 @@ export function parseHistory(raw: string | null): ChatEntry[] {
     out.push(e)
   }
   return capHistory(out)
+}
+
+// parseFiles keeps the well-formed file references of a saved message,
+// each file once. A bad one is dropped; the message stays.
+function parseFiles(v: unknown): AssistantFile[] {
+  if (!Array.isArray(v)) return []
+  const out: AssistantFile[] = []
+  for (const x of v) {
+    if (!x || typeof x !== "object") continue
+    const { sha256, name, size, mime, device, can_read } = x as Record<
+      string,
+      unknown
+    >
+    if (
+      typeof sha256 !== "string" ||
+      !/^[0-9a-f]{64}$/.test(sha256) ||
+      typeof name !== "string" ||
+      !name ||
+      typeof size !== "number" ||
+      !Number.isFinite(size) ||
+      size < 0 ||
+      typeof device !== "string" ||
+      out.some((f) => f.sha256 === sha256)
+    )
+      continue
+    const f: AssistantFile = { sha256, name, size, device }
+    if (typeof mime === "string" && mime) f.mime = mime
+    if (typeof can_read === "boolean") f.can_read = can_read
+    out.push(f)
+  }
+  return out
 }
 
 function parseAct(v: unknown): Act | undefined {
@@ -332,6 +374,15 @@ function initial(): AssistantState {
               status: "Reading the Board",
             }
           : null,
+      unread: false,
+    }
+  // ?assistant=files: messages with files (card #999).
+  if (flag === "files")
+    return {
+      ...base,
+      open: true,
+      entries: sampleFileChat,
+      reply: null,
       unread: false,
     }
   if (flag === "go")
@@ -464,17 +515,53 @@ export function onGo(f: ((t: GoTarget) => void) | null) {
   goHandler = f
 }
 
-// ask sends the person's question with the chat so far. Nothing while a
-// reply is being written.
-export async function ask(text: string): Promise<void> {
+// attachFiles stores files for the chat (card #999) and says what became
+// of each, one record per distinct file. It throws what the window refuses.
+export async function attachFiles(files: File[]): Promise<AssistantFile[]> {
+  checkUploads(files)
+  if (!inWails()) return sampleAttach(files)
+  const stored = await AssistantService.Attach(
+    await Promise.all(files.map(uploadOf))
+  )
+  return stored.filter(
+    (f, i) => stored.findIndex((o) => o.sha256 === f.sha256) === i
+  )
+}
+
+// unreadableNote is the chat's own line for files the assistant can't
+// read: said here, every time, not left to the model.
+export function unreadableNote(files: readonly AssistantFile[]): string {
+  const names = files.filter((f) => f.can_read === false).map((f) => f.name)
+  if (!names.length) return ""
+  return `Can't read ${names.join(", ")}: the assistant reads pictures, PDFs and text files.`
+}
+
+// ask sends the person's question and files with the chat so far. Nothing
+// while a reply is being written. With no words and no file it can read
+// there is nothing to answer: the chat says so and the model isn't run.
+export async function ask(
+  text: string,
+  files: AssistantFile[] = []
+): Promise<void> {
   const body = text.trim()
   const s = assistantState()
-  if (!body || run || s.reply) return
+  if ((!body && !files.length) || run || s.reply) return
   const history = historyFor(s.entries)
+  const mine: ChatEntry[] = [
+    files.length
+      ? { role: "person", text: body, files }
+      : { role: "person", text: body },
+  ]
+  const note = unreadableNote(files)
+  if (note) mine.push({ role: "assistant", text: note, note: true })
+  if (!body && files.every((f) => f.can_read === false)) {
+    set({ entries: capChat([...s.entries, ...mine]) })
+    return
+  }
   const token = ++tokens
   run = { token, id: null }
   set({
-    entries: capChat([...s.entries, { role: "person", text: body }]),
+    entries: capChat([...s.entries, ...mine]),
     reply: freshReply,
   })
   const onEvent = (ev: AssistantEvent) => {
@@ -490,8 +577,8 @@ export async function ask(text: string): Promise<void> {
   }
   try {
     const id = inWails()
-      ? await AssistantService.Ask(history, body, onEvent)
-      : sampleAsk(body, onEvent)
+      ? await AssistantService.Ask(history, body, files, onEvent)
+      : sampleAsk(body, files, onEvent)
     if (stoppedEarly.delete(token)) void stopRun(id)
     else if (run?.token === token) run.id = id
   } catch (err) {
@@ -799,6 +886,70 @@ const sampleHistory: ChatEntry[] = [
   },
 ]
 
+// ?assistant=files (card #999): a picture with words, files alone, and a
+// type the assistant can't read.
+const sampleRef = (
+  n: number,
+  name: string,
+  size: number,
+  mime: string,
+  can_read = true
+): AssistantFile => ({
+  sha256: n.toString(16).padStart(64, "a"),
+  name,
+  size,
+  mime,
+  device: "sample-device",
+  can_read,
+})
+
+const sampleFileChat: ChatEntry[] = [
+  {
+    role: "person",
+    text: "What's wrong with this screen?",
+    files: [sampleRef(1, "screenshot.png", 182_400, "image/png")],
+  },
+  {
+    role: "assistant",
+    text: "The Send button is cut off at the right edge.",
+  },
+  {
+    role: "person",
+    text: "",
+    files: [
+      sampleRef(
+        2,
+        "a-very-long-quarterly-report-name-final-v2.pdf",
+        2_400_000,
+        "application/pdf"
+      ),
+      sampleRef(3, "notes.md", 4_100, "text/markdown"),
+    ],
+  },
+  {
+    role: "assistant",
+    text: "The report's second page says the launch moved to March; your notes still say February.",
+  },
+  {
+    role: "person",
+    text: "",
+    files: [
+      sampleRef(
+        4,
+        "report.docx",
+        51_200,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        false
+      ),
+    ],
+  },
+  {
+    role: "assistant",
+    text: "Can't read report.docx: the assistant reads pictures, PDFs and text files.",
+    note: true,
+  },
+]
+
 // sampleWork is the stand-in's answer to a request for work: a line and
 // a drafted thread.
 const sampleWork = (q: string) =>
@@ -857,12 +1008,49 @@ export function sampleAnswer(q: string): { tools: string[]; text: string } {
   }
 }
 
+// sampleFiles is the stand-in's answer to a message with files: nothing
+// reads them in the preview, and it says so.
+export function sampleFiles(
+  q: string,
+  files: readonly AssistantFile[]
+): { tools: string[]; text: string } {
+  const read = files.filter((f) => f.can_read !== false).map((f) => f.name)
+  if (!read.length) return sampleAnswer(q)
+  return {
+    tools: [`Looking at ${read[0]}`],
+    text: `This is the preview, so nothing read ${read.join(", ")}. In the app the assistant reads it and answers${q ? ` “${q}”` : ""}.`,
+  }
+}
+
+// The stand-in's store: pictures, PDFs and text read, the rest refused,
+// as the app decides from the bytes.
+const sampleReads =
+  /^(image\/(png|jpeg|gif|webp|hei[cf])|application\/(pdf|json)|text\/.*)$/
+const sampleReadsExt =
+  /\.(txt|md|csv|json|ya?ml|log|toml|xml|html|[jt]sx?|rs|go|py)$/i
+let sampleStored = 0
+
+function sampleAttach(files: File[]): AssistantFile[] {
+  return files.map((f) => ({
+    sha256: (++sampleStored).toString(16).padStart(64, "0"),
+    name: f.name || "pasted.png",
+    size: f.size,
+    mime: f.type || "application/octet-stream",
+    device: "sample-device",
+    can_read: sampleReads.test(f.type) || sampleReadsExt.test(f.name),
+  }))
+}
+
 const sampleRuns = new Map<number, ReturnType<typeof setTimeout>[]>()
 let sampleIds = 0
 
-function sampleAsk(q: string, on: (ev: AssistantEvent) => void): number {
+function sampleAsk(
+  q: string,
+  files: readonly AssistantFile[],
+  on: (ev: AssistantEvent) => void
+): number {
   const id = ++sampleIds
-  const { tools, text } = sampleAnswer(q)
+  const { tools, text } = files.length ? sampleFiles(q, files) : sampleAnswer(q)
   const timers: ReturnType<typeof setTimeout>[] = []
   let at = 150
   const after = (ms: number, ev: AssistantEvent) => {

@@ -20,11 +20,19 @@ import { FileKindIcon } from "./file-kind-icon"
 // answers, a message's Reply and New card.
 // off (while sending, or a box that takes no files) takes no new files;
 // with why, a paste or drop it refuses says so under the box instead of
-// vanishing.
-export function useFileAttach(off = false, why = "") {
-  const [files, setFiles] = useState<File[]>([])
+// vanishing. initial is files already waiting (a box opened again).
+export function useFileAttach(
+  off = false,
+  why = "",
+  initial: readonly File[] = []
+) {
+  const [files, setFiles] = useState<File[]>(() => [...initial])
   const [refused, setRefused] = useState<string | null>(null)
   const picker = useRef<HTMLInputElement>(null)
+  const clear = useCallback(() => {
+    setFiles([])
+    setRefused(null)
+  }, [])
   const add = (list: FileList | File[] | null | undefined) => {
     const more = pastedFiles(list)
     if (!more.length || off) return false
@@ -47,10 +55,7 @@ export function useFileAttach(off = false, why = "") {
     full: files.length >= MaxUploadFiles,
     add,
     refused,
-    clear: () => {
-      setFiles([])
-      setRefused(null)
-    },
+    clear,
     remove: (i: number) => setFiles((fs) => fs.filter((_, j) => j !== i)),
     pick: () => picker.current?.click(),
     // A pasted screenshot or Finder file is a file; pasted text stays

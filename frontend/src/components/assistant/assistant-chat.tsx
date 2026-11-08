@@ -28,6 +28,12 @@ import {
 
 import { goThere } from "@/components/assistant/go-there"
 import { SpotlightLine } from "@/components/assistant/spotlight-line"
+import {
+  AttachButton,
+  AttachmentList,
+  PendingFiles,
+  useFileAttach,
+} from "@/components/attachments"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { RichText } from "@/components/common/rich-text"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
@@ -44,6 +50,7 @@ import {
   answerAsk,
   ask,
   assistantState,
+  attachFiles,
   autoAsk,
   liftOver,
   newChat,
@@ -57,6 +64,7 @@ import {
   stopAsking,
   subscribeAssistant,
   suggestions,
+  type AssistantFile,
   type Box,
   type ChatEntry,
   type Posted,
@@ -188,7 +196,7 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
             reply={s.reply}
             work={s.work}
             narrow={narrow}
-            onAsk={(t) => void ask(t)}
+            onAsk={(t, files) => void ask(t, files)}
             onStop={stopAsking}
             onNew={newChat}
             onGo={goTo}
@@ -395,8 +403,14 @@ function entryKey(e: ChatEntry): number {
   return k
 }
 
-// The chat's composer keeps what was typed while the panel is closed.
+// The chat's composer keeps what was typed, and the files waiting, while
+// the panel is closed. uploading is files on their way to the store: it
+// outlives a panel closed meanwhile, and says how it went ("" or why not).
 let draft = ""
+let draftFiles: File[] = []
+let uploading: Promise<string> | null = null
+// Why the last upload failed, for a panel closed while it did.
+let uploadFailed = ""
 
 // AssistantPanel is the chat open: a header, the conversation (or a few
 // questions to start with), and the box to ask in. Non-modal: the page
@@ -421,7 +435,7 @@ export function AssistantPanel({
   // The work of the threads the chat posted (card #785).
   work?: Record<string, WorkThread>
   narrow: boolean
-  onAsk: (text: string) => void
+  onAsk: (text: string, files?: AssistantFile[]) => void
   onStop: () => void
   onNew: () => void
   // onGo goes where a reply's go line says (card #784), its line from the
@@ -433,6 +447,11 @@ export function AssistantPanel({
   style?: CSSProperties
 }) {
   const [text, setText] = useState(draft)
+  // Files on their way: the box counts as busy until this settles. A
+  // promise, so an upload over before the effect below runs still counts.
+  const [going, setGoing] = useState(uploading)
+  const sending = going !== null
+  const [sendError, setSendError] = useState(uploadFailed)
   const input = useRef<HTMLTextAreaElement>(null)
   // Where dictation left the caret, applied once the new text is in.
   const pendingCaret = useRef<number | null>(null)
@@ -487,8 +506,54 @@ export function AssistantPanel({
   }, [last])
 
   const busy = !!reply
-  const send = (t: string) => {
-    if (busy || !t.trim()) return
+  const attach = useFileAttach(
+    busy || sending,
+    "Add files once the reply is done.",
+    draftFiles
+  )
+  const pending = attach.files
+  const clearFiles = attach.clear
+  useEffect(() => {
+    draftFiles = pending
+  }, [pending])
+  useEffect(() => {
+    if (!going) return
+    let here = true
+    void going.then((why) => {
+      if (!here) return
+      setGoing(null)
+      setSendError(why)
+      setText(draft)
+      if (!draftFiles.length) clearFiles()
+    })
+    return () => {
+      here = false
+    }
+  }, [going, clearFiles])
+  // The box empties only once the files are stored: a failure keeps the
+  // words and the files, and says why.
+  const upload = (t: string, files: File[]) => {
+    uploading = attachFiles(files).then(
+      (refs) => {
+        uploading = null
+        draft = ""
+        draftFiles = []
+        onAsk(t, refs)
+        return ""
+      },
+      (err: unknown) => {
+        uploading = null
+        uploadFailed = errorText(err)
+        return uploadFailed
+      }
+    )
+    setGoing(uploading)
+  }
+  const send = (t: string, files: File[] = []) => {
+    if (busy || uploading || (!t.trim() && !files.length)) return
+    uploadFailed = ""
+    setSendError("")
+    if (files.length) return upload(t, files)
     onAsk(t)
     draft = ""
     setText("")
@@ -529,7 +594,7 @@ export function AssistantPanel({
             variant="ghost"
             size="icon-sm"
             aria-label="New chat"
-            disabled={!entries.length && !busy}
+            disabled={sending || (!entries.length && !busy)}
             onClick={() => {
               onNew()
               input.current?.focus()
@@ -577,11 +642,12 @@ export function AssistantPanel({
       </div>
 
       <form
-        className="shrink-0 border-t border-border p-2.5"
+        className="grid shrink-0 gap-1.5 border-t border-border p-2.5"
         onSubmit={(e) => {
           e.preventDefault()
-          send(text)
+          send(text, pending)
         }}
+        {...attach.drop}
       >
         <div className="flex items-end gap-1.5 rounded-xl border border-border bg-background/60 p-1 focus-within:border-ring">
           <Textarea
@@ -589,22 +655,28 @@ export function AssistantPanel({
             autoSize
             rows={1}
             value={text}
+            readOnly={sending}
             onChange={(e) => {
               draft = e.target.value
               setText(e.target.value)
             }}
+            onPaste={(e) => {
+              if (attach.onPaste(e)) setSendError("")
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !composing(e)) {
                 e.preventDefault()
-                send(text)
+                send(text, pending)
               }
             }}
             placeholder="Ask anything…"
             aria-label="Ask the Office Assistant"
             className="max-h-28 min-h-8 flex-1 border-transparent bg-transparent px-2 py-1.5 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
           />
+          {attach.input}
           {/* Centred on the 32 px send button the row bottom-aligns to. */}
           <div className="flex h-8 shrink-0 items-center">
+            <AttachButton attach={attach} disabled={busy || sending} />
             <MicButton
               target={input}
               value={text}
@@ -632,13 +704,31 @@ export function AssistantPanel({
               type="submit"
               size="icon"
               className="size-8 shrink-0 rounded-lg"
-              aria-label="Send"
-              disabled={!text.trim()}
+              aria-label={sending ? "Sending" : "Send"}
+              disabled={sending || (!text.trim() && !pending.length)}
             >
-              <ArrowUpIcon />
+              {sending ? (
+                <Loader2Icon
+                  className="animate-spin motion-reduce:animate-none"
+                  aria-hidden
+                />
+              ) : (
+                <ArrowUpIcon />
+              )}
             </Button>
           )}
         </div>
+        <PendingFiles
+          attach={attach}
+          disabled={busy || sending}
+          label="Files with the message"
+          className="flex max-h-44 flex-wrap gap-2 overflow-y-auto px-1"
+        />
+        {sendError && (
+          <p className="px-1 text-xs text-destructive" role="alert">
+            {sendError}
+          </p>
+        )}
       </form>
     </div>
   )
@@ -701,15 +791,28 @@ function Entry({
   if (entry.role === "person")
     return (
       <Message align="end">
-        <Bubble align="end" className="max-w-[85%]">
-          <BubbleContent className="py-1.5 whitespace-pre-wrap">
-            {entry.to && (
-              <span className="mb-0.5 block text-[11.5px] opacity-75">
-                Reply on {entry.to}
-              </span>
-            )}
-            {entry.text}
-          </BubbleContent>
+        {/* A chip's Save and Open need the width, or its name is squeezed
+          out on a phone. */}
+        <Bubble
+          align="end"
+          className={entry.files?.length ? "max-w-full" : "max-w-[85%]"}
+        >
+          {!!entry.files?.length && (
+            <AttachmentList
+              attachments={entry.files}
+              className="[&>div]:justify-end"
+            />
+          )}
+          {(entry.text || entry.to) && (
+            <BubbleContent className="py-1.5 whitespace-pre-wrap">
+              {entry.to && (
+                <span className="mb-0.5 block text-[11.5px] opacity-75">
+                  Reply on {entry.to}
+                </span>
+              )}
+              {entry.text}
+            </BubbleContent>
+          )}
         </Bubble>
       </Message>
     )
