@@ -161,7 +161,7 @@ fn a_gone_agents_wait_on_a_pr_is_a_gone_wait() {
             .map(|s| s.blocker_id.clone())
             .collect::<Vec<_>>()
     };
-    assert_eq!(gone(), [b.id.clone()]);
+    assert_eq!(gone(), std::slice::from_ref(&b.id));
     assert!(lane(&e, USER, &t.id).0);
     // Still polled, so a merge is heard.
     assert_eq!(e.c.polled_waits(&t.id), [PR]);
