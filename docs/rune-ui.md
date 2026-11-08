@@ -1,34 +1,46 @@
-# rune-ui: Irori with a Rune window (spike, card #674)
+# rune-ui: Irori with a Rune window (card #674)
 
-This branch is a spike and is not for main. It asks how far Irori can go as plain Rust, with
-[Rune](https://github.com/StephenSHorton/rune) as the UI in place of Tauri and a React webview.
+This branch replaces Tauri and the React webview with plain Rust:
+[Rune](https://github.com/StephenSHorton/rune) and its component kit draw the whole window.
+It started as a spike; the window is now a full port of main's React app (main merged in up
+to `c6dd78c8`, Nov 7 2026). It is not merged into main.
 
 ## What runs
 
 `cargo build -p irori-app` builds `target/<profile>/irori`. It needs only cargo: no bun, node,
-vite, Tauri CLI or webview.
+vite, Tauri CLI or webview. `scripts/check.sh` passes on it.
 
-- **Every role.** `serve --headless`, `mcp`, `node`, `attach`, `events`, `pair` and `version`
-  live in `crates/roles`, the code app/ held before, moved without changes. The binary hands
-  their dispatch only its window role.
-- **The window** (`app/src/shell.rs`) starts the Core and its API in-process, then builds the
-  window's backend (`crates/window`, which has no Tauri commands now). That backend includes
-  the spawner, the reviver, the notifier seam and the pumps. The window itself is a Rune app on
-  top of it.
-- **The Board** (`app/src/board.rs`) reads `Window::cards`, the same list the React Board
-  read. It shows the cards in groups (Needs you, Working, Waiting, Open, Not yet) with
-  filters. A card's page shows the objective, done-when, steps, open blockers, the thread and
-  a comment box.
-- **Live updates.** The backend's own `board:changed` and `roster:changed` pumps call
-  `AppHandle::update`, and the state re-reads.
+- **Every role.** `serve --headless`, `mcp`, `node`, `attach`, `events`, `pair`,
+  `permission-hook` and `version` live in `crates/roles`. The binary hands their dispatch only
+  its window role.
+- **The window** (`app/src/shell.rs`) starts the Core and its API in-process, then the
+  window's backend (`crates/window`, the same `Window` the Tauri commands called) and a Rune
+  app on top of it.
+- **Every screen of main's window**, one package per directory under `app/src/` (78k lines of
+  Rust): Home and Needs you (`home`), the Board list (`board`), a card's page with the New
+  card and Share dialogs and permission prompts (`card`), the canvas (`canvas`), terminals
+  (`term`), Talk (`talk`), huddles, calls, screen share and dictation (`call`), the Boards
+  tab and space picker (`spaces`), Notes (`notes`), Notifications, Held and Message
+  (`inbox`), the command palette (`palette`), Merge desks (`desk`), Settings with every pane
+  (`settings`), Profile (`profile`), the meters, updater banner, Keep this device up to date,
+  launch at login and tray (`status`, `login`). Shared pieces: rich text, the mention
+  composer and attachments (`text`), card and agent bits, faces and hover cards (`widgets`),
+  the TS libraries' pure logic with their tests ported (`logic`), and the app shell,
+  navigation, theme, prefs and event bus (`ui`). `ui/mod.rs` documents the package contract.
+- **Live updates.** Every event `crates/window` emits goes to every package on the UI thread
+  (`ui::dispatch`); a burst of one event is one dispatch with its newest payload.
+- **Window state** the React app kept in localStorage (theme, sidebar, filters, folds,
+  drafts) lives in `<data>/window-prefs.json`, so a scratch copy keeps its own.
 - **Desktop pieces Tauri plugins used to provide:**
 
   | Piece | How it works now |
   |---|---|
-  | Tray | Rune's `Tray` on Windows and Linux; `tray-icon` on macOS, since Rune has no Mac tray (`app/src/tray_mac.rs`). |
-  | Single instance | A second launch sends `show` to a loopback port the running window writes to `<data>/desk-show.port` (`app/src/instance.rs`, std only). |
-  | Clipboard | Rune's `Tx::copy` (Copy ref on a card's page). |
-  | Opener | `open`, `explorer` or `xdg-open`. |
+  | Tray | Rune's `Tray` on Windows and Linux; `tray-icon` on macOS (`app/src/tray_mac.rs`). The full menu (status, held, pause, wind down, launch at login, update). |
+  | Single instance | A second launch sends `show` to a loopback port the running window writes to `<data>/desk-show.port` (`app/src/instance.rs`). |
+  | Clipboard | Rune's `Tx::copy` and paste (text, images). |
+  | Opener, file picker | `open`/`explorer`/`xdg-open`; Rune's `native-file-dialog` (rfd). |
+  | Updater, launch at login | `crates/update`, with main's shell glue restored without Tauri (`app/src/status/`, `app/src/login/`). |
+  | Windows icon, version resource, manifest | `app/build.rs` (`embed-resource`). |
 
 ## Look at it without a window
 
@@ -74,26 +86,22 @@ target/debug/irori --scene detail --script comment.json --tree tree.json --at ma
 
 ## Numbers (Mac, M-series; 2026-11-07)
 
-| | main (Tauri + React) | rune-ui (Rune) |
-|---|---|---|
-| Clean `cargo build --release -p irori-app` | 429 s, plus `bun install` and a 5 s `bun run build` | 375 s, cargo only |
-| Crates compiled | 644 | 622 |
-| `irori` binary | 54.5 MB, links WebKit.framework | 53.1 MB, no WebKit |
-| Non-Rust lines (TS/TSX/Go/sh/ps1/Kotlin/CSS) | 97,394 | 6,444 (mod/ 5 files, site/ 7, scripts, packaging) |
-| Rust lines | 363,186 | 356,518 (the Tauri shell and command layer went; the Rune shell and Board are 1,137 lines) |
+| | main (Tauri + React) | rune-ui, spike (Board only) | rune-ui, full port |
+|---|---|---|---|
+| `cargo build --release -p irori-app` | 429 s clean, plus `bun install` and a 5 s `bun run build` | 375 s clean, cargo only | 440 s (a warm target: deps reused), cargo only |
+| `irori` binary | 54.5 MB, links WebKit.framework | 53.1 MB, no WebKit | 65.3 MB, no WebKit |
+| Non-Rust lines (TS/TSX/Go/sh/ps1/Kotlin/CSS/JS) | 97,394 | 6,444 | 6,534 (mod/, site/, release and packaging scripts, the Android prototype's Gradle) |
+| Window UI | ~50k lines of product TS/TSX | 1,137 lines of Rust | 77.8k lines of Rust in `app/src` (with ~1,000 unit tests' worth of ported TS test cases) |
 
 Caveats:
-- Other agents were building on this machine. The load average was 6–9 during main's build and
-  11–16 during rune-ui's, so the build times show the direction, not exact figures.
-- main was built without `--features tauri/custom-protocol` (which release-mac.sh adds), so it
-  is not quite the binary that ships.
-- The size barely moves because the Core (iroh, whisper.cpp, SQLite, media) is most of the
-  binary either way. What changes is no webview at run time and no node toolchain at build time.
-- The screenshots, the commenting check and the live-refresh check ran on an offline copy of
-  the data dir (sqlite `VACUUM INTO`, `IRORI_DEV_OFFLINE=1`). Their test comments exist only in
-  that copy.
-- `check.sh` hasn't been run end to end on this branch. Its Android step now checks
-  `-p irori-window` and is untested.
+- Other agents were building on this machine the whole time, so build times show direction
+  only.
+- main was built without `--features tauri/custom-protocol` (which release-mac.sh adds).
+- The full port's binary grows by about 12 MB over the spike: the whole UI, rune-kit with
+  markdown, H.264 decode for screen share (moq-video) and image decoders. The Core (iroh,
+  whisper.cpp, SQLite, media) is still most of it.
+- Screenshots and scripted checks ran on an offline copy of the data dir (sqlite
+  `VACUUM INTO`, `IRORI_DEV_OFFLINE=1`).
 
 ## Tauri's job across OSes
 
@@ -159,46 +167,33 @@ Gaps:
   wasm-bindgen and a heavier Pages job.
 - `mod/`: keep it as TypeScript (the person chose this). Only its Go fakes went.
 
-## Estimate for porting the rest of the UI
+## How the port was done
 
-Method: the React Board surface (`board-view`, `card-grid`, `card-detail`, `bits`) is about
-5,000 lines of TSX. The Rune Board and card page are about 650 lines and cover roughly a
-third of it (groups, filters, steps, blockers, the thread and comments, but no canvas,
-markdown, attachments, mentions, answer buttons or held and paused states). So the
-Rune-to-TSX ratio is about 1 to 2.5, with crates/window already doing the data work in Rust.
+A foundation (shell, routes, event bus, theme, a stub per screen), then 13 package agents in
+parallel worktrees, 3 integration passes wiring them to each other, two verification rounds
+(each area audited feature by feature against main's TSX and fixed, then re-checked by an
+independent agent), main's 79 newer commits merged and their UI changes ported, and
+`check.sh` run end to end.
 
-The 82k lines of TS and TSX map to about 30–35k lines of Rust. At an agent's pace that is
-about 8–12 agent-weeks, or 3–5 weeks of calendar time with screens ported in parallel.
+## What is left, and why
 
-The parts that take longest, each its own card:
-- Terminal rendering for the inline terminals (suzuri's view is TS today).
-- Talk's composer, with mentions, attachments and replying states.
-- The canvas board.
-- Markdown and rich text in threads (Rune has rich text and spans; it has no markdown parser).
-- The settings, devices, pairing and invite flows.
-- The voice and call UI.
-- The glue for launch at login, the updater and Keep this device up to date (`crates/update`
-  is already Rust).
-- The Windows version resource and comctl6 manifest (`embed-resource`).
+Not checked live (headless renders and `--script` runs only, on an offline copy of the data):
+a real huddle with peers and a mic, screen share pictures (H.264 decoded with moq-video),
+answering a real permission prompt, Launch at login and the updater's restart, and macOS
+Cmd-Q / Windows logoff shutdown in a real window.
 
-Rune gaps found on this spike:
-- No macOS tray (the branch uses `tray-icon`).
-- No Android shell.
-- Text doesn't wrap unless it has `.wrap()` or `max_lines`.
-- The pinned rev declares Rust 1.99.1, yet builds fine on Irori's 1.97.1.
-- On macOS, Cmd-Q and logout end inside AppKit's `terminate:`. The branch runs its shutdown
-  from `atexit`; that fix hasn't been checked live, since it can't run headless.
+Small differences from the React app, each from a Rune gap:
+- The @ and # pickers open at the start of the box, not at the caret (no caret rect to
+  anchor to), and the paperclip picks one file at a time.
+- No animated "flowing" edges on the canvas (no stroke-dash animation).
+- `k.ty.mono` falls back to the UI font unless a mono family is registered; terminals use
+  `Family::SystemMono`.
+- kit `Dialog` titles and descriptions don't wrap (long text goes in the body), kit `Select`
+  menus have a fixed minimum width, `Badge` has three variants, there is no slider, colour
+  picker, avatar, skeleton or indeterminate progress widget (each is hand-built).
+- Glass (frosted) styles are dropped; popovers are solid everywhere, as main is off the Mac.
+- The tray's check items are "✓ " labels on Windows and Linux (Rune's tray has no check item).
+- WebP avatars decode through the `image` crate (Rune's decoder has none).
 
-## Gaps compared with the Tauri app
+The phone layout is the separate Android prototype (card #680, `app/src/phone`).
 
-- Launch at login, the updater and Keep this device up to date are not wired: `crates/update`
-  is Rust, but the Tauri shell's glue was not ported.
-- Desktop cards (`toast`/`notify`) still post. A card's Open shows the window and opens the
-  card.
-- Calls, voice and terminals (suzuri) have no UI.
-- The Windows exe has no version resource or comctl6 manifest; `embed-resource` in a
-  `build.rs` would add them.
-- A release build still has the WebView2 bootstrapper step in `release.ps1` and `irori.nsi`,
-  which is now dead.
-- `docs/architecture.md` still describes the Tauri app.
-- The rest of the UI is not ported. See the estimate on card #674.
