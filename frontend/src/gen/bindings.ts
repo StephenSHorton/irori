@@ -125,12 +125,17 @@ export const commands = {
 	 */
 	agentStop: (key: string, text: string) => __TAURI_INVOKE<null>("agent_stop", { key, text }),
 	/**
-	 *  Wind down all (card #220): asks every agent (`scope` "this" device or
-	 *  "all" devices) to save its place, hand back its cards and stop; with
-	 *  `pause_after`, Pause all turns on once every agent has answered.
+	 *  Wind down on (cards #220, #787): holds agent starts on every one of the
+	 *  person's devices and asks every agent to save its place, hand back its
+	 *  cards and stop.
 	 */
-	windDownAll: (scope: string, pauseAfter: boolean) => __TAURI_INVOKE<WindDownStatus>("wind_down_all", { scope, pauseAfter }),
-	/**  The current Wind down all run, read fresh (empty id: none). */
+	windDownAll: () => __TAURI_INVOKE<WindDownStatus>("wind_down_all"),
+	/**
+	 *  Wind down off (card #787): wind-downs not reached yet close, the pauses
+	 *  Wind down set lift, and work resumes.
+	 */
+	windDownOff: () => __TAURI_INVOKE<WindDownStatus>("wind_down_off"),
+	/**  The Wind down switch, and this device's run read fresh (empty id: none). */
 	windDownStatus: () => __TAURI_INVOKE<WindDownStatus>("wind_down_status"),
 	/**  Stop on a Wind down row: cuts that agent's turn with the wind-down's steps. */
 	windDownStop: (key: string) => __TAURI_INVOKE<null>("wind_down_stop", { key }),
@@ -3420,15 +3425,24 @@ export type WindDownRow = {
 	error: string,
 };
 
-/**  A run's status (empty `id`: none yet). */
+/**  The switch and this device's latest run (empty `id`: no run here). */
 export type WindDownStatus = {
+	/**
+	 *  The switch (card #787): Wind down holds agent starts on at least one
+	 *  of the person's devices. Read from the replicated Pause agents rows,
+	 *  so every device sees it, and it outlives a restart.
+	 */
+	on: boolean,
+	/**  When it went on, in ms since the epoch (0 when off). */
+	since: number | null,
+	/**  The devices Wind down holds, by name. */
+	devices: string[],
 	id: string,
 	scope: string,
-	pauseAfter: boolean,
-	/**  Pause all was turned on by this run. */
-	paused: boolean,
 	/**  No agent is still waiting or winding down. */
 	finished: boolean,
+	/**  The run was turned off (card #787). */
+	off: boolean,
 	rows: WindDownRow[],
 };
 
