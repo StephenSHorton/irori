@@ -933,7 +933,9 @@ export function sampleCards(now: Date): CardDetail[] {
     card({
       id: "sample-ask-1",
       short: "14",
-      title: "Why does the Mac build take twice as long as the PC's?",
+      // Irori named it (card #782); Undo on its line gives the first
+      // line back.
+      title: "Mac build twice as slow as the PC",
       goal: "Why does the Mac build take twice as long as the PC's?\nIt was about the same last week. Not urgent to fix, but I want to know what changed.",
       state: TaskState.Submitted,
       working: [],
@@ -945,6 +947,14 @@ export function sampleCards(now: Date): CardDetail[] {
           at: at(1),
           who: sampleYou,
           text: "You asked the room",
+        }),
+        CardThreadItem({
+          id: "sample-ask-1-named",
+          kind: "event",
+          at: at(1),
+          who: AgentRef({ key: "irori", name: "Irori", status: "irori" }),
+          text: "Irori renamed it from “Why does the Mac build take twice as long as the PC's?” to “Mac build twice as slow as the PC”",
+          undoTitle: "Why does the Mac build take twice as long as the PC's?",
         }),
       ],
       ask: CardAsk({

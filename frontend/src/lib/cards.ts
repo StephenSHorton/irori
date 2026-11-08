@@ -1415,6 +1415,28 @@ export function sampleRename(id: string, title: string) {
   sampleChanged()
 }
 
+// sampleUndoTitle is BoardService.UndoTitle on the sample (card #782):
+// the title Irori's rename replaced comes back as the person's own, and
+// the line loses its Undo.
+export function sampleUndoTitle(id: string) {
+  const c = sampleCard(id)
+  const line = [...c.thread].reverse().find((it) => it.undoTitle)
+  if (!line?.undoTitle) throw new Error("Irori's name is already gone")
+  const was = c.title
+  c.title = line.undoTitle
+  c.thread = [
+    ...c.thread.map((it) => (it.undoTitle ? { ...it, undoTitle: undefined } : it)),
+    CardThreadItem({
+      id: `${id}-undo-${c.thread.length}`,
+      kind: "event",
+      at: new Date().toISOString(),
+      who: sampleYou,
+      text: `You renamed it from “${was}” to “${c.title}”`,
+    }),
+  ]
+  sampleChanged()
+}
+
 // sampleCancel is BoardService.Close as canceled on the sample, with its
 // note (card #690: a closed board's open cards).
 export function sampleCancel(id: string, note: string) {
@@ -2292,6 +2314,16 @@ export const cards = {
       return
     }
     sampleRename(id, title)
+  },
+
+  // undoTitle is the person's Undo on Irori's name for their thread (card
+  // #782): the title it had comes back as theirs, and Irori leaves it.
+  async undoTitle(id: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.UndoTitle(id)
+      return
+    }
+    sampleUndoTitle(id)
   },
 
   // move puts a card on another board in its space (card #563), with its
