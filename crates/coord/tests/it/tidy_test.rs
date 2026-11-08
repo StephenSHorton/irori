@@ -106,9 +106,8 @@ fn a_finished_agent_has_no_line() {
     let e = tidy_env();
     let t = e.c.create_task(BOB, nt("spawned")).unwrap();
     e.ros.set(SPAWNED, "idle");
-    let g = e
-        .c
-        .request_spawn(
+    let g =
+        e.c.request_spawn(
             OWNER_KEY,
             SpawnAsk {
                 task_id: t.id.clone(),
@@ -511,7 +510,9 @@ fn switch_off_tells_nothing_about_leases() {
 fn a_shared_board_does_nothing() {
     let (a, _b, _owners) = common::two_people::two_people();
     a.c.set_tidy(true);
-    let t = a.c.create_task(common::two_people::P1, nt("board")).unwrap();
+    let t =
+        a.c.create_task(common::two_people::P1, nt("board"))
+            .unwrap();
     assert!(!a.c.flag_merged(&t.id).unwrap());
     assert!(a.c.get_task(&t.id).unwrap().did.is_empty());
 }

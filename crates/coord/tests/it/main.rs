@@ -4,7 +4,6 @@
 //! side; a test that changes process state lives outside this binary.
 
 mod agents_now_test;
-mod tidy_test;
 mod answered_left_test;
 mod any_agent_test;
 mod approvals;
@@ -75,6 +74,7 @@ mod subtasks_test;
 mod talk_test;
 mod thread_cards_test;
 mod thread_test;
+mod tidy_test;
 mod unheld_pr_test;
 mod version_wait_test;
 mod wait_chain_test;

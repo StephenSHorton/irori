@@ -1342,10 +1342,7 @@ impl Coord {
     /// Whether Irori would hand card `id` out now (card #786 checks a
     /// held-back card leaves the hand-out).
     pub fn needs_agent(&self, id: &str) -> bool {
-        self.lock()
-            .tasks
-            .get(id)
-            .is_some_and(offers::needs_agent)
+        self.lock().tasks.get(id).is_some_and(offers::needs_agent)
     }
     pub fn leases(&self) -> Vec<Lease> {
         self.lock().leases()

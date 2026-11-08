@@ -34,7 +34,10 @@ export function LeaseNoticesLine() {
     )
   }
   return (
-    <div role="status" className="grid gap-1 px-1 text-[12.5px] text-muted-foreground">
+    <div
+      role="status"
+      className="grid gap-1 px-1 text-[12.5px] text-muted-foreground"
+    >
       {list.map((n) => (
         <div key={n.id} className="flex items-center gap-2">
           <KeyRoundIcon className="size-3.5 shrink-0" aria-hidden />

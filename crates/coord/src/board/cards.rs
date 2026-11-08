@@ -2937,7 +2937,11 @@ impl Fold {
 }
 
 /// Trims and checks a raise's options.
-pub(crate) fn clean_options(input: &[BlockerOption], by: &str, at: GoTime) -> Result<Vec<BlockerOption>> {
+pub(crate) fn clean_options(
+    input: &[BlockerOption],
+    by: &str,
+    at: GoTime,
+) -> Result<Vec<BlockerOption>> {
     if input.len() > MAX_OPTIONS {
         return Err(invalid(format!(
             "more than {MAX_OPTIONS} recommended answers"

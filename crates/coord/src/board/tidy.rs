@@ -159,7 +159,11 @@ impl Fold {
         }
         let Some(t) = self.tasks.get_mut(&p.task_id) else {
             // Ahead of its card: it joins it when the card folds.
-            merge_did(self.did_early.entry(p.task_id.clone()).or_default(), &p, ev.hlc.0);
+            merge_did(
+                self.did_early.entry(p.task_id.clone()).or_default(),
+                &p,
+                ev.hlc.0,
+            );
             return;
         };
         merge_did(&mut t.did, &p, ev.hlc.0);
@@ -356,13 +360,10 @@ impl Fold {
             .held
             .values()
             .filter(|l| {
-                !self.lease_local(l)
-                    && gotime::after(now, &l.lease.until)
-                    && self.live(l, now)
-                    && {
-                        let dev = self.lease_dev(l);
-                        dev != self.dev && self.away_for(dev, LEASE_OFFLINE_AFTER)
-                    }
+                !self.lease_local(l) && gotime::after(now, &l.lease.until) && self.live(l, now) && {
+                    let dev = self.lease_dev(l);
+                    dev != self.dev && self.away_for(dev, LEASE_OFFLINE_AFTER)
+                }
             })
             .map(|l| l.lease.clone())
             .collect();

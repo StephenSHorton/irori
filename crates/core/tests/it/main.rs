@@ -5,9 +5,9 @@
 
 mod agent_starts;
 mod agentnames;
-mod assistant_tidy;
 mod ask_spawn;
 mod assistant_names;
+mod assistant_tidy;
 mod attachments;
 mod board_servers;
 mod boards;
