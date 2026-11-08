@@ -1090,3 +1090,44 @@ fn unreadable_session_file_keeps_a_live_session() {
     w.rescan();
     assert!(!listed(&w), "a deleted session file stayed listed");
 }
+
+/// Card #783: the window assistant's headless `claude -p` writes a session
+/// file in its run dir; that folder (and any under it) is left off the
+/// roster, every other session listed.
+#[test]
+fn skip_cwd_leaves_the_assistant_off_the_roster() {
+    let td = tempfile::tempdir().unwrap();
+    let dir = td.path();
+    let run = dir.join("data").join("assistant");
+    let sep = std::path::MAIN_SEPARATOR;
+    for (pid, id, cwd) in [
+        (1, "assistant-session", run.to_string_lossy().into_owned()),
+        (
+            2,
+            "assistant-sub",
+            format!("{}{sep}x", run.to_string_lossy()),
+        ),
+        (
+            3,
+            "assistant-slash",
+            format!("{}{sep}", run.to_string_lossy()),
+        ),
+        (4, "neighbour", format!("{}-other", run.to_string_lossy())),
+        (5, "agent", dir.join("repo").to_string_lossy().into_owned()),
+    ] {
+        write_session(dir, json!({"pid": pid, "sessionId": id, "cwd": cwd}));
+    }
+    let (mut opts, _) = test_opts(dir, true);
+    let skip = if cfg!(windows) {
+        // Either slash, any case.
+        run.to_string_lossy().replace('\\', "/").to_uppercase()
+    } else {
+        run.to_string_lossy().into_owned()
+    };
+    opts.skip_cwd = vec![skip];
+    let w = Watcher::new(opts);
+    w.rescan();
+    let mut ids: Vec<String> = w.snapshot().into_iter().map(|c| c.session_id).collect();
+    ids.sort();
+    assert_eq!(ids, vec!["agent".to_string(), "neighbour".to_string()]);
+}

@@ -150,6 +150,12 @@ kinds! {
     /// The person paused a card (card #207): its holders are stopped and
     /// their tools refused until Resume. The private log only.
     TASK_PAUSED = "task.paused" => Replicated, Refuses;
+    /// A card's weight (card #963): `{taskId, level: light|normal|heavy|""
+    /// (cleared), reason, by, at}`. Irori starts the card's agent on the
+    /// model and effort Settings › Agents maps the weight to. Who set it
+    /// comes from the row's writer; a weight the person set is changed only
+    /// by a person. Boards accept it: their cards start agents too.
+    TASK_WEIGHT = "task.weight" => Replicated, Accepts;
     /// A shared card's owner changing hands (card #432):
     /// `{taskId, op: offer|request|accept|decline, person, blockerId?, by, at}`.
     /// `person` is who would own it. Shared boards only.
@@ -208,6 +214,18 @@ kinds! {
     /// "Transcribe what I say in calls" (card #656): `{on, by, at}`, actor
     /// `user`, newest wins, none means on. Set in the app only.
     TRANSCRIBE_SET = "transcribe.set" => Replicated, Refuses;
+    /// The themes new agents' names don't come from (card #702): `{off,
+    /// by, at}`, actor `user`, newest wins, none means every theme on. Set
+    /// in the app only.
+    NAMES_THEMES = "names.themes" => Replicated, Refuses;
+    /// "Name new threads" (card #782): Irori's assistant gives the
+    /// person's new thread a short title. `{on, by, at}`, actor `user`,
+    /// newest wins, none means on. Set in the app only.
+    ASSISTANT_NAMES_SET = "assistant.names.set" => Replicated, Refuses;
+    /// "Weigh new cards" (card #965): Irori's assistant weighs each new
+    /// card. `{on, by, at}`, actor `user`, newest wins, none means on. Set
+    /// in the app only.
+    ASSISTANT_WEIGHS_SET = "assistant.weighs.set" => Replicated, Refuses;
     // capture
     CAPTURE_TURN = "capture.turn" => Replicated, Refuses;
     CAPTURE_EDIT = "capture.edit" => Replicated, Refuses;
@@ -296,6 +314,15 @@ kinds! {
     SPACE_BOARD_CREATED = "space.board.created" => Replicated, Accepts;
     /// `{boardId, name, tag, by, at}`: a board in the space renamed.
     SPACE_BOARD_RENAMED = "space.board.renamed" => Replicated, Accepts;
+    /// `{boardId, description, by, at}`: a board's description (card
+    /// #690), empty clears it; the newest row stands. Stored unread by an
+    /// Irori at hello `tolerant` 1, so a space writes it only once every
+    /// member device is there.
+    SPACE_BOARD_DESCRIBED = "space.board.described" => Replicated, Accepts;
+    /// `{boardId, closed, by, at}`: a board closed (read-only, out of the
+    /// lists) or reopened (`closed: false`) (card #690); the newest valid
+    /// row stands. Gated like `space.board.described`.
+    SPACE_BOARD_CLOSED = "space.board.closed" => Replicated, Accepts;
     // merge desk (card #415, docs/design/merge-desk.md §7): the person's
     // private log in v1
     /// `{repoKey, enabled, takesPrs, pollDevice, trusted[], perPrOk, by,

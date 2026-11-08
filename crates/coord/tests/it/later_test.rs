@@ -722,8 +722,10 @@ fn an_ownership_change_goes_first() {
     );
 }
 
+/// Card #970: a wait on a PR is its agent's, like any outside wait: it
+/// doesn't keep the card from being held.
 #[test]
-fn a_merge_wait_goes_first() {
+fn a_pr_wait_doesnt_go_first() {
     let e = Env::new();
     let t = make(&e, "waits on a merge");
     e.c.block(
@@ -736,10 +738,7 @@ fn a_merge_wait_goes_first() {
         }),
     )
     .unwrap();
-    want_err(
-        e.c.park(ALICE, &t.id, "why", Back::Word),
-        ErrorKind::BadState,
-    );
+    e.c.park(ALICE, &t.id, "why", Back::Word).unwrap();
 }
 
 #[test]
