@@ -90,6 +90,8 @@ pub mod row_kind {
     pub const ASK: &str = "ask";
     /// A lease release request (§5.4).
     pub const LEASE: &str = "lease";
+    /// A review ask on a PR the card links (§12.12 B1b).
+    pub const REVIEW: &str = "review";
 }
 
 /// The reason on a wake request the receive setting turned into next turn.
@@ -284,7 +286,7 @@ pub fn receive_decision(
             // person decides first (member_lease, §5.4).
             let h = if f.kind == row_kind::LEASE {
                 hold::MEMBER_LEASE
-            } else if bypass_recipient || agent_assign {
+            } else if bypass_recipient || agent_assign || f.kind == row_kind::REVIEW {
                 hold::CROSS_PERSON
             } else if f.wake {
                 hold::MEMBER_WAKE

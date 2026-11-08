@@ -484,6 +484,8 @@ Files: `crates/coord/src/board/rows.rs`, `review.rs`, `crates/coord/src/board/mo
 Steps: `wake` on `ReviewRequestedRow`, written true; `row_kind::REVIEW` in the Ask me hold; `f.pr` checked against links on receipt; `row_plan`'s review text saying to answer on the PR, with its URL.
 Done when: a two-person test shows a review ask wakes an idle agent of the other person, is held under receive Ask me, and is refused when its PR isn't on the card.
 
+*Built (#1073).* `row_kind::REVIEW` is its own kind (it was `ASSIGN`), held `cross_person` under Ask me like an agent's assignment. The "PR is on the card" check lives in the core bridge (`links_pr` in `crates/core/src/service/bridge.rs`), so the inbox sees only rows that pass; it is unit-tested there, since a two-person test can't forge a row its sender would refuse. `wake` is written true only on a shared board; the private-board path (`request_own_review`) keeps its notice and writes false.
+
 **B1c (#1076). Allow lists.** Light. After B1a.
 Files: `crates/core/src/service/spawn_permissions.rs`, `spawn.rs`.
 Steps: `gh pr view`, `diff`, `checks` for limited spawns; `gh pr comment` and, while the setting is on at spawn, `gh pr review`, each bound to the URLs of PRs the card links; drop the stale "#509" comment.

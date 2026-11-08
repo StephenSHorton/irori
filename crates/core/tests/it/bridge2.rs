@@ -297,10 +297,13 @@ fn a_review_request_reaches_the_dedicated_reviewer() {
     t.sync();
     let ds = wait_bridged(t.a(), &t.ra.key_b, 1);
     let (d, m) = (&ds[0], &ds[0].message);
-    assert_eq!(m.board.kind, row_kind::ASSIGN);
+    assert_eq!(m.board.kind, row_kind::REVIEW);
+    assert_eq!(d.mode, mode::WAKE, "a review ask wakes: {d:?}");
     assert!(m.board.card_id.len() > 1, "from bob's agent: {m:?}");
     assert!(
-        m.from.name.starts_with("bob's agent") && m.text.contains(PR),
+        m.from.name.starts_with("bob's agent")
+            && m.text.contains(PR)
+            && m.text.contains("answer on the PR by its URL"),
         "{m:?}"
     );
     assert_eq!(d.hold, "", "Open lets it through: {d:?}");
