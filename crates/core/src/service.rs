@@ -1282,6 +1282,17 @@ impl Core {
                     is_owner: Some(is_owner.clone()),
                     revoked: Some(revoked.clone()),
                     done_check: true,
+                    // Whether an agent read another person's text (card
+                    // #1075): the inbox keeps the flag beside its lock, so
+                    // this write-time check never waits on it.
+                    others_of: Some({
+                        let sawn = ib.saw_others_handle();
+                        Arc::new(move |actor: &str| {
+                            actor
+                                .strip_prefix(store::kinds::AGENT_ACTOR_PREFIX)
+                                .is_some_and(|k| sawn.has(k))
+                        })
+                    }),
                     // The private board's spawned-agent switch (card #446).
                     spawning: Some({
                         let on = spawn_state.on.clone();
