@@ -525,11 +525,17 @@ export const commands = {
 	 */
 	usageLimits: () => __TAURI_INVOKE<UsageLimits>("usage_limits"),
 	/**
-	 *  Asks the corner chat's assistant `text` after `history`. Returns the
-	 *  run's id at once; its events come on `on`, ending with one `done` or
-	 *  `error` (a failure to start included).
+	 *  Stores files for the corner chat (card #999) and says, for each, what
+	 *  the chat shows and whether the assistant can read it.
 	 */
-	assistantAsk: (history: AssistantTurn[], text: string, on: Channel<AssistantEvent>) => __TAURI_INVOKE<number>("assistant_ask", { history, text, on }),
+	assistantAttach: (files: UploadFile[]) => __TAURI_INVOKE<AssistantFile[]>("assistant_attach", { files }),
+	/**
+	 *  Asks the corner chat's assistant `text` after `history`, with `files`
+	 *  from [`assistant_attach`]. Returns the run's id at once; its events
+	 *  come on `on`, ending with one `done` or `error` (a failure to start
+	 *  included).
+	 */
+	assistantAsk: (history: AssistantTurn[], text: string, files: AssistantFile[], on: Channel<AssistantEvent>) => __TAURI_INVOKE<number>("assistant_ask", { history, text, files, on }),
 	/**
 	 *  Stops assistant run `id`: its channel gets error "Stopped." or nothing
 	 *  more. An unknown or finished id is fine.
@@ -887,11 +893,31 @@ export type AssistantEvent = {
 	text: string,
 };
 
+/**
+ *  One file the person gave the chat (card #999): a file reference plus
+ *  whether the assistant can read it.
+ */
+export type AssistantFile = {
+	sha256: string,
+	/**  The safe file name. */
+	name: string,
+	size: number,
+	mime?: string,
+	device: string,
+	/**  The assistant reads this type; `false` says so in the chat. */
+	can_read?: boolean,
+};
+
 /**  One turn of the chat so far. */
 export type AssistantTurn = {
 	/**  `"person"` or `"assistant"`. */
 	role: string,
 	text: string,
+	/**
+	 *  What the person attached to this turn (card #999): names only reach
+	 *  the model on later turns.
+	 */
+	files?: AssistantFile[],
 };
 
 /**  One comment file as the window shows it. */

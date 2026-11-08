@@ -19,7 +19,7 @@ use crate::agents::{
     AgentStartsView, AgentUsage, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings,
     NamesThemesView, RunningAgent,
 };
-use crate::assistant::{AssistantEvent, AssistantTurn};
+use crate::assistant::{AssistantEvent, AssistantFile, AssistantTurn};
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
 use crate::boards::{BoardSettings, BoardSummary, SharePreview, SpaceBoard};
@@ -2474,6 +2474,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             desk_set,
             meters_history,
             usage_limits,
+            assistant_attach,
             assistant_ask,
             assistant_stop,
         ])
@@ -2498,22 +2499,37 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
 
 // ---- The assistant (card #783) ----------------------------------------------
 
-/// Asks the corner chat's assistant `text` after `history`. Returns the
-/// run's id at once; its events come on `on`, ending with one `done` or
-/// `error` (a failure to start included).
+/// Stores files for the corner chat (card #999) and says, for each, what
+/// the chat shows and whether the assistant can read it.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_attach(w: W<'_>, files: Vec<UploadFile>) -> R<Vec<AssistantFile>> {
+    blocking(&w, move |w| w.assistant_attach(&files)).await
+}
+
+/// Asks the corner chat's assistant `text` after `history`, with `files`
+/// from [`assistant_attach`]. Returns the run's id at once; its events
+/// come on `on`, ending with one `done` or `error` (a failure to start
+/// included).
 #[tauri::command]
 #[specta::specta]
 pub async fn assistant_ask(
     w: W<'_>,
     history: Vec<AssistantTurn>,
     text: String,
+    files: Vec<AssistantFile>,
     on: tauri::ipc::Channel<AssistantEvent>,
 ) -> R<u32> {
-    if text.trim().is_empty() {
+    if text.trim().is_empty() && files.is_empty() {
         return Err("ask something first".into());
     }
     blocking(&w, move |w| {
-        Ok(w.assistant_ask(&history, &text, Box::new(move |e| on.send(e).is_ok())))
+        Ok(w.assistant_ask(
+            &history,
+            &text,
+            &files,
+            Box::new(move |e| on.send(e).is_ok()),
+        ))
     })
     .await
 }
