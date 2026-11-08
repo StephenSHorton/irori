@@ -39,8 +39,9 @@
 //   ?glass=<style>  a glass style without saving it (frost, clear, ...)
 //   ?meters=open    opens the top bar's hardware meters panel (card #599);
 //   ?gpu=none       the meters on a machine with no GPU (lib/meters.ts)
-//   ?usage=none     Claude usage left with no reading yet; ?usage=stale
-//                   one from 40 minutes ago (lib/usage.ts)
+//   ?usage=none     Claude usage with no reading yet; ?usage=stale
+//                   one from 40 minutes ago; ?usage=80 both windows 80%
+//                   used (lib/usage.ts)
 //   ?term           a card page's Terminal section with one blank stand-in
 //                   shell and its height handle (lib/term.ts, card #730)
 

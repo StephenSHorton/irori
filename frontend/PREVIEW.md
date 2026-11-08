@@ -133,10 +133,10 @@ unchanged.
 | `/?storage=log` | Irori's log: what its rows are, Clear done cards (it was Settings > Maintenance), Clear resolved threads, and the cleared cards and threads with Put back |
 | `/?storage=closed` | Closed boards (with #690): every closed board in Personal and the spaces, its space, when it closed and its description; a click opens it |
 | `/?open=board:task:sample-card-4` | (Notes) under Who's on it: the notes sample-heron got on wake and the tag that matched each |
-| `/?meters=open` | the top bar's hardware meters (card #599) open: Claude usage left first, 5-hour 62% and Weekly 39% with when each resets; then CPU, Memory, a row per disk, Network and a row per GPU (an RTX 5080 and the CPU's Radeon), each with its last two minutes, Task Manager style. Every page's top bar has the strip (desktop only): CPU and Mem first, "Claude 62% · 39% left" (hover for which is which), GPU, then Net and Disk (the system disk, C:) as the header widens; a board's page needs more room for each |
-| `/?meters=open&usage=none` | Claude usage left before any reading: "No reading yet: appears after a Claude Code reply on this computer"; the strip has no Claude part |
-| `/?meters=open&usage=stale` | a usage reading 40 minutes old: "as of 14:05" beside Claude usage left |
-| `/?meters=open&usage=20` | both usage windows with 20% left (any 0 to 100; card #772): the bars blend from the theme color (50% left and up) toward amber (20%) and red (0), and the strip's Claude reading takes the same color at 25% left and under |
+| `/?meters=open` | the top bar's hardware meters (card #599) open: Claude usage first, 5-hour 38% used and Weekly 61% used with when each resets; then CPU, Memory, a row per disk, Network and a row per GPU (an RTX 5080 and the CPU's Radeon), each with its last two minutes, Task Manager style. Every page's top bar has the strip (desktop only): CPU and Mem first, "Claude 38% · 61% used" (hover for which is which), GPU, then Net and Disk (the system disk, C:) as the header widens; a board's page needs more room for each |
+| `/?meters=open&usage=none` | Claude usage before any reading: "No reading yet: appears after a Claude Code reply on this computer"; the strip has no Claude part |
+| `/?meters=open&usage=stale` | a usage reading 40 minutes old: "as of 14:05" beside Claude usage |
+| `/?meters=open&usage=80` | both usage windows 80% used (any 0 to 100; card #772): the bars fill as the plan is used, like claude.ai, and blend from the theme color (up to 50% used) toward amber (80%) and red (100%); the strip's Claude reading takes the same color at 75% used and over |
 | `/?meters=open&gpu=none` | a machine with no GPU: no GPU rows, no GPU in the strip |
 | `/?android` at desktop width | no meters strip: the phone never shows it (it's also hidden under 768 px) |
 | `/?empty` | no cards yet |
