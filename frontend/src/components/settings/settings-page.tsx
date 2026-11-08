@@ -23,8 +23,8 @@ import { Loading } from "@/components/ui/loading"
 import { Slider } from "@/components/ui/slider"
 import { useBoards, useInvite } from "@/lib/boards"
 import { plainLine } from "@/lib/irori"
-import { useNarrow } from "@/lib/media"
-import { go, type SettingsSection } from "@/lib/nav"
+import { useMedia } from "@/lib/media"
+import { go, openSettings, type SettingsSection } from "@/lib/nav"
 import { corners, useSettings } from "@/lib/settings"
 import { UpdateStatusLine, useKeepUpToDate } from "@/updater"
 import { VoiceNote } from "@/components/settings/voice-note"
@@ -89,17 +89,21 @@ export const settingsSections: {
   },
 ]
 
+// Under this the sections and the pane don't both fit side by side.
+const compactQuery = "(max-width: 1023.98px)"
+
 const cornerChoices = corners.map((c) => ({ value: c.id, label: c.label }))
 
 // SettingsPage is every setting in one place (cards #132, #1007): a page
 // at #settings/<section>, so a section can be linked to and Back works. On
 // a wide window the sections are a list down the left beside the chosen
-// one; on a phone #settings is that list, and a section opens on its own
-// with a way back. A pane mounts only while its section shows, so each
+// one. Where that list would squeeze the pane (under 1024 px, so a phone
+// and a small window) #settings is the list, and a section opens on its
+// own with a way back. A pane mounts only while its section shows, so each
 // reads its settings when it's opened.
 export function SettingsPage({ tab }: { tab: SettingsSection | "" }) {
-  const narrow = useNarrow()
-  if (narrow && !tab)
+  const compact = useMedia(compactQuery)
+  if (compact && !tab)
     return (
       <div className="grid min-h-0 flex-1 content-start overflow-y-auto pb-20 mac:overscroll-none">
         <ul
@@ -137,7 +141,7 @@ export function SettingsPage({ tab }: { tab: SettingsSection | "" }) {
   const here = settingsSections.find((s) => s.id === tab) ?? settingsSections[0]
   return (
     <div className="flex min-h-0 flex-1 gap-4">
-      {!narrow && (
+      {!compact && (
         <nav
           aria-label="Settings sections"
           className="grid w-[220px] shrink-0 content-start gap-0.5 overflow-y-auto pb-6"
@@ -151,7 +155,7 @@ export function SettingsPage({ tab }: { tab: SettingsSection | "" }) {
                 variant={current ? "secondary" : "ghost"}
                 size="sm"
                 aria-current={current ? "page" : undefined}
-                onClick={() => go({ kind: "settings", tab: s.id })}
+                onClick={() => !current && openSettings(s.id)}
                 className="justify-start gap-2"
               >
                 <Icon className="size-4" aria-hidden />
@@ -166,7 +170,7 @@ export function SettingsPage({ tab }: { tab: SettingsSection | "" }) {
         key={here.id}
         className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto pb-20 mac:overscroll-none"
       >
-        {narrow && (
+        {compact && (
           <div>
             <Button
               size="xs"

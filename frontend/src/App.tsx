@@ -640,14 +640,12 @@ export function App() {
   // Cmd+, Cmd+N and Cmd+F run the commands below and the sidebar's,
   // Settings' and the search box's.
   useEffect(() => listenAppShortcuts(), [])
-  // A jump from the palette closes the Held list, a message left open
-  // under it (#218) and New card (card #1007: Settings is a page now, and
-  // would change underneath it).
+  // A jump from the palette closes the Held list and a message left open
+  // under it (#218).
   useEffect(() => {
     const close = () => {
       setHeldOpen(false)
       setMessage("")
-      setNewCard(false)
     }
     window.addEventListener(PaletteJump, close)
     return () => window.removeEventListener(PaletteJump, close)
@@ -912,6 +910,9 @@ export function App() {
   if (drawerAt !== where) {
     setDrawerAt(where)
     setDrawer(false)
+    // New card takes its space and board from the page: moved, it would
+    // quietly post somewhere else (card #1007).
+    setNewCard(false)
   }
 
   // A phone (card #395, mockup talk-5): Home, Talk and Boards are tabs at

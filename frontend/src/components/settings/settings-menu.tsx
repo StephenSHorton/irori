@@ -2,6 +2,7 @@ import { SettingsIcon } from "lucide-react"
 
 import { settingsSections } from "@/components/settings/settings-page"
 import { Button } from "@/components/ui/button"
+import { SettingsShortcut } from "@/lib/app-shortcuts"
 import { useCommands } from "@/lib/commands"
 import { openSettings } from "@/lib/nav"
 
@@ -23,6 +24,7 @@ export function SettingsMenu({
       group: "Go to",
       order: 4,
       keywords: ["preferences", "options", "open settings"],
+      shortcut: SettingsShortcut,
       run: () => openSettings(),
     },
     ...settingsSections.map((s) => ({

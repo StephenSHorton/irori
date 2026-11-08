@@ -68,7 +68,7 @@ export function AgentsPane({ open }: { open: boolean }) {
   // running now. Running, permissions and trusted repos read on their own,
   // each with its own skeleton (card #598).
   return (
-    <div className="grid gap-5">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-5">
       <Loading
         loading={loading}
         label="Loading agent settings"
@@ -94,13 +94,17 @@ export function AgentsPane({ open }: { open: boolean }) {
       <HistorySection open={open} />
       <PermissionsSection open={open} />
       <TrustedSection open={open} />
-      <Loading loading={loading} label="Loading agent limits">
-        {s ? (
-          <LimitsSection open={open} settings={s} set={set} />
-        ) : (
-          <LimitsShape />
-        )}
-      </Loading>
+      {/* Only while it loads: a failed read says so above, with no empty
+          headings under it. */}
+      {(s || loading) && (
+        <Loading loading={loading} label="Loading agent limits">
+          {s ? (
+            <LimitsSection open={open} settings={s} set={set} />
+          ) : (
+            <LimitsShape />
+          )}
+        </Loading>
+      )}
       <NamesThemesSection open={open} />
       <RunningSection open={open} />
       {s && error && <p className="text-[12.5px] text-destructive">{error}</p>}
@@ -131,7 +135,7 @@ function WhenSection({
       <p className="text-[12.5px] text-muted-foreground">
         By itself, only for the cards a switch here covers. Each computer has
         its own switches: what counts is the one on the computer that made the
-        card.
+        card or, for a card made on a phone, the computer that picks it up.
       </p>
       <ul className="grid divide-y divide-border rounded-md border border-border">
         <li
@@ -788,7 +792,7 @@ function AgentsShape() {
         <p className="text-[12.5px] text-muted-foreground">
           By itself, only for the cards a switch here covers. Each computer has
           its own switches: what counts is the one on the computer that made the
-          card.
+          card or, for a card made on a phone, the computer that picks it up.
         </p>
         <ul className="grid divide-y divide-border rounded-md border border-border">
           {["Personal", "Sample space", "Cards someone gives you"].map(

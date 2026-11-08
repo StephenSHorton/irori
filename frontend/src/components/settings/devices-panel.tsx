@@ -112,6 +112,7 @@ function DevicesShape() {
   ]
   return (
     <div className="grid gap-3">
+      <span className="text-sm">Your devices</span>
       <ul className="grid gap-1.5">
         {rows.map(([name, state]) => (
           <li
@@ -130,6 +131,14 @@ function DevicesShape() {
           </li>
         ))}
       </ul>
+      <div className="flex flex-wrap items-center gap-2">
+        <span skullet-block="" className="block h-8 w-[108px] rounded-lg" />
+        <span skullet-block="" className="block h-7 w-[120px] rounded-lg" />
+        <span
+          skullet-block=""
+          className="ml-auto block h-8 w-[120px] rounded-lg"
+        />
+      </div>
       <div className="grid gap-1.5 border-t border-border pt-3">
         <span className="text-sm">Sides this device runs</span>
         <span className="flex flex-wrap items-center gap-1.5">
@@ -714,8 +723,8 @@ function Start({ onStarted }: { onStarted: (s: PairStatus) => void }) {
           {role === "node" && (
             <p className="w-full text-xs text-muted-foreground">
               An often-on PC keeps your devices up to date and suits the home
-              server. Irori won&apos;t pick it to start agents for your Personal
-              cards.
+              server. Irori won&apos;t send it Personal cards made on your other
+              devices; a card you post on it can still start there.
             </p>
           )}
         </div>
