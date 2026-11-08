@@ -654,6 +654,8 @@ pub(crate) struct Limits {
 }
 
 pub(crate) struct Inner {
+    /// The Inbox's "review without asking" setting, shared (§12.8).
+    pub reviews_unasked: Arc<std::sync::atomic::AtomicBool>,
     pub st: Arc<Store>,
     pub roster: Arc<dyn Roster>,
     pub owners: Option<PrOwnersFn>,
@@ -729,7 +731,7 @@ pub struct Inbox {
     /// Whether the person lets their agents review other people's PRs
     /// without asking (merge-desk §12.8). On until core says otherwise
     /// (decision 52). The fence's header reads it per batch.
-    pub(crate) reviews_unasked: std::sync::atomic::AtomicBool,
+    pub(crate) reviews_unasked: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// A change stream from [`Inbox::subscribe`]. Dropping it (or
@@ -800,7 +802,9 @@ impl Inbox {
             let me = format!("user:{}", opts.device_id);
             Arc::new(move |k: &str| k == me)
         });
+        let reviews_unasked = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let mut b = Inner {
+            reviews_unasked: reviews_unasked.clone(),
             st,
             roster,
             owners: opts.pr_owners,
@@ -863,7 +867,7 @@ impl Inbox {
         b.replay()?;
         Ok(Inbox {
             inner: Mutex::new(b),
-            reviews_unasked: std::sync::atomic::AtomicBool::new(true),
+            reviews_unasked,
         })
     }
 

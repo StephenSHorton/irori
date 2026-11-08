@@ -221,7 +221,12 @@ impl Inner {
         ready: &[String],
     ) -> Result<Wake> {
         let msgs: Vec<Delivery> = ready.iter().map(|id| self.copy_id(id)).collect();
-        let (full, overflow, mut prompt) = batch(token, reminder, &msgs);
+        let (full, overflow, mut prompt) = batch(
+            token,
+            reminder,
+            &msgs,
+            self.reviews_unasked.load(std::sync::atomic::Ordering::SeqCst),
+        );
         if md == mode::STOP {
             prompt = format!("{}\n\n{prompt}", stop_header(&msgs));
         }
@@ -477,7 +482,13 @@ impl Inner {
                 .filter_map(|id| self.dels.get(id).map(|d| self.copy_out(d)))
                 .collect();
         let mut out = w.w.clone();
-        out.prompt = fence(&w.w.token, w.w.reminder, &msgs, &w.w.overflow);
+        out.prompt = fence(
+            &w.w.token,
+            w.w.reminder,
+            &msgs,
+            &w.w.overflow,
+            self.reviews_unasked.load(std::sync::atomic::Ordering::SeqCst),
+        );
         let notes = crate::WakeNotes {
             task: w.w.notes_task.clone(),
             notes: w.w.notes.clone(),
