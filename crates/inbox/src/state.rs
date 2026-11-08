@@ -734,6 +734,10 @@ pub struct Inbox {
     /// it under the coord's own lock, and the inbox calls into coords under
     /// its own, so it may not wait on `inner`.
     pub(crate) sawn: Arc<SawOthers>,
+    /// Whether the person lets their agents review other people's PRs
+    /// without asking (merge-desk §12.8). On until core says otherwise
+    /// (decision 52). The fence's header reads it per batch.
+    pub(crate) reviews_unasked: std::sync::atomic::AtomicBool,
 }
 
 /// The agents that read another person's text, sticky for their session
@@ -899,6 +903,7 @@ impl Inbox {
         Ok(Inbox {
             sawn: b.sawn.clone(),
             inner: Mutex::new(b),
+            reviews_unasked: std::sync::atomic::AtomicBool::new(true),
         })
     }
 

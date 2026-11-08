@@ -514,6 +514,14 @@ pub struct Ask {
     /// handed or started for it until its person writes in it.
     #[serde(skip_serializing_if = "omit")]
     pub opener: String,
+    /// The opener gave this thread to a fresh agent Irori starts for it
+    /// (card #1027): it doesn't rest, and is handed to nobody else.
+    #[serde(skip_serializing_if = "omit")]
+    pub fresh: bool,
+    /// The opener gave the thread away (card #1027): the person's replies
+    /// no longer go to it unless it watches.
+    #[serde(skip_serializing_if = "omit")]
+    pub gave: bool,
     /// The Office Assistant posted this thread for the person (card #991):
     /// Irori doesn't name it. Still the person's in every other way.
     #[serde(skip_serializing_if = "omit")]

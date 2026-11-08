@@ -346,7 +346,14 @@ impl Services {
             BriefMore::default(),
         );
         let setting = self.spawn_setting(&b.id);
-        let perms = spawn_permissions(&setting, &b.id, &repo_key, &brief);
+        let perms = spawn_permissions(
+            &setting,
+            &b.id,
+            &repo_key,
+            &brief,
+            t,
+            self.reviews_unasked(),
+        );
         let ask = SpawnAsk {
             task_id: t.id.clone(),
             device: me,
@@ -586,6 +593,9 @@ impl Services {
         }
         if !t.holders.is_empty() {
             return Err(format!("{} has an agent on it", t.short_ref()));
+        }
+        if !self.spawn_setting(&b.id).on {
+            return Err(super::spawn::SWITCH_OFF_LINE.into());
         }
         if !co.hands_out_here(id) {
             return Err(format!(

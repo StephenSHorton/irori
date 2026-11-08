@@ -1511,6 +1511,27 @@ impl Coord {
         self.lock().post_agent_thread(by, input)
     }
 
+    /// Thread `id` its agent `by` opened goes to a fresh agent Irori
+    /// starts for it (card #1027).
+    pub fn thread_to_new_agent(&self, by: &str, id: &str, watch: bool) -> Result<Task> {
+        self.lock().thread_to_new_agent(by, id, watch)
+    }
+    /// `by` takes its thread back after no agent could start for it.
+    pub fn thread_back_to_opener(&self, by: &str, id: &str) -> Result<Task> {
+        self.lock().thread_back_to_opener(by, id)
+    }
+    /// `by` hands its thread to agent `to` (card #1027); the notice is
+    /// for `to`.
+    pub fn thread_hand_to(
+        &self,
+        by: &str,
+        id: &str,
+        to: &str,
+        watch: bool,
+    ) -> Result<(Task, Notice)> {
+        self.lock().thread_hand_to(by, id, to, watch)
+    }
+
     /// Whether t is an agent's thread its person hasn't written in yet
     /// (card #631): it waits on them, and no agent is started for it.
     pub fn agent_thread_rests(&self, t: &Task) -> bool {
