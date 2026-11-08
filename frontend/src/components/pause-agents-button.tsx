@@ -3,13 +3,15 @@ import { PauseIcon, PlayIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { runningSince, useAgentsPause } from "@/lib/agents"
+import { stopLabels as L } from "@/lib/stop-labels"
 import { cn } from "@/lib/utils"
 
-// PauseAgentsButton is the top nav's Pause agents switch (card #665): one
-// click stops Irori starting or restarting any agent on this computer (each
-// device has its own switch, Stephen's pick), and while it is on the nav
-// says so and since when, and one click turns it off. Running agents keep
-// running and keep getting messages. A short label on a phone.
+// PauseAgentsButton is the top nav's Stop here switch (cards #665, #773): one
+// click stops work on this machine (each machine has its own switch,
+// Stephen's pick): its agents write their hand-offs and leave their cards,
+// the other machines take them, and nothing starts here. While it is on
+// the nav says so and since when, and one click starts it again. Its words are in
+// lib/stop-labels.ts.
 export function PauseAgentsButton() {
   const { pause, error, busy, set } = useAgentsPause()
   const [now, setNow] = useState(() => Date.now())
@@ -28,10 +30,7 @@ export function PauseAgentsButton() {
       minute: "2-digit",
     })
     const ago = runningSince(sinceMs, Math.max(now, sinceMs))
-    const title =
-      `Agents paused since ${at}${pause.by ? ` by ${pause.by}` : ""}. ` +
-      "Irori starts no agent on this computer until you turn this off, and your other devices don't ask it; running agents keep running. Click to start agents again." +
-      (error ? `\n${error}` : "")
+    const title = L.here.onTitle(at, pause.by) + (error ? `\n${error}` : "")
     return (
       <Button
         size="sm"
@@ -39,7 +38,7 @@ export function PauseAgentsButton() {
         disabled={busy}
         onClick={() => set(false)}
         title={title}
-        aria-label={`Agents paused since ${at}. Start agents again`}
+        aria-label={L.here.onAria(at)}
         aria-pressed
         data-spot="pause-agents"
         className={cn(
@@ -49,14 +48,10 @@ export function PauseAgentsButton() {
       >
         <PlayIcon aria-hidden className="size-3.5" />
         <span className="hidden sm:inline">
-          Agents paused
-          <span className="ml-1 font-normal opacity-80">
-            · {ago === "just now" ? "just now" : `${ago}`}
-          </span>
+          {L.here.on}
+          <span className="ml-1 font-normal opacity-80">· {ago}</span>
         </span>
-        <span className="sm:hidden">
-          Paused<span className="ml-1 font-normal opacity-80">· {ago}</span>
-        </span>
+        <span className="sm:hidden">{L.here.onShort}</span>
       </Button>
     )
   }
@@ -66,17 +61,14 @@ export function PauseAgentsButton() {
       variant="ghost"
       disabled={busy}
       onClick={() => set(true)}
-      title={
-        "Pause agents on this computer: Irori stops starting or restarting agents here (new cards, threads, retries, the fresh agent after End), and your other devices don't ask it. Running agents keep running." +
-        (error ? `\n${error}` : "")
-      }
-      aria-label="Pause agents"
+      title={L.here.title + (error ? `\n${error}` : "")}
+      aria-label={L.here.name}
       aria-pressed={false}
       data-spot="pause-agents"
       className={cn(error && "ring-1 ring-destructive")}
     >
       <PauseIcon aria-hidden className="size-3.5" />
-      <span className="hidden sm:inline">Pause agents</span>
+      <span className="hidden sm:inline">{L.here.name}</span>
     </Button>
   )
 }

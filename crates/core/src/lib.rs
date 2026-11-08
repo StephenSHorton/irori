@@ -87,6 +87,7 @@ pub use crate::service::spawn;
 pub use crate::service::spawn_agents;
 pub use crate::service::spawn_capable;
 pub use crate::service::spawn_limits;
+pub use crate::service::spawn_pause;
 pub use crate::service::spawn_permissions;
 pub use crate::service::spawn_stop;
 pub use crate::service::spawn_waiting;

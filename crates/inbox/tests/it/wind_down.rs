@@ -219,3 +219,78 @@ fn an_ordinary_reply_still_reaches_the_person() {
     assert_eq!((n, unread), (1, 1));
     assert_eq!(toasts.len(), 1, "{toasts:?}");
 }
+
+/// Card #787: a wind-down whose agent's session ended without answering
+/// closes at the sweep, so Wind down's row reads "no answer" and the run
+/// can finish, instead of staying delivered for good.
+#[test]
+fn a_wind_down_to_a_session_that_ended_closes() {
+    let h = Harness::new();
+    h.abc();
+    let (_, d) =
+        h.ib.send_with(&person(), &to("alpha"), "wind down", wind_down())
+            .unwrap();
+    h.deliver_engage(KEY_A, "turn-1");
+    h.want_state(&d.id, st::ENGAGED);
+    h.end_a();
+    let got = h.want_state(&d.id, st::SKIPPED);
+    assert_eq!(got.note, inbox::NOTE_RECIPIENT_GONE);
+    assert!(h.ib.open_wind_downs().is_empty());
+}
+
+/// The person's ordinary message to an ended session still stays (only
+/// their wind-down closes).
+#[test]
+fn an_ordinary_message_to_an_ended_session_still_stays() {
+    let h = Harness::new();
+    h.abc();
+    let d = h.send_with(&person(), &to("alpha"), "hello", opts(mode::WAKE));
+    h.end_a();
+    h.want_state(&d.id, st::QUEUED);
+}
+
+/// Card #787: Wind down off closes a wind-down that hasn't reached its
+/// agent, leaves one its agent has in hand, and closes nothing else.
+#[test]
+fn off_cancels_only_wind_downs_not_reached_yet() {
+    let h = Harness::new();
+    h.abc();
+    let (_, waiting) =
+        h.ib.send_with(&person(), &to("alpha"), "wind down", wind_down())
+            .unwrap();
+    let (_, winding) =
+        h.ib.send_with(&person(), &to("beta"), "wind down", wind_down())
+            .unwrap();
+    h.deliver_engage(KEY_B, "turn-1");
+    let other = h.send_with(&person(), &to("gamma"), "hello", opts(mode::WAKE));
+    assert_eq!(h.ib.open_wind_downs().len(), 2);
+
+    assert!(h.ib.cancel_wind_down(&waiting.id, USER).unwrap());
+    assert!(!h.ib.cancel_wind_down(&winding.id, USER).unwrap());
+    assert!(!h.ib.cancel_wind_down(&other.id, USER).unwrap());
+
+    let got = h.want_state(&waiting.id, st::SKIPPED);
+    assert_eq!(got.note, inbox::NOTE_WIND_DOWN_OFF);
+    h.want_state(&winding.id, st::ENGAGED);
+    h.want_state(&other.id, st::QUEUED);
+    let open: Vec<String> = h.ib.open_wind_downs().into_iter().map(|d| d.id).collect();
+    assert_eq!(open, vec![winding.id.clone()]);
+    // Canceled is closed: alpha is never woken with it.
+    h.no_wake(KEY_A);
+    // Twice is fine.
+    assert!(!h.ib.cancel_wind_down(&waiting.id, USER).unwrap());
+}
+
+/// A wind-down held (Pause all holds none, but a block can) is not reached
+/// either: Off closes it too.
+#[test]
+fn off_cancels_a_queued_wind_down_under_pause_all() {
+    let h = Harness::new();
+    h.abc();
+    pause_all(&h);
+    let (_, d) =
+        h.ib.send_with(&person(), &to("alpha"), "wind down", wind_down())
+            .unwrap();
+    assert!(h.ib.cancel_wind_down(&d.id, USER).unwrap());
+    h.want_state(&d.id, st::SKIPPED);
+}

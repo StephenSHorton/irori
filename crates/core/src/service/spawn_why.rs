@@ -327,7 +327,7 @@ impl Services {
             }
         }
         // Pause agents here (card #665), and no other device takes it.
-        let pause = self.agents_pause();
+        let pause = self.pause_holding(&self.device.id);
         if pause.on && self.spawn_device(t).is_none() {
             return Why::AgentsPaused {
                 device: self.this_device_name(),
