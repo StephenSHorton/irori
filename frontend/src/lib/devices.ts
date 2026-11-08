@@ -515,10 +515,10 @@ export function useDevices(active: boolean): DevicesState {
     const id = window.setInterval(() => void reload(), RefreshMs)
     const offPair = onPairing(() => void reload())
     const offRoster = inWails()
-      ? Events.On(EventRosterChanged, () => void reload())
+      ? Events.OnShown(EventRosterChanged, () => void reload())
       : () => {}
     const offDevices = inWails()
-      ? Events.On(EventDevicesChanged, () => void reload())
+      ? Events.OnShown(EventDevicesChanged, () => void reload())
       : () => {}
     return () => {
       window.clearInterval(id)

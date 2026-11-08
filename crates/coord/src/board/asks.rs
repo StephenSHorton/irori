@@ -21,7 +21,7 @@ use crate::names::trim_space;
 use crate::roster::AgentCard;
 
 /// The text of the comment that carries an ask's files.
-pub(crate) const ASK_FILES_NOTE: &str = "Files with the ask.";
+pub const ASK_FILES_NOTE: &str = "Files with the ask.";
 
 pub const TAKE_CLAIM: &str = "claim";
 pub const TAKE_RELEASE: &str = "release";
@@ -540,6 +540,9 @@ impl Fold {
                         .then(|| self.moved_line(b))
                 });
                 let another = self.edited_by_another(ev, &p.task_id, &p.by);
+                // A name the person gave stays theirs (card #779).
+                let by_person = self.person_row(ev, &p.by);
+                let irori_title = irori_title_row(ev, &p);
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -549,7 +552,23 @@ impl Fold {
                 let moved_lines = changed.len();
                 if let Some(title) = &p.title
                     && !trim_space(title).is_empty()
+                    && (by_person || !t.title_by_person)
                 {
+                    if by_person {
+                        t.title_by_person = true;
+                    }
+                    // Irori's assistant names a thread (card #782): what
+                    // it was is kept for Undo.
+                    if *title != t.title {
+                        if irori_title {
+                            t.irori_titled += 1;
+                            t.title_was = t.title.clone();
+                        } else {
+                            // Someone else renamed it: the name isn't
+                            // Irori's any more, so there is nothing to undo.
+                            t.title_was.clear();
+                        }
+                    }
                     if *title != t.title {
                         changed.push(format!(
                             "renamed it from “{}” to “{}”",
@@ -581,7 +600,7 @@ impl Fold {
                 }
                 // A yes is for the words they read: someone else changing
                 // them asks again (card #573).
-                if changed.len() > moved_lines && another {
+                if changed.len() > moved_lines && another && !irori_title {
                     super::cards::close_given_question(t, at(p.at));
                     t.given_said = None;
                 }
@@ -596,6 +615,12 @@ impl Fold {
                         "turned Agents answer now {}",
                         if on { "on" } else { "off" }
                     ));
+                }
+                // Irori's name that didn't take (the person named it
+                // meanwhile, or it already read so) leaves no line, as on
+                // a device that folded the person's row after it.
+                if irori_title && changed.is_empty() {
+                    return;
                 }
                 let when = at(p.at);
                 t.updated_at = when;
@@ -619,7 +644,9 @@ impl Fold {
                 }
                 let ti = Touch::of(t);
                 let holder = t.holder.clone();
-                self.touch(ev, &ti, when, &p.by, &what, true, Vec::new());
+                // Irori naming a thread wakes nobody (card #782): the line
+                // is on the thread, with its Undo.
+                self.touch(ev, &ti, when, &p.by, &what, !irori_title, Vec::new());
                 if from_thread {
                     self.fold_made(ev, &p.from, &p.task_id, when, &p.by, "changed");
                 }
@@ -804,6 +831,16 @@ impl Fold {
             return (false, String::new());
         }
         if self.person_row(ev, &p.by) {
+            return (true, String::new());
+        }
+        // Irori's assistant names a thread on the person's own log (card
+        // #782): a title and nothing else. A shared board takes no row from
+        // Irori, so its threads aren't named.
+        if irori_title_row(ev, &p) {
+            if self.on_board {
+                self.ignore(&ev.device_id);
+                return (false, String::new());
+            }
             return (true, String::new());
         }
         // Only a person turns a thread's Agents answer now (card #391).
@@ -2198,6 +2235,7 @@ impl Fold {
                 if title.is_empty() {
                     return Err(invalid("a card outcome needs a title"));
                 }
+                self.check_person_title(&by, &t, &title)?;
                 self.write(
                     &by,
                     self.ask_kind(kinds::TASK_EDITED),
@@ -2301,6 +2339,7 @@ impl Fold {
                         m.state
                     )));
                 }
+                self.check_person_title(&by, &m, &title)?;
                 self.write(
                     &by,
                     self.ask_kind(kinds::TASK_EDITED),
@@ -2504,4 +2543,18 @@ fn clean_channel(c: &str) -> String {
     } else {
         String::new()
     }
+}
+
+/// Whether a task.edited row is Irori's assistant naming a thread (card
+/// #782): written by Irori itself, carrying a title and nothing else.
+fn irori_title_row(ev: &Event, p: &TaskEditedRow) -> bool {
+    p.by == SWEEPER
+        && ev.actor == SWEEPER
+        && p.title.is_some()
+        && p.objective.is_none()
+        && p.done_criteria.is_none()
+        && p.repo_key.is_none()
+        && p.from.is_empty()
+        && p.agents_now.is_none()
+        && p.board.is_none()
 }

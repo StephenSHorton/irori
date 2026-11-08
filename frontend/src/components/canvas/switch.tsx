@@ -21,7 +21,8 @@ import {
 } from "@/lib/cards"
 import { previewFlag } from "@/lib/preview"
 
-import { autoLayout, toGraph, withPlaced } from "./data"
+import { toGraph } from "./data"
+import { RecentMs } from "./weights"
 
 export type BoardView = "list" | "canvas"
 
@@ -115,6 +116,25 @@ function useBlockerDetails(list: CardSummary[]): Map<string, CardDetail> {
   return got
 }
 
+// useRecentExpiry ticks when the next card stops counting as changed in
+// the last hour (weights.ts RecentMs), so the canvas reads the clock again
+// then rather than at the next unrelated change.
+function useRecentExpiry(cards: CardSummary[]): number {
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const now = Date.now()
+    let next = Infinity
+    for (const c of cards) {
+      const end = Date.parse(c.updatedAt) + RecentMs
+      if (end > now && end < next) next = end
+    }
+    if (!Number.isFinite(next)) return
+    const t = window.setTimeout(() => setTick((n) => n + 1), next - now + 1000)
+    return () => window.clearTimeout(t)
+  }, [cards, tick])
+  return tick
+}
+
 // typing is a key pressed in a field, where F is a letter, not a shortcut.
 function typing(t: EventTarget | null): boolean {
   const e = t as HTMLElement | null
@@ -145,9 +165,13 @@ export function BoardCanvas({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stable = useMemo(() => cards, [sig])
   const details = useBlockerDetails(stable)
-  const graph = useMemo(() => toGraph(stable, details), [stable, details])
-  const auto = useMemo(() => autoLayout(graph), [graph])
-  const layout = useMemo(() => withPlaced(graph, auto), [graph, auto])
+  const tick = useRecentExpiry(stable)
+  const graph = useMemo(
+    () => toGraph(stable, details),
+    // tick: a card's "changed in the last hour" ran out (weights.ts).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stable, details, tick]
+  )
   const [full, setFull] = useState(() => previewFlag("full") !== null)
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -203,8 +227,6 @@ export function BoardCanvas({
       >
         <Canvas
           graph={graph}
-          layout={layout}
-          auto={auto}
           onOpen={onOpen}
           onPlace={(id, x, y) => void cardsApi.place(id, x, y)}
           full={full}

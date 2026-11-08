@@ -28,7 +28,13 @@ import {
   refText,
   splitMentions,
 } from "@/lib/mentions"
-import { richBlocks, richInline, safeHref, type Inline } from "@/lib/rich"
+import {
+  boldRuns,
+  richBlocks,
+  richInline,
+  safeHref,
+  type Inline,
+} from "@/lib/rich"
 import { cn } from "@/lib/utils"
 
 // RichText shows untrusted multi-line text from an agent with its links,
@@ -37,17 +43,19 @@ import { cn } from "@/lib/utils"
 // HTML. Set interactive false where it sits inside a button: links and
 // code then only look the part. mentions (card #77) turn each "@name"
 // they name into a chip; any other "@word" stays text, and code is never
-// split.
+// split. bold (card #783, Ask Irori's replies) shows **bold** as bold.
 export function RichText({
   text,
   className,
   interactive = true,
   mentions,
+  bold = false,
 }: {
   text: string
   className?: string
   interactive?: boolean
   mentions?: CardMention[]
+  bold?: boolean
 }) {
   const blocks = richBlocks(text)
   if (!blocks.length) return null
@@ -63,6 +71,7 @@ export function RichText({
                   pieces={l}
                   interactive={interactive}
                   mentions={mentions}
+                  bold={bold}
                 />
               </span>
             ))}
@@ -82,6 +91,7 @@ export function RichText({
                     pieces={it.inline}
                     interactive={interactive}
                     mentions={mentions}
+                    bold={bold}
                   />
                 </span>
               </li>
@@ -116,12 +126,28 @@ function Pieces({
   pieces,
   interactive,
   mentions,
+  bold,
 }: {
   pieces: Inline[]
   interactive: boolean
   mentions?: CardMention[]
+  bold?: boolean
 }) {
   return pieces.map((p, i) => {
+    if (p.kind === "text" && bold && p.text.includes("**"))
+      return (
+        <span key={i}>
+          {boldRuns(p.text).map((r, j) =>
+            r.bold ? (
+              <strong key={j} className="font-semibold">
+                <CardRefs text={r.text} interactive={interactive} />
+              </strong>
+            ) : (
+              <CardRefs key={j} text={r.text} interactive={interactive} />
+            )
+          )}
+        </span>
+      )
     if (p.kind === "text") {
       if (!mentions?.length)
         return (

@@ -394,7 +394,7 @@ impl Services {
     }
 
     /// The private board's coord and each shown board's, by board id.
-    fn agent_coords(&self) -> Vec<(String, std::sync::Arc<coord::Coord>)> {
+    pub(crate) fn agent_coords(&self) -> Vec<(String, std::sync::Arc<coord::Coord>)> {
         let mut v = vec![(String::new(), self.coord.clone())];
         v.extend(
             self.shown_boards()
