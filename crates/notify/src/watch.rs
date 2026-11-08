@@ -1000,25 +1000,6 @@ impl Ctx<'_> {
                 instance
             };
         }
-        // Card #509: a wait on a PR's merge, with nothing else to answer,
-        // says which PR is the person's to merge.
-        // Card #520: a PR wait coord counts as a gone wait (its PR merged
-        // or closed, or answered) is not a merge.
-        let gone_ids: Vec<&str> = c.gone_waits.iter().map(|s| s.blocker_id.as_str()).collect();
-        let merge = t
-            .blockers
-            .iter()
-            .filter(|b| !gone_ids.contains(&b.id.as_str()))
-            .find_map(|b| b.merge_wait())
-            .filter(|_| {
-                !t.blockers.iter().any(|b| {
-                    b.open()
-                        && b.merge_wait().is_none()
-                        && b.on
-                            .as_ref()
-                            .is_none_or(|on| on.kind == coord::BLOCKED_ON_PERSON)
-                })
-            });
         // Card #520: nobody holds it and its wait's agent is gone, with
         // nothing else to answer (an answered item waits on its agent, as
         // coord counts it): say so, not "blocked on you".
@@ -1032,19 +1013,15 @@ impl Ctx<'_> {
         let gone = c
             .gone_waits
             .first()
-            .filter(|_| merge.is_none() && !asks && t.state != coord::INPUT_REQUIRED);
+            .filter(|_| !asks && t.state != coord::INPUT_REQUIRED);
         let (mut title, body) = if t.state == coord::BLOCKED {
             let mut body = t.reason.clone();
             if !t.title.is_empty() && t.title != t.reason {
                 body += &format!(" · {}", t.title);
             }
-            let pr = merge
-                .as_deref()
-                .and_then(|u| coord::parse_link(u).ok())
-                .and_then(|l| coord::pr_link(&l));
-            match (pr, gone) {
-                (Some((_, n)), _) => (format!("{agent} waits on you to merge PR #{n}"), body),
-                (None, Some(s)) => {
+            // Card #970: a wait on a PR is never the person's merge.
+            match gone {
+                Some(s) => {
                     let who = self.name(&s.agent);
                     let title = if s.waited_on {
                         format!("Nobody holds it, and {who}, whom it waits on, is gone")
@@ -1053,7 +1030,7 @@ impl Ctx<'_> {
                     };
                     (title, body)
                 }
-                (None, None) => (format!("{agent} is blocked on you"), body),
+                None => (format!("{agent} is blocked on you"), body),
             }
         } else if t.state == coord::INPUT_REQUIRED {
             let mut body = t.title.clone();

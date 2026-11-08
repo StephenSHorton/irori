@@ -315,15 +315,9 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub wait_pr: Option<WaitPr>,
-    /// The PR an agent's open external wait asks the person to merge (card
-    /// #509): a Needs you row with the PR's link, until it is known merged
-    /// or closed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[specta(optional)]
-    pub merge_pr: Option<WaitPr>,
     /// A wait no agent will end (card #520): on a card nobody holds, an
-    /// item waits on an agent that is gone, or an outside wait (not a PR's
-    /// merge) was raised by one. A Needs you row with Hand to an agent,
+    /// item waits on an agent that is gone, or an outside wait (a PR's
+    /// too, card #970) was raised by one. A Needs you row with Hand to an agent,
     /// until it is handed on, the card is stopped or someone takes it.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
@@ -2453,26 +2447,22 @@ impl Window {
     pub fn decide_count(&self) -> usize {
         let p = People::default();
         let co = self.core.coord();
-        // Card #509: a wait on a PR's merge is the person's too, and card
-        // #520: a wait on an agent that is gone.
+        // Card #520: a wait on an agent that is gone is the person's too. A
+        // wait on a PR is its agent's (card #970).
         let private = co
             .list_tasks(&coord::TaskFilter {
                 open: true,
                 ..Default::default()
             })
             .iter()
-            .filter(|t| {
-                card_summary(t, &p).open_blockers > 0
-                    || merge_pr(co, t).is_some()
-                    || !co.gone_waits(&t.id).is_empty()
-            })
+            .filter(|t| card_summary(t, &p).open_blockers > 0 || !co.gone_waits(&t.id).is_empty())
             .count();
         private
             + self
                 .board_cards(&p, self.now_ms(), None)
                 .0
                 .iter()
-                .filter(|s| s.open_blockers > 0 || s.merge_pr.is_some() || s.gone_wait.is_some())
+                .filter(|s| s.open_blockers > 0 || s.gone_wait.is_some())
                 .count()
     }
 
@@ -3294,25 +3284,9 @@ fn wait_pr(co: &coord::Coord, t: &Task) -> Option<WaitPr> {
     })
 }
 
-/// The PR a blocked card's open external wait is on (card #509): the
-/// person's merge, as coord's Needs you counts it, until GitHub is heard
-/// to call it merged or closed.
-/// On a shared board, only this person's own agents' waits.
-fn merge_pr(co: &coord::Coord, t: &Task) -> Option<WaitPr> {
-    co.merge_waits(&t.id).into_iter().find_map(|url| {
-        let (repo, number) = coord::pr_link(&coord::parse_link(&url).ok()?)?;
-        Some(WaitPr {
-            repo,
-            number,
-            url,
-            approval: false,
-        })
-    })
-}
-
 /// A card's first wait no agent will end (card #520), as coord's Needs
-/// you counts it: on a gone agent, or an outside wait a gone agent raised,
-/// while nobody holds the card. Waits on a PR's merge are #509's row.
+/// you counts it: on a gone agent, or an outside wait a gone agent raised
+/// (one on a PR too, card #970), while nobody holds the card.
 fn gone_wait(co: &coord::Coord, p: &People, t: &Task) -> Option<GoneWait> {
     let gw = co.gone_waits(&t.id);
     let first = gw.first()?;
@@ -3388,7 +3362,6 @@ fn family_of(
     crate::later::fill_later_card(co, s);
     s.order = crate::later::order_of(co, follows, loops, t);
     s.wait_pr = wait_pr(co, t);
-    s.merge_pr = merge_pr(co, t);
     s.gone_wait = gone_wait(co, p, t);
     s.wait_you = wait_you(co, &s.wait_task);
     // A helper's "Part done" waits on its card's lead, not on the agent
