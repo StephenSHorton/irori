@@ -9,6 +9,7 @@ import type {
   CardWeight,
   AgentsChange,
   AgentStartsView,
+  RunHistoryRow,
   AgentsLimits,
   AgentsPauseView,
   AgentsSettings,
@@ -26,6 +27,7 @@ export type {
   AgentsLimits,
   AgentsPauseView,
   AgentStartsView,
+  RunHistoryRow,
   AgentsSettings,
   NamesThemesView,
   RunningAgent,
@@ -98,6 +100,61 @@ export function shortModel(model: string, effort: string): string {
   const m = modelNames[model] ?? model
   const e = (effortNames[effort] ?? effort).toLowerCase()
   return [m, e].filter(Boolean).join(" ")
+}
+
+// sentBackRate is the share of answered attempts the person sent back, as
+// it shows in Settings › Agents' history (card #966).
+export function sentBackRate(r: { runs: number; sentBack: number }): string {
+  return r.runs > 0 ? `${Math.round((r.sentBack / r.runs) * 100)}%` : "–"
+}
+
+const sampleHistory: RunHistoryRow[] = [
+  {
+    weight: "light",
+    model: "sonnet",
+    effort: "medium",
+    runs: 12,
+    firstTry: 10,
+    sentBack: 2,
+    advised: 12,
+  },
+  {
+    weight: "normal",
+    model: "sonnet",
+    effort: "medium",
+    runs: 31,
+    firstTry: 22,
+    sentBack: 8,
+    advised: 31,
+  },
+  {
+    weight: "heavy",
+    model: "opus",
+    effort: "high",
+    runs: 9,
+    firstTry: 8,
+    sentBack: 1,
+    advised: 9,
+  },
+]
+
+// useRunHistory loads how cards ended while Settings is open (card #966).
+export function useRunHistory(open: boolean) {
+  const [rows, setRows] = useState<RunHistoryRow[]>(
+    inWails() ? [] : sampleHistory
+  )
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AgentsService.History().then(
+      (r) => live && setRows(r),
+      () => live && setRows([])
+    )
+    return () => {
+      live = false
+    }
+  }, [open])
+  return rows
 }
 
 // weightLabel is a card's weight as it shows: "heavy · Opus high: planning

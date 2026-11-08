@@ -4,6 +4,7 @@ import {
   effortLabel,
   idleLabel,
   modelLabel,
+  sentBackRate,
   runningSince,
   shortModel,
   weightBy,
@@ -67,5 +68,12 @@ describe("a card's weight (card #963)", () => {
     expect(weightBy(w({ setBy: "person", byName: "Blake" }))).toBe(
       "Blake set it; agents can't change it"
     )
+  })
+})
+
+describe("sentBackRate", () => {
+  test("is the share of answered attempts sent back", () => {
+    expect(sentBackRate({ runs: 8, sentBack: 2 })).toBe("25%")
+    expect(sentBackRate({ runs: 0, sentBack: 0 })).toBe("–")
   })
 })

@@ -302,3 +302,67 @@ fn a_card_is_weighed_as_it_is_made() {
         "normal"
     );
 }
+
+fn stepped(e: &Env, by: &str) -> Task {
+    let t = e.c.create_task(USER, nt("Move me")).unwrap();
+    e.c.claim(by, &t.id).unwrap();
+    e.c.set_steps(
+        by,
+        &t.id,
+        vec![Step {
+            text: "do it".into(),
+            ..Step::default()
+        }],
+    )
+    .unwrap();
+    t
+}
+
+/// Card #966: a holder moves a card one weight, with why and left_off; it
+/// leaves; and the rules that keep moves bounded refuse the rest.
+#[test]
+fn a_holder_moves_its_card_one_weight() {
+    let e = Env::new();
+    let t = stepped(&e, ALICE);
+    want_err(
+        e.c.move_weight(BOB, &t.id, true, "why", "next"),
+        ErrorKind::NotAllowed,
+    );
+    want_err(
+        e.c.move_weight(ALICE, &t.id, true, "", "next"),
+        ErrorKind::Invalid,
+    );
+    want_err(
+        e.c.move_weight(ALICE, &t.id, true, "why", " "),
+        ErrorKind::Invalid,
+    );
+    let got =
+        e.c.move_weight(ALICE, &t.id, true, "harder", "next")
+            .unwrap();
+    let w = got.weight.unwrap();
+    assert_eq!((w.level.as_str(), w.moved.as_str()), ("heavy", "up"));
+    assert_eq!(got.left_off.unwrap().text, "next");
+    assert!(got.holders.is_empty(), "it left");
+    // Heavy is the top; moved up, it doesn't come back down.
+    e.c.claim(ALICE, &t.id).unwrap();
+    want_err(
+        e.c.move_weight(ALICE, &t.id, true, "why", "next"),
+        ErrorKind::Invalid,
+    );
+    want_err(
+        e.c.move_weight(ALICE, &t.id, false, "why", "next"),
+        ErrorKind::NotAllowed,
+    );
+    // Down works the same way, from normal, and the person's weight is theirs.
+    let d = stepped(&e, ALICE);
+    let got =
+        e.c.move_weight(ALICE, &d.id, false, "busy work", "next")
+            .unwrap();
+    assert_eq!(got.weight.unwrap().level, "light");
+    let p = stepped(&e, ALICE);
+    e.c.set_weight(USER, &p.id, "normal", "").unwrap();
+    want_err(
+        e.c.move_weight(ALICE, &p.id, true, "why", "next"),
+        ErrorKind::NotAllowed,
+    );
+}

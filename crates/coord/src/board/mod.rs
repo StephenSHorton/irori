@@ -61,13 +61,13 @@ pub use said::{SAID_CHARS, SAID_DAYS, SAID_MAX, SAID_PER_CARD, Said};
 mod short;
 mod side_gate;
 pub use side_gate::ASK_THE_PERSON;
+mod runs;
 mod spawn;
 mod subtasks;
 mod tasks;
 mod types;
 mod util;
 mod waits;
-mod runs;
 mod weight;
 
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
@@ -117,6 +117,7 @@ pub use resource::{
 pub use review::{
     NOTICE_REVIEW, REVIEW_REQUESTED, Review, ReviewRequest, VERDICT_APPROVED, VERDICT_CHANGES,
 };
+pub use runs::RunTally;
 pub use short::{parse_ref, parse_short, short_suffix};
 pub use threads::{
     NOT_YOURS_TO_CLOSE as THREAD_NOT_YOURS, READING_LINES, TAKE_ANSWERED, agents_now_default,
@@ -129,7 +130,6 @@ pub use waits::{
     MAX_WAITS, UNTIL_BLOCKED, UNTIL_CHANGED, UNTIL_DONE, UNTIL_UNBLOCKED, WAIT_CARD_GONE,
     WAIT_EXPIRED, WAIT_GONE, WAIT_TTL, until_text, wait_line,
 };
-pub use runs::RunTally;
 pub use weight::{MAX_WEIGHT_REASON, check_weight};
 
 use crate::roster::{AgentCard, Agents};

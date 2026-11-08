@@ -454,6 +454,8 @@ export const commands = {
 	 *  board).
 	 */
 	agentsSettings: (boardId: string) => __TAURI_INVOKE<AgentsSettings>("agents_settings", { boardId }),
+	/**  How cards ended, by weight, model and effort (card #966). */
+	agentsHistory: () => __TAURI_INVOKE<RunHistoryRow[]>("agents_history"),
 	/**  The person changes them: the app only, never a tool. */
 	agentsSet: (change: AgentsChange) => __TAURI_INVOKE<AgentsSettings>("agents_set", { change }),
 	/**
@@ -2724,6 +2726,20 @@ export type Rollup = {
 export type RosterChange = {
 	change: Change,
 	agents: AgentCard[],
+};
+
+/**
+ *  One row of Settings › Agents' history (card #966): attempts the person
+ *  answered on one weight, model and effort.
+ */
+export type RunHistoryRow = {
+	weight: string,
+	model: string,
+	effort: string,
+	runs: number,
+	firstTry: number,
+	sentBack: number,
+	advised: number,
 };
 
 /**

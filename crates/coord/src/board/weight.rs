@@ -387,18 +387,19 @@ impl Fold {
             return;
         };
         let moved = p.moved.clone();
-        let line = (!p.level.is_empty() && (set_by == SET_BY_ASSISTANT || !moved.is_empty())).then(|| {
-            if !moved.is_empty() {
-                format!("moved it {moved} to {}: {}", p.level, p.reason)
-            } else if !p.was_level.is_empty() && p.was_level != p.level {
-                format!(
-                    "changed the weight from {} to {}: {}",
-                    p.was_level, p.level, p.reason
-                )
-            } else {
-                format!("weighed it {}: {}", p.level, p.reason)
-            }
-        });
+        let line =
+            (!p.level.is_empty() && (set_by == SET_BY_ASSISTANT || !moved.is_empty())).then(|| {
+                if !moved.is_empty() {
+                    format!("moved it {moved} to {}: {}", p.level, p.reason)
+                } else if !p.was_level.is_empty() && p.was_level != p.level {
+                    format!(
+                        "changed the weight from {} to {}: {}",
+                        p.was_level, p.level, p.reason
+                    )
+                } else {
+                    format!("weighed it {}: {}", p.level, p.reason)
+                }
+            });
         let (by, when) = (p.by.clone(), p.at);
         let w = Weight {
             level: p.level,
