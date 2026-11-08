@@ -9,6 +9,8 @@ import {
   shortModel,
   weightBy,
   weightLabel,
+  tokenCount,
+  usedModel,
 } from "./agents"
 import type { CardWeight } from "../gen/bindings"
 
@@ -75,5 +77,24 @@ describe("sentBackRate", () => {
   test("is the share of answered attempts sent back", () => {
     expect(sentBackRate({ runs: 8, sentBack: 2 })).toBe("25%")
     expect(sentBackRate({ runs: 0, sentBack: 0 })).toBe("–")
+  })
+})
+
+describe("agent details", () => {
+  test("names a model from a short name or a full id", () => {
+    expect(usedModel("sonnet")).toBe("Sonnet")
+    expect(usedModel("claude-opus-5-5")).toBe("Opus 5.5")
+    expect(usedModel("claude-opus-5")).toBe("Opus 5")
+    expect(usedModel("claude-haiku-4-5-20251001")).toBe("Haiku 4.5")
+    expect(usedModel("something-new")).toBe("something-new")
+  })
+
+  test("shortens a token count", () => {
+    expect(tokenCount(0)).toBe("0")
+    expect(tokenCount(950)).toBe("950")
+    expect(tokenCount(12_345)).toBe("12.3K")
+    expect(tokenCount(4_812_345)).toBe("4.81M")
+    expect(tokenCount(123_456)).toBe("123K")
+    expect(tokenCount(1_200_000_000)).toBe("1.2B")
   })
 })

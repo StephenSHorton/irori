@@ -509,6 +509,8 @@ export const commands = {
 	agentsAttach: (key: string, cols: number, rows: number) => __TAURI_INVOKE<TermInfo>("agents_attach", { key, cols, rows }),
 	/**  Every agent Irori started that is still running, or is starting. */
 	agentsRunning: () => __TAURI_INVOKE<RunningAgent[]>("agents_running"),
+	/**  An agent's model, effort and tokens, for its hover card: what is known. */
+	agentsUsage: (key: string) => __TAURI_INVOKE<AgentUsage>("agents_usage", { key }),
 	/**  Every merge desk in the person's log. */
 	deskList: () => __TAURI_INVOKE<DeskView[]>("desk_list"),
 	/**  The person sets up or changes a repo's merge desk. */
@@ -678,6 +680,35 @@ export type AgentStartsView = {
 	used: number,
 	/**  The highest maximum the app accepts. */
 	ceiling: number,
+};
+
+/**
+ *  Token counts for one session (card #1020), a transcript's, so only this
+ *  device's.
+ */
+export type AgentTokens = {
+	/**  Every kind added up. */
+	total: number | null,
+	input: number | null,
+	output: number | null,
+	cacheRead: number | null,
+	cacheWrite: number | null,
+};
+
+/**
+ *  What is known of one agent's model, effort and tokens, for its hover card
+ *  (card #1020). A field that isn't known is empty or left out.
+ */
+export type AgentUsage = {
+	/**
+	 *  The model Irori asked for ("sonnet"), else the one its transcript
+	 *  last answered with ("claude-opus-5-5"); `""` when unknown.
+	 */
+	model: string,
+	/**  The effort Irori asked for; `""` for an agent it didn't start. */
+	effort: string,
+	/**  Read from its transcript: only for an agent on this device. */
+	tokens?: AgentTokens | null,
 };
 
 /**  The person's change: the fields left `None` keep what is stored. */
