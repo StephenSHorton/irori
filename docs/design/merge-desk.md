@@ -222,7 +222,7 @@ In short:
 - Anyone with relevant work may comment on the PR on GitHub, asked or not. That is where the talk happens.
 - Irori picks the reviewer by relevance, breaks ties by who has done fewest lately, and caps nobody. The office assistant names related agents to ping, and picks when the rules find nobody related.
 - Agents may post reviews under their owner's GitHub login without asking, for a PR Irori gave them the claim on. A setting turns that off (#43).
-- Each PR that needs a reviewer gets a card on a shared board, because that is the only place several people's agents can meet.
+- Each PR that needs a reviewer gets a card on a shared board that already works in its repo, because that is the only place several people's agents can meet. A repo no shared space works in stays yours: no card, no pick.
 - When nobody fits, Irori starts a new reviewer on the machine of the member with the fewest recent claims, without asking; each member can turn that off (Stephen's ruling, §12.10).
 
 ### 12.1 What the code forced, and where this departs from #1021
@@ -262,7 +262,9 @@ Every review needs one place on a shared log. That place is a card on a shared b
 **Which card.**
 
 1. A shared card that already links the PR. If there are several, the lowest card id.
-2. Else a new card titled "PR #n: <title>" on the first board of the space with the lowest id among the spaces where the author is an active member, has at least one other member, and has autonomy Trusted or Autonomous there. Only facts every device agrees on choose it, so two of the author's devices that both poll during a split choose the same space.
+2. Else a new card titled "PR #n: <title>" on a board of a space that **already works in this repo**: one of its boards has a card, open or done, with this `repo_key`. Among those, the space with the lowest id where the author is an active member, has at least one other member, and has autonomy Trusted or Autonomous; the card goes on the board with the newest such card. Only facts every device agrees on choose it, so two of the author's devices that both poll during a split choose the same space.
+
+**Your own repos.** If no shared space works in the repo, no PR card is made and nobody is picked: the PR stays on the person's own desk with today's private "PR #n" card, and its agent asks "Can I merge PR #N?" as it does now. A solo repo never reaches other people, with nothing to set. Nothing waits on a review either: the desk never holds a merge (#418), and your own agents can't approve your PR anyway. For a repo a shared space does work in that the person still wants kept to themselves, Settings › Merge desks gains a per-repo switch, "Other people's agents review PRs here", on when unset (decision 52): a new optional `reviewsOff` on that repo's `repo.desk` row, which older devices ignore. Off, that repo behaves like a solo one.
 
 If two PR cards still end up linking one PR (two devices both made one before their rows met), the lowest card id stands on every device. The author's device withdraws the other, and `review_claim` on the withdrawn card answers "this PR's card is now <ref>; claim there".
 
@@ -422,7 +424,7 @@ Merging and pushing stay out of scope, as #43 says.
 
 ### 12.9 What the desk shows
 
-Each line gains: **claimer** (agent and person, with "until"), **related agents** (with why: same card, same files, commented, the assistant named them), GitHub's review state from §12.4, and, when nothing is picked, why: the author's poll device is offline, the author has no desk for this repo, the author isn't a member, the author's space is on Ask me, or a device still needs to update (§12.2). The desk header gains each person's open and 14-day claim counts. `desk_verdicts` computes all of it per list call from the visible boards, so no new desk row is written, and two people's desks can differ only by what each can see. Agents get the same through the `prs` tool, which today reads only the ledger and returns early with capture off. It needs a new Backend method so the claimer shows either way. Without it agents can't see who holds a PR before asking.
+Each line gains: **claimer** (agent and person, with "until"), **related agents** (with why: same card, same files, commented, the assistant named them), GitHub's review state from §12.4, and, when nothing is picked, why: the author's poll device is offline, the author has no desk for this repo, the author isn't a member, the author's space is on Ask me, or a device still needs to update, or the repo is kept to the person (no shared space works in it, or its switch is off; §12.2). The desk header gains each person's open and 14-day claim counts. `desk_verdicts` computes all of it per list call from the visible boards, so no new desk row is written, and two people's desks can differ only by what each can see. Agents get the same through the `prs` tool, which today reads only the ledger and returns early with capture off. It needs a new Backend method so the claimer shows either way. Without it agents can't see who holds a PR before asking.
 
 ### 12.10 Releasing for a new reviewer: start by default
 
@@ -437,6 +439,7 @@ Tier 7 runs when nobody fits. A reviewer has to be someone other than the author
 ### 12.11 Limits accepted
 
 - A member who shares no space with the PR's author, or shares only a different space from the PR card's, can comment on GitHub but can't claim.
+- A PR in a repo no shared space works in, or with that repo's review switch off, stays private and is never picked (§12.2). A space starts working in a repo with its first card there.
 - Nobody is picked while the author's poll device is offline, when the author has no desk for the repo (desks exist only once an agent worked there or the person added one), or for a PR from a trusted login that isn't a member. Anyone may still claim it by hand, and the desk says why (§12.9).
 - "Same files" sees only what crosses people: mirrored leases and declared scope, never real edits on a private card. Tier 1 sees only shared work.
 - "Already there" names a person, not an agent.
@@ -469,9 +472,9 @@ Steps: the PR-card mark and `pr_card()`; the creator vouching in `note_pr_vouche
 Done when: tests show a holderless PR card on a shared board folds `pr.state` from its creator's device on a second person's fold; a reused card is never closed by Irori; a PR card is never offered; a comment-only change writes a row.
 
 **B2b. Making the PR card and hearing GitHub.** Normal. After B2a.
-Files: `crates/core/src/deskwatch.rs` (new `PrLister` method), `deskmap.rs`, `deskpost.rs`, `crates/core/src/service.rs` (`poll_desk`, `map_desk`), `crates/core/src/service/deskmerge.rs`, `crates/core/tests/it/desk_merged.rs` style tests.
-Steps: confirm `updatedAt` moves on comments and reviews; the activity read; choosing or making the PR card under §12.2 (rule order, the space rule, lowest card id, withdrawing a duplicate, Ask me); the author login on the card; the version gate from `saved_hellos`; other members' `map_desk` making no private card for a member's PR; relaying member comments and summarising outsiders'; a test that a PR card under Trusted mirrors nothing new.
-Done when: tests cover the card choice including Ask me, several spaces and two devices making one each; an unchanged PR writes no row; an outsider's comment puts no text in a wake; a device that hasn't updated gets no PR-card `pr.state`.
+Files: `crates/core/src/deskwatch.rs` (new `PrLister` method), `crates/coord/src/board/desk.rs` (`reviewsOff` on `RepoDeskRow`), `crates/window/src/desk.rs` and the Merge desks settings pane with generated bindings, `deskmap.rs`, `deskpost.rs`, `crates/core/src/service.rs` (`poll_desk`, `map_desk`), `crates/core/src/service/deskmerge.rs`, `crates/core/tests/it/desk_merged.rs` style tests.
+Steps: confirm `updatedAt` moves on comments and reviews; the activity read; choosing or making the PR card under §12.2 (rule order, the space rule limited to spaces that already work in the repo, the `reviewsOff` field on `repo.desk` with its Settings › Merge desks switch, lowest card id, withdrawing a duplicate, Ask me); the author login on the card; the version gate from `saved_hellos`; other members' `map_desk` making no private card for a member's PR; relaying member comments and summarising outsiders'; a test that a PR card under Trusted mirrors nothing new.
+Done when: tests cover the card choice including Ask me, several spaces, two devices making one each, a repo no shared space works in (private card, no pick) and a repo with its switch off; an unchanged PR writes no row; an outsider's comment puts no text in a wake; a device that hasn't updated gets no PR-card `pr.state`.
 
 **B3. The claim.** Normal. After B1a and B2a.
 Files: `crates/coord/src/board/resource.rs`, `tasks.rs`, `fold.rs`, `comments.rs` (no lease card for `pr/`), `crates/coord/src/board/mod.rs`, `crates/core/src/service/boards.rs`, `crates/core/src/service.rs` (Backend impl), `crates/core/src/service/deskmerge.rs` or a sibling (release on a heard verdict), `crates/tools/src/board.rs`, `crates/tools/src/lib.rs`, `crates/tools/src/specs.json`, `crates/tools/tests/it/ported.rs` (its `want` list; descriptions under 500 bytes), `crates/mcp/tests/wire.rs` (the tool count, by hand), goldens (`tools/specs.json`, `api/go.json`, `mcp/wire.json`), `docs/mod.md`.
