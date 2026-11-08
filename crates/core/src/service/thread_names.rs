@@ -202,6 +202,17 @@ pub(super) fn cut(s: &str, max: usize) -> String {
     out
 }
 
+/// A card's words on one line, safe to put between tags: no angle bracket
+/// survives, so the text can't close its own tag or open another.
+pub(super) fn inline(s: &str, max: usize) -> String {
+    let one: String = s
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace(['<', '>'], " ");
+    cut(one.trim(), max)
+}
+
 /// The turn that names a new thread.
 pub fn name_ask(text: &str) -> NameAsk {
     NameAsk {

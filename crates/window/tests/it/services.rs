@@ -1912,5 +1912,9 @@ fn the_away_switch_defaults_on_and_takes_nothing_with_no_return() {
     assert!(!r.w.assistant_away());
     r.w.assistant_away_set(true).unwrap();
     assert!(r.w.assistant_away());
-    assert!(r.w.assistant_away_take().is_none());
+    r.w.assistant_away_input();
+    assert!(
+        r.w.assistant_away_take().is_none(),
+        "input alone is no return"
+    );
 }

@@ -369,6 +369,8 @@ export const commands = {
 	assistantAway: () => __TAURI_INVOKE<boolean>("assistant_away"),
 	/**  Turns "While you were away" on or off, on all the person's devices. */
 	assistantAwaySet: (on: boolean) => __TAURI_INVOKE<null>("assistant_away_set", { on }),
+	/**  The person typed or clicked in the window (#786). */
+	assistantAwayInput: () => __TAURI_INVOKE<null>("assistant_away_input"),
 	/**  The summary for the person's return, once (#786). */
 	assistantAwayTake: () => __TAURI_INVOKE<AwaySummary | null>("assistant_away_take"),
 	/**  "Link duplicate cards" (#786): on unless turned off. */

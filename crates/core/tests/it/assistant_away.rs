@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::*;
-use coord::{COMPLETED, NewBlocker, NewTask, PR_MERGED, PrCheck, Task};
+use coord::{BlockerAnswer, COMPLETED, NewBlocker, NewTask, PR_MERGED, PrCheck, Task};
 use gocompat::time::GoTime;
 use irori_core::Core;
 use irori_core::away::AWAY_AFTER_SECS;
@@ -364,4 +364,110 @@ fn a_restart_counts_and_does_not_repeat() {
     wait_for(60, "the summary after a restart", || f3.turns() == 1);
     assert!(f3.last_prompt().contains("After the restart"));
     third.close().unwrap();
+}
+
+/// The launch focus, then a flip inside the threshold: no second return,
+/// and attention is being recorded from the launch on.
+#[test]
+fn a_launch_focus_starts_attention_so_a_later_flip_is_no_return() {
+    let (r, c) = clocked();
+    let f = install(&r.core);
+    r.core.away_focus();
+    let t = card(&r, "Wrap up", false);
+    complete(&r, &t.id);
+    c.advance(2 * AWAY_AFTER_SECS);
+    gone_and_back(&r, &c, 60);
+    settle();
+    assert_eq!(f.turns(), 0, "the person was at the window");
+}
+
+/// A short sleep with the window kept focused: input says the person is
+/// back, so what follows is ordinary attention, not a false return.
+#[test]
+fn input_after_a_wake_restarts_attention_in_a_window_that_kept_focus() {
+    let (r, c) = clocked();
+    let f = install(&r.core);
+    r.core.away_focus();
+    let t = card(&r, "Wrap up", false);
+    complete(&r, &t.id);
+    r.core.away_blur(); // the WillSleep
+    c.advance(20 * 60);
+    r.core.away_woke();
+    r.core.away_input();
+    c.advance(59 * 60);
+    r.core.away_input();
+    gone_and_back(&r, &c, 60);
+    settle();
+    assert_eq!(f.turns(), 0, "they were at the window the whole hour");
+}
+
+/// A long sleep with the window kept focused: the first input is the
+/// return there, since no focus event will come.
+#[test]
+fn the_first_input_after_a_long_sleep_is_the_return() {
+    let (r, c) = clocked();
+    let f = install(&r.core);
+    r.core.away_focus();
+    let t = card(&r, "Wrap up", false);
+    complete(&r, &t.id);
+    r.core.away_blur();
+    c.advance(AWAY_AFTER_SECS + 1);
+    r.core.away_woke();
+    settle();
+    assert_eq!(f.turns(), 0, "a wake alone says nothing");
+    r.core.away_input();
+    wait_for(60, "the turn", || f.turns() == 1);
+}
+
+/// Input with no wake is not a return: the window was already focused.
+#[test]
+fn input_while_focused_is_no_return() {
+    let (r, c) = clocked();
+    let f = install(&r.core);
+    r.core.away_focus();
+    let t = card(&r, "Wrap up", false);
+    complete(&r, &t.id);
+    c.advance(AWAY_AFTER_SECS + 1);
+    r.core.away_input();
+    settle();
+    assert_eq!(f.turns(), 0);
+}
+
+#[test]
+fn an_answered_question_is_not_waiting_on_the_person() {
+    let (r, c) = clocked();
+    let f = install(&r.core);
+    let t = card(&r, "Decide the name", false);
+    r.core.coord().claim_task(&r.key_a, &t.id).unwrap();
+    r.core.away_focus();
+    r.core.away_blur();
+    c.advance(AWAY_AFTER_SECS + 1);
+    let (_, b) = r
+        .core
+        .coord()
+        .raise(
+            &r.key_a,
+            &t.id,
+            NewBlocker {
+                question: "Pick the word".into(),
+                ..NewBlocker::default()
+            },
+        )
+        .unwrap();
+    r.core
+        .coord()
+        .answer(
+            &person(&r),
+            &t.id,
+            &b.id,
+            BlockerAnswer {
+                text: "blue".into(),
+                ..BlockerAnswer::default()
+            },
+        )
+        .unwrap();
+    c.advance(1);
+    r.core.away_focus();
+    settle();
+    assert_eq!(f.turns(), 0, "only fact was an answered question");
 }

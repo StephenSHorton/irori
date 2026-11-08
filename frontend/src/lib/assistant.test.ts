@@ -20,6 +20,7 @@ import {
   DraftClose,
   DraftOpen,
   dismissAway,
+  inputReporter,
   receiveAway,
   setAssistantOpen,
   type AssistantEvent,
@@ -383,6 +384,19 @@ describe("while you were away in the chat (card #786)", () => {
     // Dismissed stays dismissed.
     receiveAway(away("once"))
     expect(assistantState().entries.some((e) => e.away === "once")).toBe(false)
+  })
+  test("the first input is reported at once, then at most every interval", () => {
+    let t = 1000
+    let sent = 0
+    const input = inputReporter(() => sent++, 30_000, () => t)
+    input()
+    expect(sent).toBe(1)
+    t += 29_999
+    input()
+    expect(sent).toBe(1)
+    t += 1
+    input()
+    expect(sent).toBe(2)
   })
   test("no lines means nothing to show", () => {
     const n = assistantState().entries.length

@@ -314,6 +314,11 @@ impl Window {
         self.core.set_away_on(on)
     }
 
+    /// The person typed or clicked in the window (#786).
+    pub fn assistant_away_input(&self) {
+        self.core.away_input()
+    }
+
     /// The summary for this return, once (a reload gets nothing).
     pub fn assistant_away_take(&self) -> Option<AwaySummary> {
         self.core.away_take().map(|s| AwaySummary {

@@ -549,6 +549,9 @@ fn start_core(
     wire_opener(app, &s.notifier);
     let keep_stop = s.pumps_stop.clone();
     irori_window::events::start(window.clone(), s.pumps_stop);
+    // After the events pump, so a summary from this launch reaches the page.
+    #[cfg(desktop)]
+    sync_out::seed_attention(app);
 
     // The tray, the launch-at-login cutover and the updater belong on the
     // main thread.

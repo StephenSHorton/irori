@@ -63,6 +63,19 @@ pub fn watch_power<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     }
 }
 
+/// Core is ready: a window that opened focused before it was never heard,
+/// so say so now. Launching is the person coming to the window (card #786).
+#[cfg(desktop)]
+pub fn seed_attention<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    let Some(core) = core_of(app) else { return };
+    let here = app
+        .get_webview_window(super::MAIN)
+        .is_some_and(|w| w.is_focused().unwrap_or(false) && w.is_visible().unwrap_or(false));
+    if here {
+        core.away_focus();
+    }
+}
+
 /// The window was shown: the person came to it (card #786).
 #[cfg(desktop)]
 pub fn on_show<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {

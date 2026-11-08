@@ -7,8 +7,10 @@
 //! row so a restart counts. A sleep ends attention, and a wake means the
 //! window wasn't being looked at, so the next focus is measured against
 //! the threshold even if the window stayed focused through the sleep. A
-//! wake is never a return by itself: nobody may be at the machine. Focus
-//! flips inside the threshold do nothing.
+//! wake is never a return by itself: nobody may be at the machine. A
+//! window that kept the OS focus gets no new focus event, so the person's
+//! first input in it counts as that focus (`away_input`). Focus flips
+//! inside the threshold do nothing.
 //!
 //! Core gathers the facts from the Board (private board only): cards
 //! completed, PRs merged, what Irori's jobs did, and a bare count of the
@@ -30,7 +32,7 @@ use store::{Filter, kinds};
 
 use super::Services;
 use super::call_settings::newest_switch;
-use super::thread_names::{Job, NameAsk, NamesSet, cut, lock, strip_label};
+use super::thread_names::{Job, NameAsk, NamesSet, cut, inline, lock, strip_label};
 use crate::events::CoreEvent;
 use crate::logf;
 
@@ -143,16 +145,6 @@ impl AwayFacts {
             && self.did.is_empty()
             && self.waiting == 0
     }
-}
-
-/// A card's words on one line, safe to put between tags.
-fn inline(s: &str, max: usize) -> String {
-    let one: String = s
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .replace(['<', '>'], " ");
-    cut(one.trim(), max)
 }
 
 fn card_ref(t: &coord::Task) -> String {
@@ -322,8 +314,8 @@ impl Services {
     }
 
     /// The machine woke: nobody may be there, so this is no return, but
-    /// the window wasn't being looked at, so the next focus is measured
-    /// even if it never lost focus.
+    /// the window wasn't being looked at, so the next focus, or the first
+    /// input in a window that never lost focus, is measured.
     pub(crate) fn away_woke(&self) {
         let mut st = lock(&self.awaying.attention);
         st.focused = false;
@@ -433,6 +425,8 @@ impl Services {
                 && t.blockers.iter().any(|b| {
                     b.open()
                         && !b.transfer
+                        // Answered: it waits on the agent now.
+                        && b.status != coord::BLOCKER_ANSWERED
                         && b.on
                             .as_ref()
                             .is_none_or(|on| on.kind == coord::BLOCKED_ON_PERSON)

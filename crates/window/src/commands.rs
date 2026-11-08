@@ -1817,6 +1817,17 @@ pub async fn assistant_away_set(w: W<'_>, on: bool) -> R<()> {
     blocking(&w, move |w| w.assistant_away_set(on)).await
 }
 
+/// The person typed or clicked in the window (#786).
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_away_input(w: W<'_>) -> R<()> {
+    blocking(&w, |w| {
+        w.assistant_away_input();
+        Ok(())
+    })
+    .await
+}
+
 /// The summary for the person's return, once (#786).
 #[tauri::command]
 #[specta::specta]
@@ -2461,6 +2472,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_tidy_set,
             assistant_away,
             assistant_away_set,
+            assistant_away_input,
             assistant_away_take,
             assistant_dupes,
             assistant_dupes_set,

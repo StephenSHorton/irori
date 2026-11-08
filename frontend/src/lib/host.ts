@@ -716,4 +716,5 @@ export const AssistantService = {
   Away: () => call(commands.assistantAway()),
   AwaySet: (on: boolean) => done(commands.assistantAwaySet(on)),
   AwayTake: () => call(commands.assistantAwayTake()),
+  AwayInput: () => call(commands.assistantAwayInput()),
 }

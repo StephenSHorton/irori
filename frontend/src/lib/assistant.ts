@@ -27,6 +27,7 @@ import { cards, threads } from "./cards"
 import { AssistantService, Events } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
+import { isAndroid } from "../updater/android"
 
 export type { AssistantEvent, AssistantTurn }
 export type { Act, WorkThread }
@@ -326,9 +327,29 @@ export function dismissAway(id: string) {
   if (entries.length !== s.entries.length) set({ entries })
 }
 
+// How often the window tells the Core the person typed or clicked.
+const awayInputEveryMs = 30_000
+
+// inputReporter calls send at most once every everyMs, the first time at
+// once: after a wake that first input is what says someone is back.
+export function inputReporter(
+  send: () => void,
+  everyMs: number,
+  now: () => number = Date.now,
+): () => void {
+  let last: number | null = null
+  return () => {
+    const t = now()
+    if (last !== null && t - last < everyMs) return
+    last = t
+    send()
+  }
+}
+
 // startAway watches for summaries for the window's life: it pulls one on
 // start (a reload or the window opening) and when the Core says one is
-// ready. Off outside the app.
+// ready. It also reports the person's input: a window that kept the OS
+// focus through a sleep gets no new focus event. Off outside the app.
 export function startAway(): () => void {
   if (!inWails()) return () => {}
   const take = () => {
@@ -339,7 +360,19 @@ export function startAway(): () => void {
       .catch(() => {})
   }
   take()
-  return Events.On("assistant:away", take)
+  const off = Events.On("assistant:away", take)
+  // A phone reports no attention at all.
+  if (isAndroid()) return off
+  const input = inputReporter(() => {
+    AssistantService.AwayInput().catch(() => {})
+  }, awayInputEveryMs)
+  window.addEventListener("pointerdown", input, true)
+  window.addEventListener("keydown", input, true)
+  return () => {
+    off()
+    window.removeEventListener("pointerdown", input, true)
+    window.removeEventListener("keydown", input, true)
+  }
 }
 
 // ---- the shared state ----------------------------------------------------------

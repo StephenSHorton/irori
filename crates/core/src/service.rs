@@ -2817,6 +2817,13 @@ impl Core {
         self.s.away_blur()
     }
 
+    /// The person typed or clicked in the desktop window. After a wake a
+    /// window that kept the OS focus gets no new focus event, so this is
+    /// what says someone is there; otherwise it changes nothing.
+    pub fn away_input(&self) {
+        self.s.away_focus()
+    }
+
     /// The machine woke: never a return by itself (nobody may be there),
     /// but the next focus is measured against the threshold.
     pub fn away_woke(&self) {
