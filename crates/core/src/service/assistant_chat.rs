@@ -261,6 +261,9 @@ impl ChatRow {
         let (what, id) = match self {
             ChatRow::Asked(r) => ("turn", &r.turn),
             ChatRow::Said(r) => ("turn", &r.turn),
+            ChatRow::Posted(r) if r.posted.id.trim().is_empty() => {
+                return Err(format!("an {} row needs a thread", self.kind()));
+            }
             ChatRow::Posted(r) => ("turn", &r.turn),
             ChatRow::Stop(r) => ("turn", &r.turn),
             ChatRow::Update(r) => ("key", &r.key),
@@ -463,9 +466,20 @@ impl Fold {
         self.m.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Forgets every row (a resync reloads them).
+    /// Forgets every row.
     pub fn reset(&self) {
         *self.lock() = State::default();
+    }
+
+    /// Folds `st` again from the start (a resync) and only then puts the
+    /// result in place, so a read meanwhile sees the old fold, never a
+    /// half-loaded one. A row written while it reloads also reaches the
+    /// kind loop, which folds it again after.
+    pub fn reload(&self, st: &Store) {
+        let fresh = Fold::new();
+        load(st, &fresh);
+        let next = std::mem::take(&mut *fresh.lock());
+        *self.lock() = next;
     }
 
     /// Folds one row; reports whether the fold changed. A row folded twice
@@ -534,6 +548,7 @@ impl Fold {
             let posted = said
                 .as_ref()
                 .and_then(|s| s.posted.clone())
+                .filter(|p| !p.id.is_empty())
                 .or_else(|| st.posted.get(turn).map(|p| p.row.clone()));
             out.push((
                 Place::new(a.row.imported, &a.at),
@@ -604,6 +619,7 @@ fn decode<T: for<'de> Deserialize<'de>>(ev: &Event) -> Option<T> {
 /// Folds every conversation row in `st` into `f` (at start and on a
 /// resync).
 pub(super) fn load(st: &Store, f: &Fold) {
+    // A store that can't be read leaves what was folded so far.
     let mut q = Filter {
         kinds: KINDS.iter().map(|k| k.to_string()).collect(),
         limit: store::MAX_LIST_LIMIT,
@@ -1101,6 +1117,14 @@ mod tests {
                 .is_err()
         );
         assert!(ChatRow::Cleared(Cleared::default()).check().is_ok());
+        assert!(
+            ChatRow::Posted(PostedThread {
+                turn: "t".into(),
+                posted: Posted::default(),
+            })
+            .check()
+            .is_err()
+        );
     }
 
     #[test]

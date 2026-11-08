@@ -2097,8 +2097,7 @@ impl Core {
                         s.settle_notifications();
                         s.hub.publish(CoreEvent::Devices);
                         s.hub.publish(CoreEvent::Notifications);
-                        s.assistant_chat.reset();
-                        assistant_chat::load(&s.store, &s.assistant_chat);
+                        s.assistant_chat.reload(&s.store);
                         s.hub.publish(CoreEvent::AssistantChat);
                         // Card #538: this thread doesn't wait for the
                         // reconcile, which reads the markers too.
