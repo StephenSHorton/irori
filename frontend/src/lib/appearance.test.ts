@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test"
 
 import {
+  applyAppearance,
   clean,
   contrast,
   customTokens,
+  followSystem,
   defaults,
   glassStyles,
   hexToOklch,
@@ -110,4 +112,51 @@ test("clean keeps what it knows and defaults the rest", () => {
   expect(c.css).toContain('[data-theme="custom"].dark')
   // A custom theme without colours falls back to the default.
   expect(clean({ theme: "custom" }).theme).toBe("blue")
+})
+
+// Card #1067: "system" follows the computer's flip with no pane open.
+test("followSystem re-applies a system choice when the computer flips", () => {
+  const g = globalThis as unknown as Record<string, unknown>
+  const saved = { window: g.window, document: g.document }
+  let dark = false
+  const subs = new Set<() => void>()
+  const classes = new Set<string>()
+  g.window = {
+    matchMedia: () => ({
+      get matches() {
+        return dark
+      },
+      addEventListener: (_: string, f: () => void) => subs.add(f),
+      removeEventListener: (_: string, f: () => void) => subs.delete(f),
+    }),
+  }
+  g.document = {
+    documentElement: {
+      dataset: {},
+      style: {},
+      classList: {
+        toggle: (c: string, on: boolean) =>
+          on ? classes.add(c) : classes.delete(c),
+      },
+    },
+    getElementById: () => null,
+  }
+  try {
+    applyAppearance({ ...defaults, mode: "system" })
+    expect(classes.has("dark")).toBe(false)
+    const stop = followSystem()
+    dark = true
+    subs.forEach((f) => f())
+    expect(classes.has("dark")).toBe(true)
+    applyAppearance({ ...defaults, mode: "light" })
+    dark = false
+    dark = true
+    subs.forEach((f) => f())
+    expect(classes.has("dark")).toBe(false) // a fixed choice ignores the flip
+    stop()
+    expect(subs.size).toBe(0)
+  } finally {
+    g.window = saved.window
+    g.document = saved.document
+  }
 })
