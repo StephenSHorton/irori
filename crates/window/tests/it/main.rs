@@ -17,6 +17,7 @@ mod notes;
 mod permission_answer;
 mod pumps;
 mod reopened_thread;
+mod running_agents;
 mod services;
 mod spawned_actions;
 mod storage;

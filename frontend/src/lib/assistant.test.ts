@@ -56,7 +56,13 @@ describe("Ask Irori's reply (card #783)", () => {
       ev("delta", "ok"),
       ev("done")
     )
-    expect(r).toEqual({ text: "ok", status: "", end: "done", error: "" })
+    expect(r).toEqual({
+      text: "ok",
+      status: "",
+      end: "done",
+      error: "",
+      looked: "",
+    })
     expect(settled(r)).toEqual([{ role: "assistant", text: "ok" }])
   })
   test("an error ends it as a plain line, after any text it wrote", () => {
@@ -551,6 +557,31 @@ describe("the Office Assistant posts what it drafts (card #988)", () => {
     } finally {
       globalThis.localStorage = was
     }
+  })
+})
+
+describe("Looked at (card #1009)", () => {
+  test("a reply that read the screen keeps the text it read", () => {
+    const r = { ...freshReply, text: "It needs a call.", looked: "Page: Home" }
+    expect(settled({ ...r, end: "done" })).toEqual([
+      { role: "assistant", text: "It needs a call.", looked: "Page: Home" },
+    ])
+  })
+  test("saved history keeps it", () => {
+    const e = [
+      { role: "assistant", text: "ok", looked: "Page: Home\nIn view: #1 “A”" },
+    ] as const
+    expect(parseHistory(serializeHistory(e))).toEqual([...e])
+  })
+  test("the sample reads the screen for a question about where you are", () => {
+    const a = sampleAnswer(
+      "what does this card need?",
+      "Page: Home\nIn view: #1 “A”"
+    )
+    expect(a.tools).toEqual(["Looking at your screen: Home, #1 “A”"])
+    expect(sampleAnswer("who is working?", "Page: Home").tools).not.toContain(
+      "Looking at your screen: Home"
+    )
   })
 })
 
