@@ -1,5 +1,5 @@
-// AppSidebar is the window's nav (card #135): the space switcher (card
-// #393), Dashboard, Talk (card #390), Boards, Notifications (card #377) and
+// AppSidebar is the window's nav (card #135): Dashboard, the space switcher
+// (card #393), Talk (card #390), Boards, Notifications (card #377) and
 // Held, then
 // the cards you pinned, and at the bottom this device, how the
 // agents stand, you (your profile, card #393) and Settings. Its top button folds it to icons; the window
@@ -368,6 +368,13 @@ export function AppSidebar({
           aria-label="Sections"
           className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-x-hidden overflow-y-auto px-2 pb-3 mac:overscroll-none"
         >
+          <NavItem
+            icon={GaugeIcon}
+            label="Dashboard"
+            folded={folded}
+            current={here({ kind: "home" })}
+            onClick={() => go({ kind: "home" })}
+          />
           <SpaceGroup folded={folded}>
             <SpaceSwitcher
               boards={boards}
@@ -375,13 +382,6 @@ export function AppSidebar({
               onSpace={onSpace}
               onNewSpace={onNewSpace}
               folded={folded}
-            />
-            <NavItem
-              icon={GaugeIcon}
-              label="Dashboard"
-              folded={folded}
-              current={here({ kind: "home" })}
-              onClick={() => go({ kind: "home" })}
             />
             <NavItem
               icon={MessagesSquareIcon}
@@ -657,7 +657,8 @@ function NavItem({
   )
 }
 
-// SpaceGroup is the picker and the links that follow it (#989).
+// SpaceGroup is the picker and the links that follow it (#989); Dashboard
+// sits above it, alone.
 function SpaceGroup({
   folded,
   children,
@@ -666,7 +667,7 @@ function SpaceGroup({
   children: ReactNode
 }) {
   return (
-    <div role="group" aria-label="This space" className="shrink-0">
+    <div role="group" aria-label="This space" className="mt-2 shrink-0">
       {!folded && (
         <h2 className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
           Space
