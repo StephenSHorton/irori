@@ -2353,7 +2353,7 @@ impl Services {
             about,
             &repo_key,
             &brief,
-            &t,
+            t,
             self.reviews_unasked(),
         );
         let ask = SpawnAsk {
@@ -2554,7 +2554,7 @@ impl Services {
             about,
             &repo_key,
             &brief,
-            &t,
+            t,
             self.reviews_unasked(),
         );
         let logged_name = name.clone();
