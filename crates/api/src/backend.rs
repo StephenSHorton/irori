@@ -15,6 +15,11 @@ use store::{Event, Filter};
 /// service.
 pub trait Backend: Send + Sync + 'static {
     fn version(&self) -> String;
+    /// The window assistant's per-run secret (card #783); `""` (the
+    /// default) accepts no `X-Irori-Assistant` at all.
+    fn assistant_secret(&self) -> String {
+        String::new()
+    }
     /// This device (`device.json`, Go `device.Identity`).
     fn device(&self) -> DeviceJson;
     /// This device's roster (Go `LocalAgents`): presence plus Grok members.
@@ -110,6 +115,9 @@ pub struct NetHealth {
 impl Backend for Core {
     fn version(&self) -> String {
         Core::version(self).to_string()
+    }
+    fn assistant_secret(&self) -> String {
+        Core::assistant_secret(self).to_string()
     }
     fn device(&self) -> DeviceJson {
         Core::device(self).clone()

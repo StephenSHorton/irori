@@ -1,9 +1,9 @@
-import { HouseIcon, LayoutGridIcon, MessagesSquareIcon } from "lucide-react"
+import { GaugeIcon, LayoutGridIcon, MessagesSquareIcon } from "lucide-react"
 
 import { onBoards, type Section } from "@/lib/nav"
 import { cn } from "@/lib/utils"
 
-// PhoneTab is a bottom tab: Home, Talk or Boards (card #395, mockup
+// PhoneTab is a bottom tab: Dashboard, Talk or Boards (card #395, mockup
 // talk-5). Boards is the picked space's only (card #689): spaces are
 // picked, made and joined in the space picker at the top of the menu.
 export type PhoneTab = "home" | "talk" | "boards"
@@ -22,9 +22,9 @@ const tabs = (
   tab: PhoneTab
   label: string
   to: Section
-  Icon: typeof HouseIcon
+  Icon: typeof GaugeIcon
 }[] => [
-  { tab: "home", label: "Home", to: { kind: "home" }, Icon: HouseIcon },
+  { tab: "home", label: "Dashboard", to: { kind: "home" }, Icon: GaugeIcon },
   {
     tab: "talk",
     label: "Talk",
@@ -34,9 +34,9 @@ const tabs = (
   { tab: "boards", label: "Boards", to: boards, Icon: LayoutGridIcon },
 ]
 
-// PhoneTabs is the phone's bottom bar (design §8): Home, Talk and Boards,
+// PhoneTabs is the phone's bottom bar (design §8): Dashboard, Talk and Boards,
 // with Talk's count of what waits on you. A tap on the tab you are on goes
-// to its top (Home, Talk's list, the picked space's page).
+// to its top (Dashboard, Talk's list, the picked space's page).
 export function PhoneTabs({
   at,
   talk,
@@ -55,6 +55,8 @@ export function PhoneTabs({
   return (
     <nav
       aria-label="Tabs"
+      // Ask Irori's button and panel sit above the tabs (card #783).
+      data-assistant-avoid="bar"
       className="grid shrink-0 grid-cols-3 border-x-0! border-b-0! pr-[var(--safe-right)] pb-[var(--safe-bottom)] pl-[var(--safe-left)] glass-panel"
     >
       {tabs(boards).map(({ tab, label, to, Icon }) => {
