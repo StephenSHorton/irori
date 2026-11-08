@@ -844,6 +844,61 @@ fn a_thread_from_the_header_box() {
     );
 }
 
+/// Card #719: a thread counts in Talk only while an agent's reply in it is
+/// unread. Two answered threads, one opened since: only the other is
+/// unread; opening it reads it; a new agent reply brings it back; the
+/// person's own reply reads it too.
+#[test]
+fn a_thread_is_unread_until_the_person_opens_it() {
+    let r = Rig::new();
+    let t = held_task(&r);
+    let start = |q: &str| {
+        r.w.start_thread(&format!("{q} #{}", t.short), &[], &[], "")
+            .unwrap()
+            .task
+            .id
+    };
+    let (a, b) = (start("Is it moving?"), start("Any blockers?"));
+    let answer = |id: &str, text: &str| {
+        r.w.core
+            .coord()
+            .add_comment(&r.key_a, id, text, false)
+            .unwrap();
+    };
+    let unread = |id: &str| {
+        r.w.threads("")
+            .into_iter()
+            .find(|s| s.id == id)
+            .unwrap()
+            .unread
+    };
+    assert!(!unread(&a) && !unread(&b), "nobody answered yet");
+    answer(&a, "Yes.");
+    answer(&b, "None.");
+    r.w.read_thread(&b).unwrap();
+    assert!(unread(&a), "answered, never opened");
+    assert!(!unread(&b), "opened since the answer");
+    let n = r.w.threads("").iter().filter(|s| s.unread).count();
+    assert_eq!(n, 1);
+
+    r.w.read_thread(&a).unwrap();
+    assert!(!unread(&a), "opening it reads it");
+    answer(&a, "One more thing.");
+    assert!(unread(&a), "a new agent reply brings it back");
+    r.w.comment(&a, "Thanks", "none", &[], &[]).unwrap();
+    assert!(!unread(&a), "the person's reply reads it");
+
+    // Opened before anyone answered: the answer is still unread.
+    let c = start("And the docs?");
+    r.w.read_thread(&c).unwrap();
+    answer(&c, "Done.");
+    assert!(unread(&c));
+    // Resolved: never counts.
+    r.w.resolve_thread(&c).unwrap();
+    assert!(!unread(&c));
+    assert!(r.w.read_thread("no-such-thread").is_err());
+}
+
 /// Card #631: a thread an agent opened shows as that agent's, waiting on
 /// the person (answered, its words last), never as told to its opener; the
 /// person's reply goes to it, and they resolve it.
@@ -870,6 +925,7 @@ fn a_thread_an_agent_opened_shows_as_its() {
         Some(r.key_a.as_str())
     );
     assert_eq!(s.state, "answered", "waits on the person");
+    assert!(s.unread, "unread until the person opens it (card #719)");
     assert!(s.told.is_empty(), "{:?}", s.told);
     assert_eq!(
         s.last_by.as_ref().map(|a| a.key.as_str()),

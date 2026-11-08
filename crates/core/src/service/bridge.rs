@@ -693,7 +693,11 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
     /// The tools' view of a space's first board: its own name, which a
     /// space not ready yet doesn't have.
     fn tools_board(&self, s: super::boards::BoardSummary) -> tools::BoardInfo {
-        let first = s.boards.first().map(|b| b.name.clone());
+        let first = s.boards.first();
+        let description = first.map(|b| b.description.clone()).unwrap_or_default();
+        // A first board never closes; read it anyway (card #690).
+        let closed = first.is_some_and(|b| b.closed);
+        let first = first.map(|b| b.name.clone());
         tools::BoardInfo {
             board_id: s.board_id,
             tag: s.tag,
@@ -703,6 +707,8 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
             people: s.people,
             space_board: String::new(),
             space_name: s.name,
+            description,
+            closed,
         }
     }
 }
@@ -890,6 +896,8 @@ impl tools::SharedBoards for super::ToolsView {
                         tag: b.tag,
                         name: b.name,
                         space_board: b.board_id,
+                        description: b.description,
+                        closed: b.closed,
                         ..own.clone()
                     });
                 }
@@ -914,6 +922,8 @@ impl tools::SharedBoards for super::ToolsView {
                 tag: b.tag,
                 name: b.name,
                 space_board: b.board_id,
+                description: b.description,
+                closed: b.closed,
                 ..own
             },
             None => own,
