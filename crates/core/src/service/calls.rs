@@ -38,6 +38,7 @@ use irori_net::call::{CallPeerState, ControlMsg, TranscriptLine};
 use mesh::boardmesh::{BoardMesh, CallFrame, CallHooks, LivePeer};
 use mesh::owncalls::OwnCalls;
 
+use super::calls_over::{self, Heard, OverInput};
 use super::calls_share::{ShareHub, ShareNote, ShareNow, ShareSink, ShareSource};
 use super::{Core, Services};
 use crate::events::CoreEvent;
@@ -48,7 +49,7 @@ const RING_FOR: Duration = Duration::from_secs(60);
 /// later see the huddle and a crashed device drops out.
 const HEARTBEAT: Duration = Duration::from_secs(15);
 /// A live call nobody has said anything about for this long is gone.
-const LIVE_FOR: Duration = Duration::from_secs(50);
+const LIVE_FOR: Duration = calls_over::QUIET_FOR;
 /// While ringing, the ring goes out again this often.
 const RING_AGAIN: Duration = Duration::from_secs(5);
 /// The most devices a call holds (the card says 2 to 6; a little room).
@@ -98,6 +99,10 @@ struct Inner {
     mine: Option<Active>,
     ringing: BTreeMap<String, Ring>,
     live: BTreeMap<String, Live>,
+    /// When this device last heard each huddle live, kept for
+    /// [`Services::call_over`]: written beside `live`, never pruned by its
+    /// expiry (card #1043).
+    heard: Heard,
     dismissed: BTreeSet<String>,
     /// A start or join is opening the devices and the call: no second
     /// one may begin until it is in (or failed).
@@ -626,11 +631,17 @@ impl Services {
         // Devices of my call I've just heard of: dial them (whoever joined
         // may not have known the whole roster).
         let mut dial = Vec::new();
+        let mut keep_heard = false;
         {
             let mut g = self.calls.inner.lock().expect("calls");
             let mine = g.mine.as_ref().is_some_and(|a| a.call_id == f.call_id);
             match f.op.as_str() {
                 "ring" | "join" => {
+                    if !g.heard.ticking {
+                        g.heard.start(now);
+                        keep_heard = true;
+                    }
+                    g.heard.hear(&f.call_id, now);
                     let live = g.live.entry(f.call_id.clone()).or_insert_with(|| Live {
                         conv_id: f.conv_id.clone(),
                         space_id: f.space_id.clone(),
@@ -740,12 +751,86 @@ impl Services {
         for d in dial {
             self.call_dial(&f.call_id, d);
         }
+        if keep_heard {
+            self.heard_ticker();
+        }
         if let Some(d) = expire {
             self.publish_after(d + Duration::from_secs(1));
         }
         if changed {
             self.calls_changed();
         }
+    }
+
+    /// Keeps the heard record: looks at this device's own network every few
+    /// seconds, and ends when nothing is left in the record (the next ring
+    /// or join starts it again).
+    fn heard_ticker(self: &Arc<Self>) {
+        let w = Arc::downgrade(self);
+        self.pairing.handle.spawn(async move {
+            loop {
+                tokio::time::sleep(calls_over::TICK_EVERY).await;
+                let Some(s) = w.upgrade() else { return };
+                let up = s.mesh.net.link_up();
+                let mut g = s.calls.inner.lock().expect("calls");
+                if !g.heard.tick(SystemTime::now(), up) {
+                    g.heard.ticking = false;
+                    return;
+                }
+            }
+        });
+    }
+
+    /// Whether huddle `call_id` is over, as this device can tell (card
+    /// #1043, call-agents.md §3): an end mark is in the rows; or this device
+    /// heard it live, then nothing for [`calls_over::QUIET_FOR`] while its
+    /// own network stayed up, with no line in the last two minutes (in a
+    /// two-device space the survivor of a crash has nobody else to see); or
+    /// it never heard it live and its newest row is over ten minutes old.
+    /// Otherwise live: not knowing counts as live, so a device that starts
+    /// or reconnects mid-call never calls it over. The one answer every
+    /// rule that says "after the call" uses.
+    pub(crate) fn call_over(&self, call_id: &str) -> bool {
+        let ms = |t: gocompat::time::GoTime| {
+            let n = t.unix_milli_value();
+            (n > 0).then(|| UNIX_EPOCH + Duration::from_millis(n as u64))
+        };
+        let info = self.talk.calls().into_iter().find(|c| c.call_id == call_id);
+        let g = self.calls.inner.lock().expect("calls");
+        calls_over::over(&OverInput {
+            now: SystemTime::now(),
+            ended: info.as_ref().is_some_and(|c| c.end.is_some()),
+            in_it: g.mine.as_ref().is_some_and(|a| a.call_id == call_id),
+            heard: g.heard.of(call_id),
+            online_since: g.heard.online_since(),
+            last_line: info.as_ref().and_then(|c| c.last_line).and_then(ms),
+            newest_row: info.as_ref().and_then(|c| ms(c.last)),
+        })
+    }
+
+    /// Writes huddle `call_id`'s title as this device's person
+    /// (`assistant`: proposed by their assistant, which a person's title
+    /// beats). Returns the title the huddle now shows. A refused write is
+    /// logged too, so a space that isn't ready leaves a trace.
+    pub(crate) fn call_title_set(
+        &self,
+        call_id: &str,
+        title: &str,
+        assistant: bool,
+    ) -> Result<String, String> {
+        let conv = self
+            .talk
+            .call_conv(call_id)
+            .ok_or_else(|| format!("no huddle {call_id} here"))?;
+        let r = self
+            .talk
+            .write_title(&conv, call_id, title, assistant, &self.user_sender().key)
+            .map_err(|e| e.to_string());
+        match &r {
+            Ok(_) => self.hub.publish(CoreEvent::Talk),
+            Err(e) => crate::logf(format_args!("call {call_id}: title: {e}")),
+        }
+        r
     }
 
     /// Tells the window again after `d`: rings and live huddles expire by
@@ -1620,6 +1705,7 @@ impl Services {
             start_ms,
             end_ms,
             text: text.clone(),
+            agents: false,
         };
         let ctls = self.call_ctls(call_id);
         for c in ctls {
@@ -2168,6 +2254,21 @@ impl Core {
     /// opens nothing.
     pub fn call_mic_name(&self) -> String {
         self.s.call_mic_name()
+    }
+
+    /// Whether huddle `call_id` is over, as this device can tell (card
+    /// #1043, call-agents.md section 3). True after an end mark, or after
+    /// a crash left the call quiet; never on a device that started or
+    /// reconnected mid-call and hasn't the rows to say so.
+    pub fn call_over(&self, call_id: &str) -> bool {
+        self.s.call_over(call_id)
+    }
+
+    /// Sets huddle `call_id`'s title as the person (card #1043); every
+    /// member device gets it, and it beats an assistant's. Refused when a
+    /// device of the space can't store `call.` rows yet (the gate).
+    pub fn call_title_set(&self, call_id: &str, title: &str) -> Result<String, String> {
+        self.s.call_title_set(call_id, title, false)
     }
 
     /// Stops ringing for `call_id` here.

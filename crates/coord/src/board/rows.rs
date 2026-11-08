@@ -63,6 +63,12 @@ crate::go_struct! {
         /// The person named it by hand on the card it comes from (card
         /// #779); the fold keeps it only on a person's row.
         pub title_by_person: bool = "titleByPerson" "omit",
+        /// The PR a PR card is for (merge desk §12.2): its URL, as the card
+        /// links it. The fold keeps it only on a person's row (`pr_card`).
+        /// Older devices drop it and see a plain card.
+        pub pr: String = "pr" "omit",
+        /// The PR author's GitHub login, on a PR card's creation row.
+        pub pr_author: String = "prAuthor" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }
@@ -140,6 +146,25 @@ crate::go_struct! {
         /// OPEN heard by a device that knew the PR closed: a reopen
         /// (card #548). An OPEN without it can't undo a closing.
         pub over_closed: bool = "overClosed" "omit",
+        /// Who commented on the PR (merge desk §12.4), as logins. A row
+        /// without activity keeps the last known; it never clears.
+        pub commenters: Vec<String> = "commenters" "omit",
+        /// GitHub's reviews of the PR: login, state, sha, time.
+        pub reviews: Vec<PrReview> = "reviews" "omit",
+        /// The first 100 paths the PR changes, and whether there are more.
+        pub paths: Vec<String> = "paths" "omit",
+        pub paths_cut: bool = "pathsCut" "omit",
+    }
+}
+
+crate::go_struct! {
+    /// One review GitHub holds on a PR (merge desk §12.4).
+    #[derive(Debug, Clone, Default, PartialEq, Eq)]
+    pub struct PrReview {
+        pub login: String = "login",
+        pub state: String = "state",
+        pub sha: String = "sha" "omit",
+        pub at: GoTime = "at",
     }
 }
 
@@ -752,6 +777,10 @@ crate::go_struct! {
         /// It counts toward "My agents may start agents" (card #575): an
         /// agent asked for it, or an agent that counts went on to cause it.
         pub counted: bool = "counted" "omit",
+        /// The agent it starts reads another person's text (card #1075):
+        /// its brief quotes it, or its card is on a shared board. The
+        /// inbox flags the agent for the session it starts.
+        pub others: bool = "others" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }

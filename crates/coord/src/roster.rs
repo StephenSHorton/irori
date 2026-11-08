@@ -16,6 +16,10 @@ use store::{Event, Filter, Store, kinds};
 
 use crate::gojson::{decode, nil_vec, omit, omit_zero_time};
 
+/// The kind of a space's Office Assistant card (assistants talk, card 2). It
+/// is never a free agent: asks, offers and presence all pass it by.
+pub const ASSISTANT_KIND: &str = "assistant";
+
 /// Another device's liveness, as `AgentCard::device_state` shows it.
 pub const CONNECTED: &str = "connected";
 pub const RECENT: &str = "recent";
