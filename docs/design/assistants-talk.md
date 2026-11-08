@@ -267,7 +267,7 @@ The owner's OK isn't built on `Request` and `Inner::request`, which share cards.
 | `answer` | Another person's assistant answered a question you asked (typed, or from your chat, §9) | The channel: an answer whose `replyTo` is your post, or your assistant's | Yes |
 | `needs` | A question to your assistant waits on you: **Let it answer** (Ask me) or **Answer this** (`NEEDS_OWNER`) | The channel: your assistant's waiting line with no answer yet | Yes |
 | `asked` | Your assistant answered someone on its own | The channel: your assistant's answer | No: a quiet line |
-| `held` | The scrub held an answer back, or the rate limit or the hour dropped questions | The assistant's computer only: a Core event, since nothing is posted | No: a quiet line |
+| `held` | The scrub held an answer back, or the rate limit or the hour dropped questions | The assistant's computer, as an `assistant.chat.update` row shown on every device (one-assistant.md §9), since nothing is posted | No: a quiet line |
 
 For example:
 
@@ -287,7 +287,7 @@ For example:
 - It turns posts that concern this person into lines, with a per-device cursor.
 - It needs a host call returning this person's own `assistantCard` per space, to recognise their assistant's posts.
 - It doesn't go in `assistant-follow.ts`, which follows only the chat's own threads.
-- `held` lines come from a Core event on the assistant's computer and show only there.
+- `held` lines are `assistant.chat.update` rows written by the assistant's computer, so every device shows them (one-assistant.md §9).
 - The channel is the permanent record. localStorage is only a view.
 
 > **One assistant** (one-assistant.md §9): **Let it answer** also appends `assistant.answer.requested` (`how: "let"`) and runs on the assistant's computer, so a phone gets both buttons. Serving a request writes a record naming it, so it is never served twice, and a request found more than an hour old gets a "tap again" line instead of a post. `held` lines become `assistant.chat.update` rows, so every device shows them. `from` lines stay per device, rebuilt from the channel, and are merged into the chat's list by time.
@@ -296,7 +296,7 @@ For example:
 
 - **Let it answer** runs the tool-less turn (§5) on the assistant's computer, which serves the `assistant.answer.requested` row only where `is_assistant_home` holds (one-assistant.md §9). A person's tap skips the waiting-line check, the rate limit, the hour and the receive setting, since the owner chose it. It keeps the author and channel check, the answer-id check (so a second tap elsewhere does nothing), the hop limit, the scrub and the cap.
 - **Answer this** is §7.
-- A phone shows the line with neither button, since it can't run either turn. In their place it says "Answer from your computer" or "Let it answer from your computer", beside Open in Talk.
+- A phone shows both buttons, beside Open in Talk: since one-assistant.md, either turn runs on the assistant's computer, not on the phone (one-assistant.md §9).
 
 **Rendering.** A `from` line has its own branch in `Entry`, before the reply branch:
 
@@ -346,7 +346,7 @@ Tap-to-send matters here because the model holds private reads while writing a q
 
 - **The assistant's computer is off or signed out:** the post sits in the channel and no answer comes. On return, §5's catch-up scan answers questions under an hour old, and older ones become a `held` line. A person can tell the assistant's computer is away from that person's presence.
 - **Two of the person's desktops can't see each other:** both may answer. The answer id means peers show one.
-- **Phone-only people** have no assistant turn, so nothing answers them. They can still ask and read. The phone shows the lines with no buttons.
+- **Phone-only people** have no assistant turn, so nothing answers them. They can still ask and read. Since one-assistant.md, the phone shows the lines with both buttons, which run on the person's assistant's computer.
 - **A device catches up after a long time offline:** posts older than an hour stay unanswered, and readable in the channel. Accepted, as elsewhere (decision 48).
 - **Removed from a space:** `active` membership already gates posting and the bridge.
 - **Cost:** the receiver pays for each answering turn, which is why the rate limit stops the turn rather than demoting it. With the packet capped, the worst case is about members × 48 turns an hour of at most ~30 KB in.
@@ -370,11 +370,11 @@ On an older peer:
 ## 12. Build plan
 
 > **One assistant** (one-assistant.md §9, card #1095) changes cards 3 to 8 before they are built:
-> - **#1060 (card 4)** comes after one-assistant card 1. Its gate is `is_assistant_home`, which reads the recorded `assistant.home` row. Its catch-up scan also runs when the folded assistant's computer changes to this device. Its worker is the one chat worker of one-assistant card 3, never a second runner beside it.
+> - **#1060 (card 4)** comes after one-assistant card 1. Its gate is `is_assistant_home`, which reads the recorded `assistant.home` row. Its catch-up scan also runs when the folded assistant's computer changes to this device. It keeps its own queue (`assistant_answers.rs`) and fifth `Runner`: its turn has no tools and no secret, so it can't touch the chat's grants. Only the gate and the catch-up trigger come from one-assistant card 1.
 > - **#1061 (card 5)** comes after one-assistant card 1.
-> - **#1062 (card 6)** comes after one-assistant card 4. **Let it answer** appends `assistant.answer.requested` (declared by one-assistant card 2) through a host command, from any device, the phone included. The assistant's computer serves the first request per `(post, how)`, writes a record naming it, and answers a request found more than an hour old with a "tap again" line. `held` lines are `assistant.chat.update` rows. `from` lines are merged into the fold's list in `assistant.ts`, never stored as rows; "surviving a reload" becomes "rebuilt after a reload from the channel". Drop `answer_now` on the tapped device and the `held` Core event from its Files.
+> - **#1062 (card 6)** comes after one-assistant card 4. **Let it answer** appends `assistant.answer.requested` (declared by one-assistant card 2) through a host command, from any device, the phone included. The assistant's computer serves each request that has no record yet (the answer id still refuses a second post), writes a record naming it, and answers a request found more than an hour old with a "tap again" line. `held` lines are `assistant.chat.update` rows. `from` lines are merged into the fold's list in `assistant.ts`, never stored as rows; "surviving a reload" becomes "rebuilt after a reload from the channel". Drop `answer_now` on the tapped device and the `held` Core event from its Files.
 > - **#1063 (card 7)** comes after one-assistant card 3. The ask-draft marker is taught in the Core-built prompt, not `render_prompt`.
-> - **#1064 (card 8)** comes after one-assistant card 4. The owner's-OK turn runs on the assistant's computer, through the one worker, with no grants and `--allowedTools` limited to `ASSISTANT_TOOLS`. Its draft is an `assistant.answer.draft` row. Send works from any device, and a phone shows **Answer this**. Add the test: an assistant-secret caller outside a chat run gets a 403 on `assistant_close` while a matching grant is open.
+> - **#1064 (card 8)** comes after one-assistant card 4. The owner's-OK turn runs on the assistant's computer, through the one chat worker as `ChatKind::OwnerOk` (it adds that kind to `ChatJob`), with no grants and `--allowedTools` limited to `ASSISTANT_TOOLS`. Its draft is an `assistant.answer.draft` row. Send works from any device, and a phone shows **Answer this**. Add the tests: its run config lists none of `ASSISTANT_WRITE_TOOLS`; it never calls `Grants::begin`; the open set is empty when it starts, so an `assistant_close` from it gets a 403.
 
 All cards come after #1030, and are on the Board as #1057–#1065 (cards 1–9 in order). Each is normal weight unless marked, and links here. Every card: tests from the repo's patterns, `sh scripts/check.sh`, scratch builds per CLAUDE.md. The order is: 1 and 2 can go side by side, then 3 after 2 and #1029's name card #1045, 4 after 1 and 2, 5 after 4, 6 after 3 and 5, 7 and 8 after 6, and 9 at any time.
 
@@ -442,7 +442,7 @@ Done when: nothing posts before the tap; the posted text is exactly the normalis
 
 **8. The owner's OK.**
 Files: `crates/window/src/assistant.rs` (the separate turn, prompt and renderer), `crates/window/src/commands.rs` (Send), `assistant.ts`, `assistant-chat.tsx`.
-Done when: Send appears only on a turn the tap started; that turn parses no markers, never auto-goes, has no write tools and leaves a chat run's grants alone; what's posted is exactly the normalised text shown; Send is refused once an answer exists; one OK sends one answer; a phone shows no action it can't run.
+Done when: Send appears only on a turn the tap started; that turn parses no markers, never auto-goes, has no write tools and leaves a chat run's grants alone; what's posted is exactly the normalised text shown; Send is refused once an answer exists; one OK sends one answer; a phone shows **Answer this** and Send, which run on the assistant's computer.
 
 **9. (light) Tidy the docs.** The list in §14.
 

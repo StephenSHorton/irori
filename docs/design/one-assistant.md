@@ -62,7 +62,7 @@ A new fold in a new `crates/core/src/service/assistant_home.rs`. All ordering is
 
 1. **A person's pick beats any automatic claim.** Among `how: "person"` rows, the newest wins.
 2. **Among automatic claims, the first wins.** A late claim never takes over from an earlier one. So a newly paired desktop that claims itself loses as soon as it has synced.
-3. **A removed computer ends the rows before its removal.** If the winning row names a device that is revoked, every row older than that device's `person.device.revoked` row stops counting, and the fold runs again on what is left. So after a removal, an old claim the person had moved away from never comes back. Only a claim written after the removal can win, and the next sweep on an able computer writes one.
+3. **A removed computer ends the rows before its removal.** A row naming a revoked device never counts, whenever it was written. And if the winning row names a device that is revoked, every row older than that device's `person.device.revoked` row stops counting too, and the fold runs again on what is left. So after a removal, an old claim the person had moved away from never comes back. Only a claim written after the removal can win, and the next sweep on an able computer writes one.
 4. **No row left means no assistant's computer yet.**
 
 "Revoked" comes from `chain.devices()` (`DeviceState.revoked`, `crates/identity/src/chain.rs`) or the Core's `revoked` check. Never from `is_owner` or `hosts()`, which still count revoked devices.
@@ -75,7 +75,7 @@ In `sweep_spawns` (`crates/core/src/service/spawn.rs`), after `refresh_agent_dev
 
 - The fold has no assistant's computer.
 - This device's own `spawn.host` says `assistantTurn`. From card 3 on, it must also say `assistantChat` (below).
-- `assistant_home_of(homes, hosts)`, today's ranking, names this device. Two connected desktops then agree on which of them claims.
+- Today's ranking, `assistant_home_of(homes, hosts)`, names this device, taken over only the computers whose newest `spawn.host` says every field the claim needs (from card 3, `assistantChat` too). Two connected desktops then agree on which of them claims, and a desktop left on an older build never blocks an updated one.
 - **This device is caught up with every one of the person's devices it is connected to** (below). That keeps a newly paired desktop, or one back from a long absence, from claiming before the existing claim has reached it.
 
 A device only ever claims itself. It never writes an automatic row naming another device, and writes nothing while there is an assistant's computer, even one that has been offline for days.
@@ -91,22 +91,22 @@ Nothing else moves it: not being offline, asleep or unreachable, not a slow link
 
 ### Caught up
 
-A new `Node::caught_up() -> bool` (`crates/mesh/src/node.rs`): true when, for every one of the person's devices this one has a live session with, this device's vector covers that device's newest vector (the same `covers` check `check_step` makes). Peers the mesh marks as refusing rows (`refused`, `schema_old`) don't count, so a stuck peer can't hold the assistant forever. With no own device connected, it is true. Both the claim and the worker (§5) use it.
+A new `Node::caught_up() -> bool` (`crates/mesh/src/node.rs`): true when, for every one of the person's devices this one has a live session with, this device's vector covers that device's newest vector (the same `covers` check `check_step` makes). It leaves out writers in the node's `stopped` map (a fork or a bad HLC order: their rows will never arrive) and revoked devices' rows past their cut, so a stuck writer can't hold the assistant forever. With no own device connected, it is true. Both the claim and the worker (§5) use it.
 
 ### Saying it can answer from other devices
 
-A new `assistantChat: true` field on `spawn.host`, published in card 3, never before. It is `assistantTurn && the chat hook is installed in this run` (`set_chat_turn`, §5). Like `assistantTurn`, it joins `publish_host`'s change tuple, or an upgraded desktop never publishes it. It must never ship in a build without the worker: then it would promise answers nobody gives.
+A new `assistantChat: true` field on `spawn.host`. Card 1 adds it to `SpawnHost` as a read-only field (`#[serde(default)]`), so the status can read it. Card 3 publishes it, never before. It is `assistantTurn && the chat hook is installed in this run` (`set_chat_turn`, §5). Like `assistantTurn`, it joins `publish_host`'s change tuple, or an upgraded desktop never publishes it. It must never ship in a build without the worker: then it would promise answers nobody gives.
 
 It is read by the claim (from card 3), the Settings picker, **Use PC instead**, and the "needs the latest Irori" line (§6).
 
 ### Reading it
 
-- `Services::assistant_home() -> Option<String>`: the fold's answer, cached. It is refolded when an `assistant.home` or `person.device.revoked` row arrives (branches in the kind loop beside `ASSISTANT_NAMES_SET`, `crates/core/src/service.rs` around line 2063) and on the loop's resync. When the answer changes, it tells a listener, which card 3's worker uses to run its catch-up scan.
+- `Services::assistant_home() -> Option<String>`: the fold's answer, cached. It is refolded when an `assistant.home` or `person.device.revoked` row arrives (branches in the kind loop beside `ASSISTANT_NAMES_SET`, `crates/core/src/service.rs` around line 2063) and on the loop's resync. When the answer changes, it tells a listener, which card 3's worker uses to run its catch-up scan, and publishes a new `CoreEvent::AssistantHome`, pumped to the window as `assistant:home`.
 - `is_assistant_home()` reads it, not the ranking. So `mint_assistant_cards`, and every later caller, get the recorded computer.
-- A Tauri command, `assistant_home_status`, returns:
+- `Core::assistant_home_status()`, wrapped by a Tauri command of the same name (since `device_presence` is `pub(crate)`), returns:
   - `device`, `name`, `here`, and `state` and `lastSeen` from `device_presence` (`crates/core/src/service/liveness.rs`);
   - `claude` and `chat`: whether that computer's newest `spawn.host` says `assistantTurn` and `assistantChat`, read with a per-device query (`device_id`, newest first, limit 1), not from `hosts()`, which reads only the newest 1,000 rows;
-  - with no assistant's computer, `none`: `"setting_up"` (a computer says both fields, so a claim is coming), `"needs_update"` (one says `assistantTurn` but none says `assistantChat`) or `"no_claude"` (none says `assistantTurn`).
+  - with no assistant's computer, `none`: `"setting_up"` (a computer says every field the claim needs, so a claim is coming), `"needs_update"` (one says `assistantTurn` but, from card 3, none says `assistantChat`) or `"no_claude"` (none says `assistantTurn`).
 
   The chat and Settings show it (§6).
 
@@ -126,7 +126,7 @@ All are private, `Replicated, Refuses`, declared in `kinds.rs` with an `assistan
 
 | Kind | Actor | Written by | Payload |
 |---|---|---|---|
-| `assistant.chat.asked` | `user` | The device the person typed on, through a host command only | `turn` (a new ULID), `text`, `screen` (that device's snapshot, cut to 4,000 characters as today), `device`, `at`, optional `again` (the turn it repeats), optional `imported` |
+| `assistant.chat.asked` | `user` | The device the person typed on, through a host command only | `turn` (a new ULID), `text`, `screen` (that device's snapshot, cut to 4,000 characters as today), `device`, `at`, optional `again` (the turn it repeats), optional `imported`, optional `callId` (call-agents card 11 adds it, for Divide) |
 | `assistant.chat.said` | `irori` | The assistant's computer | `turn`, `text`, `changed` (the write tools' lines), `posted` (`{id, short, tag}` of a thread it posted), `looked` (the screen label, not its text), `error`, `skipped`, `device`, `at`, optional `imported` |
 | `assistant.chat.update` | `irori` | Any device's follower; the assistant's computer for assistants-talk's `held` lines (§9) | `key` (a hash of the thread or post id and the fact's key), `thread`, `text`, `act` (as today's `{kind: "answer", card, blocker}`), `request` (when it ends a tap's request), `at` |
 | `assistant.chat.posted` | `user` | The device where the person tapped **Post thread** | `turn`, `posted` |
@@ -193,7 +193,8 @@ A row is permanent on every device, so a secret that gets into one stays there f
 ```rust
 pub struct ChatEvent { pub kind: String, pub text: String }          // serde only
 pub struct ChatJob { pub turn: String, pub prompt: String, pub screen: String,
-                     pub grants: Vec<tools::Grant>, pub cancel: Arc<AtomicBool> }
+                     pub grants: Vec<tools::Grant>, pub cancel: Arc<AtomicBool>,
+                     pub kind: ChatKind }                    // Chat; #1064 adds OwnerOk
 pub struct ChatDone { pub text: String, pub error: String, pub changed: Vec<String>,
                       pub posted: Option<Posted>, pub looked: Option<String> }
 pub type ChatTurn = Arc<dyn Fn(&ChatJob, &dyn Fn(ChatEvent) -> bool) -> ChatDone + Send + Sync>;
@@ -203,7 +204,7 @@ The window's closure:
 
 - sets the screen (`set_assistant_screen(job.screen)`), begins the grants, and runs `Job::assistant` on its existing `assistant` `Runner` with today's flags, tools and secret;
 - blocks until the run's `done` or `error` (`Runner::start` returns at once);
-- maps each `AssistantEvent` to a `ChatEvent` for Core, and forwards it to any open `assistant_chat_watch(turn, on: Channel<AssistantEvent>)` subscriber in its own window, as `assistant_ask`'s Channel does today;
+- maps each `AssistantEvent` to a `ChatEvent` for Core, and forwards it to any open `assistant_chat_watch(turn, on: Channel<AssistantEvent>)` subscriber in its own window, as `assistant_ask`'s Channel does today. A watch may be opened for any unanswered turn before it starts, and is kept until that turn ends. On opening, it first gets the running turn's text so far as one delta;
 - watches `job.cancel` and calls `self.assistant.stop(id)` at once when it trips, so a Stop ends the child even while it waits on a tool call;
 - ends the grants and returns their `changed` lines;
 - sets `looked` to `screen_label(job.screen)` only when a `tool` event starting with `StatusHead` was seen, as `assistant.ts` does today;
@@ -227,7 +228,7 @@ The window's closure:
 
 The five cap is only for the scan, where the computer really was away or behind. Questions queued live are never skipped, however many wait behind a slow turn.
 
-**One at a time, oldest first.** A question sent from the phone while the Mac's own question is running waits for it, and its turn sees that answer. This also keeps `Grants`' "one set per Core" rule true, since no two chat runs overlap. Only the chat uses the window's `assistant` `Runner`, so its `MAX_RUNS` is never reached. Any other turn on the assistant's computer that holds the assistant secret (assistants-talk's turns, §9) also goes through this worker, never beside it.
+**One at a time, oldest first.** A question sent from the phone while the Mac's own question is running waits for it, and its turn sees that answer. This also keeps `Grants`' "one set per Core" rule true, since no two chat runs overlap. Only the chat uses the window's `assistant` `Runner`, so its `MAX_RUNS` is never reached. Any other turn on the assistant's computer that holds the assistant secret also goes through this worker, never beside it. Today that is only #1064's owner's-OK turn (§9): `ChatJob.kind` picks its prompt and its `--allowedTools`, and it holds no grants. assistants-talk's tool-less turn holds no secret and no grants, so it keeps its own runner.
 
 **Stopping a running turn.** When the kind loop folds a `stop` row for the running turn, or a `cleared` row newer than its question, Core trips that job's `cancel`. The `said` row says "Stopped". A turn hidden by New chat stays hidden.
 
@@ -236,12 +237,12 @@ The five cap is only for the scan, where the computer really was away or behind.
 - The turns before this one, after the newest New chat. Runs of `update` lines are grouped into one assistant turn, as `historyFor` does. A posted draft gets its "(This draft was posted as thread …)" note.
 - Left out, as notes are today: turns with no `said` row yet, turns whose `said` row is `skipped` or has an `error`, and imported turns with no reply. The last 12 turns that go in are used, as `HISTORY_TURNS` says today.
 - Drafts, and anything else carrying another person's words, never go in as the assistant's words (assistants-talk §8).
-- A question whose turn starts more than two minutes after its `at` is marked: "(Asked at 14:02 on the phone; it is now 17:40. Your computer was away. Changes asked for this long ago aren't made: if the person still wants one, ask them to say it again.)" So an old question gets today's answer and says so.
+- **A late question** is one the catch-up scan found, or one whose row reached this computer more than two minutes after its `at`. A question queued live is never late, however long it waits behind other turns. A late question is marked: "(Asked at 14:02 on the phone; it is now 17:40. Your computer was away. Changes asked for this long ago aren't made: if the person still wants one, ask them to say it again.)" So an old question gets today's answer and says so.
 
 **Grants.** The question's row is the person's typed message.
 
 - `grants_for(text, earlier)` takes its `text`. `earlier` is the `text` of the `asked` rows that come before it in the fold's order, after the newest New chat, at most 50, leaving out imported rows. Rows after it never count, whether or not they are still queued.
-- **A question whose turn starts more than two minutes after its `at` gets no grants.** A write asked for hours ago may not be wanted now. The age note tells the model so.
+- **A late question gets no grants.** A write asked for hours ago may not be wanted now. The age note tells the model so. A question queued live keeps its grants, however long it waits.
 - The parser is unchanged: it still reads only the person's words, and a grant is still spent once.
 
 **The screen.** The closure sets `job.screen`, the snapshot of the device that asked, just before the run, under the worker, so the `screen` tool sees it.
@@ -269,8 +270,8 @@ The five cap is only for the scan, where the computer really was away or behind.
 ### The dot
 
 - A reply lights the dot only on the device that asked, under the same "arrived live, asked in this run" rule as `<<go>>`, when its panel is closed.
-- A follow-up line lights it on every device, since it waits on the person wherever they are.
-- Each device keeps its own "seen up to" in localStorage. It is a per-device convenience, not part of the conversation. Rows loaded at start or on a resync never light it.
+- A follow-up line past this device's "seen up to" lights it on every device, whether it arrived live or at load, since it waits on the person wherever they are.
+- Each device keeps its own "seen up to" in localStorage. It is a per-device convenience, not part of the conversation. Only replies use the live-only rule.
 
 ## 6. When the computer is away
 
@@ -340,15 +341,15 @@ The person asked for "one Claude that is started for that". There are two ways t
 Its cards 3 to 8 (#1059 to #1064) aren't built yet. They change as follows. assistants-talk carries a note at each changed section, and a note under its §12 that rewrites the cards.
 
 - **The gate for an automatic answer** (its §5, "This device is the assistant's computer") is `is_assistant_home`. After card 1 here, that reads the recorded computer, so a short link drop no longer moves who answers. Its catch-up scan ("whenever this device becomes the assistant's computer") hangs off the same listener (§3). The repeated answer id stays as the safety net for §7's moments.
-- **Let it answer and Answer this go to the assistant's computer.** A tap on any device appends `assistant.answer.requested` (§4) through a host command. The assistant's computer serves it in the one worker (§5), only where `is_assistant_home` holds:
+- **Let it answer and Answer this go to the assistant's computer.** A tap on any device appends `assistant.answer.requested` (§4) through a host command. The assistant's computer serves it, only where `is_assistant_home` holds:
   - It checks the request against the post itself: the post's own space and channel, its author, the answer id and the hop. Never the row's `space`.
-  - `let` runs the tool-less turn. `draft` runs the owner's-OK turn.
+  - `let` runs #1060's tool-less turn on its own runner (no tools, no secret, no grants). `draft` runs the owner's-OK turn through the one chat worker (§5).
   - The tap skips its §5's waiting-line check, rate limit, hour and receive setting, as designed there, but not the home check.
   - Serving writes a record that names the request: the draft row, or an `update` line saying what happened (answered, held, failed). A request with a record is never served again, after a restart or a move.
   - A request the catch-up scan finds more than an hour old gets an `update` line instead: "Mac was away when you tapped this. Tap again if it still needs an answer." A tap made days ago never turns into a public post without a fresh one.
   - A phone gets both buttons, instead of "Answer from your computer", because it no longer runs anything itself.
 - **The owner's-OK draft** (its §7) is an `assistant.answer.draft` row, its own kind, a standalone line in the chat. Every device shows it, with **Send to Eve's assistant** and **Don't send**. Send works from any device and posts as the assistant's card, as designed there, and the answer id still refuses a second Send. The draft is private text and stays in private rows. It never goes into the chat's prompt (§5).
-- **The owner's-OK turn holds no grants.** It runs through the one worker, after the chat's grants for the previous run have ended, and never calls `Grants::begin`. Its `--allowedTools` names only `ASSISTANT_TOOLS`, never the write tools. Its card tests that an assistant-secret caller outside a chat run gets a 403 on `assistant_close` while a matching grant is open.
+- **The owner's-OK turn holds no grants.** It runs through the one worker as `ChatKind::OwnerOk`, so it starts only after the previous chat run's `Grants::end` has emptied the open set, and it never calls `Grants::begin`. Its `--allowedTools` names only `ASSISTANT_TOOLS`, never the write tools. Its card tests that its run config lists none of `ASSISTANT_WRITE_TOOLS`, that it never begins grants, that the open set is empty when it starts, and so that an `assistant_close` from it gets a 403.
 - **`held` lines** (its §8) become `assistant.chat.update` rows, keyed by the question's post id, so every device shows them, not only the assistant's computer.
 - **`from` lines** (`answer`, `needs`, `asked`, its §8) stay per device and are never rows. Each device rebuilds them from the replicated assistants channel (`assistant-talk-follow.ts`, on load and on `talk:changed`) and merges them into the shown list by time. They never go into the prompt as the assistant's words.
 - **Stop here** on the assistant's computer turns automatic answers into "Ask me", as its §5 says for Pause all.
@@ -358,7 +359,7 @@ Its cards 3 to 8 (#1059 to #1064) aren't built yet. They change as follows. assi
 ### The huddle (docs/design/call-agents.md)
 
 - **Which device hosts it** (its §7) is the recorded assistant's computer, nothing else.
-- Its rule "An `on` whose device has been away in presence for over 60 s counts as off … and the next device takes over" is dropped. When the assistant's computer is away, the roster shows "not connected: Mac is offline", the same plain line as the chat.
+- Its rule "An `on` whose device has been away in presence for over 60 s counts as off … and the next device takes over" is dropped. When the assistant's computer is away, the roster shows "not connected: Mac isn't connected (seen …)", the same plain words as the chat. Its build card 7a (call-agents §13) is changed to match.
 - `call.assist` stays, so the call knows whether the assistant is connected.
 - Stop here or Stop everywhere on the assistant's computer keeps the assistant out of calls (§3).
 - **Divide with my assistant** (its §9) shows on the phone too: its chat turn runs on the assistant's computer. The huddle context goes in as an optional `callId` on `assistant_chat_ask` (and the `asked` row), not on `assistant_ask`, which goes away.
@@ -404,7 +405,7 @@ Eight cards, each with Files, Steps and Done when. Each is normal weight unless 
 **The order:** 1 and 2 side by side. 3 after both. 4 after 3, with 6 in the same change. 5 and 7 after 4, in any order. 8 after 4. assistants-talk's #1060 and #1061 after card 1, #1063 after card 3, and #1062 and #1064 after card 4 (§9).
 
 **1. The recorded assistant's computer.**
-Files: `crates/store/src/kinds.rs` and `crates/store/tests/it/golden.rs` (`assistant.home`); new `crates/core/src/service/assistant_home.rs` (the row, the fold and its four rules, `assistant_home()`, the change listener); `crates/mesh/src/node.rs` (`Node::caught_up`); `crates/core/src/service/spawn_capable.rs` (`is_assistant_home` reads the fold); `crates/core/src/service/spawn.rs` (the claim in `sweep_spawns`, before `mint_assistant_cards`); `crates/core/src/service/spawn_remote.rs` (fix the comments that say "signed in" to say "the `claude` command is found"); `crates/core/src/service.rs` (refold on `assistant.home` and `person.device.revoked` rows and on resync; the `pub` accessor); `crates/window/src/commands.rs` (`assistant_home_status`, `assistant_home_set`).
+Files: `crates/store/src/kinds.rs` and `crates/store/tests/it/golden.rs` (`assistant.home`); new `crates/core/src/service/assistant_home.rs` (the row, the fold and its four rules, `assistant_home()`, the change listener); `crates/mesh/src/node.rs` (`Node::caught_up`); `crates/core/src/service/spawn_capable.rs` (`is_assistant_home` reads the fold); `crates/core/src/service/spawn.rs` (the claim in `sweep_spawns`, before `mint_assistant_cards`); `crates/core/src/service/spawn_remote.rs` (a read-only `assistant_chat: bool` on `SpawnHost`, `#[serde(default)]`, written by nothing until card 3; fix the comments that say "signed in" to say "the `claude` command is found"); `crates/core/src/service.rs` (refold on `assistant.home` and `person.device.revoked` rows and on resync; the `pub` accessor; `Core::assistant_home_status`); `crates/core/src/events.rs` and `crates/window/src/events.rs` (`CoreEvent::AssistantHome` and the `assistant:home` pump); `crates/window/src/commands.rs` (`assistant_home_status`, `assistant_home_set`).
 Steps: the kind and payload; the fold; `caught_up`; the claim; `is_assistant_home` on the fold; the listener; the status and set commands; tests.
 Done when tests show:
 - Two Cores that claim during a split agree on the first claim after they meet.
@@ -413,7 +414,9 @@ Done when tests show:
 - An automatic claim for the Mac, then a person's row for the PC, then the PC revoked: no assistant's computer, then a connected PC2 claims, and the Mac's old claim doesn't come back. Revoking changes the cached answer with no other row arriving.
 - A computer whose `spawn.host` drops `assistantTurn`, for a moment or for good, stays the assistant's computer, no other Core claims, and the status says Claude Code is missing there.
 - A Core that is connected to another of the person's devices but not caught up with it doesn't claim.
-- `assistant_home_status` reports `setting_up`, `needs_update` and `no_claude` in their cases.
+- `assistant_home_status` reports `setting_up`, `needs_update` and `no_claude` in their cases, with `assistantChat` set directly in hand-written `spawn.host` rows.
+- A person's row naming a revoked device, sorted after the revocation, is ignored.
+- A change of the folded answer publishes `assistant:home`.
 - `mint_assistant_cards` mints on the recorded computer only (extend `crates/core/tests/it/assistant_card.rs`).
 
 **2. The conversation rows and their fold.**
@@ -431,7 +434,7 @@ Done when tests show:
 - The `events` tool, and `GET /v1/events` without the person's secret, show these rows' text as `[left out]` (beside `leaves_out_text_and_fences`).
 
 **3. The assistant's computer answers questions from rows.**
-Files: `crates/core/src/service/assistant_chat.rs` (`ChatEvent`, `ChatJob`, `ChatDone`, `ChatTurn`; the queue and its two ways in; the caught-up wait; the checks of §5; the catch-up scan and its triggers; the prompt from rows, ported from `historyFor`, `turnText` and `render_prompt`; grants from rows, with none for a late question; cancel on `stop` and `cleared`; the `said` row; the error words with the computer's name and the signed-out hint); `crates/core/src/service.rs` (`set_chat_turn`); `crates/core/src/service/spawn_remote.rs` (`assistantChat` on `SpawnHost`, in `HostShown` and `publish_host`'s tuple, true only with the hook installed); `crates/core/src/service/assistant_home.rs` (the claim also needs `assistantChat`); `crates/window/src/assistant.rs` (the closure: screen, grants, `Job::assistant`, blocking until done, cancel through `Runner::stop`, `looked`, forwarding to watchers, porting `splitDraft` and `postsByItself`, posting with `Window::start_thread_with(…, assistant: true)` after the re-check); `app/src/shell/mod.rs` (install it on desktops); `crates/window/src/commands.rs` (`assistant_chat_ask(text, screen, again?)`, `assistant_chat_stop(turn)`, `assistant_chat_watch(turn, on)`).
+Files: `crates/core/src/service/assistant_chat.rs` (`ChatEvent`, `ChatJob`, `ChatDone`, `ChatTurn`; the queue and its two ways in; the caught-up wait; the checks of §5; the catch-up scan and its triggers; the prompt from rows, ported from `historyFor`, `turnText` and `render_prompt`; grants from rows, with none for a late question; cancel on `stop` and `cleared`; the `said` row; the error words with the computer's name and the signed-out hint); `crates/core/src/service.rs` (`set_chat_turn`); `crates/core/src/service/spawn_remote.rs` (`assistantChat` on `SpawnHost`, in `HostShown` and `publish_host`'s tuple, true only with the hook installed); `crates/core/src/service/assistant_home.rs` (the claim, and the ranking it uses, also need `assistantChat`); `crates/window/src/assistant.rs` (the closure: screen, grants, `Job::assistant`, blocking until done, cancel through `Runner::stop`, `looked`, forwarding to watchers, porting `splitDraft` and `postsByItself`, posting with `Window::start_thread_with(…, assistant: true)` after the re-check); `app/src/shell/mod.rs` (install it on desktops); `crates/window/src/commands.rs` (`assistant_chat_ask(text, screen, again?)`, `assistant_chat_stop(turn)`, `assistant_chat_watch(turn, on)`).
 Steps: the ask and stop commands; the hook and a fake turn; the queue, its dedupe and the caught-up wait; the checks; the scan and its triggers; the prompt; grants and screen; cancel; the real closure and the watch; posting by itself; `assistantChat`; tests.
 Done when, with a fake turn returning fixed text, tests show:
 - A question appended on one Core is answered once, by the recorded computer only, and the reply is under it on both Cores.
@@ -445,14 +448,15 @@ Done when, with a fake turn returning fixed text, tests show:
 - An imported question with no `said` row is never run.
 - A Core that receives a question and a newer `assistant.home` row naming another device in one sync runs no turn. A fresh Core that gets a phone's questions before the old computer's `said` and `assistant.home` rows neither claims nor runs them.
 - A reply whose draft posts by itself starts exactly one thread, from the recorded computer, and its `said` row carries `posted`. A second Core that gets the turn after the first Core's `said` or `posted` row has arrived posts nothing.
-- A Core without the hook publishes no `assistantChat` and never claims.
-- A real run on a scratch build answers a question asked from a second scratch instance.
+- A Core without the hook publishes no `assistantChat` and never claims. A connected, higher-ranked Core whose `spawn.host` has `assistantTurn` but no `assistantChat` doesn't stop an able Core from claiming.
+- A "close #12" queued live behind a turn that runs three minutes still closes #12.
+- A real run on scratch builds: the generated `assistantChatAsk` binding, called from the second instance's devtools console, is answered by the first, and `assistantChatList` shows the reply on both (the chat UI comes in card 4).
 
 **4. The chat reads and writes rows.**
-Files: `frontend/src/lib/assistant.ts` (entries from `assistant_chat_list` and `assistant:changed`; `ask` through `assistant_chat_ask`; the composer stays on; stop on a turn; New chat appends `cleared`; Post thread appends `posted`; `<<go>>` and the dot only for live replies to this page's questions; drop `autoPost`, `saveHistory` and the `history` argument), `frontend/src/lib/assistant-follow.ts` (follow `posted` from the fold; write `update` rows; what it said from the fold; the silent store), `frontend/src/components/assistant/assistant-chat.tsx` ("Mac is answering…" and "Waiting for Mac"; the streamed reply under its question on the assistant's computer, through `assistant_chat_watch`; Stop on a turn), `crates/window/src/commands.rs` (`assistant_chat_posted`, `assistant_chat_clear`, `assistant_chat_update`). Remove `assistant_ask`, `assistant_stop`, `AssistantService.Ask`/`Stop` and the window's history rendering once the chat reads rows.
+Files: `frontend/src/lib/assistant.ts` (entries from `assistant_chat_list` and `assistant:changed`; `ask` through `assistant_chat_ask`; the composer stays on; stop on a turn; New chat appends `cleared`; Post thread appends `posted`; `<<go>>` and the dot only for live replies to this page's questions; drop `autoPost`, `saveHistory` and the `history` argument), `frontend/src/lib/assistant-follow.ts` (follow `posted` from the fold; write `update` rows; what it said from the fold; the silent store), `frontend/src/components/assistant/assistant-chat.tsx` ("Mac is answering…" and "Waiting for Mac"; the streamed reply under its question on the assistant's computer, through an `assistant_chat_watch` opened for each unanswered turn it shows; Stop on a turn), `crates/window/src/commands.rs` (`assistant_chat_posted`, `assistant_chat_clear`, `assistant_chat_update`). Remove `assistant_ask`, `assistant_stop`, `AssistantService.Ask`/`Stop` and the window's history rendering once the chat reads rows.
 Steps: read the fold; ask, stop and clear; the composer; drafts and Post thread; go and the dot; the follower on rows; the streamed reply; remove the old path; tests.
 Done when:
-- Tests show: a reply's `<<go>>` acts only where it was asked, only live, and never from rows loaded at start or after a resync; Post thread on one device hides the button on the other; two followers saying one line give one line; a reply lights the dot only on the asking device, and a follow-up line on both; a second question can be sent while the first waits.
+- Tests show: a reply's `<<go>>` acts only where it was asked, only live, and never from rows loaded at start or after a resync; Post thread on one device hides the button on the other; two followers saying one line give one line; a reply lights the dot only on the asking device, and a follow-up line on both, including one written while this device was closed, when it opens; a second question can be sent while the first waits.
 - A two-instance scratch run shows the same conversation on both. A question typed on the instance that isn't the assistant's computer is answered by the one that is, and both show it. The assistant's computer's composer stays usable while that turn streams.
 - Screenshots at desktop and phone width.
 
@@ -465,12 +469,12 @@ Done when:
 - Screenshots of the away line at desktop and phone width, and of Settings.
 
 **6. Moving today's history.** Lands in the same change as card 4.
-Files: `frontend/src/lib/assistant.ts` (the import when the status says this device is the assistant's computer, at load and on change; the read-only "Earlier on this …" block elsewhere; the `irori.assistant.imported` flag), `crates/window/src/commands.rs` (`assistant_chat_import(entries)`), `crates/core/src/service/assistant_chat.rs` (the host's refusals; the mapping of §10; one batch, scrubbed, `imported: true`), `frontend/src/components/assistant/assistant-chat.tsx` (the divider and block).
+Files: `frontend/src/lib/assistant.ts` (the import when the status says this device is the assistant's computer, at load and on `assistant:home` from card 1; the read-only "Earlier on this …" block elsewhere; the `irori.assistant.imported` flag), `crates/window/src/commands.rs` (`assistant_chat_import(entries)`), `crates/core/src/service/assistant_chat.rs` (the host's refusals; the mapping of §10; one batch, scrubbed, `imported: true`), `frontend/src/components/assistant/assistant-chat.tsx` (the divider and block).
 Steps: the import command and its refusals; the mapping; when the frontend calls it; the read-only block; tests.
 Done when tests show: the assistant's computer imports its history once, in order, and a second call is refused; a claim that lands after the first load still imports; a device that isn't the assistant's computer imports nothing and shows its history read-only, in no prompt; a history ending in an unanswered "close #12" imports with a "(no reply)" `said` row, runs no turn and closes nothing; an imported `to` entry never runs; New chat removes the read-only block.
 
 **7. The reply streams to other devices.**
-Files: `crates/mesh/src/node.rs` (a new `Options` field, for example `assistant_turns: Option<Arc<dyn Fn(&str) -> Option<std::sync::mpsc::Receiver<Vec<u8>>> + Send + Sync>>`, returning a running turn's framed events); `crates/mesh/src/files.rs` (an `assistant/<turn>` arm in `serve_stream`, served only to the person's certified devices, as `blob/` is); a new `crates/mesh/src/assistant_stream.rs` (client and server, framed like inline-terminals §6.4: `u8 type ‖ u32 len ‖ body`); `crates/core/src/service.rs` (fill the `Options` field where the node is built; a `pub fn assistant_stream(&self, device, turn)` for the window, opening the stream as `fetch_file` does); `crates/core/src/service/assistant_chat.rs` (a broadcast of the running turn's events); `crates/window/src/assistant.rs` and `assistant-chat.tsx` (open the stream on the asking device when the assistant's computer is connected; show deltas and tool lines).
+Files: `crates/mesh/src/node.rs` (a new `Options` field, for example `assistant_turns: Option<Arc<dyn Fn(&str) -> Option<std::sync::mpsc::Receiver<Vec<u8>>> + Send + Sync>>`, returning a running turn's framed events); `crates/mesh/src/files.rs` (an `assistant/<turn>` arm in `serve_stream`, served only to the person's certified devices, as `blob/` is); a new `crates/mesh/src/assistant_stream.rs` (client and server, framed like inline-terminals §6.4: `u8 type ‖ u32 len ‖ body`); `crates/core/src/meshnode.rs` (a `Parts` field threaded into `Options` where `Mesh::new` builds the node, filled with a closure over a `OnceLock` set once `Services` exists, as the `node_cell` pattern in `service.rs` does); `crates/core/src/service.rs` (set that cell; a `pub fn assistant_stream(&self, device, turn)` for the window, opening the stream as `fetch_file` does); `crates/mesh/tests/it/common/mod.rs` and `crates/pair/tests/it/common/mod.rs` (their `Options` literals gain the field); `crates/core/src/service/assistant_chat.rs` (a broadcast of the running turn's events); `crates/window/src/assistant.rs` and `assistant-chat.tsx` (open the stream on the asking device when the assistant's computer is connected; show deltas and tool lines).
 Steps: the `Options` seam; the server arm, bridging the sync receiver into the stream with a thread feeding a tokio channel; the client; the fallback; tests.
 Done when tests show: a second Core connected to the assistant's computer gets the deltas of a running turn in order; a dropped stream falls back to waiting for the `said` row with no error shown; after the end the shown text is the row's text, including a stream that carried a key the row has as `[redacted:anthropic]`. A two-instance scratch run shows the reply streaming on the device that asked.
 
