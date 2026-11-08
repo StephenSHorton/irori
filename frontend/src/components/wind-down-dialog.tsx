@@ -69,9 +69,7 @@ export function WindDownDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="gap-3 sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>
-            {hereOn ? L.here.name : L.everywhere.name}
-          </DialogTitle>
+          <DialogTitle>{hereOn ? L.here.name : L.everywhere.name}</DialogTitle>
           <DialogDescription>{L.how}</DialogDescription>
         </DialogHeader>
 
