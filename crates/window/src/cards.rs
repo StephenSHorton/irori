@@ -457,7 +457,16 @@ pub struct CardWeight {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub reason: String,
-    /// Who set it: person, assistant (Irori's office assistant) or agent.
+    /// The level its next attempt starts on and why, when a crash or a Not
+    /// done stepped it above `level` (card #966); else empty.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub runs_at: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub stepped_why: String,
+    /// Who set it: person, assistant (Irori's office assistant) or agent;
+    /// empty on a card with no weight that a retry stepped up.
     /// The person's is theirs: agents and the assistant don't change it.
     pub set_by: String,
     /// Who, by name: "you" for this person, "Irori" for the assistant, or
@@ -1707,7 +1716,7 @@ pub(crate) fn card_weight(t: &Task, board: &str, p: &People) -> Option<CardWeigh
     // its next attempt runs at, and why, weight or none.
     let stepped = t.stepped_why();
     let none = coord::Weight {
-        set_by: coord::SET_BY_ASSISTANT.into(),
+        level: coord::WEIGHT_NORMAL.into(),
         ..coord::Weight::default()
     };
     let w = match t.weight.as_ref().filter(|w| !w.level.is_empty()) {
@@ -1727,15 +1736,16 @@ pub(crate) fn card_weight(t: &Task, board: &str, p: &People) -> Option<CardWeigh
             Some(f) => f(board),
             None => irori_core::spawn::SpawnSetting::default(),
         });
-    let level = t.run_level();
-    let (model, effort) = set.pick(level);
+    let (model, effort) = set.pick(t.run_level());
     Some(CardWeight {
-        level: level.to_string(),
-        reason: if stepped.is_empty() {
-            w.reason.clone()
+        level: w.level.clone(),
+        reason: w.reason.clone(),
+        runs_at: if stepped.is_empty() {
+            String::new()
         } else {
-            stepped.to_string()
+            t.run_level().to_string()
         },
+        stepped_why: stepped.to_string(),
         set_by: w.set_by.clone(),
         by_name,
         model: model.into(),

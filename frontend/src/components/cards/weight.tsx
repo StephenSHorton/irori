@@ -54,7 +54,7 @@ export function WeightTag({ card }: { card: CardSummary }) {
     >
       <WeightIcon aria-hidden className="size-3" />
       <span className="sr-only">Weight: </span>
-      {w.level}
+      {w.runsAt || w.level}
     </span>
   )
 }

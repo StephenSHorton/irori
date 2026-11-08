@@ -618,17 +618,12 @@ pub fn default_cap() -> i64 {
     if cfg!(windows) { 6 } else { 12 }
 }
 
-/// Whether the person's Claude Code has the advisor on (card #966): its
-/// user settings name an `advisorModel`. Read where the agent is asked for;
-/// Irori's own `--settings` file never sets it.
-pub fn advisor_on() -> bool {
-    let dir = std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
-                .map(|h| PathBuf::from(h).join(".claude"))
-        });
-    dir.and_then(|d| std::fs::read(d.join("settings.json")).ok())
+/// Whether the Claude Code in `claude_dir` has the advisor on (card #966):
+/// its user settings name an `advisorModel`. Irori's own `--settings` file
+/// never sets it.
+pub(crate) fn advisor_in(claude_dir: &Path) -> bool {
+    std::fs::read(claude_dir.join("settings.json"))
+        .ok()
         .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
         .and_then(|v| v["advisorModel"].as_str().map(|m| !m.trim().is_empty()))
         .unwrap_or(false)
@@ -1349,7 +1344,12 @@ fn weight_words(b: &mut String, t: &Task, short: &str) {
     if mine {
         b.push_str(" If its work turns out heavier or lighter than that, say so on the card in one line (board_comment); the person set its weight, so leave it to them.");
     } else {
-        b.push_str(&format!(" If you find it heavier than that, or your advisor keeps sending you back on the same point, push your branch and move it up: board_move task_id={short} direction=up, with why and left_off. Irori ends you and starts a fresh agent one weight higher, from your Left off. If it turns out to be busy work, move it down the same way."));
+        if t.run_level() != coord::WEIGHT_HEAVY {
+            b.push_str(&format!(" If you find it heavier than that, or your advisor keeps sending you back on the same point, push your branch and move it up: board_move task_id={short} direction=up, with why and left_off. Irori ends you and starts a fresh agent one weight higher, from your Left off."));
+        }
+        if t.run_level() != coord::WEIGHT_LIGHT {
+            b.push_str(&format!(" If it turns out to be busy work, move it down the same way (board_move direction=down)."));
+        }
     }
     b.push(' ');
     b.push_str(SPLIT_WORK);
@@ -2276,7 +2276,7 @@ impl Services {
             model: setting.pick_for(t).0,
             effort: setting.pick_for(t).1,
             weight: t.run_level().to_string(),
-            advisor: advisor_on(),
+            advisor: advisor_in(Path::new(&self.presence.claude_dir())),
             counted: self.start_counts(&self.coord, t),
             ..SpawnAsk::default()
         };
@@ -3173,6 +3173,11 @@ impl Services {
                 if let Some((_, t, k)) = self.spawn_card_of(&a.key)
                     && (coord::is_terminal(&t.state)
                         || !t.holders.contains(&k)
+                        || t.spawn_request().is_some_and(|s| {
+                            s.generation == m.generation
+                                && !s.key.is_empty()
+                                && t.sent_back_lifts(s)
+                        })
                         || t.blockers.iter().any(|b| {
                             b.open()
                                 && b.done_check
@@ -3880,7 +3885,7 @@ mod tests {
             b.text
         );
         assert!(
-            b.text.contains("say so on the card in one line"),
+            b.text.contains("board_move task_id=#7 direction=up"),
             "{}",
             b.text
         );
@@ -3905,12 +3910,7 @@ mod tests {
             "{}",
             b.text
         );
-        assert!(
-            b.text
-                .contains("give it the weight it needs (board_edit weight)"),
-            "{}",
-            b.text
-        );
+        assert!(b.text.contains("move it down the same way"), "{}", b.text);
         assert!(
             b.text.contains(
                 "Why it is weighed so (by agent:blake):\n```text\nplan the ''' split\n```"

@@ -161,14 +161,17 @@ export function useRunHistory(open: boolean) {
 // the split", the reason only when there is one.
 export function weightLabel(w: CardWeight): string {
   const run = shortModel(w.model, w.effort)
-  const head = run ? `${w.level} · ${run}` : w.level
-  const why = w.reason?.trim()
+  const level = w.runsAt || w.level
+  const head = run ? `${level} · ${run}` : level
+  const why = w.steppedWhy || w.reason?.trim()
   return why ? `${head}: ${why}` : head
 }
 
 // weightBy says who set a weight, for its tooltip: the person's own is
 // theirs, and agents can't change it.
 export function weightBy(w: CardWeight): string {
+  if (w.steppedWhy && !w.setBy)
+    return "Irori stepped it up for its next attempt"
   if (w.setBy === "assistant") return "Irori's assistant set it"
   if (w.setBy === "person")
     return w.byName && w.byName !== "you"

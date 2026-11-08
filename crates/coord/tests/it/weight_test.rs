@@ -353,6 +353,12 @@ fn a_holder_moves_its_card_one_weight() {
         e.c.move_weight(ALICE, &t.id, false, "why", "next"),
         ErrorKind::NotAllowed,
     );
+    // A plain edit over the move doesn't reopen the way back.
+    e.c.set_weight(ALICE, &t.id, "normal", "edited").unwrap();
+    want_err(
+        e.c.move_weight(ALICE, &t.id, false, "why", "next"),
+        ErrorKind::NotAllowed,
+    );
     e.c.leave(ALICE, &t.id, ALICE).unwrap();
     // Down works the same way, from normal, and the person's weight is theirs.
     let d = stepped(&e, ALICE);

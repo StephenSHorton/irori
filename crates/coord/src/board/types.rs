@@ -233,14 +233,20 @@ impl Task {
                 .any(|r| r.cause == RETRY_SENT_BACK && r.at > s.at.unix_nano())
     }
 
-    /// Records a retry once, by what it is about.
+    /// Records a retry once, by what it is about, at the newest time it
+    /// was said, so the fold's order doesn't change the answer.
     pub(crate) fn note_retry(&mut self, cause: &'static str, of: &str, at: i64) {
-        if !self.retries.iter().any(|r| r.cause == cause && r.of == of) {
-            self.retries.push(Retry {
+        match self
+            .retries
+            .iter_mut()
+            .find(|r| r.cause == cause && r.of == of)
+        {
+            Some(r) => r.at = r.at.max(at),
+            None => self.retries.push(Retry {
                 cause,
                 of: of.to_string(),
                 at,
-            });
+            }),
         }
     }
 

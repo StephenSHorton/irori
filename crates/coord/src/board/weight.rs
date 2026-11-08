@@ -34,6 +34,10 @@ pub(crate) struct WeightSlots {
     person: Option<(Weight, RowPos)>,
     /// The newest row an agent or the assistant wrote.
     other: Option<(Weight, RowPos)>,
+    /// When any row was last written, in Unix nanoseconds (card #966).
+    latest: i64,
+    /// Each move an agent made: (direction, Unix nanoseconds).
+    moves: Vec<(String, i64)>,
 }
 
 impl WeightSlots {
@@ -50,6 +54,14 @@ impl WeightSlots {
             }
             (None, Some((o, _))) => set(o),
             _ => None,
+        }
+    }
+
+    /// Fills card `t`'s retry floor and moves from the rows seen so far.
+    pub(crate) fn sync_marks(&self, t: &mut Task) {
+        t.weighed_at = t.weighed_at.max(self.latest);
+        for (dir, at) in &self.moves {
+            t.note_retry(RETRY_MOVED, &format!("{dir}:{at}"), *at);
         }
     }
 
@@ -226,6 +238,13 @@ impl Fold {
                 t.short_ref()
             )));
         }
+        // Only a card Irori starts again by itself once its agent leaves.
+        if t.shared || !t.subtasks.is_empty() || t.state != WORKING || t.open_ask().is_some() {
+            return Err(not_allowed(format!(
+                "{} can't restart by itself now (shared, a lead, a thread, or waiting on something): say so on the card instead",
+                t.short_ref()
+            )));
+        }
         let now = self.weight_of(id);
         if let Some(w) = now.as_ref().filter(|w| w.by_person()) {
             return Err(not_allowed(format!(
@@ -235,7 +254,11 @@ impl Fold {
             )));
         }
         let (dir, back) = if up { ("up", "down") } else { ("down", "up") };
-        if now.as_ref().is_some_and(|w| w.moved == back) {
+        let moved_back = format!("{back}:");
+        if t.retries
+            .iter()
+            .any(|r| r.cause == RETRY_MOVED && r.of.starts_with(&moved_back))
+        {
             return Err(not_allowed(format!(
                 "{} was moved {back} already and doesn't move back: carry on, or say why on the card",
                 t.short_ref()
@@ -411,12 +434,15 @@ impl Fold {
             was_reason: p.was_reason,
             moved: p.moved,
         };
-        if let Some(t) = self.tasks.get_mut(&p.task_id) {
-            let nanos = when.unix_nano();
-            t.weighed_at = t.weighed_at.max(nanos);
-            if !moved.is_empty() {
-                t.note_retry(RETRY_MOVED, &nanos.to_string(), nanos);
-            }
+        let slots = self.weights.entry(p.task_id.clone()).or_default();
+        slots.latest = slots.latest.max(when.unix_nano());
+        if !moved.is_empty() {
+            slots.moves.push((moved.clone(), when.unix_nano()));
+        }
+        // The slots outlive a card that isn't here yet; sync_marks fills
+        // it in when it comes.
+        if let (Some(t), Some(s)) = (self.tasks.get_mut(&p.task_id), self.weights.get(&p.task_id)) {
+            s.sync_marks(t);
         }
         let slots = self.weights.entry(p.task_id.clone()).or_default();
         let slot = if set_by == SET_BY_PERSON {

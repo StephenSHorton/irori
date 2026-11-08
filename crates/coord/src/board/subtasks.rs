@@ -770,6 +770,9 @@ impl Fold {
         t.pin_rank = if r.pinned { r.rank } else { 0.0 };
         t.paused = self.is_paused(&t.id);
         t.weight = self.weight_of(&t.id);
+        if let Some(s) = self.weights.get(&t.id) {
+            s.sync_marks(t);
+        }
     }
 
     pub(crate) fn pin(

@@ -250,6 +250,20 @@ pub(crate) fn refresh_blocker(
     b.status = BLOCKER_OPEN.into();
     b.sent_to.clear();
     b.missing.clear();
+    // Card #966: the person's Not done on a done check raises the next
+    // attempt, for as long as it is their last word since the check was
+    // last asked. Worked out afresh each time, so the order rows fold in
+    // doesn't matter.
+    if b.done_check {
+        let bid = b.id.clone();
+        let word = cs.iter().rfind(|c| c.person).map(|c| (c.pick, c.at));
+        t.retries
+            .retain(|r| r.cause != RETRY_SENT_BACK || r.of != bid);
+        if let Some((_, at)) = word.filter(|(pick, _)| *pick <= 0) {
+            t.note_retry(RETRY_SENT_BACK, &bid, at.unix_nano());
+        }
+    }
+    let b = &mut t.blockers[i];
     let n = cs.len();
     if n == 0 {
         return;
@@ -257,18 +271,6 @@ pub(crate) fn refresh_blocker(
     let Some(last_person) = cs.iter().rposition(|c| c.person) else {
         return;
     };
-    // Card #966: the person's Not done on a done check raises the next
-    // attempt; a later pick (their Done) takes that back.
-    if b.done_check {
-        let (bid, word) = (b.id.clone(), cs[last_person]);
-        let (not_done, at) = (word.pick <= 0, word.at.unix_nano());
-        t.retries
-            .retain(|r| not_done || r.cause != RETRY_SENT_BACK || r.of != bid);
-        if not_done {
-            t.note_retry(RETRY_SENT_BACK, &bid, at);
-        }
-    }
-    let b = &mut t.blockers[i];
     if last_person == n - 1 || cs[n - 1].missing.is_empty() {
         // The person's answer stands, or an agent replied after it with
         // nothing missing: it acted on the answer (card #204), so the item

@@ -1842,7 +1842,14 @@ export type CardWeight = {
 	/**  One line on why; empty when the person gave none. */
 	reason?: string,
 	/**
-	 *  Who set it: person, assistant (Irori's office assistant) or agent.
+	 *  The level its next attempt starts on and why, when a crash or a Not
+	 *  done stepped it above `level` (card #966); else empty.
+	 */
+	runsAt?: string,
+	steppedWhy?: string,
+	/**
+	 *  Who set it: person, assistant (Irori's office assistant) or agent;
+	 *  empty on a card with no weight that a retry stepped up.
 	 *  The person's is theirs: agents and the assistant don't change it.
 	 */
 	setBy: string,
