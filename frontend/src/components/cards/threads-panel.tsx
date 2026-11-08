@@ -67,8 +67,8 @@ export function ThreadsPanel({
       </div>
       {live.length === 0 && (
         <p className="text-[12.5px] text-muted-foreground">
-          No open threads. Ask about anything in the box above: an agent on the
-          cards you name answers, or an idle one does.
+          No open threads. Start one in the box above: an agent on the cards you
+          name answers, or an idle one does.
         </p>
       )}
       {live.map((t) => (

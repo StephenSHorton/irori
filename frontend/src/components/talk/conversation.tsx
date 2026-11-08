@@ -808,7 +808,7 @@ export function PostRow({
               type="button"
               onClick={() => setAsking((a) => !a)}
               className="ml-auto hidden items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-secondary hover:text-ink focus-visible:opacity-100 pointer-fine:md:flex"
-              title="Ask about this in a thread: it goes in Threads, and this channel gets a one-line pointer"
+              title="Start a thread about this: it goes in Threads, and this channel gets a one-line pointer"
             >
               <MessageSquareTextIcon className="size-3.5" aria-hidden />
               Start a thread
@@ -933,8 +933,8 @@ function ThreadFrom({
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && onDone()}
-        placeholder="Ask about this in a thread…"
-        aria-label="Your question for the thread"
+        placeholder="Start a thread about this…"
+        aria-label="Start a thread about this"
         readOnly={busy}
         className="rounded-md border border-border bg-card px-2 py-1 text-[12.5px] text-ink outline-none focus:border-primary"
       />

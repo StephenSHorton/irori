@@ -195,7 +195,7 @@ export function BoardView({
   selected: string
   onOpen: (id: string) => void
   now: Date
-  // header is the box above the board (Ask about anything…).
+  // header is the box above the board (Start a thread…).
   header?: ReactNode
   // notice sits under the filters (Home: a board's decisions waiting).
   notice?: ReactNode
