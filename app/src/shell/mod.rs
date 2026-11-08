@@ -359,6 +359,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         window.assistant_shutdown();
                         h.core.set_reviver(None);
                         h.core.set_spawner(None);
+                        h.core.set_huddle_runner(None);
                         h.close()
                     }
                     None => Ok(()),
@@ -542,6 +543,9 @@ fn start_core(
                 None => Err("Irori is closing".into()),
             },
         )));
+        // And holds a huddle's assistant session (card #1046): one
+        // `claude -p` per huddle, kept up between looks.
+        core.set_huddle_runner(Some(window.huddle_runner()));
     }
     // Spawning is on by default for the private board where agents can
     // start (card #448, decision 1 (a)); his own switch wins.

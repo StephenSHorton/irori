@@ -191,7 +191,29 @@ It's the Office Assistant, not an agent: still off the roster, not counted again
 | Held session, first look | 4.1 s | $0.0012 (writes the cache) |
 | Fresh `claude -p` per look | 3.7–5.0 s | $0.00040–0.00049, growing with the talk |
 
-Not measured: a 40-card packet, an hour-long session (the context grows with every line, and every look re-reads it from the cache), and Sonnet on low effort (#1014's default).
+**Measured with a 40-card packet** (card #1046, 2026-11-08, Claude Code 2.1.319, card 5's held session: priming turn of about 5–6k tokens, then looks of one to three lines; costs at API rates; this Mac's load average was 25–145 throughout, so local stalls are in the numbers):
+
+| | Haiku | Sonnet, low effort |
+|---|---|---|
+| Priming turn (writes the cache) | 2.3–5.4 s, $0.0011 | 1.8–2.8 s, $0.018–0.019 |
+| Look, warm | 1.0–3.2 s, $0.00013–0.00021 | 1.4–3.4 s, $0.0021–0.0055 |
+
+**One hour** (the same flags, one look every 30 s for 60 minutes, each carrying about 75 words of made-up three-person talk; 120 looks per model, restart from the seed past 60k tokens):
+
+| | Haiku | Sonnet, low effort |
+|---|---|---|
+| Time per look | median 1.7 s, p90 2.6 s, max 5.8 s | median 2.2 s, p90 2.8 s, max 6.7 s |
+| Cost per look | median $0.00059, max $0.00083 | median $0.0076, max $0.0116 |
+| Context | 7.5k growing to 60k at 43 min, then restarted | 6.3k growing to 60k at 58 min, then restarted |
+| The hour, priming and restart included | **$0.07** | **$0.92** |
+| Failed looks | 0 | 0 |
+
+What the runs say:
+- The cost per look hardly grows with the call: re-reading the session comes from the cache (written with the 1-hour TTL), and most of each look's cost is the new lines and the reply. The restart at 60k keeps it bounded. The talk here was dense with questions and plans, so every look wrote blocks; a real digest fires only when its person has spoken (§6), so a real hour should cost less.
+- Sonnet on low costs about 13 times Haiku for the same hour. Whether huddle looks follow the chat's model (§7, Sonnet low by default) or take Haiku is for card 13 to settle with real calls.
+- **Local stalls:** under heavy load, Claude Code sometimes waited before sending a turn: a priming turn took 43 s (41 s before the request went out) and one restart's priming 33 s. A look never took over 7 s in the hour runs, but the probe saw a 175 s stall once. The 60 s watchdog fires on those; the look then fails and the next one starts from the seed.
+- `total_cost_usd` on a held session adds up over the session; the per-look cost is `model_usage_since_last_result`. The reply's full text is in the `result` line, so the held session runs without `--include-partial-messages`.
+- Asked for blocks, both models sometimes wrote `reply="ITEM-ID"` literally: card 8's prompt has to give real item ids, and its parser has to drop a reply it can't resolve.
 
 **A trust boundary.** A transcript line is untrusted: anyone in the call can say anything, and a phone-transcribed line is no proof of who means what.
 - Lines reach the model as data, one line each, marked with the speaker. They're never `trust="user"`, even for the person's own voice.
@@ -369,7 +391,7 @@ Listing rules follow `talk_read`: the same `call_parent` check. `talk_read`'s cu
 | End of speech to a finished line (800 ms pause + Whisper final) | about 0.9 s (estimated) | about 1.9 s or more (estimated) | 4.5–5.1 s (0.8 s plus the measured 3.7–4.3 s final) |
 | Line to the assistant's host (row) | estimated under 1 s | same | same |
 | Hold for the rest of the sentence | up to 1.5 s | same | same |
-| The look: no tools, the packet already in the session | 1.1–1.9 s measured with about 5k tokens; estimated 2–4 s with a 40-card packet | same | same |
+| The look: no tools, the packet already in the session | 1.0–3.2 s measured with a 40-card packet (median 1.7 s Haiku, 2.2 s Sonnet low over an hour, §7) | same | same |
 | Item to everyone's canvas (row) | estimated under 1 s | same | same |
 | **Spoken to answer on canvas** | **about 4–8 s** | **about 5–9 s** | **about 8–13 s** |
 
@@ -384,7 +406,7 @@ Finals only is a hard floor: a word isn't known until its phrase ends, and unbro
 4. Partials for address detection only: `Options.partials` exists, but needs a new frame type, and costs a pass per 700 ms, which nearly fills the phone. Not v1.
 5. Taking live frames on an in-call host: saves only the row hop.
 
-**Cost.** Every look spends the owner's own Claude usage, with one assistant per person in the call. From the spike, a held look on Haiku with about 5k tokens is a fraction of a tenth of a cent. An hour isn't measured: every look re-reads the whole session from the cache, so the cost per look grows with the call, bounded by the restart at about 60k tokens (§7) and the 300-look cap. On Haiku that's an estimated cents to tens of cents per assistant-hour, and Sonnet on low costs more. Card 5 records a one-hour run. Either way it fits decision 52: on by default, a setting to turn it off.
+**Cost.** Every look spends the owner's own Claude usage, with one assistant per person in the call. Card 5's one-hour run (§7) measured an assistant looking every 30 s at about $0.07 per hour on Haiku and $0.92 per hour on Sonnet low, at API rates, with the restart at about 60k tokens keeping the cost per look flat. The 300-look cap bounds it further. Either way it fits decision 52: on by default, a setting to turn it off.
 
 **Settings** (Settings › App, on by default; the setting only turns things off; stored as private rows like `assistant.names.set`):
 - "Connect my assistant to huddles": off means no assistant from this person.
@@ -432,6 +454,7 @@ Done when: a person can set a name and see it on all their devices and on anothe
 
 **5. Held run and the packet.**
 Files: `crates/window/src/assistant.rs` (the held process: `job_args` with `tools: false` plus `--input-format stream-json`, stdin held open, a watchdog per look, no end at `result`), `crates/core/src/service.rs` (the `HuddleRunner` trait and its setter), `crates/core/src/service/thread_names.rs` (the seam it copies), a new `crates/core/src/service/huddle_packet.rs` (the packet from a space's folded log, taking the title and canvas as inputs, empty until cards 1 and 8 land; share the space-cards reader with #1030's `assistant_answers.rs` if that lands first, keeping each design's selection), `app/src/shell/mod.rs` (installing it on desktops).
+As built: the trait, `Look`, `LookError` and `HuddleSeed` are in `crates/core/src/service/huddle_session.rs` (re-exported from the crate root), with the policy (open with the packet, reopen from the seed on a gone session or past 60k, no retry of a failed look, one turn at a time, a closed huddle stays closed until the next open) as `Services::huddle_open`, `huddle_look` and `huddle_close` for cards 7a and 7b. `Core::set_huddle_runner` is in `service.rs`. The window side is `HeldPool` and `HeldRunner` in `assistant.rs`, each session in its own folder under `assistant/huddles/<callId>/`. The packet takes the folded `call.title` (card 1) when the seed has none.
 Done when: a held session takes a priming turn and several looks, and restarts from the seed (packet included) after being killed or past the context limit; its arguments carry no `--mcp-config` and no secret; a packet test with a private card, a Personal card and a card on a space the other person isn't in contains none of them, for a channel and a DM huddle; packet text goes in fenced; time and cost per look are recorded in §7 for Haiku and Sonnet low with a 40-card packet, and for a one-hour run.
 
 **6. Matcher and layer rules.** Pure Rust, no I/O.
