@@ -614,16 +614,19 @@ export function AssistantPanel({
             aria-label="Ask the Office Assistant"
             className="max-h-28 min-h-8 flex-1 border-transparent bg-transparent px-2 py-1.5 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
           />
-          <MicButton
-            target={input}
-            value={text}
-            onText={(t, at) => {
-              // Same as typing: the module draft and the text both take it.
-              draft = t
-              pendingCaret.current = at
-              setText(t)
-            }}
-          />
+          {/* Centred on the 32 px send button the row bottom-aligns to. */}
+          <div className="flex h-8 shrink-0 items-center">
+            <MicButton
+              target={input}
+              value={text}
+              onText={(t, at) => {
+                // Same as typing: the module draft and the text both take it.
+                draft = t
+                pendingCaret.current = at
+                setText(t)
+              }}
+            />
+          </div>
           {busy ? (
             <Button
               type="button"
