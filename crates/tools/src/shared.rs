@@ -722,6 +722,8 @@ pub(crate) fn create_on_board(
         board_named: true,
         after,
         later: later.map(|l| l.0),
+        weight: crate::board::new_weight(a).0,
+        weight_reason: crate::board::new_weight(a).1,
         ..NewTask::default()
     };
     let mut texts: Vec<&str> = vec![
@@ -729,6 +731,7 @@ pub(crate) fn create_on_board(
         &task.objective,
         &task.done_criteria,
         &task.block_reason,
+        &task.weight_reason,
     ];
     texts.extend(task.links.iter().map(String::as_str));
     texts.extend(task.steps.iter().map(|st| st.text.as_str()));

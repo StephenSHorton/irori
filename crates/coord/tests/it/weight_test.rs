@@ -241,10 +241,9 @@ fn a_card_is_weighed_as_it_is_made() {
         "a refused weight writes no card"
     );
 
-    let t = e
-        .c
-        .create_task(ALICE, weighed("plan", " Heavy ", "planning the split"))
-        .unwrap();
+    let t =
+        e.c.create_task(ALICE, weighed("plan", " Heavy ", "planning the split"))
+            .unwrap();
     let w = t.weight.clone().expect("weighed as it is made");
     assert_eq!(
         (w.level.as_str(), w.reason.as_str(), w.set_by.as_str()),
@@ -269,15 +268,17 @@ fn a_card_is_weighed_as_it_is_made() {
         e.c.split(
             ALICE,
             &t.id,
-            vec![sub("build", "normal", "follows the plan"), sub("docs", "light", "")],
+            vec![
+                sub("build", "normal", "follows the plan"),
+                sub("docs", "light", ""),
+            ],
             vec![],
         ),
         ErrorKind::Invalid,
     );
     assert_eq!(e.c.list_tasks(&TaskFilter::default()).len(), before);
-    let (_, made) = e
-        .c
-        .split(
+    let (_, made) =
+        e.c.split(
             ALICE,
             &t.id,
             vec![
