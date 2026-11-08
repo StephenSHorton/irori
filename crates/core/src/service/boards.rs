@@ -326,10 +326,14 @@ impl BoardLog {
         if p.card_id.is_empty() {
             return;
         }
-        let Some(owner) = self.verifier.card_person(&p.card_id) else {
-            return;
-        };
-        if self.verifier.person_of(&ev.device_id).as_deref() != Some(owner.as_str()) {
+        // No verified owner yet (the card's first row isn't bound to a
+        // certified device): the row stands as it always did, and the map
+        // is refolded when an owner is known. With an owner, only that
+        // person's devices may write the card.
+        let owner = self.verifier.card_person(&p.card_id);
+        if let Some(o) = &owner
+            && self.verifier.person_of(&ev.device_id).as_deref() != Some(o.as_str())
+        {
             return;
         }
         if hlcs.get(&p.card_id).is_some_and(|h| *h > ev.hlc) {
@@ -340,7 +344,7 @@ impl BoardLog {
             p.card_id.clone(),
             BoardCard {
                 device_id: ev.device_id.clone(),
-                person_id: owner,
+                person_id: owner.unwrap_or(p.person_id.clone()),
                 ..p
             },
         );
