@@ -1106,7 +1106,7 @@ function Conversation({
         narrow ? "px-1 py-2" : "p-4"
       )}
     >
-      <header className="flex min-w-0 shrink-0 items-center gap-2">
+      <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
         {narrow && (
           <Button
             size="icon-xs"
@@ -1133,6 +1133,7 @@ function Conversation({
           label="Thread title"
           className="flex-1 text-[15px] font-semibold text-ink"
           buttonClassName="block truncate"
+          formClassName="max-md:order-last max-md:basis-full"
           inputClassName="h-7 text-[13px]"
         />
         {t.private && (

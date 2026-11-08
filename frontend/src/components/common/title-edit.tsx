@@ -30,6 +30,7 @@ export function TitleEdit({
   className,
   inputClassName,
   buttonClassName,
+  formClassName,
   label = "Title",
   children,
 }: {
@@ -42,6 +43,8 @@ export function TitleEdit({
   inputClassName?: string
   // The title's own look: "block truncate" for a one-line header.
   buttonClassName?: string
+  // Where the field sits while it is open (a row of its own on a phone).
+  formClassName?: string
   label?: string
   // Shown in place of the title text (the "(untitled)" fallback).
   children?: ReactNode
@@ -89,7 +92,7 @@ export function TitleEdit({
   if (draft !== null) {
     return (
       <form
-        className="grid min-w-0 flex-1 gap-1"
+        className={cn("grid min-w-0 flex-1 gap-1", formClassName)}
         onSubmit={(e) => void submit(e)}
       >
         <span className="flex min-w-0 items-center gap-1.5">
