@@ -12,28 +12,84 @@ export const SpotlightMs = 2800
 // WaitMs is how long spotlight waits for the element to appear.
 export const WaitMs = 8000
 
-let current: { el: Element; timer: ReturnType<typeof setTimeout> } | null = null
+// SettleMs is how long the mark keeps the element in view while what is
+// above it still loads (a Settings pane's skeleton growing into its real
+// rows would push it out of sight).
+export const SettleMs = 1500
+
+type Mark = {
+  el: Element
+  timer: ReturnType<typeof setTimeout>
+  stop: () => void
+}
+
+let current: Mark | null = null
 let waiting: (() => void) | null = null
+
+function reduced(): boolean {
+  return (
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+  )
+}
+
+function center(el: Element) {
+  el.scrollIntoView?.({
+    block: "center",
+    behavior: reduced() ? "auto" : "smooth",
+  })
+}
 
 function clear() {
   if (!current) return
   clearTimeout(current.timer)
+  current.stop()
   current.el.removeAttribute("data-spotlight")
   current = null
 }
 
 function mark(el: Element) {
   clear()
-  const reduce =
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
-  el.scrollIntoView?.({ block: "center", behavior: reduce ? "auto" : "smooth" })
+  center(el)
   // A fresh attribute restarts the animation even on the same element.
   el.setAttribute("data-spotlight", "")
+  const stop = keepInView(el)
   const timer = setTimeout(() => {
+    stop()
     if (current?.el === el) current = null
     el.removeAttribute("data-spotlight")
   }, SpotlightMs)
-  current = { el, timer }
+  current = { el, timer, stop }
+}
+
+// keepInView scrolls el back to the middle when the page around it
+// changes and moves it out of the window, for SettleMs; the person's own
+// scrolling (wheel, touch, keys) ends it at once.
+function keepInView(el: Element): () => void {
+  let frame = 0
+  const check = () => {
+    frame = 0
+    if (!el.isConnected) return
+    const r = el.getBoundingClientRect()
+    if (r.top < 0 || r.bottom > window.innerHeight) center(el)
+  }
+  const obs = new MutationObserver(() => {
+    frame ||= requestAnimationFrame(check)
+  })
+  obs.observe(document.body, { childList: true, subtree: true })
+  const events = ["wheel", "touchstart", "keydown"] as const
+  let done = false
+  const stop = () => {
+    if (done) return
+    done = true
+    obs.disconnect()
+    if (frame) cancelAnimationFrame(frame)
+    clearTimeout(t)
+    for (const e of events) window.removeEventListener(e, stop, true)
+  }
+  const t = setTimeout(stop, SettleMs)
+  for (const e of events)
+    window.addEventListener(e, stop, { capture: true, passive: true })
+  return stop
 }
 
 // spotlight resolves true once it highlighted the first element matching

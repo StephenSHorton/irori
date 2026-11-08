@@ -271,8 +271,20 @@ function finish(r: Reply) {
   // while the chat is open, goes there by itself, once. Never from saved
   // history, never a reply stopped or cut short, never a PR (that opens
   // the browser: only a tap does).
-  const go = r.end === "done" ? splitGo(r.text).go : null
+  const go = r.end === "done" ? splitReply(r.text).go : null
   if (go && s.open && goesByItself(go)) goHandler?.(go)
+}
+
+// addNote puts a plain line of the chat's own at its end (a go that
+// couldn't get there, card #784).
+export function addNote(text: string) {
+  const s = assistantState()
+  set({
+    entries: capHistory([
+      ...s.entries,
+      { role: "assistant", text, note: true },
+    ]),
+  })
 }
 
 // The chat's way to go somewhere (components/assistant/assistant-chat.tsx
@@ -390,6 +402,19 @@ export function splitDraft(raw: string): Split {
     draft: rest.slice(0, end).trim(),
     partial: false,
   }
+}
+
+// splitReply splits a reply as the chat shows it: its drafted thread
+// (splitDraft) and its go line (card #784, lib/goto.ts), taken only from
+// the text outside the draft, so the draft posts exactly as shown.
+// writing: the reply is still being written.
+export function splitReply(
+  raw: string,
+  writing = false
+): Split & { go: GoTarget | null } {
+  const d = splitDraft(raw)
+  const g = splitGo(d.text, writing)
+  return { ...d, text: g.text, go: g.go }
 }
 
 // postDraft posts the draft of the chat's message at index as a thread,

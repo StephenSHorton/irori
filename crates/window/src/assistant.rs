@@ -140,7 +140,8 @@ profile or held (held messages)
 
 For an agent, go to the card it is working on, or to setting agents.running when it has none. Write at \
 most one go line per reply, only when they asked where something is or to be taken there, never for a \
-plain question. The go line is the only place for a URL or a KEY; the chat shows it as a button.
+plain question. The go line is the only place for a URL or a KEY; the chat shows it as a button. \
+It goes last, after any draft thread, never inside one.
 
 Settings can't be read, only pointed at: say where a setting is, not how it is set. The places, as \
 KEY: what is there:

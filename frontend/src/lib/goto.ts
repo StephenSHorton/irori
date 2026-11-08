@@ -183,18 +183,24 @@ export type GoSplit = {
   go: GoTarget | null
 }
 
-// splitGo takes the go lines out of a reply. A go line still being
-// written (no ">>" yet, or "<<g" at the very end) is dropped, so it
-// never flashes in the chat; one that names nothing is dropped too.
-export function splitGo(raw: string): GoSplit {
+// splitGo takes the go lines out of a reply's text (outside its drafted
+// thread: lib/assistant.ts splitReply). One that names nothing is dropped
+// too. While the reply is being written (writing), a go line not yet
+// closed ("<<go car", or "<<g" at the very end) is dropped so it never
+// flashes; in a finished reply a malformed one stays as text, so nothing
+// after it is lost.
+export function splitGo(raw: string, writing = false): GoSplit {
   let go: GoTarget | null = null
   let text = raw.replace(/<<go\s+([^<>\n]*?)\s*>>[ \t]*\n?/gi, (_m, body) => {
     go ??= parseGo(body as string)
     return ""
   })
-  const open = text.lastIndexOf("<<go")
-  if (open >= 0 && !text.slice(open).includes(">>")) text = text.slice(0, open)
-  else text = cutTail(text, GoOpen)
+  if (writing) {
+    const open = text.lastIndexOf("<<go")
+    if (open >= 0 && !text.slice(open).includes(">>"))
+      text = text.slice(0, open)
+    else text = cutTail(text, GoOpen)
+  }
   return { text: text.replace(/\n{3,}/g, "\n\n").trim(), go }
 }
 

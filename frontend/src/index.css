@@ -140,29 +140,31 @@
    animation fits SpotlightMs). Reduce Motion gets a still outline. */
 [data-spotlight] {
     outline: 2px solid transparent;
-    outline-offset: 4px;
+    outline-offset: 1px;
     border-radius: var(--radius-md, 6px);
 }
+/* Small offsets: a pane with little padding inside a scroll box (Talk's,
+   on a phone) would clip an outline drawn far out. */
 @keyframes irori-spotlight {
     0% {
         outline-color: transparent;
-        outline-offset: 12px;
+        outline-offset: 6px;
     }
     18% {
         outline-color: var(--primary);
-        outline-offset: 4px;
+        outline-offset: 1px;
     }
     42% {
         outline-color: color-mix(in oklch, var(--primary) 30%, transparent);
-        outline-offset: 7px;
+        outline-offset: 2px;
     }
     66% {
         outline-color: var(--primary);
-        outline-offset: 4px;
+        outline-offset: 1px;
     }
     100% {
         outline-color: transparent;
-        outline-offset: 4px;
+        outline-offset: 1px;
     }
 }
 @media (prefers-reduced-motion: no-preference) {

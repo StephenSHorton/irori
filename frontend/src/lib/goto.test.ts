@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
-import { splitDraft } from "./assistant"
+import { splitDraft, splitReply } from "./assistant"
 import {
   goesByItself,
   goLabel,
@@ -67,18 +67,32 @@ describe("Ask Irori's go lines (card #784)", () => {
   })
   test("a go line being written never flashes", () => {
     for (const tail of ["<<", "<<g", "<<go", "<<go ", "<<go card #7"])
-      expect(splitGo(`That's #779.\n\n${tail}`)).toEqual({
+      expect(splitGo(`That's #779.\n\n${tail}`, true)).toEqual({
         text: "That's #779.",
         go: null,
       })
     // A lone "<" may be the reply's own.
-    expect(splitGo("a < b").text).toBe("a < b")
+    expect(splitGo("a < b", true).text).toBe("a < b")
     // A draft being written is left to splitDraft.
-    expect(splitDraft(splitGo("Drafted.\n\n<<thread>>\nAdd it").text)).toEqual({
+    expect(
+      splitDraft(splitGo("Drafted.\n\n<<thread>>\nAdd it", true).text)
+    ).toEqual({
       text: "Drafted.",
       draft: "Add it",
       partial: true,
     })
+  })
+  test("in a finished reply a malformed go line stays, and so does what follows", () => {
+    const raw = "It's on the card. <<go card #779> Then tap Start."
+    expect(splitGo(raw)).toEqual({ text: raw, go: null })
+  })
+  test("a go line inside a draft stays in the draft: it posts as shown", () => {
+    const r = splitReply(
+      "Drafted.\n\n<<thread>>\nLook at #779.\n<<go card #779>>\n<</thread>>"
+    )
+    expect(r.go).toBeNull()
+    expect(r.text).toBe("Drafted.")
+    expect(r.draft).toBe("Look at #779.\n<<go card #779>>")
   })
   test("with a drafted thread, both come out", () => {
     const raw =

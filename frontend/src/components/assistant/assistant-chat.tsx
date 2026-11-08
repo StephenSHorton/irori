@@ -43,11 +43,12 @@ import {
   autoAsk,
   liftOver,
   newChat,
+  addNote,
   onGo,
   postDraft,
   replyText,
   setAssistantOpen,
-  splitDraft,
+  splitReply,
   stopAsking,
   subscribeAssistant,
   suggestions,
@@ -56,7 +57,7 @@ import {
   type Posted,
   type Reply,
 } from "@/lib/assistant"
-import { goLabel, splitGo, type GoTarget } from "@/lib/goto"
+import { goLabel, type GoTarget } from "@/lib/goto"
 import { composing } from "@/lib/mentions"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
@@ -128,16 +129,25 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
   const goTo = useCallback(
     (t: GoTarget): Promise<string> => {
       if (!ctx) return Promise.resolve("The window isn't ready yet.")
-      if (narrow && t.kind !== "pr") close(false)
       return goThere(t, {
         openCard: ctx.onOpen,
         openThread: ctx.onOpenThread ?? ctx.onOpen,
+        // Only once the place is found: a go that fails keeps the chat
+        // open, saying why.
+        before: () => {
+          if (narrow && t.kind !== "pr") close(false)
+        },
       })
     },
     [ctx, narrow, close]
   )
   useEffect(() => {
-    onGo((t) => void goTo(t))
+    onGo(
+      (t) =>
+        void goTo(t).then((why) => {
+          if (why) addNote(why)
+        })
+    )
     return () => onGo(null)
   }, [goTo])
 
@@ -620,8 +630,7 @@ function Entry({
     )
   // A draft cut short (Stopped, or a reply that never closed it) shows
   // with no Post thread: it isn't the whole thread.
-  const { text: said, go } = splitGo(entry.text)
-  const { text, draft, partial } = splitDraft(said)
+  const { text, draft, partial, go } = splitReply(entry.text)
   return (
     <Message>
       <MessageContent className="gap-2 text-[13.5px] leading-relaxed">
@@ -769,7 +778,7 @@ function DraftThread({
 // Answering is the reply being written: what it looks at now, then the
 // words so far, and a thread it is drafting (posted only once it's done).
 function Answering({ reply }: { reply: Reply }) {
-  const { text, draft, partial } = splitDraft(splitGo(reply.text).text)
+  const { text, draft, partial } = splitReply(reply.text, true)
   const status = reply.status || (partial ? "Drafting a thread" : "")
   return (
     <Message>

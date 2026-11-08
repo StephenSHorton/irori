@@ -16,6 +16,9 @@ import { errorText } from "@/lib/talk"
 export type GoDeps = {
   openCard: (id: string) => void
   openThread: (id: string) => void
+  // before runs once the place is found, just before the window moves
+  // (on a phone the chat closes then).
+  before?: () => void
 }
 
 const pageCommands: Partial<Record<GoPage, string>> = {
@@ -49,6 +52,7 @@ export async function goThere(t: GoTarget, deps: GoDeps): Promise<string> {
   try {
     switch (t.kind) {
       case "page": {
+        deps.before?.()
         jump()
         const id = pageCommands[t.page]
         if (id && runCommand(id)) return ""
@@ -60,6 +64,7 @@ export async function goThere(t: GoTarget, deps: GoDeps): Promise<string> {
       case "card": {
         const r = await cardRef(t.ref)
         if (!r) return `Couldn't find ${t.ref}.`
+        deps.before?.()
         jump()
         if (r.thread) deps.openThread(r.id)
         else deps.openCard(r.id)
@@ -71,6 +76,7 @@ export async function goThere(t: GoTarget, deps: GoDeps): Promise<string> {
       case "setting": {
         const s = settingSpot(t.key)
         if (!s) return "That setting isn't one the chat knows."
+        deps.before?.()
         if (!s.section) {
           // The top bar's Pause agents: a phone's open conversation hides
           // the top bar, so Home first.
@@ -87,6 +93,7 @@ export async function goThere(t: GoTarget, deps: GoDeps): Promise<string> {
         return ""
       }
       case "pr":
+        deps.before?.()
         await cardsApi.openURL(t.url)
         return ""
     }
