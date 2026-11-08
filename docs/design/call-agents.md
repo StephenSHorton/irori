@@ -18,7 +18,7 @@ From thread #1028. It builds on [call-transcripts.md](call-transcripts.md) (#656
 | 8 | No fixed timer for invoking an assistant. | §6 |
 | 9 | All of it is wanted, in no particular order. | §13 |
 
-The design settles the questions the thread left open: ambient fill (§6, every assistant for its own person, with a chair), de-duplication (§7) and the cost default (§12). One still needs the person's yes: how the assistants share the canvas (§6, proposed). Who hears a two-person huddle is settled: the two people and their agents (§10).
+The design settles the questions the thread left open: ambient fill (§6, every assistant for its own person, with a chair), de-duplication (§7) and the cost default (§12). The person settled the two it raised: assistants share the canvas by speaker and by card holder, with a chair (§6), and a two-person huddle reaches the two people and their agents (§10).
 
 ## 2. What exists today, and what's missing
 
@@ -145,7 +145,7 @@ L4 runs off `over`, apart from #656's end wake (`call_end_bridge`, `tell_call_en
 
 **Where the check runs.** The thread proposed the speaker's device. It has to be the **assistant's host** instead: my device can't run your assistant, and every Core serves only its own person's agents. The host sees the line anyway, because the row reaches every member device. Each host evaluates the same lines against the same replicated names, so the layers need no coordination. (The host pick and the chair do: §7 and below.)
 
-**Ambient fill: every assistant, each for its own person.** *(Proposed, waiting on the person's yes.)* The person asked how everyone's assistants can work on the canvas together. The answer here divides the work so they never repeat each other:
+**Ambient fill: every assistant, each for its own person.** *(The person's choice, on #1029.)* The person asked how everyone's assistants can work on the canvas together. The answer here divides the work so they never repeat each other:
 
 - **Each assistant writes what its own person says.** Its digest (L3) turns its person's lines into items: their questions, their proposals and decisions, their commitments ("I'll take signing" becomes a `task` item asked by them). Each line has one speaker, so each line has one writer, and two assistants never note the same thing. A silent person's assistant runs no digest and costs nothing.
 - **An exchange between two people is two items.** Addam's question is Addam's assistant's item; Stephen's "yes, let's do that" is Stephen's assistant's `decision`, replying to it. The chair's summary links the threads (`refs`).
@@ -407,7 +407,7 @@ Dependencies, not preference: the place first, then who can read, then the names
 | 7b Feed, L1 and L2 | #1050 | 6, 7a |
 | 8 Canvas rows and writes | #1051 | 7b |
 | 9 Canvas UI and the roster | #1052 | 2, 8 |
-| 10 Digests, routed questions, the chair | #1053 | 8, and the person's yes to §6 |
+| 10 Digests, routed questions, the chair | #1053 | 8 |
 | 11 After-call: divide into cards | #1054 | 9, 10 |
 | 12 Ordinary agents' tools | #1055 | 3, 8 |
 | 13 Real-device check | #1056 | 11, 12 |
@@ -456,7 +456,7 @@ Files: a new `frontend/src/components/canvas/huddle.tsx` (and `huddle-elk.ts` if
 Three traps on main that the card must avoid: `FitWhileUntouched` refits whenever its area count changes, and a drag doesn't count as touching; `LaidOut` resets all node state at render time when the graph object changes; a new node id changes the layout key and lays out again at once. So: build the graph from the items alone, memoized on their content, never on transcript lines; no render-time reset while a node is dragged; lay out append-stable (time order, existing items keep their spot). Item text runs to 2000 characters and a placeholder grows: clamp shown text to a few lines and expand on click.
 Done when: people and their connected assistants head the canvas; items group under who asked and show the assistant's label; a person adds an item, settles or drops one, and a drag saves its position, all seen on another member's device; the Ask box shows only while the viewer's assistant is connected; the roster shows connected, taking notes, reconnecting, not connected, the cap, "lines reach assistants only at the end" and "older Irori"; the page says when there are no notes, and when agents and the canvas are off in a space that isn't ready; a test appends items during a simulated drag and the dragged node and the viewport are unchanged; it works at phone width and in light and dark; screenshots on the card.
 
-**10. Digests, routed questions, the chair (L3, L3b, L4).** Waits on the person's yes to §6's sharing model.
+**10. Digests, routed questions, the chair (L3, L3b, L4).**
 Files: `huddle_feed.rs`, `huddle_rules.rs`, `crates/core/src/service/calls.rs` (the chair's hand-on, the end mark after a crash), `crates/store/src/kinds.rs` and `crates/store/tests/it/golden.rs` (the two settings rows, in `SINCE_GO_REFUSED`), `frontend/src/components/settings/` (Settings › App).
 Done when: each assistant digests only its own person's lines, and a silent person's assistant runs none; an exchange between two people gives one item from each assistant; a question item gets one routed look per person who holds a matching card, which writes only answers, and nothing a routed look writes triggers another; one chair per huddle, chosen from rows, and two that both claim it settle on one; it passes on when its person leaves mid-call or its host goes away; a title appears after a couple of minutes and doesn't replace a person's; the end produces one summary with action items and `refs`, and changes no status; if the chair's host is gone at the end, the next writes it within 3 minutes; a crashed huddle gets one end mark, from an assistant's host or else any member device; both settings turn off what they say.
 
