@@ -18,7 +18,7 @@ From thread #1028. It builds on [call-transcripts.md](call-transcripts.md) (#656
 | 8 | No fixed timer for invoking an assistant. | §6 |
 | 9 | All of it is wanted, in no particular order. | §13 |
 
-The design settles the questions the thread left open: ambient fill (§6, one note-taker), de-duplication (§7) and the cost default (§12). Two need the person's yes: one note-taker rather than every assistant (§6), and who hears a two-person huddle (§10).
+The design settles the questions the thread left open: ambient fill (§6, one note-taker), de-duplication (§7) and the cost default (§12). One still needs the person's yes: one note-taker rather than every assistant (§6). Who hears a two-person huddle is settled: the two people and their agents (§10).
 
 ## 2. What exists today, and what's missing
 
@@ -315,13 +315,9 @@ Two people may divide the same canvas. `carded` shows up live, and the drafts le
 |---|---|
 | A shared space's channel | Every member of the space |
 | A Personal channel | The person |
-| A person DM | **The two people** (waiting on the person, below) |
+| A person DM | **The two people** (the person's choice, below) |
 
-**The person DM: waiting on the person.** On #1028 the person asked: "why shouldn't anyone else's agents get access? Even in realtime." What stands in the way is where the data lives, not a rule. A person DM sits in a hidden space whose only members are the two people, and it isn't in any workspace. No third person's device holds a copy of that log, so no third person's agent can read it, live or later.
-- **As drawn:** a DM huddle reaches the two people and all their agents (which drops #656's rule). Someone who wants the workspace's agents to hear a call huddles in a channel.
-- **The other way:** a DM huddle between two people who share a space is held in that space instead (a call conversation there, picked at the start, defaulting to the space they share), with a link in the DM. Every member's agents can then follow it live. The cost: a one-to-one call is never private to two, and card 1 grows (a call's home differs from where it was started).
-
-The person's answer goes here before card 3 starts.
+**The person DM: decided.** On #1028 the person asked: "why shouldn't anyone else's agents get access? Even in realtime." What stands in the way is where the data lives, not a rule. A person DM sits in a hidden space whose only members are the two people, and it isn't in any workspace. No third person's device holds a copy of that log, so no third person's agent can read it, live or later. Asked on #1029, the person chose to keep it that way for now: a DM huddle reaches the two people and all their agents, live (which drops #656's rule), and someone who wants the workspace's agents to hear a call huddles in a channel. Holding DM huddles in a shared space instead was the other option, set aside because a one-to-one call would then never be private to two.
 
 **Changes to #656's agent rules:**
 - `call_parent` no longer refuses a person DM's `call:<id>`. Deleting the refusal isn't enough: the reader then falls through to `can_read` and `posts`, which refuse any agent ("that DM isn't yours"). So for a pair-DM parent, `call_parent` lets an agent of either person read `call:<id>` lines with `agents: true` directly, bypassing the DM's `posts` rule. The DM's own posts stay closed to agents.
@@ -395,7 +391,7 @@ Dependencies, not preference: the place first, then who can read, then the names
 |---|---|---|
 | 1 Huddle rows and "over" | #1043 | — |
 | 2 Huddle page and list | #1044 | 1 |
-| 3 Access, names in reads, the notice | #1047 | 1, and the person's DM answer (§10) |
+| 3 Access, names in reads, the notice | #1047 | 1 |
 | 4 The assistant's name | #1045 | — |
 | 5 Held run and the packet | #1046 | — |
 | 6 Matcher and layer rules | #1048 | 4 |
@@ -418,7 +414,7 @@ Done when: a title set by a person in a channel, a DM and a Personal channel rea
 Files: `frontend/src/lib/nav.ts` (`#huddle/<callId>`), a new `frontend/src/components/talk/huddle-page.tsx`, `huddles-list.tsx`, `talk-page.tsx` (mounts the list), `huddle.tsx` (`HuddleStarted`, `HuddleEnded` show the title and open the page), `conversation.tsx` (`PostRow` passes the title), `transcript-pane.tsx` (a variant that fills its column, live reload), `App.tsx` (render branch, header title, phone full screen, `PhoneCallBar`'s `here`), `phone-tabs.tsx`, `app-sidebar.tsx` (`here()`, `CallBar` opens the page).
 Done when: the page shows title (editable), place, live or length, Join, roster and transcript for a live and an ended huddle; the transcript follows new lines while live; the Talk list shows huddles newest first with titles; the sidebar lights Talk and the phone keeps the Talk tab; screenshots at desktop and phone width (`bun run preview:look`), light and dark, on the card.
 
-**3. Access, names in reads, the notice.** Waits on the person's DM answer (§10); the files below are for the design as drawn.
+**3. Access, names in reads, the notice.** The DM rule is settled (§10): the two people and their agents.
 Files: `crates/tools/src/talk.rs` (`call_parent` lets either person's agents read `agents: true` lines of a DM huddle, bypassing `posts`; `huddles()`), `crates/tools/src/lib.rs` (`Names::who`: a `person:` key isn't a gone agent), `crates/core/src/service/calls.rs` (writing the `agents` mark `true` under the new notice), `frontend/src/lib/call.ts` (`transcriptNotice`, `whoCanRead`), `frontend/src/components/talk/huddle.tsx`, `conversation.tsx` (`askJoin`'s kind), `crates/window/src/call.rs` (`Names::conv`), `crates/window/src/talk.rs` (transcript `conv_kind`), `docs/design/call-transcripts.md`.
 Done when: an agent of either person reads a new DM huddle, is refused an older one, and is still refused `talk_read` on the DM itself; `talk_list` shows every huddle in its spaces, with titles; speakers print as names; no new wake happens; the notice and "who can read" read as §10 for a channel, a DM and a Personal channel, on both Start and Join; in a space that isn't ready, the start notice says agents and the canvas are off; tests cover each.
 
