@@ -310,7 +310,9 @@ function AskButton({
           <button
             ref={ref}
             type="button"
-            aria-label={busy ? "Ask Irori (answering)" : "Ask Irori"}
+            aria-label={
+              busy ? "Office Assistant (answering)" : "Office Assistant"
+            }
             data-assistant-button=""
             onClick={onOpen}
             style={style}
@@ -329,7 +331,7 @@ function AskButton({
           />
         )}
       </TooltipTrigger>
-      <TooltipContent side="left">Ask Irori</TooltipContent>
+      <TooltipContent side="left">Office Assistant</TooltipContent>
     </Tooltip>
   )
 }
@@ -454,7 +456,7 @@ export function AssistantPanel({
     <div
       ref={ref}
       role="dialog"
-      aria-label="Ask Irori"
+      aria-label="Office Assistant"
       data-assistant-panel=""
       onKeyDown={onKey}
       style={style}
@@ -466,7 +468,9 @@ export function AssistantPanel({
     >
       <header className="flex shrink-0 items-start gap-2 border-b border-border px-4 pt-3 pb-2.5">
         <div className="grid min-w-0 flex-1 gap-0.5">
-          <h2 className="text-sm leading-tight font-semibold">Ask Irori</h2>
+          <h2 className="text-sm leading-tight font-semibold">
+            Office Assistant
+          </h2>
           <p className="text-[12px] leading-snug text-muted-foreground">
             Ask about your cards, threads and agents, or for work
           </p>
@@ -548,7 +552,7 @@ export function AssistantPanel({
               }
             }}
             placeholder="Ask anything…"
-            aria-label="Ask Irori"
+            aria-label="Ask the Office Assistant"
             className="max-h-28 min-h-8 flex-1 border-transparent bg-transparent px-2 py-1.5 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
           />
           {busy ? (

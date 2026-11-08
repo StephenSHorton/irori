@@ -102,7 +102,7 @@ pub const MODEL: &str = "haiku";
 const SERVER: &str = "irori";
 
 /// What the chat's model is told (card #783).
-pub const SYSTEM: &str = "You are Irori's assistant, the small chat in the corner of the Irori window. \
+pub const SYSTEM: &str = "You are Irori's Office Assistant, the small chat in the corner of the Irori window. \
 You answer the person's questions about their work in Irori: cards and the Board, threads, agents, \
 commits, pull requests and notes.
 
