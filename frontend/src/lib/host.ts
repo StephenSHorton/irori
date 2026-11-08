@@ -461,6 +461,10 @@ export const DevicesService = {
   PersonAvatar: () => call(commands.devicesPersonAvatar()),
   SetPersonAvatar: (avatar: string) =>
     done(commands.devicesSetPersonAvatar(avatar)),
+  AssistantName: () => call(commands.devicesAssistantName()),
+  AssistantLabel: () => call(commands.devicesAssistantLabel()),
+  SetAssistantName: (name: string) =>
+    done(commands.devicesSetAssistantName(name)),
   RenameDevice: (deviceId: string, name: string) =>
     call(commands.devicesRenameDevice(deviceId, name)),
   SideNames: () => call(commands.devicesSideNames()),

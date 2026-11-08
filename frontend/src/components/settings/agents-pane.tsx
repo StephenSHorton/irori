@@ -21,6 +21,7 @@ import {
   AgentStartsControls,
   WholeNumberField,
 } from "@/components/settings/agent-starts"
+import { AssistantNameSection } from "@/components/settings/assistant-name"
 import { SpaceAgentSwitch } from "@/components/settings/space-agents"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -96,6 +97,7 @@ export function AgentsPane({ open }: { open: boolean }) {
                 className="mt-0.5"
               />
             </div>
+            <AssistantNameSection open={open} />
             <SpacesSection open={open} />
             <section className="grid gap-2">
               <h3 className="text-sm font-medium text-ink">

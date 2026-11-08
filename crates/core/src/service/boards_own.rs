@@ -292,6 +292,10 @@ pub struct SummaryMember {
     /// Their avatar on their member.profile (card #393), "" for none; for
     /// this person, their own.
     pub avatar: String,
+    /// Their assistant as others see it (card #1045): "Juno · Addam's
+    /// assistant" or "Addam's assistant", the person from this row's own
+    /// name, never from the chosen name's text.
+    pub assistant: String,
 }
 
 /// Where a private card was shared to, when it was: the board and the
@@ -799,6 +803,10 @@ impl Services {
                 me: true,
                 color: self.person_color.chosen(),
                 avatar: self.person_avatar.chosen(),
+                assistant: coord::assistant_name::label(
+                    &name_of(&me),
+                    &self.assistant_name.chosen(),
+                ),
                 ..Default::default()
             });
         }
@@ -810,6 +818,10 @@ impl Services {
                     me: false,
                     color: b.verifier.profile_color(&p.person_id),
                     avatar: b.verifier.profile_avatar(&p.person_id),
+                    assistant: coord::assistant_name::label(
+                        &name_of(&p.person_id),
+                        &b.verifier.profile_assistant_name(&p.person_id),
+                    ),
                     ..Default::default()
                 });
             }

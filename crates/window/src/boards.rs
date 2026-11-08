@@ -89,6 +89,12 @@ pub struct SummaryMember {
     /// Their agents on the board that are working, and idle.
     pub working: i64,
     pub free: i64,
+    /// Their assistant as others see it (card #1045): "Juno · Addam's
+    /// assistant", or "Addam's assistant" with no chosen name; left out
+    /// when unknown.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub assistant: String,
     /// Their colour (card #385): another person's as this screen places
     /// it (their pick, nudged off this person's devices and other people);
     /// this person's own pick, "" for none.
@@ -129,6 +135,7 @@ impl From<irori_core::BoardSummary> for BoardSummary {
                     last_seen: m.last_seen,
                     working: m.working,
                     free: m.free,
+                    assistant: m.assistant,
                     color: m.color,
                     avatar: if coord::person_avatar::valid(&m.avatar) {
                         m.avatar

@@ -367,10 +367,15 @@ pub struct MemberProfile {
     /// `personSig` like `color`, so older builds still count the row.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub github_login: String,
+    /// The name the person gave their Office Assistant (card #1045), or "".
+    /// Outside `personSig` like `color`.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub assistant_name: String,
 }
 go_struct!(MemberProfile { "personId" => person_id: str, "name" => name: str,
     "personEpoch" => person_epoch: int, "personSig" => person_sig: str, "color" => color: str,
-    "avatar" => avatar: str, "githubLogin" => github_login: str });
+    "avatar" => avatar: str, "githubLogin" => github_login: str,
+    "assistantName" => assistant_name: str });
 
 impl MemberProfile {
     pub fn body(&self) -> MemberProfileBody {

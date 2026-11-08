@@ -392,6 +392,23 @@ export const devices = {
     if (inWails()) return DevicesService.SetPersonAvatar(avatar)
     samplePersonAvatar = avatar
   },
+  // assistantName is the name the person gave their Office Assistant (card
+  // #1045), "" for the default.
+  async assistantName(): Promise<string> {
+    if (inWails()) return DevicesService.AssistantName()
+    return sampleAssistantName
+  },
+  // assistantLabel is the name as shown for their own assistant: the chosen
+  // name, else "<name>'s assistant".
+  async assistantLabel(): Promise<string> {
+    if (inWails()) return DevicesService.AssistantLabel()
+    return sampleAssistantName || "Sam's assistant"
+  },
+  // setAssistantName sets it; "" goes back to the default.
+  async setAssistantName(name: string): Promise<void> {
+    if (inWails()) return DevicesService.SetAssistantName(name)
+    sampleAssistantName = name.trim()
+  },
   // sideNames is every work/personal side named on a device or a card
   // (card #494), for this device's pin to choose from.
   async sideNames(): Promise<string[]> {
@@ -414,6 +431,7 @@ export const devices = {
 
 let samplePersonColor = ""
 let samplePersonAvatar = ""
+let sampleAssistantName = ""
 
 // MaxDeviceName mirrors coord::devname::MAX_LEN.
 export const MaxDeviceName = 40

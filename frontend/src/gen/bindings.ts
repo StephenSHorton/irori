@@ -249,6 +249,9 @@ export const commands = {
 	devicesSetPersonColor: (color: string) => __TAURI_INVOKE<null>("devices_set_person_color", { color }),
 	devicesPersonAvatar: () => __TAURI_INVOKE<string>("devices_person_avatar"),
 	devicesSetPersonAvatar: (avatar: string) => __TAURI_INVOKE<null>("devices_set_person_avatar", { avatar }),
+	devicesAssistantName: () => __TAURI_INVOKE<string>("devices_assistant_name"),
+	devicesAssistantLabel: () => __TAURI_INVOKE<string>("devices_assistant_label"),
+	devicesSetAssistantName: (name: string) => __TAURI_INVOKE<null>("devices_set_assistant_name", { name }),
 	devicesRenameDevice: (deviceId: string, name: string) => __TAURI_INVOKE<string>("devices_rename_device", { deviceId, name }),
 	/**  Every work/personal side named on a device or a card (card #494). */
 	devicesSideNames: () => __TAURI_INVOKE<string[]>("devices_side_names"),
@@ -2692,6 +2695,12 @@ export type SummaryMember = {
 	/**  Their agents on the board that are working, and idle. */
 	working: number,
 	free: number,
+	/**
+	 *  Their assistant as others see it (card #1045): "Juno · Addam's
+	 *  assistant", or "Addam's assistant" with no chosen name; left out
+	 *  when unknown.
+	 */
+	assistant?: string,
 	/**
 	 *  Their colour (card #385): another person's as this screen places
 	 *  it (their pick, nudged off this person's devices and other people);

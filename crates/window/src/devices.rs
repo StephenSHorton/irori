@@ -232,6 +232,23 @@ impl Window {
         self.core.set_person_color(color)
     }
 
+    /// DevicesService.AssistantName: the name the person gave their
+    /// assistant, "" for the default (card #1045).
+    pub fn assistant_name(&self) -> String {
+        self.core.assistant_name()
+    }
+
+    /// DevicesService.AssistantLabel: the name as shown for the person's
+    /// own assistant, the default when none is chosen.
+    pub fn assistant_label(&self) -> String {
+        self.core.assistant_name_or_default()
+    }
+
+    /// DevicesService.SetAssistantName ("" goes back to the default).
+    pub fn set_assistant_name(&self, name: &str) -> Result<(), String> {
+        self.core.set_assistant_name(name)
+    }
+
     /// DevicesService.PersonAvatar: the person's avatar on shared spaces,
     /// a small image data URL, "" for none (card #393).
     pub fn person_avatar(&self) -> String {

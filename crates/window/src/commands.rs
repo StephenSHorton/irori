@@ -1201,6 +1201,24 @@ pub async fn devices_set_person_avatar(w: W<'_>, avatar: String) -> R<()> {
     w.set_person_avatar(&avatar)
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn devices_assistant_name(w: W<'_>) -> R<String> {
+    Ok(w.assistant_name())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn devices_assistant_label(w: W<'_>) -> R<String> {
+    Ok(w.assistant_label())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn devices_set_assistant_name(w: W<'_>, name: String) -> R<()> {
+    w.set_assistant_name(&name)
+}
+
 /// Every work/personal side named on a device or a card (card #494).
 #[tauri::command]
 #[specta::specta]
@@ -2100,6 +2118,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             devices_set_person_color,
             devices_person_avatar,
             devices_set_person_avatar,
+            devices_assistant_name,
+            devices_assistant_label,
+            devices_set_assistant_name,
             devices_rename_device,
             devices_side_names,
             devices_set_device_sides,

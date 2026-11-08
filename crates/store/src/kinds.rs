@@ -240,6 +240,10 @@ kinds! {
     /// `{avatar, atDevice}`, actor `user`: the person's avatar on shared
     /// spaces (card #393); spaces learn it from member.profile.
     PERSON_AVATAR = "person.avatar" => Replicated, Refuses;
+    /// `{name, by, at}`, actor `user`: the name the person gave their Office
+    /// Assistant (card #1045); spaces learn it from member.profile's
+    /// `assistantName`.
+    ASSISTANT_NAME = "assistant.name" => Replicated, Refuses;
     // devname (card #184)
     DEVICE_NAME = "device.name" => Replicated, Refuses;
     /// `{deviceId, sides, atDevice}`, actor `user`: the work/personal
