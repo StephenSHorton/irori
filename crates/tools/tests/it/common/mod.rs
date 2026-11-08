@@ -210,6 +210,7 @@ impl Backend for TestBackend {
             board_id: tools::PERSONAL_DEFAULT.into(),
             name: "Personal".into(),
             tag: String::new(),
+            ..Default::default()
         }];
         out.extend(self.personal.lock().unwrap().iter().cloned());
         out

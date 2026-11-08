@@ -1012,6 +1012,12 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let mut personal = None;
     if !board.is_empty() {
         match s.resolve_board(board) {
+            Ok(crate::shared::BoardTarget::Personal(p)) if p.closed => {
+                return err_text(&format!(
+                    "{} on Personal is closed, so it takes no new cards. Reopen it in Irori first, or pick another board (the board tool lists them).",
+                    crate::format::q(&p.name)
+                ));
+            }
             Ok(crate::shared::BoardTarget::Personal(p)) => personal = Some(p),
             Ok(crate::shared::BoardTarget::Space(_)) => {
                 return crate::shared::create_on_board(

@@ -10,6 +10,8 @@ import {
   sortWindows,
   staleLine,
   stripLine,
+  usageColor,
+  usageTextColor,
   windowLabel,
 } from "./usage"
 
@@ -70,6 +72,7 @@ describe("Claude usage left (card #599)", () => {
     expect(stripLine(sampleUsage(now), now)).toEqual({
       text: "62% · 39% left",
       title: "5-hour 62% left, weekly 39% left",
+      color: null,
     })
     // A gateway's spend limit only: the strip still says something.
     const spend = {
@@ -79,6 +82,7 @@ describe("Claude usage left (card #599)", () => {
     expect(stripLine(spend, now)).toEqual({
       text: "40% left",
       title: "Spend limit 40% left",
+      color: null,
     })
     // Weekly only.
     const wk = {
@@ -88,6 +92,7 @@ describe("Claude usage left (card #599)", () => {
     expect(stripLine(wk, now)).toEqual({
       text: "90% left",
       title: "Weekly 90% left",
+      color: null,
     })
     expect(stripLine(NO_USAGE, now)).toBeNull()
     expect(stripLine(sampleUsage(now, "none"), now)).toBeNull()
@@ -115,5 +120,73 @@ describe("Claude usage left (card #599)", () => {
       windows: [{ kind: "five_hour", percentUsed: 1, resetsAtMs: null }],
     })
     expect(hasUsage(u)).toBe(true)
+  })
+
+  test("the bar's color blends as usage runs out (card #772)", () => {
+    // Plenty left: the theme's color.
+    expect(usageColor(100)).toBe("var(--primary)")
+    expect(usageColor(80)).toBe("var(--primary)")
+    expect(usageColor(50)).toBe("var(--primary)")
+    // Toward amber.
+    expect(usageColor(40)).toBe(
+      "color-mix(in oklab, var(--primary), var(--warning) 33%)"
+    )
+    expect(usageColor(35)).toBe(
+      "color-mix(in oklab, var(--primary), var(--warning) 50%)"
+    )
+    expect(usageColor(20)).toBe("var(--warning)")
+    // Toward red.
+    expect(usageColor(10)).toBe(
+      "color-mix(in oklch, var(--warning), var(--destructive) 50%)"
+    )
+    expect(usageColor(5)).toBe(
+      "color-mix(in oklch, var(--warning), var(--destructive) 75%)"
+    )
+    expect(usageColor(0)).toBe("var(--destructive)")
+    // Out of range is clamped.
+    expect(usageColor(-5)).toBe("var(--destructive)")
+    expect(usageColor(150)).toBe("var(--primary)")
+    // Every step down is no calmer than the one before: the mix only grows.
+    const rank = (c: string) => {
+      if (c === "var(--primary)") return 0
+      if (c === "var(--warning)") return 100
+      if (c === "var(--destructive)") return 200
+      const m = /in \w+, var\(--(\w+)\), var\(--\w+\) (\d+)%/.exec(c)!
+      return (m[1] === "primary" ? 0 : 100) + Number(m[2])
+    }
+    for (let l = 100; l > 0; l--)
+      expect(rank(usageColor(l - 1))).toBeGreaterThanOrEqual(
+        rank(usageColor(l))
+      )
+  })
+  test("the strip's reading is tinted once low (card #772)", () => {
+    expect(usageTextColor(80)).toBeNull()
+    expect(usageTextColor(26)).toBeNull()
+    expect(usageTextColor(25)).toBe(usageColor(25))
+    expect(usageTextColor(5)).toBe(usageColor(5))
+    // Tinted by the lowest window shown.
+    const low = {
+      observedAtMs: now,
+      windows: [
+        { kind: "five_hour", percentUsed: 95, resetsAtMs: now + HOUR },
+        { kind: "seven_day", percentUsed: 40, resetsAtMs: null },
+      ],
+    }
+    expect(stripLine(low, now)?.color).toBe(usageColor(5))
+    // A window that has reset counts as full.
+    const reset = {
+      observedAtMs: now,
+      windows: [
+        { kind: "five_hour", percentUsed: 95, resetsAtMs: now - MIN },
+        { kind: "seven_day", percentUsed: 40, resetsAtMs: null },
+      ],
+    }
+    expect(stripLine(reset, now)?.color).toBeNull()
+    // The preview's ?usage=<n> reading has n% left in both windows.
+    expect(stripLine(sampleUsage(now, "20"), now)).toEqual({
+      text: "20% · 20% left",
+      title: "5-hour 20% left, weekly 20% left",
+      color: "var(--warning)",
+    })
   })
 })

@@ -1262,6 +1262,8 @@ impl Fold {
             .tasks
             .values()
             .filter(|t| self.mine_to_serve(t) && self.given_starts(t))
+            // A closed board's stray card starts nothing (card #690).
+            .filter(|t| !self.board_closed(&t.board))
             .filter(|t| t.given.as_ref().is_some_and(|g| g.asker == self.dev))
             .filter(|t| self.runs_here(t))
             .filter(|t| t.spawn_crashes < self.crash_limit())
@@ -1445,6 +1447,9 @@ impl Fold {
             // Only on a device that runs the card's side (card #495),
             // unless the person asked for an agent on it here.
             .filter(|t| self.runs_here(t) || self.spawn_now.contains(&t.id))
+            // A card on a closed board starts no agent (card #690): an
+            // older device can still put one there.
+            .filter(|t| !self.board_closed(&t.board))
             .filter(|t| t.spawn_crashes < self.crash_limit())
             .filter(|t| !self.ask_resting(t))
             .filter(|t| !self.waits_for_lead(t))

@@ -85,11 +85,14 @@ export function talkMatches(t: ThreadSummary, query: string): boolean {
   )
 }
 
-// needsYou is whether a thread waits on the person: an agent answered and
-// it isn't resolved, or no computer can start its agent (card #541). Talk's
-// count in the sidebar counts these.
-export function needsYou(t: Pick<ThreadSummary, "state" | "noAgent">): boolean {
-  return t.state === "answered" || !!t.noAgent
+// needsYou is whether a thread waits on the person: an agent replied since
+// they last opened or replied in it (card #719), or no computer can start
+// its agent (card #541). Talk's count in the sidebar counts these, and the
+// list marks the same ones.
+export function needsYou(
+  t: Pick<ThreadSummary, "unread" | "noAgent">
+): boolean {
+  return !!t.unread || !!t.noAgent
 }
 
 // convMatches is whether a channel or DM fits the list's search: its name,
@@ -1072,7 +1075,7 @@ function ThreadItem({
       {needsYou(t) && (
         <span
           className="size-2 shrink-0 rounded-full bg-primary"
-          title="Answered: waiting on you"
+          title={t.unread ? "A reply you haven't read" : "No agent can start"}
         />
       )}
     </button>

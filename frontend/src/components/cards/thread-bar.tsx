@@ -3,9 +3,10 @@
 // cards made from it, Resolve (or Reopen) and "Agents answer now". Talk's
 // pane and the card's own page show the same view, so both have it.
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
+import { Face } from "@/components/cards/faces"
 import { Button } from "@/components/ui/button"
 import { AgentsNowToggle } from "@/components/common/agents-now-toggle"
 import {
@@ -15,10 +16,12 @@ import {
   ThreadCards,
 } from "@/components/talk/threads"
 import {
+  displayName,
   threads as threadsApi,
   type CardAsk,
   type ThreadSummary,
 } from "@/lib/cards"
+import type { SpawnState } from "@/lib/spawn-line"
 import { errorText } from "@/lib/talk"
 import { AskLine } from "./bits"
 import { StartPastLimit } from "./start-past-limit"
@@ -26,12 +29,18 @@ import { StartPastLimit } from "./start-past-limit"
 export function ThreadBar({
   t,
   ask,
+  spawn,
+  newest = "",
   why = "",
   onResolved,
 }: {
   t: ThreadSummary
-  // The card's ask while it is open: its line says who took it.
+  // The card's ask while it is open: its line says who took it, and with
+  // spawn, an agent starting for it (card #739).
   ask?: CardAsk | null
+  spawn?: SpawnState
+  // The newest item in its thread: open, what it holds is read.
+  newest?: string
   // Why nobody is free to take a waiting thread (card #172).
   why?: string
   onResolved?: () => void
@@ -40,6 +49,19 @@ export function ThreadBar({
   const [error, setError] = useState<string | null>(null)
   const resolved = t.state === "resolved"
   const badge = stateBadges[t.state]
+  // Open and in view, what it holds now is read (card #719): Talk's count
+  // drops it until an agent writes again. A reply that lands while the
+  // window is in the background waits until it is back in front.
+  useEffect(() => {
+    if (resolved) return
+    const read = () => {
+      if (document.visibilityState === "visible" && document.hasFocus())
+        void threadsApi.read(t.id).catch(() => {})
+    }
+    read()
+    window.addEventListener("focus", read)
+    return () => window.removeEventListener("focus", read)
+  }, [t.id, newest, resolved])
   const act = (f: (id: string) => Promise<void>) => async () => {
     if (busy) return
     setBusy(true)
@@ -85,7 +107,7 @@ export function ThreadBar({
           )}
           {/* A resolved one's badge says it all. */}
           {resolved ? null : ask ? (
-            <AskLine ask={ask} className="min-w-0 flex-1" />
+            <AskLine ask={ask} spawn={spawn} className="min-w-0 flex-1" />
           ) : (
             <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted-foreground">
               {stateLine(t, why)}
@@ -124,6 +146,21 @@ export function ThreadBar({
         </div>
       </div>
       {t.openedBy && <OpenedBy who={t.openedBy} />}
+      {t.told.length > 0 && (
+        <span className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+          {t.state === "waiting" ? "Asked first:" : "Told:"}
+          {t.told.map((w) => (
+            <Badge
+              key={w.key}
+              variant="slate"
+              className="h-4 gap-1 px-1 text-[10.5px]"
+            >
+              <Face who={w} inline className="size-3 text-(--face-tint)" />
+              {displayName(w)}
+            </Badge>
+          ))}
+        </span>
+      )}
       {t.cards.length > 0 && <ThreadCards cards={t.cards} />}
       {t.state === "waiting" && (
         <StartPastLimit id={t.id} state={t} size="xs" />

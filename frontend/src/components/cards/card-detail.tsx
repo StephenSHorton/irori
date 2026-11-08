@@ -108,6 +108,12 @@ import { Face, LiveDot } from "./faces"
 import { Thread } from "./thread"
 import { TerminalSection } from "@/components/term/terminal-section"
 import { termsHere } from "@/lib/term"
+import {
+  TerminalShortcut,
+  setTermPanelOpen,
+  useTermPanel,
+} from "@/lib/term-panel"
+import { shortcutKeys } from "@/lib/commands"
 import { AttachmentList } from "@/components/attachments"
 import type { FileRef } from "@/lib/attachments"
 import { LinkChip, RichLine, RichText } from "@/components/common/rich-text"
@@ -129,7 +135,7 @@ import {
   TransferButton,
   WithdrawButton,
 } from "./share-dialog"
-import { boardsOf, Personal } from "@/lib/spaces"
+import { boardsOf, openBoards, Personal } from "@/lib/spaces"
 import { cardOwner, sharedBoard } from "@/lib/owners"
 
 // Answered is a note answer the person just sent: the note item leaves the
@@ -382,7 +388,14 @@ export function CardPage({
       />
     )
   const statusBar = thread ? (
-    <ThreadBar t={thread} ask={detail.ask} why={why} onResolved={onResolved} />
+    <ThreadBar
+      t={thread}
+      ask={detail.ask}
+      spawn={detail}
+      newest={detail.thread[detail.thread.length - 1]?.id ?? ""}
+      why={why}
+      onResolved={onResolved}
+    />
   ) : (
     <>
       {openAsk(detail) ? (
@@ -535,6 +548,7 @@ export function CardPage({
           cardId={detail.id}
           items={detail.thread}
           now={now}
+          starting={!!detail.starting}
           earlier={detail.threadEarlier}
           historyTrimmed={detail.historyTrimmed}
           on={threadOn}
@@ -593,7 +607,7 @@ const PaneLayout = {
   grid: "@min-[820px]:grid-cols-[minmax(0,1fr)_minmax(0,340px)] @min-[820px]:grid-rows-[auto_1fr] @min-[1200px]:grid-cols-[minmax(0,1fr)_minmax(0,380px)]",
   main: "@min-[820px]:col-start-1 @min-[820px]:row-start-1",
   aside:
-    "@min-[820px]:sticky @min-[820px]:top-0 @min-[820px]:col-start-2 @min-[820px]:row-span-2 @min-[820px]:row-start-1",
+    "@min-[820px]:sticky @min-[820px]:top-0 @min-[820px]:col-start-2 @min-[820px]:row-span-2 @min-[820px]:row-start-1 @min-[820px]:max-h-[calc(100svh-8rem)] @min-[820px]:overflow-y-auto",
   thread: "@min-[820px]:col-start-1 @min-[820px]:row-start-2",
 }
 
@@ -624,7 +638,7 @@ function AboutCard({
     <Card className="gap-0 py-0!">
       <Section title="Progress">
         {detail.ask && openAsk(detail) ? (
-          <AskLine ask={detail.ask} />
+          <AskLine ask={detail.ask} spawn={detail} />
         ) : p === null ? (
           <HolderLine holder={detail.holder} />
         ) : (
@@ -753,9 +767,14 @@ function WorkingRow({ card }: { card: CardSummary }) {
 // getting it an agent (spawned-agents §10, card #450): starting, its place
 // in a device's queue, held on a usage limit until its reset (with Start
 // an agent), or why one can't start. Nothing otherwise.
+//
+// An open ask's line says that an agent is starting or queued (card
+// #739), so the page doesn't say it twice; why one can't start, and a
+// usage limit's reset with Start an agent, still show here in full.
 function QueueRow({ card }: { card: CardSummary }) {
   const line = spawnLine(card)
   if (!line) return null
+  if (openAsk(card) && line.tone === "quiet" && !card.usageLimit) return null
   const resets = card.usageLimit ? usageResets(card.usageLimit) : ""
   return (
     <p
@@ -791,7 +810,7 @@ function AskStatus({
   if (!detail.ask) return null
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 glass-panel">
-      <AskLine ask={detail.ask} className="min-w-48 flex-1" />
+      <AskLine ask={detail.ask} spawn={detail} className="min-w-48 flex-1" />
       <Input
         value={note}
         onChange={(e) => setNote(e.target.value)}
@@ -903,6 +922,21 @@ function DeleteButton({
   )
 }
 
+// useOnClosedBoard says whether the card sits on a closed board (card
+// #690), in a space or in Personal.
+function useOnClosedBoard(detail: CardDetail): boolean {
+  const { boards } = useBoards()
+  const { boards: personal } = usePersonalBoards()
+  if (detail.onBoard || detail.board) {
+    const space = boards.find((b) => b.boardId === detail.board)
+    if (!space) return false
+    const id = detail.spaceBoard || space.boardId
+    return !!boardsOf(space).find((x) => x.boardId === id)?.closed
+  }
+  const id = detail.spaceBoard || Personal
+  return !!personal.find((x) => x.boardId === id)?.closed
+}
+
 // ReopenBar is a finished card's line under the page header: how it ended
 // and Reopen, which brings it back with whoever held it. A comment on it
 // reopens it too when someone holds it. A parent whose subtasks have all
@@ -912,6 +946,19 @@ function ReopenBar({ detail }: { detail: CardDetail }) {
   const held = detail.working.length > 0
   const followsSubtasks =
     (detail.subtaskList?.length ?? 0) > 0 && detail.subtaskList.every(over)
+  const boardClosed = useOnClosedBoard(detail)
+  if (boardClosed) {
+    // A closed board is read-only (card #690): its cards stay done, and a
+    // comment doesn't reopen them.
+    return (
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 glass-panel">
+        <span className="min-w-48 flex-1 text-[13px] text-muted-foreground">
+          {overLabel(detail)}. Its board is closed: reopen the board to reopen
+          this card.
+        </span>
+      </div>
+    )
+  }
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 glass-panel">
       <span className="min-w-48 flex-1 text-[13px] text-muted-foreground">
@@ -993,22 +1040,9 @@ function BoardActions({
             initialOpen={previewFlag("transfer") === detail.id}
           />
         )}
-        {shared &&
-          !detail.parent &&
-          !openAsk(detail) &&
-          boardsOf(shared).length > 1 && (
-            <MoveBoardButton
-              id={detail.id}
-              boards={boardsOf(shared)}
-              current={
-                !detail.spaceBoard || detail.spaceBoard === shared.boardId
-                  ? boardsOf(shared)[0].boardId
-                  : detail.spaceBoard
-              }
-              family={(detail.subtasks ?? 0) > 0}
-              initialOpen={previewFlag("move") === detail.id}
-            />
-          )}
+        {shared && !detail.parent && !openAsk(detail) && (
+          <SpaceMove detail={detail} space={shared} />
+        )}
         {/* The private card the work carries on in, else back to the grid:
             a withdrawn card is hidden and can't be reopened. */}
         {detail.onBoard.canWithdraw && !detail.parent && (
@@ -1037,16 +1071,45 @@ function BoardActions({
   )
 }
 
+// SpaceMove is Move on a shared card (card #558): to another of its
+// space's boards, never a closed one (card #690).
+function SpaceMove({
+  detail,
+  space,
+}: {
+  detail: CardDetail
+  space: BoardSummary
+}) {
+  const all = boardsOf(space)
+  const current =
+    !detail.spaceBoard || detail.spaceBoard === space.boardId
+      ? all[0].boardId
+      : detail.spaceBoard
+  const live = openBoards(all)
+  if (!live.some((b) => b.boardId !== current)) return null
+  return (
+    <MoveBoardButton
+      id={detail.id}
+      boards={live}
+      current={current}
+      family={(detail.subtasks ?? 0) > 0}
+      initialOpen={previewFlag("move") === detail.id}
+    />
+  )
+}
+
 // PersonalMove is Move on a private card (card #563): to another of
-// Personal's boards, once there is more than one.
+// Personal's boards that isn't closed, once there is one.
 function PersonalMove({ detail }: { detail: CardDetail }) {
-  const { boards } = usePersonalBoards()
-  if (boards.length < 2) return null
+  const { boards: all } = usePersonalBoards()
+  const current = detail.spaceBoard || Personal
+  const boards = openBoards(all)
+  if (!boards.some((b) => b.boardId !== current)) return null
   return (
     <MoveBoardButton
       id={detail.id}
       boards={boards}
-      current={detail.spaceBoard || Personal}
+      current={current}
       family={(detail.subtasks ?? 0) > 0}
       initialOpen={previewFlag("move") === detail.id}
     />
@@ -1527,13 +1590,30 @@ function WhereLines({ detail, now }: { detail: CardDetail; now: Date }) {
 }
 
 // TerminalCard is the card's live terminal on this device (card #369), in
-// the window only: none in a plain browser or on a phone.
+// the window only: none in a plain browser or on a phone. While the
+// bottom terminal panel is open it shows these shells instead (card #734):
+// a shell has one view, so the section only points there.
 function TerminalCard({ cardId }: { cardId: string }) {
+  const panel = useTermPanel()
   if (!termsHere()) return null
   return (
     <Card className="gap-0 py-0!">
       <Section title="Terminal" last>
-        <TerminalSection cardId={cardId} />
+        {panel.open ? (
+          <p className="flex flex-wrap items-center gap-x-2 text-[12.5px] text-muted-foreground">
+            This card's shells are in the terminal panel below (
+            {shortcutKeys(TerminalShortcut).join("+")}).
+            <button
+              type="button"
+              className="underline underline-offset-2 hover:text-foreground"
+              onClick={() => setTermPanelOpen(false)}
+            >
+              Show them here
+            </button>
+          </p>
+        ) : (
+          <TerminalSection cardId={cardId} />
+        )}
       </Section>
     </Card>
   )
