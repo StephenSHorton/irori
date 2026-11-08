@@ -1,8 +1,9 @@
 // Ask Irori follows the work it posted (card #785). Once the person taps
 // Post thread, the chat keeps an eye on that thread and the cards made
-// from it, and says in the chat when the work moves: an agent took the
-// thread or replied on it, a card was made from it, an agent started on
-// that card, it needs the person, it is ready, it is done.
+// from it, and says in the chat only what waits on the person (card
+// #1000): it needs them, it is ready for their check, it wants their
+// permission, or no agent has started. The rest of the work's moves stay
+// on the threads and cards.
 //
 // It reads the Board as the window does (the thread list and the cards by
 // id) on every card change; Haiku is never asked. What it has said for a
@@ -57,8 +58,6 @@ export type WorkCard = {
   changed?: boolean
 }
 
-export type WorkReply = { id: string; by: string; text: string }
-
 export type WorkThread = {
   id: string
   ref: string
@@ -73,8 +72,6 @@ export type WorkThread = {
   outcome: string
   // An agent answered it (still open, the person may reply).
   answered?: boolean
-  // The agents' replies on it, oldest first.
-  replies: WorkReply[]
   asks: WorkAsk[]
   // The cards made from it, first first. A thread its agent closed as a
   // card (ask_close card) became that card in place, same # and id, and
@@ -83,14 +80,14 @@ export type WorkThread = {
 }
 
 // Act is what a line lets the person do from the chat: answer a card's
-// open item, or reply on the thread. The chat never does either itself;
-// the person's tap does (as #783 settled: nothing posts without a tap).
-export type Act =
-  | { kind: "answer"; card: string; blocker: string }
-  | { kind: "reply"; thread: string; to: string; ref?: string }
+// open item. The chat never does it itself; the person's tap does (as
+// #783 settled: nothing posts without a tap).
+export type Act = { kind: "answer"; card: string; blocker: string }
 
-// Fact is one line the chat says about the work, known by its key.
-export type Fact = { key: string; text: string; act?: Act }
+// Fact is one thing about the work, known by its key. A silent one is
+// remembered but never said (card #1000): its key still counts, as made:
+// keys keep a card followed once the thread's row has left the list.
+export type Fact = { key: string; text: string; act?: Act; silent?: true }
 
 export function cardRefOf(c: { short: string; tag?: string | null }): string {
   return `${c.tag ?? ""}#${c.short}`
@@ -104,11 +101,11 @@ export function over(state: string): boolean {
   )
 }
 
-// A reply passed on in the chat is cut to this many characters (the thread
-// has it whole).
-export const ReplyClip = 280
+// A question passed on in the chat is cut to this many characters (the
+// card has it whole).
+export const LineClip = 280
 
-function clip(s: string, n = ReplyClip): string {
+function clip(s: string, n = LineClip): string {
   const t = plainLine(s)
   return t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t
 }
@@ -141,25 +138,20 @@ function askFacts(ref: string, cardId: string, asks: WorkAsk[]): Fact[] {
   })
 }
 
-// facts is everything a thread's work says now, in the order it happens.
-// The follower says each key once.
+// facts is everything known of a thread's work now, in the order it
+// happens. The follower says each key once, unless it is silent.
 export function facts(t: WorkThread): Fact[] {
   const out: Fact[] = []
   if (t.taker)
     out.push({
       key: "taken",
       text: `**${t.taker}** took your thread ${t.ref}.`,
+      silent: true,
     })
   else if (t.cantStart && !t.closed)
     out.push({
       key: "cant",
       text: `No agent has started on ${t.ref} yet. ${clip(t.cantStart)}`,
-    })
-  for (const r of t.replies)
-    out.push({
-      key: `reply:${r.id}`,
-      text: `${r.by} replied on ${t.ref}: ${clip(r.text)}`,
-      act: { kind: "reply", thread: t.id, to: r.by, ref: t.ref },
     })
   out.push(...askFacts(t.ref, t.id, t.asks))
   for (const c of t.cards) {
@@ -167,6 +159,7 @@ export function facts(t: WorkThread): Fact[] {
       out.push({
         key: `made:${c.id}`,
         text: `Your thread ${t.ref} changed ${c.ref}.`,
+        silent: true,
       })
       continue
     }
@@ -176,19 +169,25 @@ export function facts(t: WorkThread): Fact[] {
         c.id === t.id
           ? `Your thread ${t.ref} is now a card.`
           : `Your thread ${t.ref} became ${c.ref}.`,
+      silent: true,
     })
     if (c.working.length && !over(c.state))
       out.push({
         key: `start:${c.id}`,
         text: `${names(c.working)} started on ${c.ref}.`,
+        silent: true,
       })
     if (!over(c.state)) out.push(...askFacts(c.ref, c.id, c.asks))
     if (c.state === TaskState.Completed)
-      out.push({ key: `done:${c.id}`, text: `${c.ref} is done.` })
+      out.push({ key: `done:${c.id}`, text: `${c.ref} is done.`, silent: true })
     else if (c.state === TaskState.Failed)
-      out.push({ key: `done:${c.id}`, text: `${c.ref} failed.` })
+      out.push({ key: `done:${c.id}`, text: `${c.ref} failed.`, silent: true })
     else if (c.state === TaskState.Canceled)
-      out.push({ key: `done:${c.id}`, text: `${c.ref} was canceled.` })
+      out.push({
+        key: `done:${c.id}`,
+        text: `${c.ref} was canceled.`,
+        silent: true,
+      })
   }
   if (t.closed && !t.cards.length)
     out.push({
@@ -197,6 +196,7 @@ export function facts(t: WorkThread): Fact[] {
         t.outcome === "answered"
           ? `${t.ref} was answered.`
           : `${t.ref} was resolved.`,
+      silent: true,
     })
   return out
 }
@@ -209,9 +209,9 @@ export function finished(t: WorkThread): boolean {
 
 // quiet says nothing is moving: the thread was answered, every card made
 // from it is over (there was at least one) and nothing waits on the
-// person. A later reply is still said, but read less often (see
-// createFollower). An answered thread with no card yet isn't quiet: its
-// agent often makes the card next.
+// person. It is still read, but less often (see createFollower). An
+// answered thread with no card yet isn't quiet: its agent often makes the
+// card next.
 export function quiet(t: WorkThread): boolean {
   return (
     t.asks.length === 0 &&
@@ -259,15 +259,6 @@ export function workThread(
   known: readonly string[] = []
 ): WorkThread {
   const taker = thread.ask?.taker ? displayName(thread.ask.taker) : ""
-  const replies: WorkReply[] = (thread.thread ?? [])
-    .filter(
-      (it) =>
-        it.kind === "comment" &&
-        it.who.status !== "person" &&
-        it.who.status !== "irori" &&
-        it.text.trim()
-    )
-    .map((it) => ({ id: it.id, by: displayName(it.who), text: it.text }))
   // Closed as a card: the thread is that card now.
   const became =
     thread.ask?.state === "closed" && thread.ask.outcome?.kind === "card"
@@ -335,7 +326,6 @@ export function workThread(
     outcome:
       thread.ask?.state === "closed" ? (thread.ask.outcome?.kind ?? "") : "",
     answered: row?.state === "answered",
-    replies,
     // As a card, its items are the card's (said once, there).
     asks: became ? [] : asksOf(thread),
     cards: [...self, ...made],
@@ -411,7 +401,7 @@ export function parseSeen(raw: string | null): SeenStore {
 }
 
 // news is a read's facts the chat hasn't said, and what it has said once
-// it says them.
+// it says them. Silent facts count as said without being said.
 export function news(
   seen: Seen | undefined,
   t: WorkThread
@@ -424,11 +414,11 @@ export function news(
       seen: { said: all.map((f) => f.key), ...(done ? { done } : {}) },
     }
   const had = new Set(seen.said)
-  const say = all.filter((f) => !had.has(f.key))
+  const fresh = all.filter((f) => !had.has(f.key))
   return {
-    say,
+    say: fresh.filter((f) => !f.silent),
     seen: {
-      said: [...seen.said, ...say.map((f) => f.key)],
+      said: [...seen.said, ...fresh.map((f) => f.key)],
       ...(done ? { done } : {}),
     },
   }
