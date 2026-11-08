@@ -225,7 +225,8 @@ impl Inner {
             token,
             reminder,
             &msgs,
-            self.reviews_unasked.load(std::sync::atomic::Ordering::SeqCst),
+            self.reviews_unasked
+                .load(std::sync::atomic::Ordering::SeqCst),
         );
         if md == mode::STOP {
             prompt = format!("{}\n\n{prompt}", stop_header(&msgs));
@@ -487,7 +488,8 @@ impl Inner {
             w.w.reminder,
             &msgs,
             &w.w.overflow,
-            self.reviews_unasked.load(std::sync::atomic::Ordering::SeqCst),
+            self.reviews_unasked
+                .load(std::sync::atomic::Ordering::SeqCst),
         );
         let notes = crate::WakeNotes {
             task: w.w.notes_task.clone(),
