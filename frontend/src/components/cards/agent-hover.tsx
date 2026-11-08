@@ -38,6 +38,7 @@ export const AgentCards = createContext<{
     id: string
     short: string
     title: string
+    tag?: string
     state?: string
   }[]
   onOpenThread?: (id: string) => void
