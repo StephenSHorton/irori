@@ -77,6 +77,7 @@ import {
 } from "./sample-cards"
 import { sampleAgents as sampleAgentSettings } from "./agents"
 import { nameOr, unknownAgent } from "./names"
+import type { CardCandidate } from "./mentions"
 import { pending, type Pending } from "./pending"
 import { spawnLine, type SpawnLine, type SpawnState } from "./spawn-line"
 
@@ -914,6 +915,59 @@ export function cardStatus(c: CardSummary): RefStatus {
     working: c.working.length > 0,
     progress: c.progress,
   })
+}
+
+// LeadThreads is how many open threads the # picker mixes in among the
+// first cards; the rest follow the cards, for a search to find.
+export const LeadThreads = 5
+
+// refCandidates are the # picker's rows (cards #114, #982): the live cards
+// and the open threads, which the window keeps apart. Threads alternate
+// with the first cards: after every card they would sit below the list's
+// fold, or past its cap. A card stays first, so "#" and Enter means what
+// it did. A thread's ref carries its board's tag, as a card's does.
+export function refCandidates(
+  cards: readonly CardSummary[],
+  threads: readonly {
+    id: string
+    short: string
+    title: string
+    tag?: string
+    state?: string
+  }[]
+): (CardCandidate & { status: RefStatus; thread: boolean })[] {
+  const row = (
+    c: { id: string; short: string; title: string; tag?: string },
+    status: RefStatus,
+    thread: boolean
+  ) => ({
+    id: c.id,
+    short: c.short,
+    ref: `${c.tag ?? ""}#${c.short}`,
+    title: plainLine(c.title),
+    status,
+    thread,
+  })
+  // Its state as the chip it becomes shows it (card #343).
+  const cs = cards
+    .filter((c) => c.short)
+    .map((c) => row(c, cardStatus(c), false))
+  const open = refStatus({
+    thread: true,
+    done: false,
+    state: "",
+    blocked: false,
+  })
+  const ts = threads
+    .filter((t) => t.short && t.state !== "resolved")
+    .map((t) => row(t, open, true))
+  const lead = Math.min(LeadThreads, ts.length)
+  const out = []
+  for (let i = 0; i < lead; i++) {
+    if (i < cs.length) out.push(cs[i])
+    out.push(ts[i])
+  }
+  return [...out, ...cs.slice(lead), ...ts.slice(lead)]
 }
 
 // A thread the person just started shows at once (card #551), from what

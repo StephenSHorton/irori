@@ -1,9 +1,18 @@
 import { describe, expect, test } from "bun:test"
 
-import { AgentRef, CardAsk, CardWait, Step } from "./models"
+import {
+  AgentRef,
+  CardAsk,
+  CardSummary as Card,
+  CardWait,
+  Step,
+} from "./models"
 import { TaskState } from "./models"
+import { cardRefs, filterCards, insertCardRef, localRef } from "./mentions"
 import {
   refStatus,
+  LeadThreads,
+  refCandidates,
   askLine,
   askSpawn,
   busy,
@@ -497,5 +506,67 @@ describe("peopleRows (card #490)", () => {
     expect(rows).toHaveLength(1)
     expect(rows[0].who.assigned).toBe(true)
     expect(rows[0].stepTitles).toEqual(["Plan"])
+  })
+})
+
+describe("refCandidates: threads in the # picker (card #982)", () => {
+  const card = (n: number) =>
+    Card({ id: `c${n}`, short: String(n), title: `Card ${n}` })
+  const thread = (n: number, more = {}) => ({
+    id: `t${n}`,
+    short: String(n),
+    title: `Thread ${n}`,
+    state: "waiting",
+    ...more,
+  })
+
+  test("an open thread is offered, with its ref and state", () => {
+    const [c, t] = refCandidates([card(1)], [thread(979)])
+    expect(c.id).toBe("c1")
+    expect(t).toMatchObject({ id: "t979", ref: "#979" })
+    expect(t.status.label).toBe("Open thread")
+    expect([c.thread, t.thread]).toEqual([false, true])
+  })
+
+  test("a resolved thread is not; an answered one is", () => {
+    const ids = refCandidates(
+      [],
+      [thread(1, { state: "resolved" }), thread(2, { state: "answered" })]
+    ).map((r) => r.id)
+    expect(ids).toEqual(["t2"])
+  })
+
+  test("a space's thread keeps its board's tag", () => {
+    expect(refCandidates([], [thread(5, { tag: "mlg" })])[0].ref).toBe("mlg#5")
+  })
+
+  test("threads sit among the first cards, a card first", () => {
+    const cards = Array.from({ length: 40 }, (_, i) => card(i + 1))
+    const threads = Array.from({ length: 8 }, (_, i) => thread(100 + i))
+    const rows = refCandidates(cards, threads)
+    expect(rows.slice(0, 4).map((r) => r.id)).toEqual([
+      "c1",
+      "t100",
+      "c2",
+      "t101",
+    ])
+    // A bare # shows them, past 20 cards.
+    const shown = filterCards(rows, "").map((r) => r.id)
+    expect(shown.filter((id) => id.startsWith("t"))).toHaveLength(LeadThreads)
+    // The ones past the lead are a search away.
+    expect(filterCards(rows, "107").map((r) => r.id)).toEqual(["t107"])
+    expect(rows).toHaveLength(48)
+  })
+
+  test("the picked thread's ref reads back as that thread", () => {
+    const t = thread(979)
+    const [row] = refCandidates([], [t])
+    const put = insertCardRef("see #97", { start: 4, query: "97" }, 7, row.ref)
+    expect(put.text).toBe("see #979 ")
+    expect(localRef(cardRefs(put.text)[0], [], [t])).toEqual({
+      kind: "thread",
+      id: "t979",
+      title: "Thread 979",
+    })
   })
 })
