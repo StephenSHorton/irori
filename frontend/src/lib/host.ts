@@ -701,6 +701,9 @@ export const AssistantService = {
     return call(commands.assistantAsk(history, text, on))
   },
   Stop: (id: number) => done(commands.assistantStop(id)),
+  // Rewrite in the Start a thread box (card #981): the checked wording.
+  Rewrite: (text: string, mentions: string[]) =>
+    call(commands.assistantRewrite(text, mentions)),
   // "Name new threads" (card #782): on unless the person turned it off.
   Names: () => call(commands.assistantNames()),
   NamesSet: (on: boolean) => done(commands.assistantNamesSet(on)),

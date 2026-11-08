@@ -2659,7 +2659,7 @@ pub const MADE_KIND: &str = "task.made";
 /// The card refs in text: `#12` (tag None) or `mlg#12`, each a whole word
 /// (start, whitespace or "(" before; not a digit or letter after). The
 /// number is returned as written.
-pub(crate) fn card_refs(text: &str) -> Vec<(Option<String>, String)> {
+pub fn card_refs(text: &str) -> Vec<(Option<String>, String)> {
     let b = text.as_bytes();
     let mut out = Vec::new();
     for (i, &c) in b.iter().enumerate() {

@@ -207,14 +207,14 @@ export function TileGridShape({
   )
 }
 
-// AskBoxShape is the ask box over a board: one line and its Send.
+// AskBoxShape is the ask box over a board: one line, its Send below.
 export function AskBoxShape() {
   return (
-    <div className="flex items-center gap-2 p-1.5 glass-panel">
-      <span className="flex-1 px-3 py-2 text-sm text-muted-foreground">
+    <div className="flex flex-col gap-1 p-1.5 glass-panel">
+      <span className="px-3 py-2 text-sm text-muted-foreground">
         Start a thread…
       </span>
-      <span skullet-block="" className="block h-8 w-14 rounded-md" />
+      <span skullet-block="" className="block h-8 w-14 self-end rounded-md" />
     </div>
   )
 }

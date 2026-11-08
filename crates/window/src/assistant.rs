@@ -460,7 +460,21 @@ impl Job {
         job.timeout = WEIGHS_TIMEOUT;
         Ok(job)
     }
+
+    /// The turn that rewords a draft (card #981): a naming turn in its own
+    /// folder, so its system prompt is never swapped under another's.
+    pub fn rewriter(core: &irori_core::Core, ask: &NameAsk) -> Result<Job, String> {
+        let mut job = Job::namer(core, ask)?;
+        job.dir = job.dir.with_file_name(REWRITES_DIR);
+        job.timeout = REWRITES_TIMEOUT;
+        Ok(job)
+    }
 }
+
+/// The rewriting turns' folder under the assistant's (card #981).
+pub const REWRITES_DIR: &str = "rewrites";
+/// How long a rewriting turn may take: the person is waiting on it.
+pub const REWRITES_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// The weighing turns' folder under the assistant's (card #965).
 pub const WEIGHS_DIR: &str = "weighs";
@@ -986,6 +1000,7 @@ impl crate::Window {
         self.assistant.shutdown();
         self.names.shutdown();
         self.weighs.shutdown();
+        self.rewrites.shutdown();
     }
 
     /// One turn that names a thread (card #782), on its own runner so it
@@ -1000,6 +1015,17 @@ impl crate::Window {
     pub fn weigh_card(&self, ask: &NameAsk) -> Result<String, String> {
         self.weighs
             .run_once(find_claude(), Job::weigher(&self.core, ask))
+    }
+
+    /// Rewords the person's draft (card #981), on its own runner, and
+    /// returns the wording only once its @mentions and #refs check out.
+    /// `mentions` are the names the person picked in the box.
+    pub fn rewrite_draft(&self, text: &str, mentions: &[String]) -> Result<String, String> {
+        let ask = crate::rewrite::ask(text, mentions)?;
+        let reply = self
+            .rewrites
+            .run_once(find_claude(), Job::rewriter(&self.core, &ask))?;
+        crate::rewrite::checked(text, mentions, &reply)
     }
 }
 

@@ -1768,6 +1768,14 @@ pub async fn assistant_names_set(w: W<'_>, on: bool) -> R<()> {
     blocking(&w, move |w| w.assistant_names_set(on)).await
 }
 
+/// Rewords the Start a thread box's draft (#981). The draft itself is
+/// never touched here: the window shows the wording and the person chooses.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_rewrite(w: W<'_>, text: String, mentions: Vec<String>) -> R<String> {
+    blocking(&w, move |w| w.rewrite_draft(&text, &mentions)).await
+}
+
 /// "Weigh new cards" (#965): on unless turned off.
 #[tauri::command]
 #[specta::specta]
@@ -2409,6 +2417,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             call_transcribe_set,
             assistant_names,
             assistant_names_set,
+            assistant_rewrite,
             assistant_weighs,
             assistant_weighs_set,
             talk_call_transcript,

@@ -90,6 +90,7 @@ pub use desk::{
 };
 pub use error::{Error, ErrorKind, Result};
 pub use fold::blocker_gist;
+pub use fold::card_refs;
 pub use fold::{
     FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_PARKED, LEFT_REMOVED, MADE_KIND,
     REASON_CONFLICT, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN,
