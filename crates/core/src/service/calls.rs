@@ -754,6 +754,10 @@ impl Services {
         if keep_heard {
             self.heard_ticker();
         }
+        if matches!(f.op.as_str(), "ring" | "join" | "leave" | "end") {
+            // The person's assistant follows the call (card #1049).
+            self.huddle_host_kick();
+        }
         if let Some(d) = expire {
             self.publish_after(d + Duration::from_secs(1));
         }
@@ -806,6 +810,70 @@ impl Services {
             last_line: info.as_ref().and_then(|c| c.last_line).and_then(ms),
             newest_row: info.as_ref().and_then(|c| ms(c.last)),
         })
+    }
+
+    /// The huddles whose call has `person` in it, as this device knows:
+    /// (callId, convId, spaceId). Live ones heard within [`LIVE_FOR`], and
+    /// the one this device is in (card #1049).
+    pub(super) fn calls_with_person(&self, person: &str) -> Vec<(String, String, String)> {
+        let now = SystemTime::now();
+        let me = self.person_id();
+        let g = self.calls.inner.lock().expect("calls");
+        let mut out: Vec<(String, String, String)> = g
+            .live
+            .iter()
+            .filter(|(_, l)| now.duration_since(l.heard).unwrap_or_default() < LIVE_FOR)
+            .filter(|(_, l)| l.devices.values().any(|p| p == person))
+            .map(|(id, l)| (id.clone(), l.conv_id.clone(), l.space_id.clone()))
+            .collect();
+        if person == me
+            && let Some(a) = g.mine.as_ref()
+            && !out.iter().any(|(id, _, _)| *id == a.call_id)
+        {
+            out.push((a.call_id.clone(), a.conv_id.clone(), a.space_id.clone()));
+        }
+        out
+    }
+
+    /// The devices of space `space` reachable now ("" the person's own), or
+    /// None when that space isn't open here (card #1049).
+    pub(super) fn space_devices_live(&self, space: &str) -> Option<BTreeSet<String>> {
+        Some(
+            self.ride(space)?
+                .live()
+                .into_iter()
+                .map(|p| p.device_id)
+                .collect(),
+        )
+    }
+
+    /// The person ids in huddle `call_id` now, as this device knows (card
+    /// #1049), and its space.
+    pub(super) fn call_people_now(&self, call_id: &str) -> (Vec<String>, String) {
+        let now = SystemTime::now();
+        let g = self.calls.inner.lock().expect("calls");
+        let mut out: Vec<String> = Vec::new();
+        let mut space = String::new();
+        if let Some(l) = g
+            .live
+            .get(call_id)
+            .filter(|l| now.duration_since(l.heard).unwrap_or_default() < LIVE_FOR)
+        {
+            space = l.space_id.clone();
+            for p in l.devices.values() {
+                if !out.contains(p) {
+                    out.push(p.clone());
+                }
+            }
+        }
+        if let Some(a) = g.mine.as_ref().filter(|a| a.call_id == call_id) {
+            space = a.space_id.clone();
+            let me = self.person_id();
+            if !out.contains(&me) {
+                out.push(me);
+            }
+        }
+        (out, space)
     }
 
     /// Writes huddle `call_id`'s title as this device's person
@@ -1438,6 +1506,7 @@ impl Services {
     /// every tick, and the space hears this device is still in it every
     /// heartbeat.
     fn call_ticker(self: &Arc<Self>, call_id: String, generation: u64) {
+        self.huddle_host_kick();
         let w = Arc::downgrade(self);
         self.pairing.handle.spawn(async move {
             let mut beat = tokio::time::Instant::now();
@@ -2276,6 +2345,26 @@ impl Core {
     /// reconnected mid-call and hasn't the rows to say so.
     pub fn call_over(&self, call_id: &str) -> bool {
         self.s.call_over(call_id)
+    }
+
+    /// Each person's assistant in huddle `call_id`, as the roster shows it
+    /// (card #1049): connected, reconnecting or not connected.
+    pub fn call_assistants(&self, call_id: &str) -> Vec<super::huddle_host::AssistantState> {
+        self.s.call_assistants(call_id)
+    }
+
+    /// Whether this device hosts its person's assistant in huddle `call_id`,
+    /// after running the pick again (card #1049): what a look asks before
+    /// it runs.
+    pub fn huddle_hosting(&self, call_id: &str) -> bool {
+        self.s.huddle_hosting(call_id)
+    }
+
+    /// One pass of the hosting sweep now, apart from its timer (tests,
+    /// card #1049). True while anything remains to watch.
+    #[doc(hidden)]
+    pub fn huddle_host_sweep(&self) -> bool {
+        self.s.huddle_host_sweep()
     }
 
     /// Sets huddle `call_id`'s title as the person (card #1043); every

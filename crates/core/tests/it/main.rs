@@ -36,6 +36,7 @@ mod expiry;
 mod five_cores;
 mod helpertree;
 mod huddle;
+mod huddle_host;
 mod huddle_packet;
 mod huddle_session;
 mod huddle_title;

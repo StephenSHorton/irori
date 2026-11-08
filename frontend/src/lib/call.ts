@@ -679,6 +679,7 @@ function previewTranscript(callId: string): TalkTranscript {
     title: previewTitleOf(callId) ?? "",
     titleByAssistant: false,
     over: !live,
+    assistants: [],
     lines: said.slice(0, n).map((l, i) => ({
       name: l.name,
       mine: l.name === "you",

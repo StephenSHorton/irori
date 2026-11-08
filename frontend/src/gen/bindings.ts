@@ -3205,6 +3205,16 @@ export type SummaryMember = {
 	avatar?: string,
 };
 
+/**  One person's assistant in a huddle's roster (card #1049). */
+export type TalkAssistant = {
+	/**  The person, as a key (`names` in the transcript read it). */
+	person: string,
+	/**  `connected`, `reconnecting` or `not connected`. */
+	state: string,
+	/**  Why it isn't connected, when this device knows; else empty. */
+	why: string,
+};
+
 /**  What a huddle's start or end post says about it (#654). */
 export type TalkCall = {
 	callId: string,
@@ -3417,6 +3427,11 @@ export type TalkTranscript = {
 	 *  mark, or a crash that left the call quiet. False when unsure.
 	 */
 	over: boolean,
+	/**
+	 *  Each person's assistant in a live huddle (card #1049): connected,
+	 *  reconnecting or not connected. Empty once it is over.
+	 */
+	assistants: TalkAssistant[],
 	/**  What was said, oldest first. */
 	lines: TalkTranscriptLine[],
 };

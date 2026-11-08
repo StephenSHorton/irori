@@ -413,6 +413,11 @@ kinds! {
     /// a person or proposed by an assistant (`assistant: true`); a person's
     /// newest title beats an assistant's (docs/design/call-agents.md §8).
     CALL_TITLE = "call.title" => Replicated, Accepts;
+    /// `{callId, convId, device, state, chair, by, at}`: a person's assistant
+    /// is hosted (`on`) or not (`off`) on `device` for this huddle (card
+    /// #1049, docs/design/call-agents.md §7, §8). Arbitrates which of a
+    /// person's devices hosts it.
+    CALL_ASSIST = "call.assist" => Replicated, Accepts;
     // device-local board rows
     /// `{cardId, agentKey}`; still read, no longer written.
     BOARD_CARD_KEY = "board.cardkey" => Local;

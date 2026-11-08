@@ -1471,7 +1471,7 @@ pub(crate) fn gate_refusal(waiting: &[String]) -> Option<String> {
 
 /// The Talk kinds a space's log carries (read cursors never do): the
 /// talk.* rows, and a huddle's transcript lines (card #656).
-const SPACE_TALK_KINDS: [&str; 7] = [
+const SPACE_TALK_KINDS: [&str; 8] = [
     kinds::TALK_CHANNEL_CREATED,
     kinds::TALK_CHANNEL_EDITED,
     kinds::TALK_MEMBER,
@@ -1479,6 +1479,7 @@ const SPACE_TALK_KINDS: [&str; 7] = [
     kinds::TALK_CARD,
     kinds::CALL_SEGMENT,
     kinds::CALL_TITLE,
+    kinds::CALL_ASSIST,
 ];
 
 /// Why a space won't take a `call.segment` row yet (card #656): a device in
@@ -1544,9 +1545,11 @@ impl Services {
         // A huddle's line is its speaker's own device's (card #656), and a
         // title is a person's (card #1043): a person, signing as
         // themselves.
-        if matches!(ev.kind.as_str(), kinds::CALL_SEGMENT | kinds::CALL_TITLE)
-            && (!ev.actor.starts_with(kinds::PERSON_ACTOR_PREFIX)
-                || v.get("by").and_then(|b| b.as_str()) != Some(ev.actor.as_str()))
+        if matches!(
+            ev.kind.as_str(),
+            kinds::CALL_SEGMENT | kinds::CALL_TITLE | kinds::CALL_ASSIST
+        ) && (!ev.actor.starts_with(kinds::PERSON_ACTOR_PREFIX)
+            || v.get("by").and_then(|b| b.as_str()) != Some(ev.actor.as_str()))
         {
             return None;
         }
@@ -1608,7 +1611,7 @@ impl Services {
             return Err("only the person writes in a DM with a person".into());
         }
         match kind {
-            kinds::TALK_POST | kinds::CALL_SEGMENT | kinds::CALL_TITLE => {}
+            kinds::TALK_POST | kinds::CALL_SEGMENT | kinds::CALL_TITLE | kinds::CALL_ASSIST => {}
             kinds::TALK_MEMBER => {
                 if payload.get("op").and_then(|o| o.as_str()) != Some(coord::talk::JOIN) {
                     return Err("a DM with a person has no leave row".into());
