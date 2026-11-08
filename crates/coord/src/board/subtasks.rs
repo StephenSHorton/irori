@@ -760,6 +760,7 @@ impl Fold {
         t.pinned = r.pinned;
         t.pin_rank = if r.pinned { r.rank } else { 0.0 };
         t.paused = self.is_paused(&t.id);
+        t.weight = self.weight_of(&t.id);
     }
 
     pub(crate) fn pin(

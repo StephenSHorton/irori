@@ -76,4 +76,5 @@ mod unheld_pr_test;
 mod version_wait_test;
 mod wait_chain_test;
 mod waits_test;
+mod weight_test;
 mod where_test;

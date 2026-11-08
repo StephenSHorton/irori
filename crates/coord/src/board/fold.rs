@@ -402,6 +402,8 @@ pub struct Fold {
     /// Cards the person paused (card #207), by id, with the row that last
     /// set it.
     pub(crate) paused: HashMap<String, (bool, RowPos)>,
+    /// Each card's newest weight rows (card #963).
+    pub(crate) weights: HashMap<String, super::weight::WeightSlots>,
     /// A board's review requests by card, and its dedicated reviewers.
     pub(crate) reviews: BTreeMap<String, Vec<super::review::ReviewRequest>>,
     /// Agents whose device reads offline, for the presence notices (card
@@ -568,6 +570,7 @@ impl Fold {
             pins: HashMap::new(),
             archived: HashMap::new(),
             paused: HashMap::new(),
+            weights: HashMap::new(),
             reviews: BTreeMap::new(),
             away: HashMap::new(),
             reviewers: BTreeMap::new(),
@@ -1086,6 +1089,7 @@ impl Fold {
             kinds::TASK_PINNED => self.fold_pin(ev),
             kinds::TASK_ARCHIVED => self.fold_archived(ev),
             kinds::TASK_PAUSED => self.fold_paused(ev),
+            kinds::TASK_WEIGHT => self.fold_weight(ev),
             kinds::TASK_OWNER => self.fold_owner(ev),
             kinds::TASK_PLACED => self.fold_placed(ev),
             kinds::TASK_COMMENT_EDITED => self.fold_comment_edited(ev, &at),
@@ -2270,6 +2274,9 @@ impl Fold {
         }
         match ev.kind.as_str() {
             kinds::LEASE_RELEASED => true,
+            // Irori's office assistant weighs cards (card #963); the fold
+            // keeps a weight the person set.
+            kinds::TASK_WEIGHT => true,
             // The take lock: its fold counts only the asking device's.
             kinds::BOARD_ASK_STATE => true,
             // Its fold checks who may take the ask (card #541).

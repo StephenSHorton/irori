@@ -67,6 +67,7 @@ mod tasks;
 mod types;
 mod util;
 mod waits;
+mod weight;
 
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::{Duration, Instant};
@@ -127,6 +128,7 @@ pub use waits::{
     MAX_WAITS, UNTIL_BLOCKED, UNTIL_CHANGED, UNTIL_DONE, UNTIL_UNBLOCKED, WAIT_CARD_GONE,
     WAIT_EXPIRED, WAIT_GONE, WAIT_TTL, until_text, wait_line,
 };
+pub use weight::{MAX_WEIGHT_REASON, check_weight};
 
 use crate::roster::{AgentCard, Agents};
 use fold::Sub;
@@ -1096,6 +1098,18 @@ impl Coord {
     /// card and whether anything changed.
     pub fn pause(&self, by: &str, id: &str, paused: bool, note: &str) -> Result<(Task, bool)> {
         self.lock().pause(by, id, paused, note)
+    }
+    /// Weighs a card (card #963): light, normal or heavy, or "" to clear.
+    /// A weight the person set is changed only by a person. Returns the
+    /// card and whether anything changed.
+    pub fn set_weight(
+        &self,
+        by: &str,
+        id: &str,
+        level: &str,
+        reason: &str,
+    ) -> Result<(Task, bool)> {
+        self.lock().set_weight(by, id, level, reason)
     }
     /// The cards the person paused (card #207).
     pub fn paused_ids(&self) -> std::collections::HashSet<String> {
