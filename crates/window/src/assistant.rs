@@ -584,6 +584,7 @@ impl Job {
             claude_config_dir: dev_claude_config_dir(),
             timeout: LOOK_TIMEOUT,
             tools: false,
+            look: String::new(),
         })
     }
 }
@@ -1145,6 +1146,7 @@ fn valid_call(call: &str) -> bool {
 pub fn held_args(job: &Job) -> Vec<String> {
     let no_tools = Job {
         tools: false,
+        look: String::new(),
         ..job.clone()
     };
     let mut out = job_args(&no_tools);
@@ -2207,6 +2209,7 @@ mod tests {
             claude_config_dir: None,
             timeout,
             tools: false,
+            look: String::new(),
         }
     }
 
