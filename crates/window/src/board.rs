@@ -330,6 +330,7 @@ impl Window {
                     quiet: false,
                     board: String::new(),
                     channel: String::new(),
+                    assistant: false,
                 },
                 &agents,
             )
@@ -437,6 +438,58 @@ impl Window {
             .map_err(|e| e.to_string())
     }
 
+    /// The person renames a card or thread by hand (card #779), from its
+    /// page: the agents' task.edited row, and an agent's later rename no
+    /// longer lands.
+    pub fn rename_card(&self, id: &str, title: &str) -> Result<Task, String> {
+        let id = trim(id);
+        let (co, keys) = self
+            .core
+            .task_coord(id, &[self.user_key()])
+            .map_err(|e| e.to_string())?;
+        co.rename_task(&keys[0], id, title)
+            .map_err(|e| e.to_string())
+    }
+
+    /// The person undoes Irori's name for their thread (card #782): the
+    /// title it had comes back as the person's own rename, so it stays and
+    /// Irori never renames it again.
+    pub fn undo_title(&self, id: &str) -> Result<Task, String> {
+        let id = trim(id);
+        let (co, keys) = self
+            .core
+            .task_coord(id, &[self.user_key()])
+            .map_err(|e| e.to_string())?;
+        let t = co
+            .get_task(id)
+            .ok_or_else(|| crate::cards::not_found_task(id))?;
+        if t.title_was.is_empty() || t.title_by_person {
+            return Err(format!("{}: Irori's name is already gone", t.short_ref()));
+        }
+        co.rename_task(&keys[0], id, &t.title_was)
+            .map_err(|e| e.to_string())
+    }
+
+    /// The person undoes Irori's weighing of a card (card #965): what it
+    /// replaced comes back as the person's own (a card with none goes back
+    /// to none), and Irori leaves it.
+    pub fn undo_weight(&self, id: &str) -> Result<Task, String> {
+        let id = trim(id);
+        let (co, keys) = self
+            .core
+            .task_coord(id, &[self.user_key()])
+            .map_err(|e| e.to_string())?;
+        let t = co
+            .get_task(id)
+            .ok_or_else(|| crate::cards::not_found_task(id))?;
+        let Some(w) = t.weight.as_ref().filter(|w| w.by_assistant()) else {
+            return Err(format!("{}: Irori's weight is already gone", t.short_ref()));
+        };
+        co.set_weight(&keys[0], id, &w.was_level, &w.was_reason)
+            .map(|(t, _)| t)
+            .map_err(|e| e.to_string())
+    }
+
     /// The person deletes a card (card #57): it leaves the Board on every
     /// device, and the signed log keeps it. A card on a shared board isn't
     /// deleted: other people already have it, so it is withdrawn (§5.3).
@@ -470,6 +523,18 @@ impl Window {
         }
         co.pin(&keys[0], trim(id), pinned)
             .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// BoardService.SetWeight (card #963): the person weighs a card light,
+    /// normal or heavy, with an optional line on why, or clears it with
+    /// `""`. It goes in the card's own log as the person there, so it is
+    /// theirs: agents and the assistant don't change it after.
+    pub fn set_weight(&self, id: &str, level: &str, reason: &str) -> Result<Task, String> {
+        let id = trim(id);
+        let (co, keys) = self.on(id, &[])?;
+        co.set_weight(&keys[0], id, level, reason)
+            .map(|(t, _)| t)
             .map_err(|e| e.to_string())
     }
 

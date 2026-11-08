@@ -12,12 +12,11 @@ import {
   HomeServerView,
   PairJoiner as Joiner,
   PairStatus,
-  RelayView,
 } from "./models"
 import { EventDevicesChanged, EventRosterChanged, inWails } from "./irori"
 import { useLatest } from "./talk"
 
-export { DeviceView, HomeServerView, PairStatus, RelayView }
+export { DeviceView, HomeServerView, PairStatus }
 
 // EventPairingChanged mirrors the Go constant in devices_service.go.
 export const EventPairingChanged = "devices:pairing"
@@ -58,7 +57,6 @@ const SampleKey = "3f9a 0c21 77de 41b0"
 let sampleDevices: DeviceView[] | null = null
 let samplePair = PairStatus({ mode: "", state: "" })
 let sampleTimer: number | undefined
-let sampleRelay = RelayView({ state: "none" })
 let sampleHome = HomeServerView({
   can: true,
   publicRelays: true,
@@ -344,21 +342,6 @@ export const devices = {
     sampleHome = HomeServerView({ ...sampleHome, publicRelays: on })
     return sampleHome
   },
-  // relay is the advanced TURN relay setting: state "none" is none set.
-  async relay(): Promise<RelayView> {
-    if (inWails()) return DevicesService.Relay()
-    return sampleRelay
-  },
-  // setRelay sets the advanced relay's TURN REST credential URL ("" removes
-  // it).
-  async setRelay(url: string): Promise<RelayView> {
-    if (inWails()) return DevicesService.SetRelay(url)
-    sampleRelay = RelayView({
-      credentialUrl: url.replace(/[?#].*$/, "?…") || undefined,
-      state: url ? "pending" : "none",
-    })
-    return sampleRelay
-  },
   // remove revokes a device: its later rows are refused everywhere and the
   // person key rotates on the devices that remain (decision D8).
   async remove(deviceId: string): Promise<void> {
@@ -533,10 +516,10 @@ export function useDevices(active: boolean): DevicesState {
     const id = window.setInterval(() => void reload(), RefreshMs)
     const offPair = onPairing(() => void reload())
     const offRoster = inWails()
-      ? Events.On(EventRosterChanged, () => void reload())
+      ? Events.OnShown(EventRosterChanged, () => void reload())
       : () => {}
     const offDevices = inWails()
-      ? Events.On(EventDevicesChanged, () => void reload())
+      ? Events.OnShown(EventDevicesChanged, () => void reload())
       : () => {}
     return () => {
       window.clearInterval(id)

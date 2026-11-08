@@ -24,9 +24,9 @@ import {
   type DeviceView,
   type HomeServerView,
   type PairStatus,
-  type RelayView,
 } from "@/lib/devices"
 import { parseTime, plainLine, relativeTime, useNow } from "@/lib/irori"
+import { isMac } from "@/lib/commands"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
@@ -57,6 +57,7 @@ export function DevicesPanel({ open }: { open: boolean }) {
           <DevicesShape />
         ) : (
           <div className="grid gap-3">
+            <span className="text-sm">Your devices</span>
             <ul className="grid gap-1.5" aria-label="Your devices">
               {devices.map((d) => (
                 <DeviceRow
@@ -68,6 +69,11 @@ export function DevicesPanel({ open }: { open: boolean }) {
               ))}
             </ul>
             {error && <p className="text-xs text-destructive">{error}</p>}
+            {status?.state ? (
+              <Pairing status={status} onDone={() => setStatus(null)} />
+            ) : (
+              <Start onStarted={setStatus} />
+            )}
             <Sides
               open={open}
               here={devices.find((d) => d.this)}
@@ -76,23 +82,17 @@ export function DevicesPanel({ open }: { open: boolean }) {
           </div>
         )}
       </Loading>
-      <PersonColor open={open} />
-      <HomeServer open={open} />
-      <div className="border-t border-border pt-3">
-        {status?.state ? (
-          <Pairing status={status} onDone={() => setStatus(null)} />
-        ) : (
-          <Start onStarted={setStatus} />
-        )}
+      <div className="grid gap-1.5 border-t border-border pt-3">
+        <span className="text-sm">How this device connects</span>
+        <HomeServer open={open} />
       </div>
       <p className="text-xs text-muted-foreground">
         Devices find each other on your local network, through your home server,
         and with public relays on, through iroh&apos;s free relays, which see
-        which devices connect but never what they say. Others on a network see
-        that sealed messages pass, never their content, and a relay you add
-        under Advanced sees IP addresses. What reaches another device stays
-        there, so a secret an agent wrote that the scrubber missed is copied for
-        good.
+        your IP address and which devices connect but never what they say.
+        Others on a network see that sealed messages pass, never their content.
+        What reaches another device stays there, so a secret an agent wrote that
+        the scrubber missed is copied for good.
       </p>
     </div>
   )
@@ -110,6 +110,7 @@ function DevicesShape() {
   ]
   return (
     <div className="grid gap-3">
+      <span className="text-sm">Your devices</span>
       <ul className="grid gap-1.5">
         {rows.map(([name, state]) => (
           <li
@@ -128,8 +129,16 @@ function DevicesShape() {
           </li>
         ))}
       </ul>
+      <div className="flex flex-wrap items-center gap-2">
+        <span skullet-block="" className="block h-8 w-[108px] rounded-lg" />
+        <span skullet-block="" className="block h-7 w-[120px] rounded-lg" />
+        <span
+          skullet-block=""
+          className="ml-auto block h-8 w-[120px] rounded-lg"
+        />
+      </div>
       <div className="grid gap-1.5 border-t border-border pt-3">
-        <span className="text-sm">Work and personal sides</span>
+        <span className="text-sm">Sides this device runs</span>
         <span className="flex flex-wrap items-center gap-1.5">
           <span skullet-block="" className="block h-6 w-[66px] rounded-lg" />
           <span skullet-block="" className="block h-6 w-[50px] rounded-lg" />
@@ -171,9 +180,6 @@ function HomeServerShape() {
           className="block h-4 w-7 shrink-0 rounded-full"
         />
       </div>
-      <span className="justify-self-start text-xs text-muted-foreground">
-        Advanced
-      </span>
     </div>
   )
 }
@@ -225,7 +231,7 @@ function DeviceRow({
             {plainLine(d.name) || d.deviceId}
           </span>{" "}
           <small className="text-xs text-muted-foreground">
-            {d.role === "node" ? "node · " : ""}
+            {d.role === "node" ? "often-on · " : ""}
             {state}
             {d.via ? ` · ${throughLine(d.via)}` : ""}
             {d.sides?.length ? ` · runs ${d.sides.join(", ")}` : ""}
@@ -296,7 +302,6 @@ function DeviceRow({
 // address field when mapping failed). On every device: a line when this
 // one can't be found on its network, and one when your home server can't
 // be reached. "Meet through public relays" (card #328) on every device.
-// Advanced holds the relay you run or rent elsewhere.
 // homeLine is the warning under the home server. Its "can't be reached
 // from outside" lines (CGNAT, port forward needed) tell the truth about the
 // home server, but with public relays on (decision 43) devices and invites
@@ -325,7 +330,6 @@ export function homeLine(hs: HomeServerView): string {
 function HomeServer({ open }: { open: boolean }) {
   const [hs, setHs] = useState<HomeServerView | null>(null)
   const [publicAddr, setPublicAddr] = useState("")
-  const [advanced, setAdvanced] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // A failed first read ends the skeleton; the section stays away, as it
   // always has, until a later read answers.
@@ -415,9 +419,9 @@ function HomeServer({ open }: { open: boolean }) {
             {!hs.on && (
               <p className="text-xs text-muted-foreground">
                 {hs.suggest &&
-                  "This device is on most of the time, so it suits the server: your devices can reach each other through it from anywhere, even with public relays off. It's optional: any device that's on often keeps the others up to date. "}
-                Windows asks once to allow Irori on private networks; the server
-                needs it.
+                  "This device is on most of the time, so it suits the server: away from home your devices can connect through it if your router allows it, even with public relays off. It's optional: any device that's on often keeps the others up to date. "}
+                {!isMac() &&
+                  "Windows asks once to allow Irori on private networks; the server needs it."}
               </p>
             )}
             {hs.on && (
@@ -496,11 +500,11 @@ function HomeServer({ open }: { open: boolean }) {
             htmlFor="public-relays"
             className="min-w-0 cursor-pointer text-muted-foreground"
           >
-            Meet through public relays
+            This device meets through public relays
             <small className="block text-xs">
               {hs.publicRelays
-                ? "Reach your devices and invited people from any network, no port forwarding. iroh's free relays see which devices connect, never what they say."
-                : "Only your home server connects you from outside home."}
+                ? "This device can reach your devices and invited people from any network, no port forwarding. iroh's free relays see your IP address and which devices connect, never what they say."
+                : "Away from home, this device connects only through a home server, if you run one. Your other devices have their own switch."}
             </small>
           </label>
           <Switch
@@ -515,97 +519,8 @@ function HomeServer({ open }: { open: boolean }) {
           <p className="text-xs text-warning">{plainLine(hs.remote)}</p>
         )}
         {error && <span className="text-xs text-destructive">{error}</span>}
-        <button
-          type="button"
-          aria-expanded={advanced}
-          className="justify-self-start text-xs text-muted-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-1 focus-visible:ring-ring"
-          onClick={() => setAdvanced((v) => !v)}
-        >
-          {advanced ? "Hide advanced" : "Advanced"}
-        </button>
-        {advanced && <Relay open={open} />}
       </div>
     </Loading>
-  )
-}
-
-// Relay is the advanced relay line (§4.4, §9): a TURN relay you run or rent
-// elsewhere, used beside the home server's. "None" with none set, else the
-// credential URL (its query hidden); a warning only when it is failing.
-// Change opens a field for the credential URL.
-function Relay({ open }: { open: boolean }) {
-  const [relay, setRelay] = useState<RelayView | null>(null)
-  const [editing, setEditing] = useState(false)
-  const [url, setUrl] = useState("")
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-    let live = true
-    void actions
-      .relay()
-      .then((r) => live && setRelay(r))
-      .catch(() => {})
-    return () => {
-      live = false
-    }
-  }, [open])
-
-  const save = async (e: FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    try {
-      setRelay(await actions.setRelay(url.trim()))
-      setEditing(false)
-      setUrl("")
-    } catch (err) {
-      setError(errorText(err))
-    }
-  }
-
-  const direct = !relay || relay.state === "none"
-  return (
-    <div className="grid gap-1 text-[13px]">
-      {editing ? (
-        <form className="flex gap-2" onSubmit={(e) => void save(e)}>
-          <Input
-            autoFocus
-            aria-label="TURN credential URL"
-            placeholder="https://… TURN credential URL (empty: none)"
-            value={url}
-            spellCheck={false}
-            autoComplete="off"
-            onChange={(e) => setUrl(e.target.value)}
-          />
-          <Button type="submit">Save</Button>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => setEditing(false)}
-          >
-            Back
-          </Button>
-        </form>
-      ) : (
-        <div className="flex items-center justify-between gap-2">
-          <span className="min-w-0 truncate text-muted-foreground">
-            Other relay:{" "}
-            <span className="text-ink">
-              {direct ? "none" : plainLine(relay?.credentialUrl ?? "")}
-            </span>
-          </span>
-          <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
-            Change
-          </Button>
-        </div>
-      )}
-      {relay?.state === "error" && (
-        <span className="text-xs text-warning">
-          The relay is failing: {plainLine(relay.detail ?? "")}
-        </span>
-      )}
-      {error && <span className="text-xs text-destructive">{error}</span>}
-    </div>
   )
 }
 
@@ -709,6 +624,13 @@ function Start({ onStarted }: { onStarted: (s: PairStatus) => void }) {
           >
             Join with a code
           </Button>
+          {role === "node" && (
+            <p className="w-full text-xs text-muted-foreground">
+              An often-on PC keeps your devices up to date and suits the home
+              server. Irori won&apos;t send it Personal cards made on your other
+              devices; a card you post on it can still start there.
+            </p>
+          )}
         </div>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -797,8 +719,8 @@ function ShowCode({
   return (
     <div className="grid gap-2">
       <p className="text-[13px] text-ink">
-        On the new device, open Settings → Devices → Join with a code, and type
-        this code:
+        On the new device, open Settings → Devices and connections → Join with a
+        code, and type this code:
       </p>
       <p className="rounded-lg bg-muted px-3 py-2 text-center font-mono text-lg tracking-widest text-ink select-all">
         {s.code}
@@ -1123,7 +1045,7 @@ export function Sides({
   }
   return (
     <div className="grid gap-1.5 border-t border-border pt-3">
-      <span className="text-sm">Work and personal sides</span>
+      <span className="text-sm">Sides this device runs</span>
       {all.length > 0 && (
         <span
           className="flex flex-wrap items-center gap-1.5"
@@ -1193,69 +1115,12 @@ export function Sides({
 // sidesLine says what this device's pin means.
 export function sidesLine(pinned: string[]): string {
   if (!pinned.length)
-    return "This device runs every side. Pick the sides it runs to keep work and personal cards apart; every device still shows every card."
+    return "This device runs every side. Pick the sides it runs to keep work and personal cards apart. Cards in shared spaces have no side. Every device still shows every card."
   const list =
     pinned.length === 1
       ? pinned[0]
       : `${pinned.slice(0, -1).join(", ")} and ${pinned[pinned.length - 1]}`
-  return `This device runs ${list}, and cards with no side. New cards typed here go on ${pinned[0]}. Every device still shows every card.`
-}
-
-// PersonColor is the person's colour on shared boards (card #385): friends
-// see them and their agents in it. A friend's screen moves it to the next
-// free colour if one of the friend's own devices already wears it.
-function PersonColor({ open }: { open: boolean }) {
-  const [color, setColor] = useState("")
-  const [error, setError] = useState("")
-  useEffect(() => {
-    if (!open) return
-    actions
-      .personColor()
-      .then(setColor)
-      .catch((e: unknown) => setError(errorText(e)))
-  }, [open])
-  const pick = async (c: string) => {
-    try {
-      await actions.setPersonColor(c)
-      setColor(c)
-      setError("")
-    } catch (e) {
-      setError(errorText(e))
-    }
-  }
-  return (
-    <div className="grid gap-1 border-t border-border pt-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm">Your colour in shared spaces</span>
-        <span className="flex items-center gap-1">
-          {DeviceColors.map((c) => (
-            <button
-              key={c}
-              type="button"
-              title={c}
-              aria-label={`${c} in shared spaces`}
-              aria-pressed={color === c}
-              className={cn(
-                "size-4 rounded-full outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                color === c && "ring-1 ring-ink"
-              )}
-              style={{ background: `var(--device-${c})` }}
-              onClick={() => void pick(color === c ? "" : c)}
-            />
-          ))}
-        </span>
-      </div>
-      <small className="text-xs text-muted-foreground">
-        {error ? (
-          <span className="text-destructive">{error}</span>
-        ) : color ? (
-          "Friends see you and your agents in it. Click it again for the default."
-        ) : (
-          "Friends see you and your agents in a colour none of their devices wear. Pick one to choose it."
-        )}
-      </small>
-    </div>
-  )
+  return `This device runs ${list}, and cards with no side. New cards typed here go on ${pinned[0]}. Cards in shared spaces have no side. Every device still shows every card.`
 }
 
 // ColorPick is a device's colour (card #22): a swatch that opens the

@@ -369,45 +369,28 @@ impl Fold {
             .collect()
     }
 
-    /// Whether PR `pr` on card `id` is known merged or closed (card #509):
-    /// a wait on it no longer needs the person.
-    pub(crate) fn pr_settled(&self, id: &str, pr: &str) -> bool {
-        self.pr_states
-            .get(id)
-            .and_then(|by_pr| by_pr.get(pr))
-            .is_some_and(|p| p.state == PR_MERGED || p.state == PR_CLOSED)
-    }
-
-    /// The PRs t's open, unanswered external waits ask this person to
-    /// merge (card #509), not yet known merged or closed. On a shared
-    /// board only their own agents' waits: another member's is theirs.
-    pub(crate) fn merge_waits(&self, t: &Task) -> Vec<String> {
-        self.waits_on(t, |pr| !self.pr_settled(&t.id, pr))
-    }
-
-    /// The PRs of [`Fold::merge_waits`] the poller still asks about: a
-    /// closed one too, which GitHub can reopen (card #548).
+    /// The PRs t's open, unanswered external waits are on (card #509) that
+    /// the poller still asks about, whoever holds the card: not known
+    /// merged (a closed one too, which GitHub can reopen, card #548). Its
+    /// holders hear the merge; the person is never asked to merge (card
+    /// #970). On a shared board only this person's own agents' waits.
     pub(crate) fn polled_waits(&self, t: &Task) -> Vec<String> {
-        let by_pr = self.pr_states.get(&t.id);
-        self.waits_on(t, |pr| {
-            !by_pr
-                .and_then(|m| m.get(pr))
-                .is_some_and(|p| p.state == PR_MERGED)
-        })
-    }
-
-    fn waits_on(&self, t: &Task, keep: impl Fn(&str) -> bool) -> Vec<String> {
         if t.state != BLOCKED {
             return Vec::new();
         }
+        let by_pr = self.pr_states.get(&t.id);
         let mut out: Vec<String> = Vec::new();
         for b in &t.blockers {
             if b.status == BLOCKER_ANSWERED || self.on_board && !self.own_on_board(b) {
                 continue;
             }
-            if let Some(pr) = b.merge_wait().filter(|pr| keep(pr))
-                && !out.contains(&pr)
-            {
+            let Some(pr) = b.pr_wait() else {
+                continue;
+            };
+            let merged = by_pr
+                .and_then(|m| m.get(&pr))
+                .is_some_and(|p| p.state == PR_MERGED);
+            if !merged && !out.contains(&pr) {
                 out.push(pr);
             }
         }
@@ -441,7 +424,7 @@ impl Fold {
             )));
         }
         Err(invalid(format!(
-            "{} links a pull request that is still open ({prs}): ask the person “Can I merge…?” with board_block and merge it yourself on their yes; Irori checks GitHub and tells you when it merges",
+            "{} links a pull request that GitHub still shows open ({prs}). If you merged it, check it with `gh pr view` and set completed again once it shows merged. If not, ask the person “Can I merge…?” with board_block and merge it yourself on their yes. Never raise a wait on it: Irori checks GitHub and tells you when it merges",
             t.short_ref()
         )))
     }
@@ -505,7 +488,7 @@ impl Fold {
             && !t
                 .blockers
                 .iter()
-                .any(|b| b.merge_wait().is_some_and(|w| w == c.pr))
+                .any(|b| b.pr_wait().is_some_and(|w| w == c.pr))
         {
             return Err(invalid(format!(
                 "{} links no pull request {}",
@@ -747,7 +730,7 @@ impl Fold {
                     .any(|l| l.reference == *pr && pr_link(l).is_some())
                     || t.blockers
                         .iter()
-                        .any(|b| b.merge_wait().is_some_and(|w| w == *pr));
+                        .any(|b| b.pr_wait().is_some_and(|w| w == *pr));
                 let Some((change, name, writers)) = p.news().filter(|_| on_card) else {
                     continue;
                 };
@@ -829,7 +812,7 @@ impl Fold {
             .chain(
                 t.blockers
                     .iter()
-                    .filter_map(|b| b.merge_wait().map(|pr| (pr, b.raised_by.clone()))),
+                    .filter_map(|b| b.pr_wait().map(|pr| (pr, b.raised_by.clone()))),
             )
             .collect();
         let vs = self.pr_vouchers.entry(id.to_string()).or_default();

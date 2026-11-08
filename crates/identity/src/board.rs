@@ -88,6 +88,9 @@ struct MemberFold {
     github_login: String,
     /// The latest counted profile's assistant name (card #1045).
     assistant_name: String,
+    /// The newest non-empty assistant card id on a counted profile; folds like
+    /// `github_login`, so an older build's profile never blanks it.
+    assistant_card: String,
     profile: bool,
 }
 
@@ -381,6 +384,7 @@ fn fold_member(
         avatar: String::new(),
         github_login: String::new(),
         assistant_name: String::new(),
+        assistant_card: String::new(),
         profile: false,
     };
     for p in &rows.profiles {
@@ -402,6 +406,9 @@ fn fold_member(
             m.assistant_name = p.prof.assistant_name.clone();
             if !p.prof.github_login.trim().is_empty() {
                 m.github_login = p.prof.github_login.trim().to_string();
+            }
+            if !p.prof.assistant_card.trim().is_empty() {
+                m.assistant_card = p.prof.assistant_card.trim().to_string();
             }
             m.profile = true;
         }
@@ -1025,6 +1032,17 @@ impl BoardVerifier {
             .get(person_id)
             .filter(|m| m.profile)
             .map(|m| m.github_login.clone())
+            .unwrap_or_default()
+    }
+
+    /// The assistant card id on a member's counted member.profile, "" when
+    /// none. The member's own claim, like the GitHub login.
+    pub fn profile_assistant_card(&self, person_id: &str) -> String {
+        let st = self.lock();
+        st.members
+            .get(person_id)
+            .filter(|m| m.profile)
+            .map(|m| m.assistant_card.clone())
             .unwrap_or_default()
     }
 

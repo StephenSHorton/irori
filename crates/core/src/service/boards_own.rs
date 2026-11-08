@@ -419,8 +419,7 @@ impl Services {
                 self.fold_card_key(&ev);
             } else if ev.kind == kinds::PERSON_PROFILE {
                 self.follow_person_name();
-            } else if ev.kind == kinds::SPACE_BOARD_CREATED || ev.kind == kinds::SPACE_BOARD_RENAMED
-            {
+            } else if ev.kind.starts_with("space.board.") {
                 // Personal's boards, from another of the person's devices.
                 self.boards.moved();
             }
@@ -1297,6 +1296,8 @@ impl Services {
             &actor,
             coord::NewTask {
                 board: space_board.into(),
+                // A name the person gave stays theirs there (card #779).
+                title_by_person: priv_t.title_by_person && top.title == priv_t.title,
                 ..new_card(&top, &priv_t, "")
             },
         )?;
@@ -1312,10 +1313,12 @@ impl Services {
         let mut made: Vec<(String, Task)> = Vec::new();
         for f in &p.subtasks {
             let from = self.coord.get_task(&f.task_id).unwrap_or_default();
-            match b
-                .coord()
-                .create_task(&actor, new_card(f, &from, &shared.id))
-            {
+            let card = coord::NewTask {
+                // A subtask the person named keeps that too (card #779).
+                title_by_person: from.title_by_person && f.title == from.title,
+                ..new_card(f, &from, &shared.id)
+            };
+            match b.coord().create_task(&actor, card) {
                 Ok(k) => {
                     self.boards
                         .inner
@@ -1490,6 +1493,7 @@ impl Services {
             &user,
             coord::NewTask {
                 title: t.title.clone(),
+                title_by_person: t.title_by_person,
                 objective: t.objective.clone(),
                 done_criteria: t.done_criteria.clone(),
                 repo_key: t.repo_key.clone(),
@@ -1557,6 +1561,10 @@ impl Services {
             {
                 on.reference = k(&on.reference);
             }
+        }
+        // Who weighed it (card #963), so the card names them.
+        if let Some(w) = t.weight.as_mut() {
+            w.by = k(&w.by);
         }
         t
     }

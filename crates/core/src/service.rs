@@ -64,12 +64,15 @@ pub mod boards_status;
 mod bridge;
 pub mod call_settings;
 pub(crate) mod calls;
+mod calls_over;
 pub(crate) mod calls_share;
+pub mod card_weights;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
 mod liveness;
 mod mirror;
+pub mod name_themes;
 pub mod notes;
 mod notifications;
 pub mod space_move;
@@ -85,7 +88,9 @@ pub mod spawn_remote;
 pub mod spawn_stop;
 pub mod spawn_waiting;
 pub mod spawn_why;
+pub mod storage;
 pub mod sync_out;
+pub mod thread_names;
 pub use mirror::BoardReviewer;
 pub mod invites;
 mod talk;
@@ -281,6 +286,9 @@ struct Services {
     /// Card #421: merged PRs the desk already settled, and the newest
     /// `gh pr merge` heard.
     desk_merges: crate::deskmerge::MergeHeard,
+    /// A `gh pr merge` was heard: the desks thread polls every desk this
+    /// device polls at its next turn (one thread polls desks, card #970).
+    desks_due: std::sync::atomic::AtomicBool,
     /// Card #427: whether to clear settled cards' builds, when it last
     /// looked, and whether a pass is deleting now.
     clear_builds: Option<Duration>,
@@ -314,6 +322,16 @@ struct Services {
     scrubber: Arc<scrub::Scrubber>,
     secrets: Mutex<Vec<String>>,
     token: String,
+    /// The window assistant's per-run secret (card #783): the API reads a
+    /// call carrying it as the person, through its read tools, and its
+    /// two writes only per grant (card #987).
+    /// Only in memory and in the assistant's own 0600 MCP config.
+    assistant: String,
+    /// What the window last said it shows (card #1009), for the
+    /// assistant's `screen` tool. In memory only; the newest ask wins.
+    assistant_screen: Mutex<String>,
+    /// What the person's message lets the assistant change (card #987).
+    assistant_grants: tools::Grants,
     reviver: Arc<Mutex<Option<ReviveFn>>>,
     /// Spawned agents (card #446): the window's spawner, the boards'
     /// switches and the devices' caps.
@@ -337,6 +355,13 @@ struct Services {
     calls: calls::Calls,
     /// "Transcribe what I say in calls" (card #656).
     call_settings: call_settings::CallSettings,
+    /// Irori's assistant naming the person's new threads (card #782).
+    naming: thread_names::Naming,
+    /// Irori's assistant weighing new cards (card #965).
+    weighing: card_weights::Weighing,
+    /// The themes new agents' names come from (card #702), shared with
+    /// `names`.
+    name_themes: Arc<name_themes::NameThemes>,
     /// The open board invite (card #44).
     invites: invites::Invites,
 }
@@ -402,6 +427,17 @@ impl tools::Attacher for ToolsView {
 }
 
 impl tools::Backend for ToolsView {
+    fn assistant_screen(&self) -> String {
+        self.0
+            .assistant_screen
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn device_id(&self) -> String {
+        self.0.device.id.clone()
+    }
     fn agents(&self) -> Vec<presence::AgentCard> {
         self.0
             .roster
@@ -454,6 +490,12 @@ impl tools::Backend for ToolsView {
     fn agent_end(&self, caller: &str, key: &str) -> Result<String, String> {
         self.0.agent_end(caller, key)
     }
+    fn thread_agent_check(&self, caller: &str) -> Result<(), String> {
+        self.0.thread_agent_check(caller)
+    }
+    fn thread_new_agent(&self, caller: &str, task_id: &str, watch: bool) -> Result<String, String> {
+        self.0.thread_new_agent(caller, task_id, watch)
+    }
     fn agents_pause(&self, caller: &str, on: bool) -> Result<String, String> {
         self.0.agent_set_paused(caller, on)
     }
@@ -480,6 +522,9 @@ impl tools::Backend for ToolsView {
     }
     fn spawn_wait(&self, task_id: &str, asked: bool) -> String {
         self.0.spawn_wait(task_id, asked)
+    }
+    fn recheck_prs(&self, co: &Arc<Coord>, caller: &str, task_id: &str) {
+        self.0.recheck_prs(co, caller, task_id)
     }
     fn avatar(&self, name: &str) -> String {
         self.0.faces.get(name)
@@ -518,6 +563,8 @@ impl tools::Backend for ToolsView {
                 board_id: b.board_id,
                 name: b.name,
                 tag: b.tag,
+                description: b.description,
+                closed: b.closed,
             })
             .collect()
     }
@@ -756,6 +803,34 @@ impl capture::Blobs for Blobs {
 }
 
 /// sys::fswatch as presence's file events (Go passes `fswatch.Watch`).
+/// The window assistant's run dir under data dir `dir` (card #783).
+pub fn assistant_dir(dir: &Path) -> PathBuf {
+    dir.join(ASSISTANT_DIR)
+}
+
+/// The folders presence leaves off the roster for the assistant: its run
+/// dir as named and, off Windows, as resolved (Claude Code records the
+/// real path: `/var` is `/private/var` on the Mac).
+fn assistant_skip(dir: &Path) -> Vec<String> {
+    let d = assistant_dir(dir);
+    let mut v = vec![d.to_string_lossy().into_owned()];
+    if !cfg!(windows)
+        && let Ok(real) = std::fs::canonicalize(dir)
+    {
+        let r = real.join(ASSISTANT_DIR).to_string_lossy().into_owned();
+        if r != v[0] {
+            v.push(r);
+        }
+    }
+    v
+}
+
+/// The most characters of the window's snapshot the Core keeps (card #1009).
+pub const ASSISTANT_SCREEN_MAX: usize = 4000;
+
+/// The window assistant's run dir's name in the data dir (card #783).
+pub const ASSISTANT_DIR: &str = "assistant";
+
 fn fs_watch(root: &Path, recursive: bool) -> Result<presence::FsSource, presence::WatchError> {
     let cancel = Cancel::new();
     let w = sys::fswatch::watch(&cancel, &root.to_string_lossy(), recursive, Duration::ZERO)
@@ -964,6 +1039,11 @@ impl Core {
             Arc::new(move |d: &str| r.key(d))
         };
         let names = Arc::new(Namer::new(&dir, &me));
+        let name_themes = Arc::new(name_themes::NameThemes::load(&st));
+        {
+            let t = name_themes.clone();
+            names.set_themes_off(move || t.off());
+        }
         let agent_names = Arc::new(crate::agentnames::AgentNames::new(&dir));
         let usage = crate::usage::Usage::new(&dir);
         // Idle sessions whose wakes go unread show as not answering (#110).
@@ -978,6 +1058,9 @@ impl Core {
                 Arc::new(move |c: &presence::AgentCard| a.status(c))
             }),
             watch: Some(Arc::new(fs_watch)),
+            // Card #783: the window assistant's headless `claude -p` writes
+            // a session file too; it is no agent.
+            skip_cwd: assistant_skip(&dir),
             ..Default::default()
         };
         if let Some(edit) = &opts.presence {
@@ -1188,7 +1271,14 @@ impl Core {
         let svc_cell: Arc<OnceLock<Weak<Services>>> = Arc::new(OnceLock::new());
         let spawn_state = spawn::SpawnState::default();
         spawn::load_spawn(&st, &spawn_state);
+        ib.set_reviews_unasked(
+            !spawn_state
+                .reviews_off
+                .load(std::sync::atomic::Ordering::SeqCst),
+        );
         let call_settings = call_settings::CallSettings::load(&st);
+        let naming = thread_names::Naming::load(&st);
+        let weighing = card_weights::Weighing::load(&st);
         let co = Arc::new(
             Coord::new(
                 st.clone(),
@@ -1256,7 +1346,9 @@ impl Core {
                         let st = Arc::downgrade(&st);
                         Arc::new(move || {
                             let st = st.upgrade()?;
-                            spaces::board_list_in(&st, spaces::PERSONAL_BOARD, &|_| true)
+                            spaces::with_personal_rules(|r| {
+                                spaces::board_list_in(&st, spaces::PERSONAL_BOARD, r)
+                            })
                         })
                     }),
                     ..Default::default()
@@ -1481,6 +1573,7 @@ impl Core {
         }
 
         let token = lockfile::new_token().map_err(|e| fail(&st, other("", e)))?;
+        let assistant = lockfile::new_token().map_err(|e| fail(&st, other("", e)))?;
         let s = Arc::new(Services {
             data_dir: dir,
             version: opts.version.clone(),
@@ -1504,6 +1597,7 @@ impl Core {
             desk_lister: opts.desk_lister.clone(),
             desk_watch: Default::default(),
             desk_merges: Default::default(),
+            desks_due: Default::default(),
             clear_builds: opts.clear_builds,
             builds_looked: Default::default(),
             builds_busy: Default::default(),
@@ -1524,6 +1618,9 @@ impl Core {
             scrubber,
             secrets: Mutex::new(Vec::new()),
             token: token.clone(),
+            assistant: assistant.clone(),
+            assistant_screen: Mutex::new(String::new()),
+            assistant_grants: Default::default(),
             reviver,
             spawn: spawn_state,
             hub: Hub::new(),
@@ -1546,6 +1643,9 @@ impl Core {
                 opts.call_transcriber.clone(),
             ),
             call_settings,
+            naming,
+            weighing,
+            name_themes,
             invites,
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
@@ -1602,6 +1702,7 @@ impl Core {
                 .set_notify(Some(Arc::new(move || h.kick())));
         }
         s.add_secret(&token);
+        s.add_secret(&assistant);
         laps.lap("services");
 
         let tools = tools::Set::new(Arc::new(ToolsView(s.clone())), Some(s.now.clone()));
@@ -1965,9 +2066,21 @@ impl Core {
                         let _ = s.talk.load();
                         s.hub.publish(CoreEvent::Talk);
                         s.follow_call_settings();
+                        s.follow_names_themes();
+                        s.follow_names_on();
+                        s.follow_weighs_on();
+                    } else if ev.kind == kinds::ASSISTANT_NAMES_SET {
+                        // Another device's "Name new threads" (card #782).
+                        s.follow_names_on();
+                    } else if ev.kind == kinds::ASSISTANT_WEIGHS_SET {
+                        // Another device's "Weigh new cards" (card #965).
+                        s.follow_weighs_on();
                     } else if ev.kind == kinds::TRANSCRIBE_SET {
                         // Another device's switch (card #656).
                         s.follow_call_settings();
+                    } else if ev.kind == kinds::NAMES_THEMES {
+                        // Another device's switches (card #702).
+                        s.follow_names_themes();
                     } else if coord::talk::KINDS.contains(&ev.kind.as_str()) {
                         // A write here was folded when it was written; the
                         // window still hears it (card #389).
@@ -2125,6 +2238,21 @@ impl Core {
             });
         }
 
+        // A `gh pr merge` heard on any device (cards #421, #970): this
+        // device's open PRs and its desks are asked about at once.
+        {
+            let s = s.clone();
+            let stop = self.stop.clone();
+            self.spawn("merges", move || {
+                loop {
+                    s.merge_heard();
+                    if stop.sleep(crate::prwatch::MERGE_TICK) {
+                        return;
+                    }
+                }
+            });
+        }
+
         // Merge desks' PR lists (card #415), and which repos are the
         // person's (card #625): a device that polls none still hides
         // stray desks.
@@ -2133,7 +2261,7 @@ impl Core {
             let stop = self.stop.clone();
             self.spawn("desks", move || {
                 loop {
-                    s.desk_merge_heard();
+                    s.desks_heard_merge();
                     s.check_desks();
                     if stop.sleep(crate::deskwatch::DESK_TICK) {
                         return;
@@ -2236,6 +2364,44 @@ impl Core {
             });
         }
         {
+            // Irori's assistant names the person's new threads (card
+            // #782): one loop hears the Board, another runs the turns one
+            // at a time, so a slow turn never holds the Board's feed.
+            let q = s.coord.subscribe();
+            let reg = self.on_stop(&q, |q| q.close());
+            s.names_seen_all();
+            let (tx, rx) = std::sync::mpsc::channel();
+            s.names_queue(Some(tx));
+            let s2 = s.clone();
+            self.spawn("assistant-names", move || {
+                let _reg = reg;
+                while let Some(ch) = q.recv() {
+                    s2.names_hear(&ch);
+                }
+                s2.names_queue(None);
+            });
+            let s3 = s.clone();
+            self.spawn("assistant-names-run", move || s3.names_loop(rx));
+        }
+        {
+            // Irori's assistant weighs new cards (card #965), as above.
+            let q = s.coord.subscribe();
+            let reg = self.on_stop(&q, |q| q.close());
+            s.weighs_seen_all();
+            let (tx, rx) = std::sync::mpsc::channel();
+            s.weighs_queue(Some(tx));
+            let s2 = s.clone();
+            self.spawn("assistant-weighs", move || {
+                let _reg = reg;
+                while let Some(ch) = q.recv() {
+                    s2.weighs_hear(&ch);
+                }
+                s2.weighs_queue(None);
+            });
+            let s3 = s.clone();
+            self.spawn("assistant-weighs-run", move || s3.weighs_loop(rx));
+        }
+        {
             let sub = Arc::new(s.capture.subscribe());
             let reg = self.on_stop(&sub, |s| s.cancel());
             let s = s.clone();
@@ -2288,7 +2454,10 @@ impl Core {
                 let _ = h.join();
             }
         }
+        // Killed shells remove their bootstrap folders from the temp dir as
+        // they exit: wait for them, a stuck one at most CLOSE_WAIT (#960).
         self.terms.close_all();
+        self.terms.settle(CLOSE_WAIT);
         self.s.boards.close_all();
         self.s.hub.close();
         self.s.pairing.shutdown();
@@ -2324,6 +2493,38 @@ impl Core {
         &self.s.token
     }
 
+    /// The window assistant's secret for this run (card #783): sent as
+    /// `X-Irori-Assistant`, it reads as the person through
+    /// `tools::ASSISTANT_TOOLS` (writes per grant, card #987). A secret:
+    /// never log it.
+    pub fn assistant_secret(&self) -> &str {
+        &self.s.assistant
+    }
+
+    /// Keeps the window's plain-text snapshot of what it shows (card
+    /// #1009) for the assistant's `screen` tool, cut to
+    /// [`ASSISTANT_SCREEN_MAX`] characters. An empty one clears it.
+    pub fn set_assistant_screen(&self, text: &str) {
+        let t: String = text.trim().chars().take(ASSISTANT_SCREEN_MAX).collect();
+        *self
+            .s
+            .assistant_screen
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = t;
+    }
+
+    /// What the person's message lets the window assistant change, for
+    /// the run going now (card #987).
+    pub fn assistant_grants(&self) -> &tools::Grants {
+        &self.s.assistant_grants
+    }
+
+    /// Where the window assistant runs (card #783): its `claude -p` cwd,
+    /// which presence leaves off the roster.
+    pub fn assistant_dir(&self) -> PathBuf {
+        assistant_dir(&self.s.data_dir)
+    }
+
     /// Gives capture's scrubber one more exact value to redact, kept for the
     /// Core's life (the lockfile token, member secrets).
     pub fn add_secret(&self, v: &str) {
@@ -2346,10 +2547,16 @@ impl Core {
     /// checked, merged into the kept reading and saved. Every reading taken
     /// is `usage:changed`, so the window's "as of" moves too; one with no
     /// window left after the checks changes nothing and is no event. `Err`
-    /// is why the reading was refused.
-    pub fn record_usage_limits(&self, input: &[crate::usage::RateLimit]) -> Result<(), String> {
+    /// is why the reading was refused. `account` is the Claude account the
+    /// session is signed in as, when the mod could tell (card #1040): a
+    /// different one replaces the kept windows.
+    pub fn record_usage_limits(
+        &self,
+        input: &[crate::usage::RateLimit],
+        account: Option<&str>,
+    ) -> Result<(), String> {
         let now = (self.s.now)().unix_milli_value();
-        if self.s.usage.record(input, now)? {
+        if self.s.usage.record(input, account, now)? {
             self.s.hub.publish(CoreEvent::Usage);
         }
         Ok(())
@@ -2640,6 +2847,39 @@ impl Core {
         self.s.asks_kick.kick();
     }
 
+    /// Gives the Core the desktop app's assistant turn (card #782): one
+    /// `claude -p` on Haiku that names the person's new threads. A
+    /// headless Core, or the phone, has none and names nothing.
+    pub fn set_namer(&self, n: Option<thread_names::Namer>) {
+        self.s.set_namer(n);
+    }
+
+    /// Installs the turn that weighs a new card (card #965).
+    pub fn set_weigher(&self, n: Option<thread_names::Namer>) {
+        self.s.set_weigher(n);
+    }
+
+    /// "Weigh new cards" (card #965): on unless the person turned it off.
+    pub fn weighs_on(&self) -> bool {
+        self.s.weighs_on()
+    }
+
+    /// The person turns "Weigh new cards" on or off, from the app only.
+    pub fn set_weighs_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_weighs_on(on)
+    }
+
+    /// "Name new threads" (card #782): on unless the person turned it off.
+    pub fn names_on(&self) -> bool {
+        self.s.names_on()
+    }
+
+    /// The person turns "Name new threads" on or off, from the app only:
+    /// no tool reaches this.
+    pub fn set_names_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_names_on(on)
+    }
+
     /// The `irori` whose `permission-hook` role each spawned agent's
     /// settings run on a permission prompt (card #682); `None` (the
     /// default) starts agents without the hook.
@@ -2825,6 +3065,17 @@ impl Core {
         self.s.set_agent_starts(on, max)
     }
 
+    /// "Agents review other people's PRs without asking" (merge-desk
+    /// §12.8): on unless the person turned it off.
+    pub fn reviews_unasked(&self) -> bool {
+        self.s.reviews_unasked()
+    }
+
+    /// The person sets it, from the app only: no tool reaches this.
+    pub fn set_reviews_unasked(&self, on: bool) -> Result<(), String> {
+        self.s.set_reviews_unasked(on)
+    }
+
     /// "Transcribe what I say in calls" (card #656): on unless the person
     /// turned it off.
     pub fn call_transcribe(&self) -> bool {
@@ -2834,6 +3085,18 @@ impl Core {
     /// The person sets it, from the app only: no tool reaches this.
     pub fn set_call_transcribe(&self, on: bool) -> Result<(), String> {
         self.s.set_call_transcribe(on)
+    }
+
+    /// The themes new agents' names don't come from (card #702): every
+    /// theme is on until the person turns it off.
+    pub fn names_themes_off(&self) -> Vec<String> {
+        self.s.names_themes_off()
+    }
+
+    /// The person turns a `coord::names::THEMES` theme on or off, from the
+    /// app only: no tool reaches this.
+    pub fn set_names_theme(&self, id: &str, on: bool) -> Result<(), String> {
+        self.s.set_names_theme(id, on)
     }
 
     pub fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
@@ -2853,6 +3116,41 @@ impl Core {
     /// Who set Pause agents, for people (`by` from [`Self::agents_pause`]).
     pub fn agents_pause_by(&self, by: &str) -> String {
         self.s.pause_by_name(by)
+    }
+
+    /// Whether device `dev` starts no agents now: its own pause, or Stop
+    /// everywhere's (card #787).
+    pub fn agents_paused_on(&self, dev: &str) -> bool {
+        self.s.agents_paused_on(dev)
+    }
+
+    /// Every device's Pause agents, by device id (card #787), and Stop
+    /// everywhere's own under [`spawn_pause::EVERYWHERE`].
+    pub fn agents_pauses(&self) -> std::collections::HashMap<String, spawn_pause::AgentsPause> {
+        self.s.agents_pauses()
+    }
+
+    /// Wind down on (card #787): Pause agents on each of `devs` (any of the
+    /// person's devices), marked as Wind down's. Devices already paused are
+    /// left as they are. Says which it paused. App only.
+    pub fn wind_down_pause(&self, devs: &[String]) -> Result<Vec<String>, String> {
+        self.s.wind_down_pause(devs)
+    }
+
+    /// Wind down off (card #787): lifts the pauses Wind down set, on every
+    /// device, and no other. Says which. App only.
+    pub fn wind_down_lift(&self) -> Result<Vec<String>, String> {
+        self.s.wind_down_lift()
+    }
+
+    /// The devices that can run agents: every device that said so (its
+    /// `spawn.host`), and this one (card #787).
+    pub fn agent_devices(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.s.hosts().into_keys().collect();
+        v.push(self.s.device.id.clone());
+        v.sort();
+        v.dedup();
+        v
     }
 
     /// The person turns Pause agents on or off for this device, from the
@@ -4168,6 +4466,52 @@ impl Services {
         }
         // And what folded while gh answered.
         self.tell_pr_news();
+    }
+
+    /// [`tools::Backend::recheck_prs`] (card #970): asks GitHub about each
+    /// PR card `task_id` links that `co` last heard open, and records a
+    /// merge or a closing. The caller, completing the card, isn't told
+    /// what it just did; anyone else on the card is. An open answer or a
+    /// failure changes nothing here: the poller goes on as before.
+    fn recheck_prs(self: &Arc<Self>, co: &Arc<Coord>, caller: &str, task_id: &str) {
+        let Some(checker) = self.pr_checker.clone().filter(|c| c.ready()) else {
+            return;
+        };
+        for p in co.pr_states(task_id) {
+            if p.state != coord::PR_OPEN {
+                continue;
+            }
+            let c = checker.check(&p.pr);
+            // A failure is the poller's to note and say, not this one's.
+            if !c.error.is_empty() {
+                continue;
+            }
+            self.pr_watch.answered(task_id, &p.pr, true);
+            if c.state != coord::PR_MERGED && c.state != coord::PR_CLOSED {
+                continue;
+            }
+            // Overtaken while gh answered: what folded since stands.
+            if co.pr_state(task_id, &p.pr).map(|q| q.state).as_deref() != Some(coord::PR_OPEN) {
+                continue;
+            }
+            match co.record_pr_state(task_id, c) {
+                Ok((_, ns)) => {
+                    for mut n in ns {
+                        // A board card's recipients are in its board form.
+                        n.to.retain(|k| self.private_key(k) != caller);
+                        if n.to.is_empty() {
+                            continue;
+                        }
+                        if let Some(e) =
+                            notice::notice_err(&self.route_notice(&inbox::system_sender(), &n))
+                        {
+                            logf(format_args!("pr notice {}: {e}", n.reference));
+                        }
+                    }
+                }
+                Err(e) => logf(format_args!("pr {} on {task_id}: {e}", p.pr)),
+            }
+        }
     }
 
     fn ask_github(

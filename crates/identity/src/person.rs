@@ -872,6 +872,7 @@ impl Identity {
             avatar: String::new(),
             github_login: String::new(),
             assistant_name: String::new(),
+            assistant_card: String::new(),
         })
     }
 

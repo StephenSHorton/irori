@@ -928,6 +928,68 @@ fn a_sibling_started_later_reads_the_persons_words_in_its_brief() {
     assert!(!brief.contains("AGENT-LINE"), "{brief}");
 }
 
+/// Card #690: an agent started for a card on one of Personal's boards
+/// reads the board's description in its brief, fenced as the person's.
+#[test]
+fn a_personal_boards_description_reaches_its_cards_brief() {
+    let r = Rig::new();
+    let work = tempfile::tempdir().unwrap();
+    let fake = Arc::new(Fake::default());
+    let person = format!("user:{}", r.core.device_id());
+    let board = r
+        .core
+        .create_personal_board_with("Garden", "garden", "Grow the ``` beans")
+        .unwrap();
+    let co = r.core.coord();
+    let t = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Water the beans".into(),
+                board: board.clone(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.set_where(
+        &t.id,
+        Where {
+            who: r.key_a.clone(),
+            cwd: work.path().to_string_lossy().into(),
+            worktree: work.path().to_string_lossy().into(),
+            ..Where::default()
+        },
+    )
+    .unwrap();
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            board_id: String::new(),
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    wait_for(60, "the card's agent to start", || {
+        fake.started
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|q| q.task_id == t.id)
+    });
+    let started = fake.started.lock().unwrap().clone();
+    let req = started.iter().find(|q| q.task_id == t.id).unwrap();
+    let brief = std::fs::read_to_string(&req.brief_path).unwrap();
+    assert!(
+        brief.contains(&format!(
+            "{} is on the board Garden (tag garden) in Personal.",
+            t.short_ref()
+        )) && brief
+            .contains("Board description (by the person):\n```text\nGrow the ''' beans\n```"),
+        "{brief}"
+    );
+}
+
 /// Card #570: "Start an agent" on a held card is the person's word to
 /// bring it back, so no agent starts on a card that is still held.
 #[test]
@@ -948,6 +1010,16 @@ fn starting_an_agent_on_a_held_card_brings_it_back_first() {
     co.park(&person, &t.id, "not now", coord::Back::Word)
         .unwrap();
     assert_eq!(co.get_task(&t.id).unwrap().state, coord::BLOCKED);
+    // Card #1066: with the switch off the button says so and changes nothing.
+    let e = r.core.start_agent(&t.id, "").unwrap_err();
+    assert!(e.contains("switched off"), "{e}");
+    assert_eq!(co.get_task(&t.id).unwrap().state, coord::BLOCKED);
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
     r.core.start_agent(&t.id, "").unwrap();
     let got = co.get_task(&t.id).unwrap();
     assert!(got.parked().is_none(), "{:?}", got.blockers);
@@ -1545,5 +1617,148 @@ fn a_not_trusted_start_says_so_and_starts_soon_after_trust() {
     assert!(
         coord::SPAWN_RETRY_UNTRUSTED < coord::SPAWN_RETRY,
         "sooner than other failures"
+    );
+}
+
+/// Card #963: a heavy card's agent starts on the heavy weight's model and
+/// effort, with nothing saved in Settings › Agents (Opus at high), and the
+/// request row says so too.
+#[test]
+fn a_heavy_card_starts_on_opus_high_by_itself() {
+    let r = Rig::new();
+    let work = tempfile::tempdir().unwrap();
+    let fake = Arc::new(Fake::default());
+    let me = r.core.device_id().to_string();
+    let person = format!("user:{me}");
+    let spawned = format!("{me}/{SPAWNED_SESS}");
+    let co = r.core.coord();
+    r.core.set_device_sides(&["Work".to_string()]).unwrap();
+    let t = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Plan the split".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.set_weight(&person, &t.id, "heavy", "planning the split")
+        .unwrap();
+    co.set_where(
+        &t.id,
+        Where {
+            who: r.key_a.clone(),
+            cwd: work.path().to_string_lossy().into(),
+            worktree: work.path().to_string_lossy().into(),
+            ..Where::default()
+        },
+    )
+    .unwrap();
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    wait_for(60, "the spawned agent bound to the card", || {
+        co.get_task(&t.id)
+            .is_some_and(|t| t.holders.contains(&spawned))
+    });
+    let req = fake.started.lock().unwrap()[0].clone();
+    assert_eq!((req.model.as_str(), req.effort.as_str()), ("opus", "high"));
+    let sr = co
+        .get_task(&t.id)
+        .unwrap()
+        .spawn_request()
+        .cloned()
+        .unwrap();
+    assert_eq!((sr.model.as_str(), sr.effort.as_str()), ("opus", "high"));
+}
+
+/// Card #963: what each weight starts with. No weight is normal: the
+/// board's own model and effort, unchanged. Light and heavy work with
+/// nothing set, never lighter than normal for heavy nor heavier for
+/// light, and follow the board's own pick when it makes one.
+#[test]
+fn each_weight_maps_to_a_model_and_effort() {
+    let d = SpawnSetting::default();
+    assert_eq!(d.pick(""), ("sonnet", "medium"));
+    assert_eq!(d.pick("normal"), ("sonnet", "medium"));
+    assert_eq!(d.pick("light"), ("sonnet", "medium"));
+    assert_eq!(d.pick("heavy"), ("opus", "high"));
+    let low = SpawnSetting {
+        effort: "low".into(),
+        ..SpawnSetting::default()
+    };
+    assert_eq!(low.pick("light"), ("sonnet", "low"));
+    let max = SpawnSetting {
+        model: "opus".into(),
+        effort: "max".into(),
+        ..SpawnSetting::default()
+    };
+    assert_eq!(max.pick(""), ("opus", "max"));
+    assert_eq!(max.pick("heavy"), ("opus", "max"));
+    assert_eq!(max.pick("light"), ("sonnet", "medium"));
+    let set = SpawnSetting {
+        light_model: "opus".into(),
+        light_effort: "low".into(),
+        heavy_model: "sonnet".into(),
+        heavy_effort: "xhigh".into(),
+        ..SpawnSetting::default()
+    };
+    assert_eq!(set.pick("light"), ("opus", "low"));
+    assert_eq!(set.pick("heavy"), ("sonnet", "xhigh"));
+    assert_eq!(set.pick(""), ("sonnet", "medium"));
+}
+
+/// Card #963: Haiku isn't offered for a card's agent. Setting it is
+/// refused on every weight, and a row saved with it before runs on Sonnet
+/// and keeps its other choices.
+#[test]
+fn haiku_is_refused_and_an_old_haiku_row_runs_on_sonnet() {
+    let r = Rig::new();
+    assert!(!irori_core::spawn::MODELS.contains(&"haiku"));
+    for bad in [
+        SpawnSetting {
+            model: "haiku".into(),
+            ..SpawnSetting::default()
+        },
+        SpawnSetting {
+            light_model: "haiku".into(),
+            ..SpawnSetting::default()
+        },
+        SpawnSetting {
+            heavy_effort: "huge".into(),
+            ..SpawnSetting::default()
+        },
+    ] {
+        assert!(r.core.set_spawn_setting(bad).is_err());
+    }
+    let me = r.core.device_id().to_string();
+    r.core
+        .store()
+        .append(
+            "user",
+            store::kinds::SPAWN_SET,
+            &serde_json::json!({
+                "boardId": "", "on": true, "model": "haiku", "effort": "high",
+                "lightModel": "haiku", "crashLimit": 5, "device": me,
+            }),
+        )
+        .unwrap();
+    r.core.sweep_coord().unwrap();
+    let s = r.core.spawn_setting("");
+    assert_eq!(
+        (
+            s.model(),
+            s.effort(),
+            s.light_model.as_str(),
+            s.crash_limit,
+            s.on
+        ),
+        ("sonnet", "high", "sonnet", 5, true),
+        "{s:?}"
     );
 }

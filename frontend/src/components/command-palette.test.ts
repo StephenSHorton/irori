@@ -6,7 +6,7 @@ import { buildItems, isRef, paletteOpenKey, results } from "./command-palette"
 const noop = () => {}
 const items = buildItems({
   commands: [
-    { id: "nav.home", title: "Home", group: "Go to", run: noop },
+    { id: "nav.home", title: "Dashboard", group: "Go to", run: noop },
     {
       id: "settings.open",
       title: "Settings",

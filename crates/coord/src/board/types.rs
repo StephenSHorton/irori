@@ -171,7 +171,85 @@ crate::go_struct! {
     }
 }
 
+/// A card's attempt that went wrong, or its agent moving it (card #966).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Retry {
+    /// [`RETRY_CRASH`], [`RETRY_SENT_BACK`] or [`RETRY_MOVED`].
+    pub cause: &'static str,
+    /// What it is about, so one thing counts once: the agent, the done
+    /// check, or the weight row.
+    pub of: String,
+    /// When, in Unix nanoseconds.
+    pub at: i64,
+}
+
+pub const RETRY_CRASH: &str = "crash";
+pub const RETRY_SENT_BACK: &str = "sent_back";
+pub const RETRY_MOVED: &str = "moved";
+
 impl Task {
+    fn counted_retries(&self) -> impl Iterator<Item = &Retry> {
+        self.retries
+            .iter()
+            .filter(|r| r.cause != RETRY_MOVED && r.at > self.weighed_at)
+    }
+
+    fn own_level(&self) -> &str {
+        self.weight
+            .as_ref()
+            .map_or(WEIGHT_NORMAL, |w| w.level.as_str())
+    }
+
+    /// The weight its next attempt starts on (card #966): its own, or
+    /// normal, one step higher for each crash or Not done since that weight
+    /// was written, up to heavy. The weight itself stays as it was set: it
+    /// may be the person's.
+    pub fn run_level(&self) -> &'static str {
+        let own = self.own_level();
+        let at = WEIGHTS.iter().position(|w| *w == own).unwrap_or(1);
+        WEIGHTS[(at + self.counted_retries().count()).min(WEIGHTS.len() - 1)]
+    }
+
+    /// Why its next attempt starts above its weight; "" when it doesn't.
+    pub fn stepped_why(&self) -> &'static str {
+        if self.run_level() == self.own_level() {
+            return "";
+        }
+        match self.counted_retries().max_by_key(|r| r.at).map(|r| r.cause) {
+            Some(RETRY_SENT_BACK) => "one step higher: the person sent it back as not done",
+            Some(RETRY_CRASH) => "one step higher: its last agent crashed",
+            _ => "",
+        }
+    }
+
+    /// Whether the person's Not done should end attempt `s`'s live agent:
+    /// it came after that attempt started and lifts the card off the weight
+    /// that attempt runs at.
+    pub fn sent_back_lifts(&self, s: &super::spawn::Spawn) -> bool {
+        !s.weight.is_empty()
+            && s.weight != self.run_level()
+            && self
+                .counted_retries()
+                .any(|r| r.cause == RETRY_SENT_BACK && r.at > s.at.unix_nano())
+    }
+
+    /// Records a retry once, by what it is about, at the newest time it
+    /// was said, so the fold's order doesn't change the answer.
+    pub(crate) fn note_retry(&mut self, cause: &'static str, of: &str, at: i64) {
+        match self
+            .retries
+            .iter_mut()
+            .find(|r| r.cause == cause && r.of == of)
+        {
+            Some(r) => r.at = r.at.max(at),
+            None => self.retries.push(Retry {
+                cause,
+                of: of.to_string(),
+                at,
+            }),
+        }
+    }
+
     /// The person's say clears a run of crashes (cards #447, #540, #575).
     pub(crate) fn person_cleared_crashes(&mut self) {
         if self.spawn_crashes > 0 {
@@ -331,8 +409,9 @@ impl Blocker {
 
     /// The GitHub pull request an open external wait is on (card #509):
     /// its ref when that is a PR URL, else the first PR among its links.
-    /// Such a wait is the person's merge, so it counts in Needs you.
-    pub fn merge_wait(&self) -> Option<String> {
+    /// Irori polls it so the agent hears it merge. Such a wait stays its
+    /// agent's: the person is never asked to merge (card #970).
+    pub fn pr_wait(&self) -> Option<String> {
         let on = self.on.as_ref()?;
         if !self.open() || on.kind != BLOCKED_ON_EXTERNAL {
             return None;
@@ -435,6 +514,18 @@ pub struct Ask {
     /// handed or started for it until its person writes in it.
     #[serde(skip_serializing_if = "omit")]
     pub opener: String,
+    /// The opener gave this thread to a fresh agent Irori starts for it
+    /// (card #1027): it doesn't rest, and is handed to nobody else.
+    #[serde(skip_serializing_if = "omit")]
+    pub fresh: bool,
+    /// The opener gave the thread away (card #1027): the person's replies
+    /// no longer go to it unless it watches.
+    #[serde(skip_serializing_if = "omit")]
+    pub gave: bool,
+    /// The Office Assistant posted this thread for the person (card #991):
+    /// Irori doesn't name it. Still the person's in every other way.
+    #[serde(skip_serializing_if = "omit")]
+    pub assistant: bool,
 }
 
 impl Ask {
@@ -468,6 +559,53 @@ pub struct Rollup {
     pub blocked_question: String,
 }
 
+/// A card's weight (card #963).
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Weight {
+    /// [`WEIGHT_LIGHT`], [`WEIGHT_NORMAL`] or [`WEIGHT_HEAVY`].
+    pub level: String,
+    /// One line on why.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub reason: String,
+    /// Who set it, from the row's writer: [`SET_BY_PERSON`],
+    /// [`SET_BY_ASSISTANT`] (Irori's office assistant) or [`SET_BY_AGENT`].
+    pub set_by: String,
+    /// Their key.
+    pub by: String,
+    pub at: GoTime,
+    /// What Irori's office assistant replaced (card #965), for Undo: ""
+    /// when the card had no weight.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub was_level: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub was_reason: String,
+    /// "up" or "down" when the card's agent moved it (card #966).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub moved: String,
+}
+
+pub const WEIGHT_LIGHT: &str = "light";
+pub const WEIGHT_NORMAL: &str = "normal";
+pub const WEIGHT_HEAVY: &str = "heavy";
+/// The weights, lightest first.
+pub const WEIGHTS: [&str; 3] = [WEIGHT_LIGHT, WEIGHT_NORMAL, WEIGHT_HEAVY];
+pub const SET_BY_PERSON: &str = "person";
+pub const SET_BY_ASSISTANT: &str = "assistant";
+pub const SET_BY_AGENT: &str = "agent";
+
+impl Weight {
+    /// Whether a person set it: then only a person changes it.
+    pub fn by_person(&self) -> bool {
+        self.set_by == SET_BY_PERSON
+    }
+
+    /// Whether Irori's office assistant set it: the person may Undo it.
+    pub fn by_assistant(&self) -> bool {
+        self.set_by == SET_BY_ASSISTANT
+    }
+}
+
 /// The folded view of one task.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -498,6 +636,18 @@ pub struct Task {
     #[serde(skip_serializing_if = "omit")]
     pub withdrawn: bool,
     pub title: String,
+    /// The person named it by hand (card #779): an agent's rename no longer
+    /// lands, so the name stays theirs until they change it again.
+    #[serde(skip_serializing_if = "omit")]
+    pub title_by_person: bool,
+    /// How many times Irori's assistant named it (card #782): it names a
+    /// new thread once and retitles it at most once more.
+    #[serde(skip_serializing_if = "omit")]
+    pub irori_titled: i64,
+    /// The title it had before Irori's newest rename (card #782): what
+    /// Undo puts back. Empty when Irori never renamed it.
+    #[serde(skip_serializing_if = "omit")]
+    pub title_was: String,
     pub objective: String,
     #[serde(skip_serializing_if = "omit")]
     pub done_criteria: String,
@@ -574,6 +724,14 @@ pub struct Task {
     /// agent is theirs, so it doesn't count toward their agents' limit.
     #[serde(skip)]
     pub person_restart: i64,
+    /// What went wrong with its attempts, or moved it (card #966): each
+    /// crash and Not done raises the level its next attempt starts on.
+    #[serde(skip)]
+    pub retries: Vec<Retry>,
+    /// When its weight was last written, in Unix nanoseconds: retries
+    /// before it don't count.
+    #[serde(skip)]
+    pub weighed_at: i64,
     /// Where the holder's work is (card #137), kept after it stops so
     /// whoever takes the card over can find it.
     #[serde(rename = "where", skip_serializing_if = "omit")]
@@ -623,6 +781,11 @@ pub struct Task {
     /// until Resume. Copied on at read time, like the pin.
     #[serde(skip_serializing_if = "omit")]
     pub paused: bool,
+    /// How heavy the card's work is (card #963): Irori starts its agent on
+    /// the model and effort the board maps this weight to. None is normal.
+    /// Copied on at read time, like the pin.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weight: Option<Weight>,
 }
 
 impl Task {
@@ -795,6 +958,15 @@ pub struct NewTask {
     /// `block_reason` (or the title when that is empty). Not with
     /// `blocked_by`.
     pub later: Option<super::later::Back>,
+    /// The person named it by hand (card #779), on the card it comes
+    /// from: a share keeps their name theirs. Only a person's row counts.
+    pub title_by_person: bool,
+    /// Its weight from the start (card #964): light, normal or heavy, or
+    /// empty for none (normal). Written with the card, so it is weighed
+    /// before Irori hands it out.
+    pub weight: String,
+    /// One line on why it has that weight; an agent must give one.
+    pub weight_reason: String,
 }
 
 /// Narrows `list_tasks`; zero values mean any.
@@ -1017,8 +1189,12 @@ pub struct Card {
     /// Not part of the Go shape: the tools and the window read it.
     pub stranded: Vec<super::stranded::Stranded>,
     /// Of those, the waits only Needs you shows (card #520): on a gone
-    /// agent, or outside waits (not a PR's merge) a gone agent raised.
+    /// agent, or outside waits a gone agent raised (a PR's too, card #970).
     pub gone_waits: Vec<super::stranded::Stranded>,
+    /// How much longer the "Nobody took" notice holds off for this ask
+    /// because a computer is taking it (card #995). Not part of the Go
+    /// shape: only the watcher reads it.
+    pub notice_hold: Option<std::time::Duration>,
 }
 
 impl Serialize for Card {
@@ -1198,6 +1374,8 @@ pub struct NewAsk {
     /// card #454). On a space's log, one of that space's channels (card
     /// #558).
     pub channel: String,
+    /// A thread the Office Assistant posted for the person (card #991).
+    pub assistant: bool,
 }
 
 /// ask_claim's answer.
@@ -1247,6 +1425,9 @@ pub struct NewSubtask {
     pub steps: Vec<String>,
     /// Asks for a helper on this subtask (spawned agents §3).
     pub spawn: bool,
+    /// Its weight from the start (card #964), as [`NewTask::weight`].
+    pub weight: String,
+    pub weight_reason: String,
 }
 
 /// What a shared board's fold set aside: rows naming something the log

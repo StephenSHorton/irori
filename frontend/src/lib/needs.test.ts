@@ -6,6 +6,7 @@ import {
   workingNow,
   type AgentRef,
   type CardSummary,
+  type ThreadSummary,
 } from "./cards"
 import { readFileSync } from "node:fs"
 
@@ -278,6 +279,33 @@ describe("needsOf", () => {
     const got = needsOf(cs, [held, held]).map((n) => `${n.kind}:${n.id}`)
     expect(got).toEqual(["check:b", "held:h", "decision:a"])
   })
+  test("a thread waiting on you shows from any space; a resolved or read one does not (card #1001)", () => {
+    const t = (over: Record<string, unknown>) =>
+      ({
+        id: "t",
+        title: "T",
+        state: "waiting",
+        unread: true,
+        updatedAt: "2026-11-02T10:00:00Z",
+        ...over,
+      }) as unknown as ThreadSummary
+    const got = needsOf(
+      [],
+      [],
+      [
+        t({ id: "mine" }),
+        t({ id: "in-space", spaceId: "b-a" }),
+        t({ id: "noagent", unread: false, noAgent: "no computer" }),
+        t({ id: "read", unread: false }),
+        t({ id: "done", state: "resolved" }),
+      ]
+    ).map((n) => `${n.kind}:${n.id}`)
+    expect(got.sort()).toEqual([
+      "thread:in-space",
+      "thread:mine",
+      "thread:noagent",
+    ])
+  })
   test("holds between agents and Pause all's are one line, last and uncounted (card #488)", () => {
     const cs = [
       card({ id: "a", openBlockers: 1, updatedAt: "2026-11-02T10:00:00Z" }),
@@ -521,15 +549,7 @@ describe("a wait no agent will end is the person's (card #520)", () => {
     expect(ns.map((n) => `${n.kind}:${n.id}`)).toEqual(["gone:73", "gone:75"])
     expect(ns[0].kind === "gone" && ns[0].wait.agent.name).toBe("kestrel")
   })
-  test("nothing shows twice: a merge, a decision or a finished card", () => {
-    const pr = {
-      repo: "sample/app",
-      number: 41,
-      url: "https://github.com/sample/app/pull/41",
-    }
-    expect(
-      needsOf([{ ...onAgent, mergePr: pr }], []).map((n) => n.kind)
-    ).toEqual(["merge"])
+  test("nothing shows twice: a decision or a finished card", () => {
     expect(
       needsOf([{ ...onAgent, openBlockers: 1 }], []).map((n) => n.kind)
     ).toEqual(["decision"])
@@ -548,57 +568,38 @@ describe("a wait no agent will end is the person's (card #520)", () => {
   })
 })
 
-describe("an agent's wait on a PR's merge is the person's (card #509)", () => {
+describe("an agent's wait on a PR stays its agent's (card #970)", () => {
   const pr = {
     repo: "StephenSHorton/irori",
     number: 41,
     url: "https://github.com/StephenSHorton/irori/pull/41",
   }
-  const merge = card({
+  const onPr = card({
     id: "454",
     state: TaskState.Blocked,
     waitingOn: 1,
     waitKind: "external",
     waitOn: pr.url,
-    mergePr: pr,
     updatedAt: "2026-11-05T06:23:00Z",
   })
-  test("its row needs the person and names the PR", () => {
-    expect(rowState(merge)).toEqual({ state: "needs", line: "Merge PR #41" })
+  test("it never asks the person to merge", () => {
+    expect(rowState(onPr).state).not.toBe("needs")
+    expect(rowState(onPr).line).not.toMatch(/merge/i)
   })
-  test("it is a merge row in Needs you, beside the decisions", () => {
+  test("it is no Needs you row; a decision beside it still is", () => {
     const cs = [
-      merge,
+      onPr,
       card({
         id: "290",
         state: TaskState.Blocked,
         openBlockers: 1,
         updatedAt: "2026-11-05T05:00:00Z",
       }),
-      // A wait on CI, or on a PR in review, stays off it.
-      card({
-        id: "500",
-        state: TaskState.Blocked,
-        waitingOn: 1,
-        waitKind: "external",
-        waitOn: "CI on the release",
-      }),
       card({ id: "330", state: TaskState.InReview, waitPr: pr }),
     ]
-    const ns = needsOf(cs, [])
-    expect(ns.map((n) => `${n.kind}:${n.id}`)).toEqual([
-      "merge:454",
+    expect(needsOf(cs, []).map((n) => `${n.kind}:${n.id}`)).toEqual([
       "decision:290",
     ])
-    expect(ns[0].kind === "merge" && ns[0].pr).toEqual(pr)
-  })
-  test("a card with a decision too is one decision row; a finished one none", () => {
-    expect(
-      needsOf([{ ...merge, openBlockers: 1 }], []).map((n) => n.kind)
-    ).toEqual(["decision"])
-    expect(
-      needsOf([{ ...merge, state: TaskState.Completed }], []).map((n) => n.kind)
-    ).toEqual([])
   })
 })
 
