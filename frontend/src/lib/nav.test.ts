@@ -12,6 +12,22 @@ import {
 } from "./nav"
 
 describe("Talk lives in the address (card #390)", () => {
+  test("#huddle/<callId> is a huddle's page, and sits apart from Talk", () => {
+    expect(sectionFromHash("#huddle/call%201")).toEqual({
+      kind: "huddle",
+      id: "call 1",
+    })
+    expect(sectionHash({ kind: "huddle", id: "call 1" })).toBe(
+      "#huddle/call%201"
+    )
+    expect(
+      sameSection({ kind: "huddle", id: "a" }, { kind: "huddle", id: "b" })
+    ).toBe(false)
+    expect(
+      sameSection({ kind: "huddle", id: "a" }, { kind: "talk", id: "a" })
+    ).toBe(false)
+  })
+
   test("#talk is the list, #talk/<id> a conversation open", () => {
     expect(sectionFromHash("#talk")).toEqual({ kind: "talk", id: "" })
     expect(sectionFromHash("#talk/01ABC")).toEqual({

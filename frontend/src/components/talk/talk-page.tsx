@@ -58,6 +58,7 @@ import {
   broadcastTo,
   dmSections,
   sectionRows,
+  shownAtOnce,
   type Broadcast,
   sectionHeader,
   useFolds,
@@ -72,6 +73,9 @@ import {
 import { agentStatus } from "@/lib/agent-status"
 import { ConversationView, memberStatus, statusOf } from "./conversation"
 import { HuddleLine, useCallPart } from "./huddle"
+import { HuddleRow } from "./huddles-list"
+import { huddlesFor } from "./huddles-list"
+import { useHuddles } from "@/lib/huddles"
 import { huddleNames } from "@/lib/call"
 import { memberName, nameOr } from "@/lib/names"
 
@@ -114,6 +118,7 @@ export function TalkPage({
   agents,
   open,
   onOpen,
+  onOpenHuddle,
   now,
   why = "",
   board = "",
@@ -134,6 +139,8 @@ export function TalkPage({
   // The conversation open ("" none: the new-thread box).
   open: string
   onOpen: (id: string) => void
+  // Opens a huddle's page (card #1044).
+  onOpenHuddle?: (callId: string) => void
   now: Date
   // Why nobody is free to take a waiting thread (card #172).
   why?: string
@@ -314,6 +321,56 @@ export function TalkPage({
     )
   }
 
+  // Huddles (card #1044): the picked space's, newest first.
+  const { huddles, loading: huddlesLoading } = useHuddles()
+  const huddlesShown = huddlesFor(huddles, conversations, space, query)
+  const huddlesSection = () => {
+    const all = huddlesShown
+    const fold = folded("huddles")
+    const rows = fold
+      ? []
+      : searching || allShown.huddles
+        ? all
+        : all.slice(0, shownAtOnce)
+    return (
+      <Group
+        label="Huddles"
+        count={all.length}
+        folded={fold}
+        onToggle={searching ? undefined : () => toggleFold("huddles")}
+      >
+        {!fold && (
+          <Rows loading={huddlesLoading} label="Huddles">
+            {all.length === 0 && (
+              <p className="px-2 py-1 text-[12px] text-muted-foreground">
+                {searching
+                  ? "No huddle matches."
+                  : "No huddles yet. Start one from a channel or a DM."}
+              </p>
+            )}
+            {rows.map((h) => (
+              <HuddleRow
+                key={h.callId}
+                h={h}
+                now={now}
+                onOpen={() => onOpenHuddle?.(h.callId)}
+              />
+            ))}
+            {all.length > rows.length && (
+              <button
+                type="button"
+                className="px-2 py-0.5 text-left text-[11px] text-muted-foreground hover:text-ink"
+                onClick={() => setAllShown({ ...allShown, huddles: true })}
+              >
+                Show {all.length - rows.length} more
+              </button>
+            )}
+          </Rows>
+        )}
+      </Group>
+    )
+  }
+
   const list = (
     <nav
       aria-label="Talk"
@@ -362,6 +419,7 @@ export function TalkPage({
           if (t.closeOpen) onOpen("")
         }}
       />
+      {onOpenHuddle && huddlesSection()}
       {convSection(
         "channels",
         "Channels",

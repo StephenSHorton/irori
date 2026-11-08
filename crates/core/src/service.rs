@@ -436,6 +436,22 @@ impl tools::Backend for ToolsView {
     fn device_id(&self) -> String {
         self.0.device.id.clone()
     }
+    fn device_free(&self, path: &str) -> Option<tools::DeviceFree> {
+        let dir = if path.is_empty() {
+            self.0.data_dir.clone()
+        } else {
+            PathBuf::from(path)
+        };
+        let q = sys::meters::quick(&dir);
+        Some(tools::DeviceFree {
+            dir: dir.to_string_lossy().into_owned(),
+            disk: q.disk.map(|d| (d.free_bytes, d.total_bytes)),
+            mem: q
+                .mem
+                .map(|m| (m.total_bytes.saturating_sub(m.used_bytes), m.total_bytes)),
+            cpu: q.cpu.and_then(|c| c.pct.map(|p| (p, c.cores))),
+        })
+    }
     fn agents(&self) -> Vec<presence::AgentCard> {
         self.0
             .roster
