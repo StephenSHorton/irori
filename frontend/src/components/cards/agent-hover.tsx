@@ -38,7 +38,10 @@ export const AgentCards = createContext<{
     id: string
     short: string
     title: string
+    tag?: string
     state?: string
+    spaceId?: string
+    private?: boolean
   }[]
   onOpenThread?: (id: string) => void
 } | null>(null)
