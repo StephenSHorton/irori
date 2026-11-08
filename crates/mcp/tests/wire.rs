@@ -492,8 +492,11 @@ fn assistant_without_a_core_offers_only_the_read_list() {
     names.sort();
     let mut want: Vec<String> = tools::ASSISTANT_TOOLS
         .iter()
+        .filter(|s| **s != "screen")
         .map(|s| s.to_string())
         .collect();
     want.sort();
+    // Card #1009: `screen` comes only from a Core (it is the window's
+    // snapshot), so the offline list, the grok one, has none.
     assert_eq!(names, want);
 }

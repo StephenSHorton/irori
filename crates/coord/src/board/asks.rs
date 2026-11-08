@@ -459,6 +459,8 @@ impl Fold {
                 a.told = p.told;
                 a.since = at(p.since);
                 a.unclaimed = p.unclaimed;
+                a.fresh = p.fresh;
+                a.gave = (a.gave || p.gave) && !(p.taker == a.opener && !p.taker.is_empty());
                 a.heard = p.heard.clone();
                 if !p.taker.is_empty() {
                     a.unclaimed = false;
@@ -1069,6 +1071,106 @@ impl Fold {
         Ok((t, n))
     }
 
+    /// The open thread `id` its agent `by` opened and still holds (card
+    /// #1027): what the opener may give away.
+    fn own_held_thread(&self, by: &str, id: &str) -> Result<Ask> {
+        let t = self.open_task(id)?;
+        match t.open_ask() {
+            Some(a) if a.thread && a.opener == by && a.taker == by => Ok(a.clone()),
+            _ => Err(not_allowed(
+                "only the agent that opened a thread, while it holds it, gives it away",
+            )),
+        }
+    }
+
+    /// The opener `by` gives its thread `id` to a fresh agent Irori starts
+    /// for it (card #1027): nobody holds it until that agent comes, and it
+    /// is handed to no idle agent. `watch` keeps the opener hearing the
+    /// person's replies.
+    pub(crate) fn thread_to_new_agent(&mut self, by: &str, id: &str, watch: bool) -> Result<Task> {
+        let a = self.own_held_thread(by, id)?;
+        let since = self.stamp();
+        self.write_take(
+            id,
+            TakeStateRow {
+                reason: TAKE_UNCLAIMED.into(),
+                was: by.into(),
+                told: a.told,
+                heard: a.heard.clone(),
+                since,
+                unclaimed: true,
+                fresh: true,
+                gave: !watch,
+                ..TakeStateRow::default()
+            },
+        )?;
+        Ok(self.tasks[id].clone())
+    }
+
+    /// The opener takes its thread back after no agent could be started
+    /// for it (card #1027).
+    pub(crate) fn thread_back_to_opener(&mut self, by: &str, id: &str) -> Result<Task> {
+        let t = self.open_task(id)?;
+        let a = match t.open_ask() {
+            Some(a) if a.thread && a.opener == by && a.fresh => a.clone(),
+            _ => return Err(not_allowed("not a thread you gave to a fresh agent")),
+        };
+        let since = self.stamp();
+        self.write_take(
+            id,
+            TakeStateRow {
+                taker: by.into(),
+                reason: TAKE_TAKEN.into(),
+                told: a.told,
+                heard: a.heard.clone(),
+                since,
+                ..TakeStateRow::default()
+            },
+        )?;
+        Ok(self.tasks[id].clone())
+    }
+
+    /// The opener `by` hands its thread `id` to the named live agent `to`
+    /// (card #1027): `to` holds it and hears the person; the opener hears
+    /// them too only if it `watch`es. The notice is for `to`.
+    pub(crate) fn thread_hand_to(
+        &mut self,
+        by: &str,
+        id: &str,
+        to: &str,
+        watch: bool,
+    ) -> Result<(Task, Notice)> {
+        let a = self.own_held_thread(by, id)?;
+        if to == by || self.is_person(to) || to == SWEEPER {
+            return Err(invalid("hand a thread to another agent"));
+        }
+        let since = self.stamp();
+        let mut heard = a.heard.clone();
+        if !heard.iter().any(|k| k == to) {
+            heard.push(to.into());
+        }
+        self.write_take(
+            id,
+            TakeStateRow {
+                taker: to.into(),
+                reason: TAKE_HANDED.into(),
+                handed: true,
+                was: by.into(),
+                told: heard.len() as i64,
+                heard,
+                since,
+                gave: !watch,
+                ..TakeStateRow::default()
+            },
+        )?;
+        let t = self.tasks[id].clone();
+        let mut n = super::threads::thread_hand_notice(&t, to, &[]);
+        n.text = n
+            .text
+            .replacen(", and Irori handed it to you", ", and handed it to you", 1);
+        Ok((t, n))
+    }
+
     /// An agent opens a thread itself (card #631): a conversation with the
     /// person, in the private log or a shared board's. It holds it from the
     /// start, on its own device, so Irori never hands it out or starts an
@@ -1567,9 +1669,12 @@ impl Fold {
             && !ask.thread
         {
             for m in &ask.mentions {
-                let here = roster
-                    .iter()
-                    .any(|a| a.key == m.key && crate::roster::answers(&a.status));
+                // The Office Assistant answers in its channel, never an ask.
+                let here = roster.iter().any(|a| {
+                    a.key == m.key
+                        && a.agent != crate::roster::ASSISTANT_KIND
+                        && crate::roster::answers(&a.status)
+                });
                 if m.gone || !here || skip.contains(&m.key) || out.contains(&m.key) {
                     continue;
                 }
@@ -1581,6 +1686,7 @@ impl Fold {
         for a in roster {
             let dev = cmp_or_dev(&a.device_id, owner::device_of(&a.key));
             if a.key.is_empty()
+                || a.agent == crate::roster::ASSISTANT_KIND
                 || a.key == SWEEPER
                 || self.is_owner(&a.key)
                 || a.status != "idle"
@@ -1899,6 +2005,12 @@ impl Fold {
                 let t = self.tasks[id].clone();
                 let a = t.ask.clone().unwrap_or_default();
                 if !a.taker.is_empty() {
+                    continue;
+                }
+                // Given to a fresh agent (card #1027): it waits for the one
+                // Irori starts, and is handed to no idle agent meanwhile.
+                if a.fresh {
+                    again.remove(id);
                     continue;
                 }
                 // An agent Irori starts for it is on its way (card #470):

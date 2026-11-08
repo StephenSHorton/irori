@@ -9,6 +9,7 @@ mod any_agent_test;
 mod approvals;
 mod ask_spawn_test;
 mod ask_test;
+mod assistant_card_test;
 mod back_on_board_test;
 mod blocker_test;
 mod board_moves_test;
