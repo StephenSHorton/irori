@@ -164,6 +164,7 @@ export function sampleCards(now: Date): CardDetail[] {
   const at = (min: number) =>
     new Date(now.getTime() - min * 60000).toISOString()
   const { otter, heron, badger, wren, lark, mink } = sampleAgents
+  const replyPreview = new URLSearchParams(window.location.search).get("reply")
   const card = (c: Partial<CardDetail>): CardDetail => {
     const st = c.steps ?? []
     const open = (c.blockers ?? []).filter((b) => !b.resolved)
@@ -1811,6 +1812,31 @@ export function sampleCards(now: Date): CardDetail[] {
           who: otter,
           text: "sample-otter ticked “Design”",
         }),
+        // Card #980: ?reply=unread, replying or stopped shows the line under
+        // the comments for the person's latest comment (PREVIEW.md).
+        ...(replyPreview
+          ? [
+              CardThreadItem({
+                id: "sample-4-reply",
+                kind: "comment",
+                at: at(2),
+                who: sampleYou,
+                text: "Does this cover the PC's firewall prompt too?",
+                pending:
+                  replyPreview === "unread"
+                    ? [
+                        "sample-otter is busy: it hears this when its current turn ends",
+                      ]
+                    : [],
+                heardBy:
+                  replyPreview === "replying"
+                    ? [otter.key]
+                    : replyPreview === "stopped"
+                      ? [heron.key]
+                      : [],
+              }),
+            ]
+          : []),
       ],
     }),
     // A card split into subtasks (board.md "Subtasks"): the parent's bar

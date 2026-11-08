@@ -225,6 +225,7 @@ export function ThreadView({
             ...t.answeredBy,
           ],
           over: resolved,
+          showWorking: true,
         }}
         compact
         empty={

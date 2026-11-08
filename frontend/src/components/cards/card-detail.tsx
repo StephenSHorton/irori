@@ -257,8 +257,6 @@ export function CardPage({
   const legacy = detail.openBlockers > 0 && open.length === 0
   const now_ = withLive(detail, live)
   const spinning = busy(now_)
-  const workers = workingNow(now_)
-  const jobs = runningJobNow(now_)
   // Links already on screen (a PR's, an open blocker's or one of its
   // answers') aren't listed again on the side.
   const shownLinks = new Set(
@@ -573,8 +571,6 @@ export function CardPage({
                           on={{
                             agents: detail.working,
                             over: over(detail),
-                            working: workers,
-                            jobs,
                           }}
                           composer={
                             <CommentBox

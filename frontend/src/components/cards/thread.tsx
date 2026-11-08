@@ -36,6 +36,7 @@ import { cn } from "@/lib/utils"
 import { Spinner } from "./bits"
 import { Face } from "./faces"
 import { RichLine, RichText } from "@/components/common/rich-text"
+import { ReplyingRow } from "@/components/talk/replying-row"
 
 // Thread is a card's thread, oldest first: comments, messages about the
 // card ("A -> B") and one muted line per thing that happened, each with
@@ -76,14 +77,12 @@ export function Thread({
   // that bounds the height: only the entries shrink.
   scroll?: boolean
   // on: the agents on this thread (a card's holders, an ask's takers) and
-  // whether it is over, for the live "working…" line (card #299).
-  // working, when given, is who the card's rule says works on it now
-  // (card #317): the line names them, so it agrees with the page.
+  // whether it is over, for the live "replying…" line (cards #299, #980).
+  // showWorking also says "working…": a thread with no top row saying so.
   on?: {
     agents: readonly AgentRef[]
     over?: boolean
-    working?: readonly AgentRef[]
-    jobs?: readonly AgentRef[]
+    showWorking?: boolean
   }
 }) {
   const [showAll, setShowAll] = useState(false)
@@ -101,15 +100,7 @@ export function Thread({
     return () => window.clearTimeout(id)
   }, [watching, live])
   const status = on
-    ? workingLine(
-        on.agents,
-        items,
-        live,
-        new Date(),
-        on.over,
-        on.working,
-        on.jobs
-      )
+    ? workingLine(on.agents, items, live, new Date(), on.over, on.showWorking)
     : null
   // A comment a notification opened the card at: shown even when it is
   // older than the first page, scrolled into view once (card #177).
@@ -200,7 +191,16 @@ export function Thread({
           ) : (
             empty
           ))}
-      {status &&
+      {status?.tone === "replying" ? (
+        <ReplyingRow
+          line={{
+            who: status.who ?? "",
+            verb: status.verb ?? "is",
+            text: status.text,
+          }}
+        />
+      ) : (
+        status &&
         (status.tone === "working" ? (
           // Where the next comment will appear (card #317): who is on it,
           // with a word that changes while no running tool says more.
@@ -219,7 +219,8 @@ export function Thread({
           <p role="status" className="text-[11.5px] text-warning">
             {status.text}
           </p>
-        ))}
+        ))
+      )}
     </>
   )
   if (scroll) {
