@@ -49,6 +49,7 @@ import {
   addNote,
   onGo,
   postDraft,
+  replaced,
   replyOn,
   replyText,
   setAssistantOpen,
@@ -189,6 +190,7 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
             reply={s.reply}
             work={s.work}
             autoPosting={s.autoPosting}
+            autoFailed={s.autoFailed}
             narrow={narrow}
             onAsk={(t) => void ask(t)}
             onStop={stopAsking}
@@ -409,6 +411,7 @@ export function AssistantPanel({
   reply,
   work = {},
   autoPosting = null,
+  autoFailed,
   narrow,
   onAsk,
   onStop,
@@ -425,6 +428,8 @@ export function AssistantPanel({
   work?: Record<string, WorkThread>
   // The message whose thread is posting by itself (card #988).
   autoPosting?: ChatEntry | null
+  // Why a message's thread couldn't post by itself.
+  autoFailed?: ReadonlyMap<ChatEntry, string>
   narrow: boolean
   onAsk: (text: string) => void
   onStop: () => void
@@ -576,6 +581,8 @@ export function AssistantPanel({
                 threadRef={e.update ? (refs.get(e.update) ?? "") : ""}
                 onPost={() => onPost(i)}
                 posting={e === autoPosting}
+                failed={autoFailed?.get(e)}
+                wasReplaced={replaced(entries, i)}
               />
             ))}
             {reply && <Answering reply={reply} />}
@@ -688,10 +695,16 @@ function Entry({
   threadRef,
   onPost,
   posting,
+  failed,
+  wasReplaced,
 }: {
   entry: ChatEntry
   // Its thread is posting by itself.
   posting: boolean
+  // Why it couldn't post by itself.
+  failed?: string
+  // A later reply's thread took over from this check-first one.
+  wasReplaced: boolean
   onGo: (t: GoTarget, from?: Element) => Promise<string>
   // A posted draft's thread, as last read.
   work?: WorkThread
@@ -735,8 +748,10 @@ function Entry({
             draft={draft}
             posted={entry.posted}
             posting={posting}
+            failed={failed}
+            replaced={wasReplaced}
             work={work}
-            onPost={partial ? undefined : onPost}
+            onPost={partial || wasReplaced ? undefined : onPost}
             cut={partial}
           />
         )}
@@ -798,6 +813,8 @@ function DraftThread({
   draft,
   posted,
   posting,
+  failed,
+  replaced: wasReplaced,
   work,
   onPost,
   cut,
@@ -806,6 +823,10 @@ function DraftThread({
   posted?: Posted
   // It is posting by itself.
   posting?: boolean
+  // Why it couldn't post by itself (Post thread retries).
+  failed?: string
+  // A newer draft took over from it.
+  replaced?: boolean
   // What came of it since (card #785): who took it, the cards made.
   work?: WorkThread
   // Without it there is no Post thread (the draft is being written).
@@ -883,12 +904,16 @@ function DraftThread({
             )}
             Post thread
           </Button>
-          {error && (
+          {!busy && (error || failed) && (
             <span className="text-[12px] text-destructive" role="alert">
-              {error}
+              Couldn't post it: {error || failed}
             </span>
           )}
         </div>
+      ) : wasReplaced ? (
+        <p className="text-[12.5px] text-muted-foreground">
+          Replaced by the newer draft below.
+        </p>
       ) : cut ? (
         <p className="text-[12.5px] text-muted-foreground">
           The draft was cut short. Ask again for the whole thread.

@@ -273,6 +273,9 @@ export type AssistantState = {
   // The message whose thread is posting by itself (card #988), so its
   // draft says so rather than offering Post thread.
   autoPosting: ChatEntry | null
+  // Why a message's thread couldn't post by itself: its draft says so
+  // beside Post thread. Not kept: after a reload the button is enough.
+  autoFailed: ReadonlyMap<ChatEntry, string>
 }
 
 let state: AssistantState | null = null
@@ -282,7 +285,7 @@ const subs = new Set<() => void>()
 // ?assistant=busy with a reply half written (lib/preview.ts).
 function initial(): AssistantState {
   const flag = typeof window === "undefined" ? null : previewFlag("assistant")
-  const base = { work: {}, autoPosting: null }
+  const base = { work: {}, autoPosting: null, autoFailed: new Map() }
   // ?assistant=follow: a thread the chat posted, sample #20, followed
   // from nothing said, so the first read says how its work went (#785).
   if (flag === "follow")
@@ -385,7 +388,7 @@ export function setAssistantOpen(open: boolean) {
 // threads it posted are no longer followed.
 export function newChat() {
   stopAsking()
-  set({ entries: [], reply: null, work: {} })
+  set({ entries: [], reply: null, work: {}, autoFailed: new Map() })
   follower?.poke()
 }
 
@@ -422,17 +425,16 @@ function finish(r: Reply) {
 
 // autoPost posts the thread of the reply just added at the chat's end. It
 // stays in the chat, naming the thread; it doesn't open it, as a tap does.
-// If it fails the chat says so and the draft keeps Post thread to retry.
+// If it fails the draft says why, and keeps Post thread to retry.
 function autoPost() {
   const { entries } = assistantState()
   const entry = entries[entries.length - 1]
   set({ autoPosting: entry })
   postDraft(entries.length - 1)
     .catch((err) => {
-      if (assistantState().entries.includes(entry))
-        addNote(
-          `Couldn't post that thread: ${errorLine(err)} Tap Post thread to try again.`
-        )
+      const failed = new Map(assistantState().autoFailed)
+      failed.set(entry, errorLine(err))
+      set({ autoFailed: failed })
     })
     .finally(() => set({ autoPosting: null }))
 }
@@ -574,13 +576,45 @@ export function splitDraft(raw: string): Split {
   }
 }
 
+// A thread that posts by itself is a block as the prompt lays it out: its
+// lines alone, ending the reply (a go line may follow).
+const postableBlock =
+  /(?:^|\n)[ \t]*<<thread>>[ \t]*\n[\s\S]*?\n[ \t]*<<\/thread>>\s*(?:<<go [^\n]*>>\s*)?$/
+
 // postsByItself is whether an ended reply's thread posts with no tap: the
 // reply finished (not Stopped or failed), and it holds a whole thread the
-// person didn't ask to check first.
+// person didn't ask to check first. The markers merely quoted in a reply
+// ("a thread goes between <<thread>> and…") or any odd layout don't: the
+// chat shows those with Post thread.
 export function postsByItself(r: Reply): boolean {
   if (r.end !== "done") return false
   const { draft, partial, check } = splitDraft(r.text)
-  return Boolean(draft) && !partial && !check
+  if (!draft || partial || check) return false
+  const block = postableBlock.exec(r.text)
+  return (
+    block !== null &&
+    r.text.indexOf("<<thread") === r.text.indexOf(DraftOpen, block.index)
+  )
+}
+
+// replaced is whether the message at index holds a check-first thread
+// that a later reply's thread took over: only the newest can be posted,
+// or tapping the old one would start the same work twice.
+export function replaced(entries: readonly ChatEntry[], index: number) {
+  const e = entries[index]
+  if (!e || e.posted || e.role !== "assistant" || e.note || e.update)
+    return false
+  if (!splitDraft(e.text).check) return false
+  return entries
+    .slice(index + 1)
+    .some(
+      (x) =>
+        x.role === "assistant" &&
+        !x.note &&
+        !x.update &&
+        splitDraft(x.text).draft !== "" &&
+        !splitDraft(x.text).partial
+    )
 }
 
 // splitReply splits a reply as the chat shows it: its drafted thread

@@ -14,6 +14,7 @@ import {
   newChat,
   postDraft,
   postsByItself,
+  replaced,
   parseHistory,
   replyText,
   sampleAnswer,
@@ -421,6 +422,29 @@ describe("the Office Assistant posts what it drafts (card #988)", () => {
     expect(postsByItself(ended(whole, "error"))).toBe(false)
     expect(postsByItself(ended(whole, ""))).toBe(false)
   })
+  test("markers only quoted, or laid out oddly, wait for a tap", () => {
+    const quoted = `A thread goes between ${DraftOpen} and ${DraftClose}.`
+    expect(splitDraft(quoted).draft).toBe("and")
+    expect(postsByItself(ended(quoted))).toBe(false)
+    expect(postsByItself(ended(`${quoted}\n\n${whole}`))).toBe(false)
+    expect(postsByItself(ended(`${DraftOpen}Fix.${DraftClose}`))).toBe(false)
+    expect(postsByItself(ended(`${whole}\nAnd more words.`))).toBe(false)
+    expect(postsByItself(ended(`${whole}\n\n<<go card #8>>`))).toBe(true)
+  })
+  test("a newer thread retires the check-first one before it", () => {
+    const es: ChatEntry[] = [
+      { role: "assistant", text: held },
+      { role: "person", text: "Good, mention #8 too" },
+      { role: "assistant", text: held },
+      { role: "assistant", text: "Ok.", note: true },
+    ]
+    expect(replaced(es, 0)).toBe(true)
+    expect(replaced(es, 2)).toBe(false)
+    expect(
+      replaced([{ ...es[0], posted: { id: "t", short: "1" } }, es[2]], 0)
+    ).toBe(false)
+    expect(replaced([{ role: "assistant", text: whole }, es[2]], 0)).toBe(false)
+  })
   test("asking for work posts one thread with no tap, and a tap adds none", async () => {
     await ask("Can you fix the lobby?")
     await replied()
@@ -465,9 +489,9 @@ describe("the Office Assistant posts what it drafts (card #988)", () => {
     start.mockRejectedValueOnce(new Error("The server is away."))
     await ask("Can you fix the lobby?")
     await replied()
-    const { entries } = assistantState()
-    expect(entries[entries.length - 1].note).toBe(true)
-    expect(entries[entries.length - 1].text).toContain("The server is away.")
+    const { entries, autoFailed } = assistantState()
+    expect(autoFailed.get(lastDraft()!)).toBe("The server is away.")
+    expect(entries[entries.length - 1].note).toBeUndefined()
     expect(lastDraft()?.posted).toBeUndefined()
     await postDraft(entries.indexOf(lastDraft()!))
     expect(start).toHaveBeenCalledTimes(2)

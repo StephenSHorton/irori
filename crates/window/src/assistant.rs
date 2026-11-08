@@ -134,8 +134,9 @@ them and open it with this line instead of the first one:
 
 <<thread check>>
 
-The chat then shows it with a Post thread button and posts it only when they tap that. Write at most \
-one thread per reply, and never one for a plain question.
+The chat then shows it with a Post thread button and posts it only when they tap that. A change to a \
+waiting thread stays <<thread check>> until they say to post it; when they do, write it with <<thread>>. Never \
+write these lines except to make a thread, not even to explain them. Write at most one thread per reply, and never one for a plain question.
 
 Once a thread is posted, the conversation says which thread it became, and the chat's own lines \
 (an agent took it, a card was made from it, it needs them, it is done) follow its work. Asked how that \
