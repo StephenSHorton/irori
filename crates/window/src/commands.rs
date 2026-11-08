@@ -671,20 +671,24 @@ pub async fn agent_stop(w: W<'_>, key: String, text: String) -> R<()> {
     w.agent_stop(&key, &text)
 }
 
-/// Wind down all (card #220): asks every agent (`scope` "this" device or
-/// "all" devices) to save its place, hand back its cards and stop; with
-/// `pause_after`, Pause all turns on once every agent has answered.
+/// Wind down on (cards #220, #787): holds agent starts on every one of the
+/// person's devices and asks every agent to save its place, hand back its
+/// cards and stop.
 #[tauri::command]
 #[specta::specta]
-pub async fn wind_down_all(
-    w: W<'_>,
-    scope: String,
-    pause_after: bool,
-) -> R<crate::wind_down::WindDownStatus> {
-    w.wind_down_all(&scope, pause_after)
+pub async fn wind_down_all(w: W<'_>) -> R<crate::wind_down::WindDownStatus> {
+    w.wind_down_all()
 }
 
-/// The current Wind down all run, read fresh (empty id: none).
+/// Wind down off (card #787): wind-downs not reached yet close, the pauses
+/// Wind down set lift, and work resumes.
+#[tauri::command]
+#[specta::specta]
+pub async fn wind_down_off(w: W<'_>) -> R<crate::wind_down::WindDownStatus> {
+    w.wind_down_off()
+}
+
+/// The Wind down switch, and this device's run read fresh (empty id: none).
 #[tauri::command]
 #[specta::specta]
 pub async fn wind_down_status(w: W<'_>) -> R<crate::wind_down::WindDownStatus> {
@@ -2217,6 +2221,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_start_now,
             agent_stop,
             wind_down_all,
+            wind_down_off,
             wind_down_status,
             wind_down_stop,
             inbox_reply_stop,

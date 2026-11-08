@@ -3317,7 +3317,11 @@ impl Services {
                 })
                 .filter_map(|(k, at)| {
                     let given = self.handed_off(k, &now);
-                    (given || at_least(&now, at, HANDOFF_WAIT)).then(|| (k.clone(), given))
+                    // Left its card while winding down (card #787): it
+                    // still owes the person its "wound down", so it is
+                    // ended once it replied, or after the wait.
+                    let ready = given && !self.winding_down(k);
+                    (ready || at_least(&now, at, HANDOFF_WAIT)).then(|| (k.clone(), given))
                 })
                 .collect()
         };
@@ -3358,6 +3362,27 @@ impl Services {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(k);
+        }
+    }
+
+    /// Agent `key` has the person's wind-down open (card #787): it was
+    /// asked to wind down and hasn't answered yet.
+    fn winding_down(&self, key: &str) -> bool {
+        self.inbox
+            .for_agent(key, false, usize::MAX)
+            .iter()
+            .any(|d| inbox::is_wind_down(&d.message))
+    }
+
+    /// Closes the wind-downs agent `key` never answered, as it ends (card
+    /// #787), so the person's Wind down shows it as no answer at once.
+    fn close_wind_downs(&self, key: &str) {
+        for d in self.inbox.for_agent(key, false, usize::MAX) {
+            if inbox::is_wind_down(&d.message)
+                && let Err(e) = self.inbox.skip(key, &d.id, inbox::NOTE_RECIPIENT_GONE)
+            {
+                logf(format_args!("spawn end {key}: close its wind-down: {e}"));
+            }
         }
     }
 
@@ -3408,6 +3433,7 @@ impl Services {
                 )
                 .map_err(|e| e.to_string())?;
             self.coord.mark_ended(key, (self.now)());
+            self.close_wind_downs(key);
         }
         self.remove_job(key)
     }
