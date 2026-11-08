@@ -121,11 +121,12 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// The person's own thread: one they posted, not one an agent opened.
+/// The person's own thread: one they posted, not one an agent opened or
+/// the Office Assistant posted for them (card #991).
 fn persons_thread(t: &Task) -> bool {
     t.ask
         .as_ref()
-        .is_some_and(|a| a.thread && a.opener.is_empty())
+        .is_some_and(|a| a.thread && a.opener.is_empty() && !a.assistant)
 }
 
 /// Makes a reply a title: its first line, without quotes, a "Title:"

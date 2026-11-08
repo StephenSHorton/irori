@@ -14,6 +14,7 @@ import type {
   AgentsPauseView,
   AgentsSettings,
   NamesThemesView,
+  AgentUsage,
   RunningAgent,
   TermInfo,
   TrustedRepo,
@@ -30,6 +31,7 @@ export type {
   RunHistoryRow,
   AgentsSettings,
   NamesThemesView,
+  AgentUsage,
   RunningAgent,
   TrustedRepo,
 }
@@ -181,6 +183,28 @@ export function weightBy(w: CardWeight): string {
       ? `${w.byName} set it; agents can't change it`
       : "You set it; agents can't change it"
   return `${w.byName || "An agent"} set it`
+}
+
+// usedModel names a model as an agent's details show it (card #1020): the
+// short name Irori started it with ("sonnet" -> "Sonnet"), or a full id from
+// a transcript ("claude-opus-5-5" -> "Opus 5.5", "claude-haiku-4-5-2025…" ->
+// "Haiku 4.5"). Anything else is shown as it is.
+export function usedModel(v: string): string {
+  if (modelNames[v]) return modelNames[v]
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(v)
+  if (!m) return v
+  const name = m[1].charAt(0).toUpperCase() + m[1].slice(1)
+  return `${name} ${m[2]}${m[3] ? `.${m[3]}` : ""}`
+}
+
+// tokenCount shortens a token count: "950", "12.3K", "4.5M", "1.2B".
+export function tokenCount(n: number): string {
+  const short = (v: number, unit: string) =>
+    `${v >= 100 ? Math.round(v) : Number(v.toPrecision(3))}${unit}`
+  if (n < 1000) return String(Math.max(0, Math.round(n)))
+  if (n < 1e6) return short(n / 1e3, "K")
+  if (n < 1e9) return short(n / 1e6, "M")
+  return short(n / 1e9, "B")
 }
 
 // idleLabel names an idle limit in minutes, marking the default.
@@ -602,6 +626,48 @@ export function useRunning(open: boolean) {
   }, [open, tick])
   const refresh = useCallback(() => setTick((t) => t + 1), [])
   return { rows, error, loading: !loaded && !error, refresh }
+}
+
+// sampleUsage is the preview's agent details: a spawned agent has its model,
+// effort and tokens; ?usage=none shows an agent nothing is known of.
+function sampleUsage(): AgentUsage {
+  if (previewFlag("usage") === "none") return { model: "", effort: "" }
+  return {
+    model: "opus",
+    effort: "high",
+    tokens: {
+      total: 4_812_345,
+      input: 12_345,
+      output: 98_000,
+      cacheRead: 4_500_000,
+      cacheWrite: 202_000,
+    },
+  }
+}
+
+// useAgentUsage reads one agent's model, effort and tokens while its details
+// are open (card #1020), again every few seconds, since the tokens grow. An
+// agent nothing is known of gets an empty answer; so does a failed read.
+export function useAgentUsage(key: string): AgentUsage | null {
+  const [usage, setUsage] = useState<AgentUsage | null>(() =>
+    inWails() ? null : sampleUsage()
+  )
+  useEffect(() => {
+    if (!inWails()) return
+    let live = true
+    const load = () =>
+      AgentsService.Usage(key).then(
+        (v) => live && setUsage(v),
+        () => undefined
+      )
+    void load()
+    const id = window.setInterval(load, 5000)
+    return () => {
+      live = false
+      window.clearInterval(id)
+    }
+  }, [key])
+  return usage
 }
 
 // TRIES_CHOICES are the crashes or failed starts before Irori asks you

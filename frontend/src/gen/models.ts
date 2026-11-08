@@ -9,6 +9,8 @@ export type AgentCard = B.AgentCard
 export type AgentPermissions = B.AgentPermissions
 export type AgentRef = B.AgentRef
 export type AgentStartsView = B.AgentStartsView
+export type AgentTokens = B.AgentTokens
+export type AgentUsage = B.AgentUsage
 export type AgentsChange = B.AgentsChange
 export type AgentsLimits = B.AgentsLimits
 export type AgentsPauseView = B.AgentsPauseView
@@ -237,6 +239,16 @@ export function AgentsSettings(p: Partial<B.AgentsSettings> = {}): B.AgentsSetti
 /** AgentStartsView with Go's zero values for every field left out. */
 export function AgentStartsView(p: Partial<B.AgentStartsView> = {}): B.AgentStartsView {
   return { "on": false, "max": 0, "used": 0, "ceiling": 0, ...p } as B.AgentStartsView
+}
+
+/** AgentTokens with Go's zero values for every field left out. */
+export function AgentTokens(p: Partial<B.AgentTokens> = {}): B.AgentTokens {
+  return { "total": null, "input": null, "output": null, "cacheRead": null, "cacheWrite": null, ...p } as B.AgentTokens
+}
+
+/** AgentUsage with Go's zero values for every field left out. */
+export function AgentUsage(p: Partial<B.AgentUsage> = {}): B.AgentUsage {
+  return { "model": "", "effort": "", ...p } as B.AgentUsage
 }
 
 /** AnswerResult with Go's zero values for every field left out. */

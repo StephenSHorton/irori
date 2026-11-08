@@ -96,39 +96,71 @@ impl Usage {
     }
 }
 
+/// Token counts, by kind (card #1020). Cache reads dominate a long
+/// session, so the kinds are kept apart and the total is their sum.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Tokens {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+}
+
+impl Tokens {
+    /// Every kind added up.
+    pub fn total(&self) -> u64 {
+        self.input + self.output + self.cache_read + self.cache_write
+    }
+
+    fn add(&mut self, o: Tokens) {
+        self.input += o.input;
+        self.output += o.output;
+        self.cache_read += o.cache_read;
+        self.cache_write += o.cache_write;
+    }
+}
+
+impl Usage {
+    fn tokens(&self) -> Tokens {
+        Tokens {
+            input: self.input,
+            output: self.output,
+            cache_read: self.cache_read,
+            cache_write: self.write_5m + self.write_1h,
+        }
+    }
+}
+
 /// How far one transcript file has been read: its byte offset (always at
-/// a line's end), the cost so far, and the messages already priced.
+/// a line's end), the cost and tokens so far, the model of its latest
+/// message, and the messages already counted.
 #[derive(Debug, Clone, Default)]
 pub struct FileState {
     pub offset: u64,
     pub total: f64,
+    pub tokens: Tokens,
+    pub model: String,
     seen: HashSet<String>,
 }
 
-/// The cost of one transcript line, if it is an assistant row not priced
+/// The usage of one transcript line, if it is an assistant row not counted
 /// yet (once per `message.id`).
-fn line_cost(line: &str, seen: &mut HashSet<String>) -> f64 {
+fn line_usage(line: &str, seen: &mut HashSet<String>) -> Option<Usage> {
     // Cheap filter before parsing: only rows with usage.
     if !line.contains("\"usage\"") {
-        return 0.0;
+        return None;
     }
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
-        return 0.0;
-    };
+    let v = serde_json::from_str::<serde_json::Value>(line).ok()?;
     if v.get("type").and_then(|t| t.as_str()) != Some("assistant") {
-        return 0.0;
+        return None;
     }
-    let Some(msg) = v.get("message") else {
-        return 0.0;
-    };
+    let msg = v.get("message")?;
     if let Some(id) = msg.get("id").and_then(|i| i.as_str())
         && !seen.insert(id.to_string())
     {
-        return 0.0;
+        return None;
     }
-    let Some(u) = msg.get("usage") else {
-        return 0.0;
-    };
+    let u = msg.get("usage")?;
     let n = |p: &str| u.pointer(p).and_then(|x| x.as_u64()).unwrap_or(0);
     let creation = n("/cache_creation_input_tokens");
     let (w5, w1) = match u.get("cache_creation") {
@@ -140,7 +172,7 @@ fn line_cost(line: &str, seen: &mut HashSet<String>) -> f64 {
     };
     // A split that doesn't add up: the rest is priced as 5-minute.
     let w5 = w5 + creation.saturating_sub(w5 + w1);
-    Usage {
+    Some(Usage {
         input: n("/input_tokens"),
         output: n("/output_tokens"),
         cache_read: n("/cache_read_input_tokens"),
@@ -151,8 +183,7 @@ fn line_cost(line: &str, seen: &mut HashSet<String>) -> f64 {
             .and_then(|m| m.as_str())
             .unwrap_or_default()
             .to_string(),
-    }
-    .cost()
+    })
 }
 
 /// Reads what `path` gained since `st`: only whole lines past its offset
@@ -178,7 +209,14 @@ pub fn read_more(path: &Path, st: &mut FileState) {
         return;
     };
     for line in String::from_utf8_lossy(&buf[..end]).lines() {
-        st.total += line_cost(line, &mut st.seen);
+        if let Some(u) = line_usage(line, &mut st.seen) {
+            st.total += u.cost();
+            st.tokens.add(u.tokens());
+            // A synthetic row (no real model) doesn't name the session's.
+            if !u.model.is_empty() && !u.model.starts_with('<') {
+                st.model = u.model;
+            }
+        }
     }
     st.offset += end as u64 + 1;
 }
@@ -232,9 +270,27 @@ pub struct CostCache {
     dirs: Mutex<HashMap<String, PathBuf>>,
 }
 
+/// What one session has used (card #1020): dollars, tokens over its
+/// transcript and its subagents', and the model its own transcript last
+/// answered with.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SessionUsage {
+    pub cost: f64,
+    pub tokens: Tokens,
+    pub model: String,
+}
+
 impl CostCache {
     /// Session `id`'s cost in dollars, and whether any transcript was found.
     pub fn session(&self, claude_dir: &Path, id: &str) -> (f64, bool) {
+        match self.usage(claude_dir, id) {
+            Some(u) => (u.cost, true),
+            None => (0.0, false),
+        }
+    }
+
+    /// Session `id`'s usage, or `None` when no transcript was found.
+    pub fn usage(&self, claude_dir: &Path, id: &str) -> Option<SessionUsage> {
         let dir = {
             let mut dirs = self.dirs.lock().unwrap_or_else(|e| e.into_inner());
             match dirs
@@ -251,17 +307,20 @@ impl CostCache {
                 }
             }
         };
-        let Some(dir) = dir else {
-            return (0.0, false);
-        };
+        let dir = dir?;
         let mut files = self.files.lock().unwrap_or_else(|e| e.into_inner());
-        let mut total = 0.0;
-        for f in files_in(&dir, id) {
+        let mut out = SessionUsage::default();
+        for (i, f) in files_in(&dir, id).into_iter().enumerate() {
             let st = files.entry(f.clone()).or_default();
             read_more(&f, st);
-            total += st.total;
+            out.cost += st.total;
+            out.tokens.add(st.tokens);
+            // The first file is the session's own transcript.
+            if i == 0 {
+                out.model = st.model.clone();
+            }
         }
-        (total, true)
+        Some(out)
     }
 }
 
@@ -344,5 +403,75 @@ mod tests {
         assert_eq!(price_of("claude-haiku-4-5-20251001").input, 1.0);
         assert_eq!(price_of("claude-fable-5-1").output, 50.0);
         assert_eq!(price_of("something-new").input, 4.0);
+    }
+
+    #[test]
+    fn tokens_are_totalled_once_per_message_across_subagents() {
+        let dir = tempfile::tempdir().unwrap();
+        let proj = dir.path().join("projects").join("C--repo");
+        std::fs::create_dir_all(proj.join("s3").join("subagents")).unwrap();
+        // Two rows of one message count once: 10 in, 20 out, 300 read, and
+        // 40 written (30 for 5 minutes, 10 for an hour).
+        let row = |id: &str, model: &str| {
+            format!(
+                r#"{{"type":"assistant","message":{{"id":"{id}","model":"{model}","usage":{{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":300,"cache_creation_input_tokens":40,"cache_creation":{{"ephemeral_5m_input_tokens":30,"ephemeral_1h_input_tokens":10}}}}}}}}"#
+            )
+        };
+        let own = format!(
+            "{}\n{}\n{{\"type\":\"user\"}}\n{}\n",
+            row("m1", "claude-opus-5-5"),
+            row("m1", "claude-opus-5-5"),
+            row("m2", "claude-sonnet-5-5")
+        );
+        std::fs::write(proj.join("s3.jsonl"), own).unwrap();
+        // A subagent's tokens are part of the session's total, its model
+        // is not the session's.
+        std::fs::write(
+            proj.join("s3").join("subagents").join("agent-a.jsonl"),
+            format!("{}\n", row("m3", "claude-haiku-5-5")),
+        )
+        .unwrap();
+        let c = CostCache::default();
+        let u = c.usage(dir.path(), "s3").unwrap();
+        assert_eq!(
+            u.tokens,
+            Tokens {
+                input: 30,
+                output: 60,
+                cache_read: 900,
+                cache_write: 120,
+            }
+        );
+        assert_eq!(u.tokens.total(), 1110);
+        assert_eq!(u.model, "claude-sonnet-5-5");
+        assert!(u.cost > 0.0);
+        assert_eq!(c.usage(dir.path(), "nope"), None);
+        // Read again, nothing is counted twice.
+        assert_eq!(c.usage(dir.path(), "s3").unwrap().tokens.total(), 1110);
+    }
+
+    #[test]
+    fn tokens_grow_with_the_file_and_not_with_a_partial_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let proj = dir.path().join("projects").join("C--repo");
+        std::fs::create_dir_all(&proj).unwrap();
+        let p = proj.join("s4.jsonl");
+        let row = |id: &str| {
+            format!(
+                r#"{{"type":"assistant","message":{{"id":"{id}","model":"claude-opus-5-5","usage":{{"input_tokens":5,"output_tokens":7}}}}}}"#
+            )
+        };
+        std::fs::write(&p, format!("{}\n", row("a"))).unwrap();
+        let c = CostCache::default();
+        assert_eq!(c.usage(dir.path(), "s4").unwrap().tokens.total(), 12);
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().append(true).open(&p).unwrap();
+        let b = row("b");
+        write!(f, "{}\n{}", row("a"), &b[..20]).unwrap();
+        f.flush().unwrap();
+        assert_eq!(c.usage(dir.path(), "s4").unwrap().tokens.total(), 12);
+        writeln!(f, "{}", &b[20..]).unwrap();
+        f.flush().unwrap();
+        assert_eq!(c.usage(dir.path(), "s4").unwrap().tokens.total(), 24);
     }
 }

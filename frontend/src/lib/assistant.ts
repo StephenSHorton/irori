@@ -554,7 +554,8 @@ export function splitReply(
 
 // postDraft posts the draft of the chat's message at index as a thread,
 // as the ask box does (lib/cards' threads.start: the room's thread, its
-// #refs telling the agents on those cards). It notes the thread on the
+// #refs telling the agents on those cards), marked as the assistant's so
+// Irori doesn't rename it (card #991). It notes the thread on the
 // message and returns it. Posted already: that thread again; being
 // posted (a second tap after the panel closed and opened): that post.
 const posting = new Map<ChatEntry, Promise<Posted>>()
@@ -570,7 +571,7 @@ export function postDraft(index: number): Promise<Posted> {
   if (!draft || partial)
     return Promise.reject(new Error("That message has no thread to post."))
   const p = threads
-    .start(draft)
+    .start(draft, [], [], "", null, { assistant: true })
     .then((res) => {
       const posted: Posted = { id: res.task.id, short: res.task.short ?? "" }
       if (res.task.tag) posted.tag = res.task.tag

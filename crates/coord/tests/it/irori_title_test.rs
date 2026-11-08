@@ -256,3 +256,83 @@ fn an_irori_name_that_didnt_take_leaves_no_line() {
     assert_ne!(got.updated_by, "irori");
     assert_eq!(e.c.activity(&th.id).unwrap().len(), before, "no Irori line");
 }
+
+fn assistants_thread(e: &Env, text: &str) -> Task {
+    e.c.post_ask(
+        USER,
+        NewAsk {
+            text: text.into(),
+            thread: true,
+            assistant: true,
+            ..NewAsk::default()
+        },
+        &[],
+    )
+    .unwrap()
+    .0
+}
+
+#[test]
+fn irori_leaves_a_thread_the_assistant_posted() {
+    let e = Env::new();
+    let th = assistants_thread(&e, "Fix the login page on Safari");
+    assert!(th.ask.as_ref().unwrap().assistant);
+    // The first name and a later retitle are the same write.
+    want_err(
+        e.c.rename_as_irori(&th.id, "Login broken", &th.title),
+        ErrorKind::NotAllowed,
+    );
+    let got = e.c.get_task(&th.id).unwrap();
+    assert_eq!(got.title, th.title);
+    assert_eq!(got.irori_titled, 0);
+    assert!(got.title_was.is_empty(), "nothing to undo");
+    assert!(
+        !got.title_by_person,
+        "the mark doesn't claim the person named it"
+    );
+}
+
+#[test]
+fn the_assistants_mark_replays() {
+    let e = Env::new();
+    let th = assistants_thread(&e, "Fix the login page on Safari");
+    let back = e.reopen();
+    let a = back.get_task(&th.id).unwrap().ask.unwrap();
+    assert!(a.assistant, "the mark replays");
+    assert!(a.opener.is_empty(), "still the person's own thread");
+    want_err(
+        back.rename_as_irori(&th.id, "Login broken", &th.title),
+        ErrorKind::NotAllowed,
+    );
+}
+
+#[test]
+fn a_thread_with_no_mark_is_still_the_persons() {
+    let e = Env::new();
+    let th = thread(&e, "the login page is broken");
+    assert!(!th.ask.as_ref().unwrap().assistant);
+    let back = e.reopen();
+    assert!(!back.get_task(&th.id).unwrap().ask.unwrap().assistant);
+    let got = back
+        .rename_as_irori(&th.id, "Login broken", &th.title)
+        .unwrap();
+    assert_eq!(got.irori_titled, 1);
+    assert_eq!(got.title_was, th.title, "the person's thread keeps Undo");
+}
+
+#[test]
+fn only_a_thread_carries_the_mark() {
+    let e = Env::new();
+    let (ask, _) =
+        e.c.post_ask(
+            USER,
+            NewAsk {
+                text: "not a thread".into(),
+                assistant: true,
+                ..NewAsk::default()
+            },
+            &[],
+        )
+        .unwrap();
+    assert!(!ask.ask.unwrap().assistant);
+}
