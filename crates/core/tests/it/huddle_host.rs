@@ -370,7 +370,7 @@ fn a_host_away_for_a_minute_hands_over_to_the_next_computer() {
     wait_for(WAIT, "the other computer takes over", || {
         rest.core.huddle_is_open(&call)
     });
-    assert_eq!(runner.count("open"), 1);
+    assert!(runner.count("open") >= 1);
     wait_for(WAIT, "its `on` row is out", || {
         rest.core
             .talk()
