@@ -108,7 +108,10 @@ fn setup(flag_maker: bool) -> Setup {
 fn a_card_made_after_reading_others_text_waits_for_ok_to_start() {
     let s = setup(true);
     let (r, co) = (&s.r, s.r.core.coord());
-    assert!(co.get_task(&s.card.id).unwrap().others, "the card is marked");
+    assert!(
+        co.get_task(&s.card.id).unwrap().others,
+        "the card is marked"
+    );
     wait_for(60, "the OK to start question", || {
         co.get_task(&s.card.id).is_some_and(|t| {
             t.blockers

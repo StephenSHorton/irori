@@ -744,7 +744,11 @@ fn the_flag_rides_on_a_local_send_and_flags_the_receiver() {
     );
     h.deliver_engage(KEY_A, "turn-1");
     assert!(h.ib.saw_others(KEY_A));
-    let (m, _) = h.send(&claude(KEY_A, "alpha"), &to(KEY_B), "blake wants the loader looked at");
+    let (m, _) = h.send(
+        &claude(KEY_A, "alpha"),
+        &to(KEY_B),
+        "blake wants the loader looked at",
+    );
     assert!(m.others, "a flagged session's send carries the flag");
     assert!(!h.ib.saw_others(KEY_B), "not read yet");
     h.deliver_engage(KEY_B, "turn-2");

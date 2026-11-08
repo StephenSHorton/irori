@@ -1319,10 +1319,7 @@ impl Fold {
     /// until the person says yes. Their own "Start an agent" on the card
     /// is that yes. One yes starts one agent.
     pub(crate) fn marked_waits(&self, t: &Task) -> bool {
-        !self.on_board
-            && t.others
-            && !Self::yes_unspent(t)
-            && !self.spawn_now.contains(&t.id)
+        !self.on_board && t.others && !Self::yes_unspent(t) && !self.spawn_now.contains(&t.id)
     }
 
     /// The marked cards that would get an agent but for the person's OK

@@ -173,9 +173,7 @@ impl Inner {
             attachments: o.attachments.clone(),
             mentions: o.mentions.clone(),
             // Card #1075: the flag rides on a local send, as the hop does.
-            others: !self.is_person(from)
-                && !from.is_system()
-                && self.saw_others_of(&from.key),
+            others: !self.is_person(from) && !from.is_system() && self.saw_others_of(&from.key),
             ..Message::default()
         };
         if !o.parent.is_empty()

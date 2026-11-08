@@ -145,8 +145,12 @@ fn a_marked_card_waits_on_ok_to_start_and_a_clean_one_does_not() {
 
     // It is asked about, once.
     assert_eq!(ids(c.marked_to_ask()), vec![marked.id.clone()]);
-    c.ask_marked(USER, &marked.id, "Written after reading another person's text.")
-        .unwrap();
+    c.ask_marked(
+        USER,
+        &marked.id,
+        "Written after reading another person's text.",
+    )
+    .unwrap();
     let asked = c.get_task(&marked.id).unwrap();
     assert!(
         asked
