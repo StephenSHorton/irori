@@ -33,6 +33,7 @@ import { Switch } from "@/components/ui/switch"
 import { useBoards, useInvite } from "@/lib/boards"
 import { plainLine } from "@/lib/irori"
 import { go } from "@/lib/nav"
+import { isAndroid } from "@/updater/android"
 import { corners, useSettings, useYourName } from "@/lib/settings"
 import { UpdateStatusLine, useKeepUpToDate } from "@/updater"
 import { VoiceNote } from "@/components/settings/voice-note"
@@ -205,6 +206,9 @@ function NotificationsPane({ open }: { open: boolean }) {
     )
   }
   const off = !n.enabled
+  // Sound, volume, corner, confetti and the test are the desktop card's
+  // (card #1068): a phone shows only the switch.
+  const phone = isAndroid()
   return (
     <Loading key="pane" loading={false} label="Loading notification settings">
       <div className="grid gap-3">
@@ -214,62 +218,68 @@ function NotificationsPane({ open }: { open: boolean }) {
           checked={n.enabled}
           onChange={(v) => s.setNotify({ enabled: v })}
         />
-        <Toggle
-          label="Sound"
-          checked={n.sound}
-          disabled={off}
-          onChange={(v) => s.setNotify({ sound: v })}
-        />
-        <Toggle
-          label="Confetti on good news"
-          hint={
-            reducedMotion
-              ? "Off while Reduce Motion is on."
-              : "A burst across the screen when a card is done."
-          }
-          checked={n.confetti ?? false}
-          disabled={off}
-          onChange={(v) => s.setNotify({ confetti: v })}
-        />
-        <Row label="Volume" disabled={off || !n.sound}>
-          <Slider
-            min={0}
-            max={100}
-            step={5}
-            value={[Math.round(n.volume * 100)]}
-            disabled={off || !n.sound}
-            thumbLabel="Volume"
-            className="w-40"
-            onValueChange={(v) =>
-              s.setNotify({ volume: (Array.isArray(v) ? v[0] : v) / 100 })
-            }
-          />
-        </Row>
-        <Row label="Corner" disabled={off}>
-          <ChoiceSelect
-            label="Corner"
-            size="sm"
-            value={n.corner}
-            disabled={off}
-            choices={cornerChoices}
-            onValueChange={(v) => s.setNotify({ corner: v })}
-            className="text-[13px]"
-          />
-        </Row>
-        <div className="flex flex-col items-start gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={off}
-            onClick={() => void s.test()}
-          >
-            Send a test notification
-          </Button>
-          {s.tested && (
-            <p className="text-xs text-muted-foreground">{s.tested}</p>
-          )}
-        </div>
-        {s.error && <p className="text-xs text-destructive">{s.error}</p>}
+        {phone ? (
+          s.error && <p className="text-xs text-destructive">{s.error}</p>
+        ) : (
+          <>
+            <Toggle
+              label="Sound"
+              checked={n.sound}
+              disabled={off}
+              onChange={(v) => s.setNotify({ sound: v })}
+            />
+            <Toggle
+              label="Confetti on good news"
+              hint={
+                reducedMotion
+                  ? "Off while Reduce Motion is on."
+                  : "A burst across the screen when a card is done."
+              }
+              checked={n.confetti ?? false}
+              disabled={off}
+              onChange={(v) => s.setNotify({ confetti: v })}
+            />
+            <Row label="Volume" disabled={off || !n.sound}>
+              <Slider
+                min={0}
+                max={100}
+                step={5}
+                value={[Math.round(n.volume * 100)]}
+                disabled={off || !n.sound}
+                thumbLabel="Volume"
+                className="w-40"
+                onValueChange={(v) =>
+                  s.setNotify({ volume: (Array.isArray(v) ? v[0] : v) / 100 })
+                }
+              />
+            </Row>
+            <Row label="Corner" disabled={off}>
+              <ChoiceSelect
+                label="Corner"
+                size="sm"
+                value={n.corner}
+                disabled={off}
+                choices={cornerChoices}
+                onValueChange={(v) => s.setNotify({ corner: v })}
+                className="text-[13px]"
+              />
+            </Row>
+            <div className="flex flex-col items-start gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={off}
+                onClick={() => void s.test()}
+              >
+                Send a test notification
+              </Button>
+              {s.tested && (
+                <p className="text-xs text-muted-foreground">{s.tested}</p>
+              )}
+            </div>
+            {s.error && <p className="text-xs text-destructive">{s.error}</p>}
+          </>
+        )}
       </div>
     </Loading>
   )
