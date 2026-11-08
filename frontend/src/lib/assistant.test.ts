@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import {
   capHistory,
+  capKeeping,
   failedLine,
   foldEvent,
   freshReply,
@@ -241,7 +242,65 @@ describe("Ask Irori's drafted thread (card #783)", () => {
       { role: "person", text: "Can you fix the lobby?" },
       { role: "assistant", text, posted: { id: "task:1", short: "9" } },
     ]
-    expect(historyFor(entries)[1]).toEqual({ role: "assistant", text })
+    expect(historyFor(entries)[1]).toEqual({
+      role: "assistant",
+      text: `${text}\n\n(The person posted this draft as thread #9.)`,
+    })
+  })
+  test("the history says where a posted thread and a reply went (card #785)", () => {
+    const entries: ChatEntry[] = [
+      {
+        role: "assistant",
+        text: draft("A"),
+        posted: { id: "task:1", short: "5", tag: "mlg" },
+      },
+      {
+        role: "assistant",
+        text: "**otter** took your thread mlg#5.",
+        update: "task:1",
+      },
+      { role: "person", text: "Use Steam.", to: "mlg#5" },
+    ]
+    const h = historyFor(entries)
+    expect(h[0].text).toEndWith(
+      "(The person posted this draft as thread mlg#5.)"
+    )
+    expect(h[1]).toEqual({
+      role: "assistant",
+      text: "(The chat's own lines on the work it follows:)\n- **otter** took your thread mlg#5.",
+    })
+    expect(h[2]).toEqual({
+      role: "person",
+      text: "(My reply on mlg#5) Use Steam.",
+    })
+  })
+  test("updates and replies are kept across reloads, bad acts dropped (card #785)", () => {
+    const entries: ChatEntry[] = [
+      {
+        role: "assistant",
+        text: "#21 needs you: Merge?",
+        update: "task:1",
+        act: { kind: "answer", card: "task:2", blocker: "b1" },
+      },
+      {
+        role: "assistant",
+        text: "otter replied on #20: Which page?",
+        update: "task:1",
+        act: { kind: "reply", thread: "task:1", to: "otter" },
+      },
+      { role: "person", text: "Home.", to: "#20" },
+    ]
+    expect(parseHistory(serializeHistory(entries))).toEqual(entries)
+    const bad = parseHistory(
+      JSON.stringify([
+        { role: "assistant", text: "x", update: "t", act: { kind: "answer" } },
+        { role: "person", text: "y", update: "t", to: 3 },
+      ])
+    )
+    expect(bad).toEqual([
+      { role: "assistant", text: "x", update: "t" },
+      { role: "person", text: "y" },
+    ])
   })
   test("a posted draft's thread is kept across reloads, a bad one dropped", () => {
     const saved = serializeHistory([
@@ -268,5 +327,24 @@ describe("Ask Irori's drafted thread (card #783)", () => {
     expect(work.draft).toContain("Add a changelog page.")
     expect(work.partial).toBe(false)
     expect(splitDraft(sampleAnswer("What's blocked?").text).draft).toBe("")
+  })
+})
+
+describe("the cap keeps what the chat still follows (card #785)", () => {
+  test("a followed thread's posted message stays; others go oldest first", () => {
+    const posted: ChatEntry = {
+      role: "assistant",
+      text: "A draft",
+      posted: { id: "t1", short: "1" },
+    }
+    const lines: ChatEntry[] = Array.from({ length: 5 }, (_, i) => ({
+      role: "assistant",
+      text: `line ${i}`,
+      update: "t1",
+    }))
+    const all = [{ role: "person", text: "q" } as ChatEntry, posted, ...lines]
+    const kept = capKeeping(all, new Set(["t1"]), 4)
+    expect(kept).toEqual([posted, lines[2], lines[3], lines[4]])
+    expect(capKeeping(all, new Set(), 4)).toEqual(lines.slice(1))
   })
 })

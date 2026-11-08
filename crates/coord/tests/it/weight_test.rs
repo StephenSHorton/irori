@@ -214,3 +214,90 @@ fn weights_fold_the_same_in_any_order() {
     let e = run(&[&created, &forged, &junk], &[0, 1, 2]);
     assert_eq!(e.c.get_task("A").unwrap().weight, None);
 }
+
+/// A card can be weighed as it is made (card #964), in one go with its
+/// task.created: an agent gives a reason, a bad weight writes no card, and
+/// a split checks every subtask's weight before it makes the first.
+#[test]
+fn a_card_is_weighed_as_it_is_made() {
+    let e = Env::new();
+    let weighed = |title: &str, level: &str, why: &str| NewTask {
+        weight: level.into(),
+        weight_reason: why.into(),
+        ..nt(title)
+    };
+    let before = e.c.list_tasks(&TaskFilter::default()).len();
+    want_err(
+        e.c.create_task(ALICE, weighed("plan", "heavy", "")),
+        ErrorKind::Invalid,
+    );
+    want_err(
+        e.c.create_task(ALICE, weighed("plan", "huge", "x")),
+        ErrorKind::Invalid,
+    );
+    assert_eq!(
+        e.c.list_tasks(&TaskFilter::default()).len(),
+        before,
+        "a refused weight writes no card"
+    );
+
+    let t =
+        e.c.create_task(ALICE, weighed("plan", " Heavy ", "planning the split"))
+            .unwrap();
+    let w = t.weight.clone().expect("weighed as it is made");
+    assert_eq!(
+        (w.level.as_str(), w.reason.as_str(), w.set_by.as_str()),
+        ("heavy", "planning the split", SET_BY_AGENT)
+    );
+    assert_eq!(level(&e, &t.id), "heavy");
+    // The person may give one without a reason; none is normal.
+    let p = e.c.create_task(USER, weighed("tidy", "light", "")).unwrap();
+    assert_eq!(level(&e, &p.id), "light");
+    let n = e.c.create_task(ALICE, nt("plain")).unwrap();
+    assert_eq!(weight(&e, &n.id), None);
+
+    // A split: a bad second subtask makes neither.
+    let sub = |title: &str, level: &str, why: &str| NewSubtask {
+        title: title.into(),
+        weight: level.into(),
+        weight_reason: why.into(),
+        ..NewSubtask::default()
+    };
+    let before = e.c.list_tasks(&TaskFilter::default()).len();
+    want_err(
+        e.c.split(
+            ALICE,
+            &t.id,
+            vec![
+                sub("build", "normal", "follows the plan"),
+                sub("docs", "light", ""),
+            ],
+            vec![],
+        ),
+        ErrorKind::Invalid,
+    );
+    assert_eq!(e.c.list_tasks(&TaskFilter::default()).len(), before);
+    let (_, made) =
+        e.c.split(
+            ALICE,
+            &t.id,
+            vec![
+                sub("build", "normal", "follows the plan"),
+                sub("docs", "light", "a line per tool"),
+                sub("wire", "", ""),
+            ],
+            vec![],
+        )
+        .unwrap();
+    let got: Vec<String> = made.iter().map(|k| level(&e, &k.id)).collect();
+    assert_eq!(got, ["normal", "light", ""]);
+    assert_eq!(made[1].weight.as_ref().unwrap().reason, "a line per tool");
+
+    // It survives a reopen of the log.
+    let back = e.reopen();
+    assert_eq!(back.get_task(&t.id).unwrap().weight.unwrap().level, "heavy");
+    assert_eq!(
+        back.get_task(&made[0].id).unwrap().weight.unwrap().level,
+        "normal"
+    );
+}

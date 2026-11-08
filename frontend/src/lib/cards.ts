@@ -2484,6 +2484,19 @@ const RetryMs = 4000
 
 // subscribe re-runs fn on every board:changed (or sample change), and on
 // devices:changed: a renamed device changes the cards' "on <device>" lines.
+// onCardsChanged calls fn on every card change (board:changed,
+// devices:changed; the sample's changes in the preview).
+export function onCardsChanged(fn: () => void): () => void {
+  return subscribe(fn)
+}
+
+// cardsById reads cards by id in one call, as the card hooks share
+// (readCards): each id's card, or its error. Ask Irori's follower (card
+// #785) reads the threads it posted and the cards made from them.
+export function cardsById(ids: string[]): Promise<Map<string, CardSlot>> {
+  return readCards(ids)
+}
+
 function subscribe(fn: () => void): () => void {
   if (!inWails()) {
     sampleListeners.add(fn)

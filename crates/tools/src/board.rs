@@ -878,6 +878,7 @@ const CREATE_ARGS: &[(&str, Ty)] = &[
     ("waits_on", Ty::Str),
     ("after", Ty::Strs),
     ("later", Ty::Struct(LATER_FIELDS)),
+    ("weight", Ty::Struct(WEIGHT_FIELDS)),
 ];
 
 /// board_create's later: what brings the card back, and why it waits.
@@ -950,6 +951,20 @@ pub(crate) fn waits_on(s: &Inner, v: &str) -> Result<Option<(String, BlockedBy)>
         }
     };
     Ok(Some((reason, bb)))
+}
+
+/// A new card's weight hint (card #964): board_create's and each
+/// board_split subtask's weight {level, why}, as (level, why); none is
+/// ("", ""), which runs as normal.
+pub(crate) fn new_weight(a: &Args) -> (String, String) {
+    a.object("weight")
+        .map(|w| {
+            (
+                trim(w.str("level")).to_string(),
+                trim(w.str("why")).to_string(),
+            )
+        })
+        .unwrap_or_default()
 }
 
 /// Step arguments as coord's steps.
@@ -1052,6 +1067,7 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         }
     }
     let private = Arc::ptr_eq(&co, s.b.coord());
+    let weight = new_weight(&a);
     let t = match co.create_task(
         &keys[0],
         NewTask {
@@ -1076,6 +1092,8 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 .map(|p| p.inner().to_string())
                 .unwrap_or_default(),
             board_named: personal.is_some(),
+            weight: weight.0,
+            weight_reason: weight.1,
             ..NewTask::default()
         },
     ) {
@@ -2890,6 +2908,7 @@ const SUBTASK_FIELDS: &[(&str, Ty)] = &[
     ("steps", Ty::Strs),
     ("assign_to", Ty::Str),
     ("spawn", Ty::Bool),
+    ("weight", Ty::Struct(WEIGHT_FIELDS)),
 ];
 
 const SPLIT_ARGS: &[(&str, Ty)] = &[
@@ -2928,12 +2947,15 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 Err(e) => return map_err(e),
             }
         }
+        let (weight, weight_reason) = new_weight(st);
         subs.push(NewSubtask {
             title: trim(st.str("title")).into(),
             objective: trim(st.str("objective")).into(),
             done_criteria: trim(st.str("done_when")).into(),
             steps: st.strs("steps"),
             spawn: st.bool("spawn"),
+            weight,
+            weight_reason,
         });
     }
     // Subtasks go in the parent's log.
@@ -2961,10 +2983,15 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     for (i, k) in made.iter().enumerate() {
         b += &format!(
-            "\nCreated {} {}{}.",
+            "\nCreated {} {}{}{}.",
             k.short_ref(),
             quoted(&one_line(&k.title, MAX_CARD_TITLE), MAX_CARD_TITLE),
-            if k.spawn { " (spawn)" } else { "" }
+            if k.spawn { " (spawn)" } else { "" },
+            // Its weight (card #964), as the board shows it.
+            k.weight
+                .as_ref()
+                .map(|w| format!("; {}", weight_text(w, &n)))
+                .unwrap_or_default()
         );
         if to.get(i).is_none_or(|t| t.is_empty()) {
             let why = s.no_agent_line(&k.id, true);

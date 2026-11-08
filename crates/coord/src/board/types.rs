@@ -849,6 +849,12 @@ pub struct NewTask {
     /// The person named it by hand (card #779), on the card it comes
     /// from: a share keeps their name theirs. Only a person's row counts.
     pub title_by_person: bool,
+    /// Its weight from the start (card #964): light, normal or heavy, or
+    /// empty for none (normal). Written with the card, so it is weighed
+    /// before Irori hands it out.
+    pub weight: String,
+    /// One line on why it has that weight; an agent must give one.
+    pub weight_reason: String,
 }
 
 /// Narrows `list_tasks`; zero values mean any.
@@ -1301,6 +1307,9 @@ pub struct NewSubtask {
     pub steps: Vec<String>,
     /// Asks for a helper on this subtask (spawned agents §3).
     pub spawn: bool,
+    /// Its weight from the start (card #964), as [`NewTask::weight`].
+    pub weight: String,
+    pub weight_reason: String,
 }
 
 /// What a shared board's fold set aside: rows naming something the log
