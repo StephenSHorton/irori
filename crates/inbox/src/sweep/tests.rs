@@ -509,6 +509,28 @@ fn plan_sweep_table() {
         ended(past, &[]),
         none.clone(),
     );
+    // Card #787: the person's wind-down to a session that ended without
+    // answering closes, so Wind down's row reads no answer.
+    for state in [st::QUEUED, st::DELIVERED, st::ENGAGED] {
+        let mut it = ag(state, "user:dev1", "");
+        it.from_person = true;
+        it.wind_down = true;
+        add(
+            "ended, the person's wind-down: closes",
+            it,
+            ended(past, &[]),
+            vec![(Act::GoneWindDown, String::new())],
+        );
+    }
+    let mut it = ag(st::DELIVERED, "user:dev1", "");
+    it.from_person = true;
+    it.wind_down = true;
+    add(
+        "the person's wind-down, its agent still there: stays",
+        it,
+        env(&[], around, &[]),
+        none.clone(),
+    );
     let mut it = ag(st::QUEUED, "c", "task:T1");
     it.assigned_at = min(60);
     add(

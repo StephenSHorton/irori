@@ -329,6 +329,22 @@ impl Inner {
     }
 }
 
+/// A delivery that hasn't reached its agent yet (card #787): queued or
+/// held. Once delivered, the agent has it in hand.
+pub(crate) fn not_reached(state: &str) -> bool {
+    state == st::QUEUED || state == st::HELD
+}
+
+/// A wind-down the person turned off before it reached its agent.
+pub(crate) fn wind_down_off(d: &Drec) -> DeliveryRow {
+    let mut r = d.row();
+    r.state = st::SKIPPED.into();
+    r.note = crate::NOTE_WIND_DOWN_OFF.into();
+    r.until = GoTime::ZERO;
+    r.wake_id.clear();
+    r
+}
+
 pub(crate) fn dismissed(d: &Drec) -> DeliveryRow {
     let mut r = d.row();
     r.state = st::DISMISSED.into();
@@ -678,6 +694,36 @@ impl Inbox {
             }
             let r = dismissed(d);
             b.put_delivery(r, by)
+        })
+    }
+
+    /// Wind down turned off (card #787): closes the person's wind-down
+    /// `did` if it hasn't reached its agent yet (queued or held), as
+    /// skipped with [`crate::NOTE_WIND_DOWN_OFF`]. Another device's goes
+    /// to its owner as a request. True when it closed or was asked to; a
+    /// delivered one is left alone (its agent is winding down already).
+    pub fn cancel_wind_down(&self, did: &str, by: &str) -> Result<bool> {
+        self.mutate(|b| {
+            let Some(d) = b.dels.get(did) else {
+                return Err(not_found_delivery(did));
+            };
+            if !not_reached(&d.d.state) || !b.wind_down(d) {
+                return Ok(false);
+            }
+            if !b.owns(d) {
+                b.request(did, choice::CANCEL, "", by)?;
+                return Ok(true);
+            }
+            let r = wind_down_off(d);
+            b.put_delivery(r, by)?;
+            Ok(true)
+        })
+    }
+
+    /// The person's wind-downs still open, every device's (card #787).
+    pub fn open_wind_downs(&self) -> Vec<Delivery> {
+        self.read(|b| {
+            b.newest_first(|d| st::open(&d.d.state) && b.wind_down(d), usize::MAX)
         })
     }
 

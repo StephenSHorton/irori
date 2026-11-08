@@ -174,7 +174,8 @@ pub struct Window {
     emitter: OnceLock<EmitFn>,
     open_file: OnceLock<OpenFn>,
     on_reset: OnceLock<Box<dyn Fn() + Send + Sync>>,
-    /// The current Wind down all run (card #220).
+    /// The current Wind down run and the switch's listeners (cards #220,
+    /// #787).
     wind_down: wind_down::RunSlot,
     /// The voice input session (card #240).
     voice: voice::VoiceSlot,

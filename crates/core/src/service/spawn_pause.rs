@@ -32,6 +32,16 @@ use crate::logf;
 /// `paused:<device id>`. Device ids are hex, so it names no device.
 pub const AGENTS_PAUSED_PREFIX: &str = "paused:";
 
+/// The `by` of a pause Wind down set (card #787): `winddown:<device id>`,
+/// the device whose person turned Wind down on. Off lifts only these, so a
+/// device paused before (`user:…` or an agent's key) stays paused.
+pub const WIND_DOWN_BY_PREFIX: &str = "winddown:";
+
+/// Whether a pause's `by` is Wind down's.
+pub fn by_wind_down(by: &str) -> bool {
+    by.starts_with(WIND_DOWN_BY_PREFIX)
+}
+
 /// Whether agent starts are paused on a device, since when and by whom.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentsPause {
@@ -160,6 +170,14 @@ impl Services {
         if by.is_empty() {
             return String::new();
         }
+        if let Some(dev) = by.strip_prefix(WIND_DOWN_BY_PREFIX) {
+            let name = self.named_device(dev);
+            return if name.is_empty() {
+                "Wind down".into()
+            } else {
+                format!("Wind down on {name}")
+            };
+        }
         if let Some(dev) = by.strip_prefix("user:") {
             let name = self.named_device(dev);
             return if name.is_empty() {
@@ -174,6 +192,48 @@ impl Services {
         } else {
             name
         }
+    }
+
+    /// Every device's Pause agents, by device id.
+    pub(crate) fn agents_pauses(&self) -> HashMap<String, AgentsPause> {
+        self.spawn
+            .agents_pause
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Wind down on (card #787): Pause agents on each of `devs`, by Wind
+    /// down from this device. A device already paused keeps its pause and
+    /// who set it, so Off leaves it paused. Says which devices it paused.
+    pub(crate) fn wind_down_pause(&self, devs: &[String]) -> Result<Vec<String>, String> {
+        let by = format!("{WIND_DOWN_BY_PREFIX}{}", self.device.id);
+        let mut paused = vec![];
+        for dev in devs {
+            if dev.is_empty() || self.agents_paused_on(dev) {
+                continue;
+            }
+            self.set_agents_paused(dev, true, &by)?;
+            paused.push(dev.clone());
+        }
+        Ok(paused)
+    }
+
+    /// Wind down off (card #787): lifts every pause Wind down set, on any
+    /// of the person's devices, and only those. Says which it lifted.
+    pub(crate) fn wind_down_lift(&self) -> Result<Vec<String>, String> {
+        let by = format!("user:{}", self.device.id);
+        let mut devs: Vec<String> = self
+            .agents_pauses()
+            .into_iter()
+            .filter(|(_, p)| p.on && by_wind_down(&p.by))
+            .map(|(d, _)| d)
+            .collect();
+        devs.sort();
+        for dev in &devs {
+            self.set_agents_paused(dev, false, &by)?;
+        }
+        Ok(devs)
     }
 
     /// Agent `caller` pauses or unpauses agent starts on its own device
@@ -253,6 +313,13 @@ mod tests {
         assert!(!pc.on);
         assert!(pc.since.is_zero());
         assert_eq!(pc.by, "user:mac");
+    }
+
+    #[test]
+    fn only_a_winddown_by_is_wind_downs() {
+        assert!(by_wind_down("winddown:mac"));
+        assert!(!by_wind_down("user:mac"));
+        assert!(!by_wind_down("abc/def"));
     }
 
     #[test]
