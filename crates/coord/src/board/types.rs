@@ -677,6 +677,12 @@ pub struct Task {
     /// The last say on "OK to start an agent on this?", since it was given.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub given_said: Option<GivenSaid>,
+    /// An agent that had read another person's text made or changed this
+    /// card (card #1075), on the private log. Sticky. Its spawn counts as
+    /// quoting others, and waits on the person's "OK to start an agent on
+    /// this?".
+    #[serde(skip_serializing_if = "omit")]
+    pub others: bool,
     /// Agents that own an open step and don't hold the card: they hear it
     /// like a holder until their steps are done (card #86). Derived.
     #[serde(skip_serializing_if = "omit")]
