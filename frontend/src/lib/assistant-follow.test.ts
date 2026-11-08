@@ -375,14 +375,6 @@ describe("review fixes (card #785)", () => {
       },
       ...over,
     }) as unknown as Parameters<typeof workThread>[0]
-  const who = (name: string, status: string) => ({
-    key: name,
-    name,
-    status,
-    live: true,
-    where: "",
-  })
-
   test("cards already said stay when the thread's row is gone", () => {
     const made = detail({
       id: "c1",
