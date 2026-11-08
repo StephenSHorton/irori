@@ -2034,6 +2034,11 @@ export type DeskAuthorView = {
 	cardRef: string,
 	/**  The agent behind it; "" none. */
 	agent: string,
+	/**
+	 *  Why the PR has no review card in a shared space yet (card #1077);
+	 *  "" when nothing waits.
+	 */
+	reviewNote: string,
 };
 
 /**  How polling stands, on the device that polls. */

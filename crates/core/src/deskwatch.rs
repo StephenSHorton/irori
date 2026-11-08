@@ -30,7 +30,7 @@ pub const DESK_EVERY: Duration = Duration::from_secs(180);
 pub const DESK_BACKOFF_MAX: Duration = Duration::from_secs(15 * 60);
 
 /// The `gh pr list --json` fields the desk reads (§3).
-pub const DESK_FIELDS: &str = "number,url,title,author,isDraft,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,createdAt,updatedAt";
+pub const DESK_FIELDS: &str = "number,url,title,author,isDraft,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,reviewDecision,createdAt,updatedAt";
 
 /// Asks GitHub for one repo's open PRs (`owner/name`), at most `limit`.
 pub trait PrLister: Send + Sync {
@@ -58,6 +58,13 @@ pub trait PrLister: Send + Sync {
         _number: i64,
     ) -> Result<Vec<crate::deskpost::FailedCheck>, String> {
         Ok(Vec::new())
+    }
+
+    /// PR `number`'s comments, reviews and changed files (merge desk
+    /// §12.4, card #1077): `gh pr view --json
+    /// comments,reviews,files,headRefOid,reviewDecision`.
+    fn activity(&self, _repo: &str, _number: i64) -> Result<crate::prcard::Activity, String> {
+        Ok(crate::prcard::Activity::default())
     }
 }
 
@@ -164,6 +171,29 @@ impl PrLister for GhLister {
         Ok(checks)
     }
 
+    /// `gh pr view <n> --repo <repo> --json
+    /// comments,reviews,files,headRefOid,reviewDecision`.
+    fn activity(&self, repo: &str, number: i64) -> Result<crate::prcard::Activity, String> {
+        let Some(gh) = gh_path() else {
+            return Err("gh (the GitHub CLI) isn't installed here".into());
+        };
+        let n = number.to_string();
+        let v = run_gh(
+            &gh,
+            &[
+                "pr",
+                "view",
+                &n,
+                "--repo",
+                repo,
+                "--json",
+                "comments,reviews,files,headRefOid,reviewDecision",
+            ],
+            "gh couldn't read this PR's comments and reviews",
+        )?;
+        Ok(crate::prcard::parse_activity(&v))
+    }
+
     /// `gh search prs --author <login> --sort updated --limit
     /// AUTHORED_LIMIT --json repository`.
     fn authored_repos(&self, login: &str) -> Result<Vec<String>, String> {
@@ -237,6 +267,7 @@ pub fn parse_pr_list(v: &serde_json::Value) -> Result<Vec<DeskPr>, String> {
                 mergeable: s(p, "mergeable"),
                 merge_state_status: s(p, "mergeStateStatus"),
                 checks: checks_of(&p["statusCheckRollup"]),
+                review_decision: s(p, "reviewDecision"),
                 created_at: t(p, "createdAt"),
                 updated_at: t(p, "updatedAt"),
             })
@@ -323,6 +354,12 @@ pub(crate) struct DeskWatch {
     tries: Mutex<HashMap<String, u32>>,
     /// Posts that went out as inbox notices, by `task\0tag` (card #420).
     fallbacks: Mutex<std::collections::HashSet<String>>,
+    /// The `updatedAt` each PR card's activity was last read at, by
+    /// `card\0pr` (card #1077): GitHub moves it on every comment and review,
+    /// so an unchanged one needs no `gh pr view`.
+    activity_at: Mutex<HashMap<String, i64>>,
+    /// Why a PR has no review card yet, by `repo\0number` (card #1077).
+    notes: Mutex<HashMap<String, String>>,
 }
 
 /// Polls a "checks failed" post waits for its checks and logs before it
@@ -413,6 +450,37 @@ impl DeskWatch {
             "{}\0{pr}\0{head}",
             coord::canonical_repo_key(repo_key)
         ));
+    }
+
+    /// Whether PR card `card`'s activity needs reading: `updated_ms` is not
+    /// the `updatedAt` it was last read at (card #1077).
+    pub(crate) fn activity_due(&self, card: &str, pr: &str, updated_ms: i64) -> bool {
+        let m = self.activity_at.lock().unwrap_or_else(|e| e.into_inner());
+        m.get(&format!("{card}\0{pr}")) != Some(&updated_ms)
+    }
+
+    /// PR card `card`'s activity was read at `updated_ms`.
+    pub(crate) fn activity_read(&self, card: &str, pr: &str, updated_ms: i64) {
+        let mut m = self.activity_at.lock().unwrap_or_else(|e| e.into_inner());
+        m.insert(format!("{card}\0{pr}"), updated_ms);
+    }
+
+    /// Why PR `number` of `repo_key` has no review card yet, or clears it
+    /// (card #1077). Whether it changed.
+    pub(crate) fn set_note(&self, repo_key: &str, number: i64, note: Option<String>) -> bool {
+        let k = format!("{}\0{number}", coord::canonical_repo_key(repo_key));
+        let mut m = self.notes.lock().unwrap_or_else(|e| e.into_inner());
+        match note {
+            Some(n) => m.insert(k, n.clone()).as_ref() != Some(&n),
+            None => m.remove(&k).is_some(),
+        }
+    }
+
+    /// [`Self::set_note`]'s line for PR `number`, "" when none.
+    pub(crate) fn note(&self, repo_key: &str, number: i64) -> String {
+        let k = format!("{}\0{number}", coord::canonical_repo_key(repo_key));
+        let m = self.notes.lock().unwrap_or_else(|e| e.into_inner());
+        m.get(&k).cloned().unwrap_or_default()
     }
 
     /// Whether post `tag` on card `task_id` already went out as an inbox

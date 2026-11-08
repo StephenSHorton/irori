@@ -95,6 +95,9 @@ pub struct DeskAuthorView {
     pub card_ref: String,
     /// The agent behind it; "" none.
     pub agent: String,
+    /// Why the PR has no review card in a shared space yet (card #1077);
+    /// "" when nothing waits.
+    pub review_note: String,
 }
 
 /// One repo's desk.
@@ -186,6 +189,7 @@ impl Window {
                         card: a.card,
                         card_ref: a.card_ref,
                         agent: a.agent,
+                        review_note: a.review_note,
                     })
                     .collect();
                 let ours: std::collections::HashSet<i64> = authors.iter().map(|a| a.pr).collect();

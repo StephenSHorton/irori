@@ -67,6 +67,8 @@ export type PrAuthor = {
   cardRef?: string
   agent?: string
   name?: string
+  // Why the PR has no review card in a shared space yet (card #1077).
+  reviewNote?: string
 }
 
 export type MergedPr = {
@@ -140,6 +142,7 @@ export function deskQueue(inp: DeskInputs): QueueLine[] {
       state = "ready"
       note = author.card ? "ready for review" : "no author card yet"
     }
+    if (author.reviewNote) note = `${note} · ${author.reviewNote}`
     lines.push({
       pr: p.number,
       url: p.url,
@@ -297,6 +300,7 @@ export function fromHost(v: DeskView): Desk {
           card: a.card || undefined,
           cardRef: a.cardRef || undefined,
           agent: a.agent || undefined,
+          reviewNote: a.reviewNote || undefined,
         },
       ])
     ),

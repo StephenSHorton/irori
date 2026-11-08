@@ -537,7 +537,7 @@ export function Delivery(p: Partial<B.Delivery> = {}): B.Delivery {
 
 /** DeskAuthorView with Go's zero values for every field left out. */
 export function DeskAuthorView(p: Partial<B.DeskAuthorView> = {}): B.DeskAuthorView {
-  return { "pr": 0, "card": "", "cardRef": "", "agent": "", ...p } as B.DeskAuthorView
+  return { "pr": 0, "card": "", "cardRef": "", "agent": "", "reviewNote": "", ...p } as B.DeskAuthorView
 }
 
 /** DeskPollView with Go's zero values for every field left out. */

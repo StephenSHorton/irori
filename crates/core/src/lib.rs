@@ -56,6 +56,7 @@ pub mod namer;
 pub mod notice;
 pub mod offline;
 pub mod prefetch;
+pub mod prcard;
 pub mod prwatch;
 mod publicrelays;
 pub mod reset;

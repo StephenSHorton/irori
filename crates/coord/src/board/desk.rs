@@ -79,6 +79,10 @@ crate::go_struct! {
         pub mergeable: String = "mergeable" "omit",
         pub merge_state_status: String = "mergeStateStatus" "omit",
         pub checks: String = "checks" "omit",
+        /// GitHub's `reviewDecision` (APPROVED, CHANGES_REQUESTED,
+        /// REVIEW_REQUIRED), "" in a repo with no required review (merge
+        /// desk §12.2, card #1077).
+        pub review_decision: String = "reviewDecision" "omit",
         pub created_at: GoTime = "createdAt",
         pub updated_at: GoTime = "updatedAt",
     }

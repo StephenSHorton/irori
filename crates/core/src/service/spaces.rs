@@ -595,6 +595,31 @@ impl Services {
         })
     }
 
+    /// The member devices of space `b` too old for `level`'s `need`, and
+    /// those nobody has any word from, each as `person/device` (short
+    /// ids): a gate that fails closed (card #1077, the PR card's).
+    pub(crate) fn space_waiting_at(
+        &self,
+        b: &BoardLog,
+        level: ReadsLevel,
+        need: i64,
+    ) -> Result<(Vec<String>, Vec<String>)> {
+        let ms = b.verifier.membership();
+        let r = self.space_readers_at(b, level, need)?;
+        let name = |(p, d): (String, String)| {
+            let who = b
+                .verifier
+                .profile(&p)
+                .or_else(|| ms.person(&p).map(|x| x.name.clone()))
+                .unwrap_or_else(|| short(&p).to_string());
+            format!("{who}/{}", short(&d))
+        };
+        Ok((
+            r.too_old.into_iter().map(&name).collect(),
+            r.unheard.into_iter().map(&name).collect(),
+        ))
+    }
+
     /// The member devices of space `space_id` known to be too old for space
     /// rows, as `person/device` (short ids). Empty: it may write them. One
     /// nobody has any word from doesn't count: it gets a warning line
