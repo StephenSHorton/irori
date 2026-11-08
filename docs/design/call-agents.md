@@ -18,7 +18,7 @@ From thread #1028. It builds on [call-transcripts.md](call-transcripts.md) (#656
 | 8 | No fixed timer for invoking an assistant. | §6 |
 | 9 | All of it is wanted, in no particular order. | §13 |
 
-The design settles the questions the thread left open: ambient fill (§6, one note-taker), de-duplication (§7) and the cost default (§12). One still needs the person's yes: one note-taker rather than every assistant (§6). Who hears a two-person huddle is settled: the two people and their agents (§10).
+The design settles the questions the thread left open: ambient fill (§6, every assistant for its own person, with a chair), de-duplication (§7) and the cost default (§12). One still needs the person's yes: how the assistants share the canvas (§6, proposed). Who hears a two-person huddle is settled: the two people and their agents (§10).
 
 ## 2. What exists today, and what's missing
 
@@ -54,7 +54,7 @@ The huddle is identified by its `callId`, as now. It stays in its conversation (
 - **Over** if this device never heard it live and the huddle's newest row (start mark, line or `call.assist`) is older than 10 minutes.
 - **Otherwise live.** Not knowing counts as live, so the after-call steps (L4, Divide, Make cards) stay off.
 
-When `over` holds without an end mark, the note-taker's host (§6) writes the end mark, with the people from the roster row above, so every device then agrees from the rows. If none appears within 3 minutes of `over`, the next connected assistant's host writes it; with no assistant at all, any member device that judges `over` does. The fold keeps the first end mark.
+When `over` holds without an end mark, the chair's host (§6) writes the end mark, with the people from the roster row above, so every device then agrees from the rows. If none appears within 3 minutes of `over`, the next connected assistant's host writes it; with no assistant at all, any member device that judges `over` does. The fold keeps the first end mark.
 
 `Live` forgets a huddle as soon as it goes quiet: the expiry timer fires `CoreEvent::Call`, the window reads `call_snapshot`, which drops entries older than `LIVE_FOR`, and a `leave` from the last device or an `end` frame removes the entry outright. So `over` keeps its own per-device record, `heard: callId → last ring or join time`, written beside `Live` in the frame handler and never pruned by those. A display-only "probably over" (absent from `Live`) may grey the page's Join button, but nothing else uses it.
 
@@ -73,7 +73,7 @@ When `over` holds without an end mark, the note-taker's host (§6) writes the en
 - Talk gets a Huddles list for the picked space (`talk-page.tsx`), newest first: title, place, people, length, live.
 - `talk_list` shows the title.
 
-**Titles.** Anyone in the conversation can set one. If nobody has, the note-taker proposes one from the first couple of minutes (§6), and updates it at the end. A title set by a person is never replaced by an assistant.
+**Titles.** Anyone in the conversation can set one. If nobody has, the chair proposes one from the first couple of minutes (§6), and updates it at the end. A title set by a person is never replaced by an assistant.
 
 **The #1038 prototype** (a clickable mock, PR #213) was built beside this design and differs on purpose in three places: its assistants have invented names (Pip, Kit), every assistant writes at the end, and its canvas is a plain list grouped by kind. This doc is the build plan. Worth taking from it: an item records who asked and why the assistant looked (§8), tasks are marked "proposed, not a card", and the phone tabs.
 
@@ -83,7 +83,7 @@ When `over` holds without an end mark, the note-taker's host (§6) writes the en
 |---|---|---|---|
 | People in the call | Captions, canvas | Everything | Title, canvas |
 | People in the space, not in the call | No | The page, the transcript, the canvas | Title, canvas |
-| Office assistants of people in the call | **Yes, always** | The huddle and a packet of the space's open work, with no tools (§7) | Canvas items, as open; the note-taker also proposes a title |
+| Office assistants of people in the call | **Yes, always** | The huddle and a packet of the space's open work, with no tools (§7) | Canvas items, as open; the chair also proposes a title |
 | Ordinary agents in the space | **No** | `talk_read`, `huddle_status`, `huddle_canvas` | Canvas items, as open, with `huddle_note` (§11) |
 
 "Always connected" needs no switch ([decision 52](../decisions.md)): an assistant connects when its person joins. Settings only turn it off (§12).
@@ -117,16 +117,17 @@ Seeding Whisper's prompt with the roster's names would help further (`crates/voi
 
 ## 6. When the assistant is invoked
 
-**The answer to "every 5 seconds?": never on a timer.** Lines are collected in Core at no cost, and the model runs only when a layer fires. The cheapest check is first and every layer but L3 needs nothing from the model to decide.
+**The answer to "every 5 seconds?": never on a timer.** Lines are collected in Core at no cost, and the model runs only when a layer fires. The cheapest check is first, and Core decides every layer without the model.
 
 | Layer | Fires when | Who | Decided by |
 |---|---|---|---|
 | **L1 Addressed** | A line calls the assistant (§5), or its own person uses Ask on the page (§3) | That one assistant | Rust match |
 | **L2 Own person asks** | A line from the assistant's **own** person ends in `?` or starts with a request stem ("do we", "can someone", "let's make", "who's", "what's"), and isn't one of the skips below | That person's assistant only | Rust rule |
-| **L3 Digest** | At least 30 s of new talk since its last look, and then a natural gap: 4 s with no line, or the speaker changes. Forced at 90 s of new talk. Never without new talk. | The note-taker only | Rust |
-| **L4 End** | `over(call)` holds (§3) and no `summary` item exists yet | The note-taker: a summary, the action items (open `task` items), the title, and a list of open items that look answered or superseded, by item id, for a person to settle (§9). It changes no status. Others stop. | Rust |
+| **L3 Own digest** | Its own person has spoken at least 15 s since its last look, and then a natural gap: 4 s with no line, or the speaker changes. Forced at 60 s of its person's talk. Never if its person hasn't spoken. | Every assistant, each for its own person | Rust |
+| **L3b Routed question** | A `question` item lands and this assistant's person, or one of their agents, holds an open card that matches it (below) | Each matching assistant, once per question | Rust match |
+| **L4 End** | `over(call)` holds (§3) and no `summary` item exists yet | The chair: a summary, the action items (open `task` items), the title, and a list of open items that look answered or superseded, by item id, for a person to settle (§9). It changes no status. Others stop. | Rust |
 
-L2 is what makes the person's own example work: "do we have anyone working on X?", said with no name, goes to the asker's own assistant, and one question wakes one assistant. A question for the room from someone else wakes nobody, and lands on the canvas through the digest as an open question.
+L2 is what makes the person's own example work: "do we have anyone working on X?", said with no name, goes to the asker's own assistant, and one question wakes one assistant. A question for the room from someone else goes on the canvas through that person's own digest, and then reaches the assistants whose people know about it (L3b).
 
 **L2 skips** lines of under 4 words, tag questions from a fixed list ("right?", "yeah?", "make sense?", "okay?"), and lines with a person in the huddle named in address position ("Addam, did you push it?"), since those are questions to a person. An L2 look writes the line as a `question` item and replies to it only when the packet supports an answer; otherwise it writes nothing. "Couldn't find it" items are for L1 and Ask, where someone asked the assistant.
 
@@ -139,22 +140,28 @@ L4 runs off `over`, apart from #656's end wake (`call_end_bridge`, `tell_call_en
 - L1 from the assistant's own person isn't throttled apart from that. L1 from anyone else: at most one look per caller per 15 s, since each look spends the owner's usage and writes a placeholder (#1030 limits other people's asks the same way). L2 at most every 15 s. L3 at least 30 s apart.
 - **Only fresh lines trigger.** A line triggers L1 or L2 only if it ended within 60 s of now. A host back from sleep or a dropped network gets minutes of rows at once through the same live path; those only join the buffer as context.
 - **Hold for the rest of the sentence.** Whisper cuts phrases at 800 ms of silence, so "Juno, do we have anyone" and "working on signing?" can be two lines. After a match, wait for that speaker's next line or 1.5 s, whichever is first. A phone speaker's next line can take 5 s, so a line from the same speaker within 8 s of a look starts one more.
-- A cap of 300 looks per huddle per assistant, other people's L1 included. Past that, L2 and L3 stop, the owner's own L1 goes on, and others' calls get one canvas note: "Stephen's assistant has done its looks for this huddle." The roster says so too.
-- **Canvas items never trigger anything.** Only spoken lines (and Ask) do. Assistants can't set each other off.
+- A cap of 300 looks per huddle per assistant, other people's L1 and routed questions included. Past that, L2, L3 and L3b stop, the owner's own L1 goes on, and others' calls get one canvas note: "Stephen's assistant has done its looks for this huddle." The roster says so too.
+- **One kind of canvas item triggers, and only one way.** A `question` item fires L3b; nothing else on the canvas triggers anything. An L3b look may write only `answer` items (any other block is dropped), and answers, notes, decisions and tasks trigger nothing. So assistants can't set each other off in a loop: one question gives at most one look per matching assistant.
 
-**Where the check runs.** The thread proposed the speaker's device. It has to be the **assistant's host** instead: my device can't run your assistant, and every Core serves only its own person's agents. The host sees the line anyway, because the row reaches every member device. Each host evaluates the same lines against the same replicated names, so the layers need no coordination. (The host pick and the note-taker do: §7 and below.)
+**Where the check runs.** The thread proposed the speaker's device. It has to be the **assistant's host** instead: my device can't run your assistant, and every Core serves only its own person's agents. The host sees the line anyway, because the row reaches every member device. Each host evaluates the same lines against the same replicated names, so the layers need no coordination. (The host pick and the chair do: §7 and below.)
 
-**Ambient fill: one note-taker, not everyone.** The thread's lean was every assistant on, posting only about what it knows. This design picks **only one assistant, the note-taker**. Join order isn't recorded anywhere replicated (`Live.devices` is an in-memory map keyed by device id), so the role comes from rows:
-- The starter's assistant takes it (the start mark's author), if it's connected. Its host writes `call.assist` with `notes: true`.
-- Otherwise, or when its person leaves while others are still in the call, or its `call.assist` is off, or its host has been away in presence for 60 s: the next connected assistant in the order of their first `call.assist on` row for this huddle (ties by person id) takes it, and writes `notes: true`.
-- If two connected assistants both hold `notes: true`, the one earlier in that order keeps it; the other's host writes `notes: false` and stops digesting.
+**Ambient fill: every assistant, each for its own person.** *(Proposed, waiting on the person's yes.)* The person asked how everyone's assistants can work on the canvas together. The answer here divides the work so they never repeat each other:
+
+- **Each assistant writes what its own person says.** Its digest (L3) turns its person's lines into items: their questions, their proposals and decisions, their commitments ("I'll take signing" becomes a `task` item asked by them). Each line has one speaker, so each line has one writer, and two assistants never note the same thing. A silent person's assistant runs no digest and costs nothing.
+- **An exchange between two people is two items.** Addam's question is Addam's assistant's item; Stephen's "yes, let's do that" is Stephen's assistant's `decision`, replying to it. The chair's summary links the threads (`refs`).
+- **A question goes to whoever knows (L3b).** When a `question` item lands, from any digest, L1, L2 or a person, Core looks for open cards in the packet that match it: words of the question, minus common words, against card titles. For each person who holds a matching card, or whose agents do, that person's assistant gets one look and answers from its person's work: "Addam has #412 on Windows signing; his agent is on it." This is the person's own first picture: "the corresponding office assistant who knows the answer to that posts information on the canvas." It reads only the shared packet, so it never reveals private work (§7).
+- **One assistant chairs.** The chair writes what belongs to nobody in particular: the title, the end summary with its links and action items (L4), and the end mark after a crash (§3). It's the starter's assistant; the role passes on by the rows below.
+
+**What each look gets.** An own digest gets its person's lines since its last look, plus the last 60 s of everyone else's lines for context, and what others added to the canvas since then. A routed look gets the question, the lines around it, and the matching cards. So the cost grows with how much each person talks, not with the number of assistants times the length of the call.
+
+**The chair, from rows.** Join order isn't recorded anywhere replicated (`Live.devices` is an in-memory map keyed by device id), so the role comes from rows:
+- The starter's assistant takes it (the start mark's author), if it's connected. Its host writes `call.assist` with `chair: true`.
+- Otherwise, or when its person leaves while others are still in the call, or its `call.assist` is off, or its host has been away in presence for 60 s: the next connected assistant in the order of their first `call.assist on` row for this huddle (ties by person id) takes it, and writes `chair: true`.
+- If two connected assistants both hold `chair: true`, the one earlier in that order keeps it; the other's host writes `chair: false`.
 - If no `summary` item appears within 3 minutes of `over`, the next connected assistant in that order writes it.
 - If no assistant is connected at all, there are no notes, and the page says so.
 
-Why one rather than every assistant (to confirm with the person):
-- "Only what it knows" can't be checked by Core, and a model told to post when relevant will narrate. Several assistants reading the same words would write the same notes.
-- It costs one assistant's digest, not N.
-- What other assistants uniquely know still arrives, through L1 and L2, which are always on for everyone.
+**Why not every assistant digesting everything** (the thread's first lean): several assistants reading the same words would write the same notes, a model told to "post only what you know" narrates anyway, and Core can't check it. Dividing by speaker and by card holder gives each assistant a part only it covers.
 
 ## 7. The assistant in a huddle
 
@@ -171,8 +178,8 @@ It's the Office Assistant, not an agent: still off the roster, not counted again
 - It has its own pool, not `MAX_RUNS`.
 - Each look writes one user message and reads until `result`, with a 60 s watchdog per look. The process stays up after `result`, unlike today's `Runner`, which closes stdin, ends at the first `result` and kills the run at `job.timeout`.
 - If it dies, or its context passes about 60k tokens, the next look starts a new one seeded with the title, the canvas, the last 5 minutes and the current packet.
-- **When it closes** (`close`, `call.assist off`): when its person leaves the call. The note-taker's stays open until L4 has written its summary, or 5 minutes after `over`; a person leaving at the very end doesn't hand the role on.
-- An assistant with no look for a long time (not the note-taker) gets at most the last 10 minutes of lines and the canvas in its next look, not everything since it joined.
+- **When it closes** (`close`, `call.assist off`): when its person leaves the call. The chair's stays open until L4 has written its summary, or 5 minutes after `over`; a person leaving at the very end doesn't hand the role on.
+- An assistant with no look for a long time (not the chair) gets at most the last 10 minutes of lines and the canvas in its next look, not everything since it joined.
 - **Where it lives.** The process side goes in `crates/window/src/assistant.rs` (reusing `prepare`, `command`, `kill_tree` and `Parser`), behind a new Core trait, `HuddleRunner { open, look, close }`, installed from `app/src/shell/mod.rs` on desktops, as `set_namer` is. The packet, the block parser and the rows stay in Core.
 - Model and effort: the chat's, once #1014 lands (`spawn_setting("").assistant_model()` and `assistant_effort()`, default Sonnet low, passed as `--model` and `--effort`). Until then `assistant::MODEL` (Haiku).
 
@@ -234,9 +241,9 @@ All four are `call.*`, `Replicated, Accepts` (a `call.*` kind must never be `Ref
 
 ```json
 call.title    {"callId","convId","title","assistant":false,"by","at"}
-call.item     {"itemId","callId","convId","kind","text","status","reply":"<itemId>?","refs":["<itemId>"]?,"asker":"<person key>?","why":"name|own|digest|end|ask?","assistant":false,"by","at"}
+call.item     {"itemId","callId","convId","kind","text","status","reply":"<itemId>?","refs":["<itemId>"]?,"asker":"<person key>?","why":"name|own|digest|routed|end|ask?","assistant":false,"by","at"}
 call.item.set {"itemId","callId","convId","text?","status?","x?","y?","card?","assistant":false,"by","at"}
-call.assist   {"callId","convId","device","state":"on|off","notes":false,"by","at"}
+call.assist   {"callId","convId","device","state":"on|off","chair":false,"by","at"}
 ```
 
 - **`kind`:** `question`, `answer`, `decision`, `task`, `note`, `summary`.
@@ -286,7 +293,7 @@ call.assist   {"callId","convId","device","state":"on|off","notes":false,"by","a
 
 Promotion is one step, and only after the huddle is over.
 
-1. The page's canvas becomes **the finished canvas**: items grouped by kind, open questions and proposed tasks first, with the note-taker's summary on top (the action items, and the items its `refs` judge answered or superseded, with **Settle these**, which writes the person's own `settled` sets after they've seen the list).
+1. The page's canvas becomes **the finished canvas**: items grouped by kind, open questions and proposed tasks first, with the chair's summary on top (the action items, and the items its `refs` judge answered or superseded, with **Settle these**, which writes the person's own `settled` sets after they've seen the list).
 2. **Divide with my assistant** opens the Office Assistant chat with this huddle in context (any person can, whether or not they were in the call). They talk it through: merge these, split that, this one's Addam's. This chat keeps its person-level reads while holding other people's words, which §7's rule allows only because the person is there: the canvas and transcript go in fenced as untrusted data (as `inbox::fence` does), and nothing leaves the chat until the person taps Make cards, seeing the exact text first.
    - The chat keeps no session: each turn re-renders the history (`render_prompt`), and `ASSISTANT_TOOLS` has no `talk_read`. So `assistant_ask` takes an optional `callId`, and the host puts the fenced huddle context into every turn while the chat is on that huddle: the title, the canvas with item ids, and the transcript cut to the last 20 minutes when it's longer.
    - The chat needs Claude Code, so Divide is hidden on a phone (§2).
@@ -381,7 +388,8 @@ Finals only is a hard floor: a word isn't known until its phrase ends, and unbro
 
 **Settings** (Settings › App, on by default; the setting only turns things off; stored as private rows like `assistant.names.set`):
 - "Connect my assistant to huddles": off means no assistant from this person.
-- "Let my assistant take notes in huddles I start": off passes the note-taker to the next person.
+- "Let my assistant add notes from what I say": off stops its own digest (L3); being called, its own person's questions and routed questions still work.
+- "Let my assistant chair huddles I start": off passes the chair to the next person.
 
 ## 13. Build order
 
