@@ -188,6 +188,16 @@ scroll, kit Slider, Avatar, Skeleton, Progress, ColorPicker and swatches, dashed
 strokes, the mono fallback, WebP and GIF, tray check items on Windows and Linux, and
 `Tx::copy_checked`.
 
+Parked, and what to keep:
+- The person parked this branch (card #674): it is not merged into main and nothing is moving
+  it. Don't delete the fork branch `card-674-gaps` while the fork's PR #3 is open: the pin in
+  `app/Cargo.toml` is a rev on that branch (`fdaed5f`), and a deleted branch can lose the rev.
+  The fork's AGENTS.md is public, so these notes stay here and never go in the fork.
+- Rune's own toolchain is 1.99.1 and Irori's is 1.97.1 (`rust-toolchain.toml`). Rune builds on
+  Irori's older one today; check that again each time the pin moves.
+- Rune text needs `.wrap()` or `max_lines` to wrap or cut at the element's width. Without one
+  a long line runs past its box.
+
 Small differences from the React app that remain:
 - Card chips (`widgets/bits.rs` `badge()`) are hand-built: kit `Badge` has no font or
   corner-radius setter to match them.

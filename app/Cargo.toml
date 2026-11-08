@@ -44,6 +44,8 @@ libc = { workspace = true }
 # dialogs that wrap, kit widgets, dashes, mono, WebP, tray checks). 064a411 is 5fd9bfa plus the Android
 # shell and its on-screen keyboard (#677, #679). Its ogg-audio (symphonia) and
 # native-file-dialog stay off.
+# Rune's own toolchain is 1.99.1; it builds on Irori's 1.97.1, so recheck when re-pinning.
+# Keep the fork branch card-674-gaps while this rev is on it (docs/rune-ui.md).
 rune = { git = "https://github.com/StephenSHorton/rune", rev = "fdaed5f2e167cea3ceb0f184721dae8193b98a19", default-features = false, features = ["accessibility", "dbus", "embedded-fonts", "metal-backend", "native-file-dialog", "svg"] }
 # Rune's components (dialogs, menus, sidebar, toasts, markdown), same rev.
 rune-kit = { git = "https://github.com/StephenSHorton/rune", rev = "fdaed5f2e167cea3ceb0f184721dae8193b98a19", features = ["markdown"] }
