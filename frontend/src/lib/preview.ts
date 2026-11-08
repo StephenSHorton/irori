@@ -48,7 +48,7 @@
 //                   shell and its height handle (lib/term.ts, card #730)
 //   ?assistant=open Ask Irori (card #783) open on a sample chat; busy with a
 //                   reply being written, new on an empty chat, draft with a
-//                   drafted thread and its Post thread button, follow a
+//                   check-first thread and its Post thread button, follow a
 //                   thread it posted and the lines on its work (card #785)
 //                   (lib/assistant.ts)
 //                   go with a reply that takes you somewhere and its button
