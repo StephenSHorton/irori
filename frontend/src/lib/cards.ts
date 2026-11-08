@@ -730,19 +730,23 @@ export function refCandidates(
     tag?: string
     state?: string
   }[]
-): (CardCandidate & { status: RefStatus })[] {
+): (CardCandidate & { status: RefStatus; thread: boolean })[] {
   const row = (
     c: { id: string; short: string; title: string; tag?: string },
-    status: RefStatus
+    status: RefStatus,
+    thread: boolean
   ) => ({
     id: c.id,
     short: c.short,
     ref: `${c.tag ?? ""}#${c.short}`,
     title: plainLine(c.title),
     status,
+    thread,
   })
   // Its state as the chip it becomes shows it (card #343).
-  const cs = cards.filter((c) => c.short).map((c) => row(c, cardStatus(c)))
+  const cs = cards
+    .filter((c) => c.short)
+    .map((c) => row(c, cardStatus(c), false))
   const open = refStatus({
     thread: true,
     done: false,
@@ -751,7 +755,7 @@ export function refCandidates(
   })
   const ts = threads
     .filter((t) => t.short && t.state !== "resolved")
-    .map((t) => row(t, open))
+    .map((t) => row(t, open, true))
   const lead = Math.min(LeadThreads, ts.length)
   const out = []
   for (let i = 0; i < lead; i++) {

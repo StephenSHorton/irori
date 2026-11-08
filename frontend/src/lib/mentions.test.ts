@@ -431,6 +431,23 @@ describe("localRef (card #144)", () => {
     expect(localRef(ref("#9"), cards, onSpace)).toBeNull()
   })
 
+  test("your own thread wins over a tagged card's number (#982)", () => {
+    const live = [{ id: "m5", short: "5", title: "MLG five", tag: "mlg" }]
+    const own = [{ id: "t5", short: "5", title: "Thread five" }]
+    expect(localRef(ref("#5"), live, own)?.id).toBe("t5")
+    expect(localRef(ref("mlg#5"), live, own)?.id).toBe("m5")
+    const priv = [{ ...own[0], spaceId: "b-mlg", private: true }]
+    expect(localRef(ref("#5"), live, priv)?.id).toBe("t5")
+  })
+  test("an untagged live card still wins (#982)", () => {
+    const live = [{ id: "c5", short: "5", title: "Mine" }]
+    const own = [{ id: "t5", short: "5", title: "Thread five" }]
+    expect(localRef(ref("#5"), live, own)?.id).toBe("c5")
+  })
+  test("thread rows are marked, so their titles can't hold the token (#982)", () => {
+    expect(cardTokenAt("see #12 ", 8, [])).toBeNull()
+  })
+
   test("a live card first", () => {
     expect(localRef(ref("see #12"), cards, threads)).toEqual({
       kind: "card",

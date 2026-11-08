@@ -487,6 +487,7 @@ describe("refCandidates: threads in the # picker (card #982)", () => {
     expect(c.id).toBe("c1")
     expect(t).toMatchObject({ id: "t979", ref: "#979" })
     expect(t.status.label).toBe("Open thread")
+    expect([c.thread, t.thread]).toEqual([false, true])
   })
 
   test("a resolved thread is not; an answered one is", () => {

@@ -130,7 +130,10 @@ export function MentionTextarea({
       ? cardTokenAt(
           value,
           caret,
-          cardCands.map((c) => c.title)
+          // Cards' only: a thread's title is a whole sentence, so ordinary
+          // words after a "#" would hold the list open and Enter would
+          // replace them (card #982).
+          cardCands.filter((c) => !c.thread).map((c) => c.title)
         )
       : null
   const token: Token | null = agentToken ?? cardToken
