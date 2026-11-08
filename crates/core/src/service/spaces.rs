@@ -595,6 +595,31 @@ impl Services {
         })
     }
 
+    /// The member devices of space `b` too old for `level`'s `need`, and
+    /// those nobody has any word from, each as `person/device` (short
+    /// ids): a gate that fails closed (card #1077, the PR card's).
+    pub(crate) fn space_waiting_at(
+        &self,
+        b: &BoardLog,
+        level: ReadsLevel,
+        need: i64,
+    ) -> Result<(Vec<String>, Vec<String>)> {
+        let ms = b.verifier.membership();
+        let r = self.space_readers_at(b, level, need)?;
+        let name = |(p, d): (String, String)| {
+            let who = b
+                .verifier
+                .profile(&p)
+                .or_else(|| ms.person(&p).map(|x| x.name.clone()))
+                .unwrap_or_else(|| short(&p).to_string());
+            format!("{who}/{}", short(&d))
+        };
+        Ok((
+            r.too_old.into_iter().map(&name).collect(),
+            r.unheard.into_iter().map(&name).collect(),
+        ))
+    }
+
     /// The member devices of space `space_id` known to be too old for space
     /// rows, as `person/device` (short ids). Empty: it may write them. One
     /// nobody has any word from doesn't count: it gets a warning line
@@ -1370,6 +1395,8 @@ pub(crate) enum ReadsLevel {
     Spaces,
     /// The hello's `tolerant` (card #652).
     Tolerant,
+    /// The hello's `reviews` (card #1077): PR cards.
+    Reviews,
 }
 
 impl ReadsLevel {
@@ -1377,6 +1404,7 @@ impl ReadsLevel {
         match self {
             ReadsLevel::Spaces => r.spaces,
             ReadsLevel::Tolerant => r.tolerant,
+            ReadsLevel::Reviews => r.reviews,
         }
     }
 }
@@ -1607,7 +1635,7 @@ impl Services {
     /// device): refused unless the person is an active member and every
     /// device in the space reads space rows (the version gate). A hidden
     /// space takes only what folds into its DM.
-    fn append_space_talk(
+    pub(super) fn append_space_talk(
         &self,
         space_id: &str,
         by: &str,

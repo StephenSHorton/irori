@@ -148,7 +148,9 @@ pub struct Fresh {
 /// `status`, `liveness` and `last_seen`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeviceRead {
-    /// connected, recent or offline.
+    /// connected, recent or offline. Recent is not a session: fetching an
+    /// attachment still needs a connected holder. Read this, not
+    /// `last_ping` or `last_sync` alone.
     pub state: &'static str,
     /// When it was last heard: a session with it, or the newest row of its
     /// that reached this device. `None`: never.

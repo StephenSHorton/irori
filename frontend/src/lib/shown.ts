@@ -2,7 +2,8 @@
 // wraps a reload so that while the page is hidden (minimised, or closed to
 // the tray) the signals that would run it are only noted, and it runs once
 // when the page shows again: one read for a whole hidden stretch, however
-// many cards changed meanwhile.
+// many cards changed meanwhile. WebView2 under Tauri keeps reporting the page
+// visible when minimised or closed to the tray, so on the PC this does nothing.
 
 type Doc = {
   readonly hidden: boolean

@@ -544,13 +544,18 @@ export const commands = {
 	 */
 	usageLimits: () => __TAURI_INVOKE<UsageLimits>("usage_limits"),
 	/**
-	 *  Asks the corner chat's assistant `text` after `history`; `screen` is the
-	 *  window's plain-text snapshot of what is shown (card #1009; "" sends
-	 *  none). Returns the
-	 *  run's id at once; its events come on `on`, ending with one `done` or
-	 *  `error` (a failure to start included).
+	 *  Stores files for the corner chat (card #999) and says, for each, what
+	 *  the chat shows and whether the assistant can read it.
 	 */
-	assistantAsk: (history: AssistantTurn[], text: string, screen: string, on: Channel<AssistantEvent>) => __TAURI_INVOKE<number>("assistant_ask", { history, text, screen, on }),
+	assistantAttach: (files: UploadFile[]) => __TAURI_INVOKE<AssistantFile[]>("assistant_attach", { files }),
+	/**
+	 *  Asks the corner chat's assistant `text` after `history`, with `files`
+	 *  from [`assistant_attach`]; `screen` is the window's plain-text snapshot
+	 *  of what is shown (card #1009; "" sends none). Returns the run's id at
+	 *  once; its events come on `on`, ending with one `done` or `error` (a
+	 *  failure to start included).
+	 */
+	assistantAsk: (history: AssistantTurn[], text: string, files: AssistantFile[], screen: string, on: Channel<AssistantEvent>) => __TAURI_INVOKE<number>("assistant_ask", { history, text, files, screen, on }),
 	/**
 	 *  Stops assistant run `id`: its channel gets error "Stopped." or nothing
 	 *  more. An unknown or finished id is fine.
@@ -908,11 +913,35 @@ export type AssistantEvent = {
 	text: string,
 };
 
+/**
+ *  One file the person gave the chat (card #999): a file reference plus
+ *  whether the assistant can read it.
+ */
+export type AssistantFile = {
+	sha256: string,
+	/**  The safe file name. */
+	name: string,
+	size: number,
+	mime?: string,
+	device: string,
+	/**
+	 *  The assistant reads this type; `false` says so in the chat. A file
+	 *  saved without the field isn't marked unreadable: only a `false`
+	 *  says that, as in the frontend's `can_read === false`.
+	 */
+	can_read?: boolean,
+};
+
 /**  One turn of the chat so far. */
 export type AssistantTurn = {
 	/**  `"person"` or `"assistant"`. */
 	role: string,
 	text: string,
+	/**
+	 *  What the person attached to this turn (card #999): names only reach
+	 *  the model on later turns.
+	 */
+	files?: AssistantFile[],
 };
 
 /**  One comment file as the window shows it. */
@@ -2046,6 +2075,11 @@ export type DeskAuthorView = {
 	cardRef: string,
 	/**  The agent behind it; "" none. */
 	agent: string,
+	/**
+	 *  Why the PR has no review card in a shared space yet (card #1077);
+	 *  "" when nothing waits.
+	 */
+	reviewNote: string,
 };
 
 /**  How polling stands, on the device that polls. */
@@ -2084,6 +2118,11 @@ export type DeskSettings = {
 	pollDevice?: string,
 	trusted?: string[],
 	perPrOk?: boolean,
+	/**
+	 *  Other people's agents don't review this repo's PRs (card #1077):
+	 *  off, it behaves like a solo repo. On (false here) when unset.
+	 */
+	reviewsOff?: boolean,
 	by?: string,
 	at?: string,
 };
@@ -2406,6 +2445,12 @@ export type MentionCandidate = {
 	 *  them only in a box on that board's cards.
 	 */
 	board?: string,
+	/**
+	 *  `assistant` for an Office Assistant (kind assistant and its owner's
+	 *  profile points at it); the picker offers one only in
+	 *  #office-assistants. "" for everything else.
+	 */
+	kind?: string,
 };
 
 /**  One mention's outcome after a send. */
@@ -3176,6 +3221,13 @@ export type TalkMember = {
 	status?: string,
 	/**  Whose agent it is when it is another member's ("Spencer"), else "". */
 	owner?: string,
+	/**
+	 *  It is its owner's Office Assistant (kind `assistant` and the
+	 *  owner's profile points at it). `name` is then the label.
+	 */
+	assistant?: boolean,
+	/**  The assistant's chosen name, "" for the default. */
+	assistantName?: string,
 };
 
 /**  Who to add to or take out of a conversation. */
@@ -3205,6 +3257,10 @@ export type TalkPost = {
 	mentions: string[],
 	agentsNow: boolean,
 	threadFrom?: string | null,
+	/**  The post it answers (an assistant's answer or waiting line). */
+	replyTo?: string | null,
+	/**  `ask` or `owner` on an assistant's waiting line. */
+	waiting?: string | null,
 	/**  The card made from it (always null in Talk 1). */
 	card?: string | null,
 	/**  The files sent with it (card #643), as a comment's are. */

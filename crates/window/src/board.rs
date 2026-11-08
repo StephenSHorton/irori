@@ -782,6 +782,8 @@ impl Window {
             // gone on a card nobody holds (card #485): the answer goes on
             // its thread and the card back on the Board, so the agent Irori
             // starts for it reads it in its brief and answers it there.
+            // A test of the nobody-can-act route drives this Window answer:
+            // `coord.answer` with `resolve: false` never reaches it.
             resolve: !bl.done_check
                 && !brings_lead
                 && self.nobody_can_act(&t, &bl.raised_by)
@@ -969,6 +971,17 @@ impl Window {
     /// them as the person's attachments, then removes the folder (Go
     /// `storeUploads` + `Core.AttachFiles`).
     pub(crate) fn store_uploads(&self, files: &[UploadFile]) -> Result<Vec<FileRef>, String> {
+        self.store_files(files, true)
+    }
+
+    /// [`Self::store_uploads`]; `offer` tells the mesh this device holds
+    /// the files. The assistant's chat doesn't (card #999): nothing else
+    /// can see its files.
+    pub(crate) fn store_files(
+        &self,
+        files: &[UploadFile],
+        offer: bool,
+    ) -> Result<Vec<FileRef>, String> {
         use base64::Engine as _;
         if files.is_empty() {
             return Ok(Vec::new());
@@ -1010,7 +1023,9 @@ impl Window {
                 .map_err(|e| format!("{}: {e}", base))?;
             r.name = blob::safe_name(&base, &r.sha256);
             r.device = self.core.device_id().to_string();
-            self.seams.mesh.offer(&r)?;
+            if offer {
+                self.seams.mesh.offer(&r)?;
+            }
             out.push(r);
         }
         Ok(out)

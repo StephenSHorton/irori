@@ -523,7 +523,9 @@ pub struct Ask {
     #[serde(skip_serializing_if = "omit")]
     pub gave: bool,
     /// The Office Assistant posted this thread for the person (card #991):
-    /// Irori doesn't name it. Still the person's in every other way.
+    /// Irori doesn't name it. Still the person's in every other way. Any
+    /// new way for the assistant to post must set it; `opener` and
+    /// `title_by_person` don't stand in for it.
     #[serde(skip_serializing_if = "omit")]
     pub assistant: bool,
 }
@@ -611,6 +613,9 @@ impl Weight {
 #[serde(rename_all = "camelCase")]
 pub struct Task {
     pub id: String,
+    /// `short`, `tag` and `board` are derived: by `short.rs::renumber`'s
+    /// walk and the tag refresh on a board rename. Never set by hand or in
+    /// arrival order.
     #[serde(skip_serializing_if = "omit")]
     pub short: String,
     #[serde(skip_serializing_if = "omit")]

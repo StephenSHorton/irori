@@ -471,7 +471,7 @@
         },
         "objective": {
           "type": "string",
-          "description": "Optional: what needs doing and why, briefly. Write needs:mac or needs:pc in it when only one machine can do the work: Irori offers the card to a free agent there first."
+          "description": "Optional: what needs doing and why, briefly. Write needs:mac or needs:pc in it when only one machine can do the work: Irori offers the card to a free agent there first. Ask for Mac work with a top-level card: needs: is ignored on a subtask."
         },
         "done_when": {
           "type": "string",

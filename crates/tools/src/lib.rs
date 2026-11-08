@@ -280,6 +280,9 @@ pub struct BoardAgent {
     /// Its person's name on the board, "" when unknown.
     pub person: String,
     pub card: presence::AgentCard,
+    /// Its owner's Office Assistant, verified (kind `assistant` and the
+    /// owner's profile points at it): the chosen name, "" for the default.
+    pub assistant: Option<String>,
 }
 
 /// "My agents may start agents on my cards", as an agent may read it.

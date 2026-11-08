@@ -1027,7 +1027,9 @@ pub fn run(o: &Opts) -> ExitCode {
         println!("agent-check: running {name}");
         // Every scenario shares one Core: start each with Pause all and
         // Wind down off, since 6's wind down holds agent starts until it is
-        // turned off (cards #669, #787).
+        // turned off (cards #669, #787). Reset any other shared state a new
+        // scenario changes too, and run a full pass, not just --only N, since
+        // a scenario run alone never meets what the others leave behind.
         let off = h
             .window
             .inbox_set_paused(false)

@@ -1359,7 +1359,7 @@ pub(crate) fn board_review(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     };
     let asked: Vec<String> = rs.iter().map(|r| r.to.clone()).collect();
     format!(
-        "Asked {} to review {} for {}: they hear at their next turn and review with their own gh (Irori never posts reviews or merges). Their review shows in prs once they post it.\n{}",
+        "Asked {} to review {} for {}: an idle agent is woken now, a busy one hears at its next turn, and if their person has Ask me on, their person is asked first. They review with their own gh (Irori never posts reviews or merges). Their review shows in prs once they post it.\n{}",
         asked.join(", "),
         one_line(pr, 200),
         s.short_of(&id),

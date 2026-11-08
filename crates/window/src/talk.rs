@@ -30,6 +30,15 @@ pub struct TalkMember {
     /// Whose agent it is when it is another member's ("Spencer"), else "".
     #[serde(default)]
     pub owner: String,
+    /// It is its owner's Office Assistant (kind `assistant` and the
+    /// owner's profile points at it). `name` is then the label.
+    #[serde(default)]
+    #[specta(optional)]
+    pub assistant: bool,
+    /// The assistant's chosen name, "" for the default.
+    #[serde(default)]
+    #[specta(optional)]
+    pub assistant_name: String,
 }
 
 /// Who to add to or take out of a conversation.
@@ -112,6 +121,12 @@ pub struct TalkPost {
     pub agents_now: bool,
     #[specta(optional)]
     pub thread_from: Option<String>,
+    /// The post it answers (an assistant's answer or waiting line).
+    #[specta(optional)]
+    pub reply_to: Option<String>,
+    /// `ask` or `owner` on an assistant's waiting line.
+    #[specta(optional)]
+    pub waiting: Option<String>,
     /// The card made from it (always null in Talk 1).
     #[specta(optional)]
     pub card: Option<String>,
@@ -300,6 +315,8 @@ impl Window {
                         name: m.name,
                         status: m.status,
                         owner: m.owner,
+                        assistant: m.assistant,
+                        assistant_name: m.assistant_name,
                     })
                     .collect(),
                 last_at: c.last_at,
@@ -357,6 +374,8 @@ impl Window {
                 mentions: p.mentions,
                 agents_now: p.agents_now,
                 thread_from: p.thread_from,
+                reply_to: p.reply_to,
+                waiting: p.waiting,
                 card: p.card,
                 attachments: p.files.iter().map(crate::coord_ref).collect(),
                 call: p.call.map(|c| TalkCall {

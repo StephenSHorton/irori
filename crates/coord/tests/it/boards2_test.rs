@@ -672,6 +672,7 @@ fn a_review_request_reaches_the_other_persons_reviewer() {
                 from: CARD1.into(),
                 to: CARD2.into(),
                 at,
+                wake: true,
             })
             .unwrap(),
             sig: Vec::new(),
