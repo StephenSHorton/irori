@@ -9,11 +9,13 @@
 //! | [`roster`] | `internal/roster` | other devices' agent cards with liveness |
 //! | [`names`] | `internal/names` | friendly session names |
 //! | [`person_avatar`] | (Rust only, card #393) | the person's picture |
+//! | [`assistant_name`] | (Rust only, card #1045) | the name of their Office Assistant |
 //! | [`devcolor`] | `internal/devcolor` | device colours |
 //! | [`devname`] | (Rust only, card #184) | the person's names for their devices |
 //! | [`talk`] | (Rust only, card #389) | channels, DMs and read cursors |
 
 pub mod approvals;
+pub mod assistant_name;
 pub mod avatar;
 pub mod board;
 pub mod decision;

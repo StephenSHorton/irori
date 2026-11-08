@@ -86,6 +86,8 @@ struct MemberFold {
     /// a device that can't learn it (a phone, an older build) writes a
     /// profile without one, which never blanks it.
     github_login: String,
+    /// The latest counted profile's assistant name (card #1045).
+    assistant_name: String,
     /// The newest non-empty assistant card id on a counted profile; folds like
     /// `github_login`, so an older build's profile never blanks it.
     assistant_card: String,
@@ -381,6 +383,7 @@ fn fold_member(
         color: String::new(),
         avatar: String::new(),
         github_login: String::new(),
+        assistant_name: String::new(),
         assistant_card: String::new(),
         profile: false,
     };
@@ -400,6 +403,7 @@ fn fold_member(
             m.name = p.prof.name.clone(); // the latest counted one
             m.color = p.prof.color.clone();
             m.avatar = p.prof.avatar.clone();
+            m.assistant_name = p.prof.assistant_name.clone();
             if !p.prof.github_login.trim().is_empty() {
                 m.github_login = p.prof.github_login.trim().to_string();
             }
@@ -1004,6 +1008,18 @@ impl BoardVerifier {
             .get(person_id)
             .filter(|m| m.profile)
             .map(|m| m.avatar.clone())
+            .unwrap_or_default()
+    }
+
+    /// The assistant name on a member's counted member.profile, "" when
+    /// none (card #1045). The member's own claim, shown with the name of
+    /// the person who signed it, never alone.
+    pub fn profile_assistant_name(&self, person_id: &str) -> String {
+        let st = self.lock();
+        st.members
+            .get(person_id)
+            .filter(|m| m.profile)
+            .map(|m| m.assistant_name.clone())
             .unwrap_or_default()
     }
 
