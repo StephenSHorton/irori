@@ -80,6 +80,7 @@ describe("Ask Irori's go lines (card #784)", () => {
       text: "Drafted.",
       draft: "Add it",
       partial: true,
+      check: false,
     })
   })
   test("in a finished reply a malformed go line stays, and so does what follows", () => {
@@ -103,6 +104,7 @@ describe("Ask Irori's go lines (card #784)", () => {
       text: "Drafted one.",
       draft: "Fix #3.",
       partial: false,
+      check: false,
     })
   })
   test("button words", () => {
