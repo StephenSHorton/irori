@@ -95,7 +95,7 @@ export const settingsSections: {
     id: "app",
     label: "App",
     icon: InfoIcon,
-    hint: "Starting Irori, voice input, huddle transcripts, updates and the version.",
+    hint: "Starting Irori, voice input, huddle transcripts, thread names, updates and the version.",
   },
 ]
 
