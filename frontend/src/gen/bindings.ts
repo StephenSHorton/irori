@@ -363,6 +363,11 @@ export const commands = {
 	assistantNames: () => __TAURI_INVOKE<boolean>("assistant_names"),
 	/**  Turns "Name new threads" on or off, on all the person's devices. */
 	assistantNamesSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_names_set", { on }),
+	/**
+	 *  Rewords the Start a thread box's draft (#981). The draft itself is
+	 *  never touched here: the window shows the wording and the person chooses.
+	 */
+	assistantRewrite: (text: string, mentions: string[]) => __TAURI_INVOKE<string>("assistant_rewrite", { text, mentions }),
 	/**  "Weigh new cards" (#965): on unless turned off. */
 	assistantWeighs: () => __TAURI_INVOKE<boolean>("assistant_weighs"),
 	/**  Turns "Weigh new cards" on or off, on all the person's devices. */

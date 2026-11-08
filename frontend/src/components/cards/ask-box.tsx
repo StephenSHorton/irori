@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react"
+import { LoaderCircleIcon, WandSparklesIcon } from "lucide-react"
 
 import {
   AttachButton,
@@ -14,6 +15,14 @@ import { useAgentsNow } from "@/lib/agents-now"
 import { threads } from "@/lib/cards"
 import { useDraft, useMentionsDraft } from "@/lib/drafts"
 import { composing, MentionBoard } from "@/lib/mentions"
+import {
+  rewriteDismissed,
+  rewriteEdited,
+  rewriteReset,
+  rewriteUsed,
+  startRewrite,
+  useRewrite,
+} from "@/lib/rewrite"
 import { errorText } from "@/lib/talk"
 
 // AskBox is the box over the grid that starts a thread (cards #116, #134):
@@ -59,6 +68,24 @@ export function AskBox({
     null
   )
 
+  // Rewrite (card #981): on the button only, and the wording waits under
+  // the box until the person takes it.
+  const rewrite = useRewrite(draft)
+  const useSuggestion = () => {
+    const s = rewrite.suggestion
+    if (!s || s.from !== text) return
+    rewriteUsed(draft, { text, mentions })
+    setText(s.text)
+    setLine(null)
+  }
+  const undoRewrite = () => {
+    if (!rewrite.undo) return
+    setText(rewrite.undo.text)
+    setMentions(rewrite.undo.mentions)
+    rewriteReset(draft)
+    setLine(null)
+  }
+
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (busy || !text.trim()) return
@@ -100,6 +127,7 @@ export function AskBox({
       })
       setText("")
       setMentions([])
+      rewriteReset(draft)
       agentsNow.reset()
       attach.clear()
       onThread(res.task.id)
@@ -127,6 +155,7 @@ export function AskBox({
             value={text}
             mentions={mentions}
             onChange={(v, ms) => {
+              if (v !== text) rewriteEdited(draft)
               setText(v)
               setMentions(ms)
               setLine(null)
@@ -159,6 +188,26 @@ export function AskBox({
             {attach.input}
             <AttachButton attach={attach} disabled={busy || !!onBoard} />
             <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="shrink-0"
+              title="Reword this for clarity. Nothing changes until you choose."
+              aria-label="Rewrite"
+              aria-busy={rewrite.running}
+              disabled={busy || rewrite.running || !text.trim()}
+              onClick={() => void startRewrite(draft, text, mentions)}
+            >
+              {rewrite.running ? (
+                <LoaderCircleIcon className="animate-spin" aria-hidden />
+              ) : (
+                <WandSparklesIcon aria-hidden />
+              )}
+              <span className="max-sm:hidden">
+                {rewrite.running ? "Rewriting…" : "Rewrite"}
+              </span>
+            </Button>
+            <Button
               type="submit"
               size="sm"
               className="shrink-0"
@@ -173,6 +222,56 @@ export function AskBox({
           disabled={busy}
           label="Files with the thread"
         />
+        {rewrite.suggestion && (
+          <div
+            className="grid gap-1.5 rounded-md border bg-muted/40 p-2"
+            aria-label="Suggested rewrite"
+            role="group"
+          >
+            <p className="max-h-40 overflow-y-auto text-sm break-words whitespace-pre-wrap">
+              {rewrite.suggestion.text}
+            </p>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" onClick={useSuggestion}>
+                Use this
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => rewriteDismissed(draft)}
+              >
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        )}
+        {rewrite.undo && (
+          <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+            <span>Reworded.</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="link"
+              className="h-auto p-0 text-xs"
+              onClick={undoRewrite}
+            >
+              Undo
+            </Button>
+          </div>
+        )}
+        {rewrite.note && (
+          <p
+            className={
+              rewrite.note.error
+                ? "px-1 text-xs text-destructive"
+                : "px-1 text-xs text-muted-foreground"
+            }
+            role={rewrite.note.error ? "alert" : "status"}
+          >
+            {rewrite.note.text}
+          </p>
+        )}
         {line && (
           <p
             className={

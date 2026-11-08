@@ -66,6 +66,7 @@ pub mod new_card;
 pub mod notes;
 pub mod notifications;
 pub mod ready;
+pub mod rewrite;
 pub mod roster;
 pub mod seams;
 pub mod settings;
@@ -189,6 +190,7 @@ pub struct Window {
     /// runner, so they never take the chat's.
     names: assistant::Runner,
     weighs: assistant::Runner,
+    rewrites: assistant::Runner,
 }
 
 impl Window {
@@ -212,6 +214,7 @@ impl Window {
             assistant: assistant::Runner::new(),
             names: assistant::Runner::new(),
             weighs: assistant::Runner::new(),
+            rewrites: assistant::Runner::new(),
         }
     }
 
