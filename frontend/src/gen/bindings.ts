@@ -2544,6 +2544,12 @@ export type MentionCandidate = {
 	 *  them only in a box on that board's cards.
 	 */
 	board?: string,
+	/**
+	 *  `assistant` for an Office Assistant (kind assistant and its owner's
+	 *  profile points at it); the picker offers one only in
+	 *  #office-assistants. "" for everything else.
+	 */
+	kind?: string,
 };
 
 /**  One mention's outcome after a send. */
@@ -3314,6 +3320,13 @@ export type TalkMember = {
 	status?: string,
 	/**  Whose agent it is when it is another member's ("Spencer"), else "". */
 	owner?: string,
+	/**
+	 *  It is its owner's Office Assistant (kind `assistant` and the
+	 *  owner's profile points at it). `name` is then the label.
+	 */
+	assistant?: boolean,
+	/**  The assistant's chosen name, "" for the default. */
+	assistantName?: string,
 };
 
 /**  Who to add to or take out of a conversation. */

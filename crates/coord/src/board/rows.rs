@@ -654,6 +654,9 @@ crate::go_struct! {
         pub from: String = "from",
         pub to: String = "to" "omit",
         pub at: GoTime = "at",
+        /// Wakes an idle recipient: a review ask is something to act on
+        /// now (§12.12 B1b). Rows without it were next-turn asks.
+        pub wake: bool = "wake" "omit",
     }
 }
 
