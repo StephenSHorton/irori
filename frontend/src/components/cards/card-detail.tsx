@@ -1543,7 +1543,8 @@ function Steps({
 
 // cardFiles is every file on the card, once each: the ones on its
 // blockers and on its thread (blocker replies too). The side column lists
-// them by name only; the pictures show where they were posted.
+// them as chips, a picture with a small thumbnail: it shows at size where
+// it was posted.
 function cardFiles(d: CardDetail): FileRef[] {
   const seen = new Set<string>()
   const out: FileRef[] = []
