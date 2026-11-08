@@ -45,6 +45,14 @@ pub trait PrChecker: Send + Sync {
     fn ready(&self) -> bool {
         true
     }
+
+    /// The GitHub login of the PR's author, asked of this device's own gh
+    /// (`review_claim` checks it against the PR card, merge desk §12.3).
+    /// An `Err` says why it couldn't be asked.
+    fn author(&self, url: &str) -> Result<String, String> {
+        let _ = url;
+        Err("this device can't ask GitHub who wrote the PR".into())
+    }
 }
 
 /// The person's own `gh`: `gh pr view <url> --json
@@ -55,6 +63,17 @@ impl PrChecker for GhChecker {
     /// Looked up each tick, so a gh installed later is picked up.
     fn ready(&self) -> bool {
         gh_path().is_some()
+    }
+
+    fn author(&self, url: &str) -> Result<String, String> {
+        let Some(gh) = gh_path() else {
+            return Err("gh (the GitHub CLI) isn't installed here".into());
+        };
+        let v = run_gh(&gh, &["pr", "view", url, "--json", "author"], "gh couldn't read this PR")?;
+        match v["author"]["login"].as_str().map(str::trim) {
+            Some(l) if !l.is_empty() => Ok(l.to_string()),
+            _ => Err("gh answered without the PR's author".into()),
+        }
     }
 
     fn check(&self, url: &str) -> PrCheck {

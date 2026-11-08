@@ -71,6 +71,7 @@ mod dm_spaces;
 pub mod freshness;
 mod liveness;
 mod mirror;
+mod review_claim;
 pub mod name_themes;
 pub mod notes;
 mod notifications;
@@ -612,6 +613,15 @@ impl tools::TaskRouter for ToolsView {
         why: &str,
     ) -> Result<(String, coord::Comment, Notice), coord::Error> {
         self.0.request_release(by, resource, why)
+    }
+    fn review_claim(
+        &self,
+        key: &str,
+        pr: &str,
+        action: &str,
+        reason: &str,
+    ) -> Result<tools::ClaimAnswer, String> {
+        self.0.review_claim(key, pr, action, reason)
     }
     fn comment_coord(&self, id: &str) -> Option<Arc<Coord>> {
         // Not a hidden DM space's (card #538): no agent works there.

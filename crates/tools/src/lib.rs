@@ -210,6 +210,20 @@ pub trait TaskRouter: Send + Sync {
             format_args!("no shared space holds a lease on {resource}"),
         ))
     }
+    /// `review_claim` (merge desk §12.3): the one claim per PR. The Core
+    /// finds the PR's card on a shared board the caller's person belongs
+    /// to, checks who may claim, and writes the `pr/` lease straight to
+    /// that board's log. An `Err` is a refusal, in fixed words.
+    fn review_claim(
+        &self,
+        key: &str,
+        pr: &str,
+        action: &str,
+        reason: &str,
+    ) -> Result<ClaimAnswer, String> {
+        let _ = (key, pr, action, reason);
+        Err("review claims need a shared space with a card for this PR.".into())
+    }
     /// The shared board's coord holding comment `id`, or `None` when no
     /// shared board has it (card #189: show reads a shared card's comments
     /// from its board's log, which capture doesn't index).
@@ -217,6 +231,43 @@ pub trait TaskRouter: Send + Sync {
         let _ = id;
         None
     }
+}
+
+/// What a `review_claim` came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClaimOutcome {
+    /// The caller holds the claim (taken now, or renewed).
+    Claimed,
+    /// Someone else holds it: comment on the PR instead.
+    Held,
+    /// `confirm`: the caller still holds it.
+    Yours,
+    /// `confirm`: the caller does not hold it.
+    NotYours,
+    Released,
+    /// `release`: it held none.
+    NotHeld,
+    Declined,
+}
+
+/// `review_claim`'s answer, as fields: the tool words it in fixed text and
+/// never quotes a card or PR title.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClaimAnswer {
+    pub outcome: ClaimOutcome,
+    /// The PR's full URL, as its card names it.
+    pub pr: String,
+    /// The PR card's short ref.
+    pub card: String,
+    /// The holder's name, clipped, for `Held`; empty otherwise.
+    pub holder: String,
+    /// When the claim lapses unless renewed, RFC 3339; empty if none.
+    pub until: String,
+    /// The On go-ahead (§12.8): the setting is on and the caller's person
+    /// already works in this repo in that space.
+    pub go_ahead: bool,
+    /// `confirm`: the caller's own person signed off (the Off text).
+    pub signed_off: bool,
 }
 
 /// Another member's agent on a shared board ([`Backend::board_agents`]).
