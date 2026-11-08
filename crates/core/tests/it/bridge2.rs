@@ -1202,23 +1202,28 @@ mod claim {
     }
 
     #[test]
-    fn the_authors_person_and_a_wrong_or_unknown_author_are_refused() {
-        // The author's own agent.
+    fn the_authors_own_agent_is_refused() {
         let (t, _gh) = world("bob-gh", AUTHOR);
         pr_card(&t);
         let out = rc(t.a(), &t.ra.key_a, "claim");
         assert!(out.contains("own PR"), "{out}");
-        // GitHub says someone else wrote it.
-        let (t2, gh2) = world("bob-gh", AUTHOR);
-        pr_card(&t2);
-        *gh2.author.lock().unwrap() = "mallory".into();
-        let out = rc(t2.b(), &t2.rb.key_a, "claim");
+    }
+
+    #[test]
+    fn a_pr_github_says_someone_else_wrote_is_refused() {
+        let (t, gh) = world("bob-gh", AUTHOR);
+        pr_card(&t);
+        *gh.author.lock().unwrap() = "mallory".into();
+        let out = rc(t.b(), &t.rb.key_a, "claim");
         assert!(out.contains("someone else wrote"), "{out}");
-        assert!(t2.b().board_coord(&t2.board).unwrap().claim_of(PR).is_none());
-        // No GitHub login known.
-        let (t3, _) = world("", AUTHOR);
-        pr_card(&t3);
-        let out = rc(t3.b(), &t3.rb.key_a, "claim");
+        assert!(t.b().board_coord(&t.board).unwrap().claim_of(PR).is_none());
+    }
+
+    #[test]
+    fn an_unknown_github_login_is_refused() {
+        let (t, _) = world("", AUTHOR);
+        pr_card(&t);
+        let out = rc(t.b(), &t.rb.key_a, "claim");
         assert!(out.contains("doesn't know your GitHub login"), "{out}");
     }
 
