@@ -306,7 +306,7 @@ Spike problem 5: `-w` was not tested, because no repo could be trusted without t
 - Spawning applies only to cards Stephen's own device made, using his own agents, under his per-space switch (off by default). The one exception is a card given to him, below. Accepting another member's cards unasked (option B) and a trusted space (option C) are left for later (#572).
 - The spawned agent must be put on the board (`card_for`, `boards.rs:2152`) before it can `board_join`.
 - Cards other people made are served by their devices, under their own settings. Blake's Irori spawns Blake's agents.
-- **The switch** (#573) is in Settings › Agents under Spaces, one per space, and in the space's own settings. While it's off the space says so, with Turn on, and the new-card dialog says Irori won't start an agent.
+- **The switch** (#573) is in Settings › Agents, under When Irori starts an agent (#1007), one per space, and in the space's own settings. While it's off the space says so, with Turn on, and the new-card dialog says Irori won't start an agent.
 - `offer_pool` limits a card to its author's agents only when the board's `open_cards_any` is off (`offers.rs:471-487`). With it on, another member's device would offer Stephen's finished agent its cards through `sweep_offers`/`offer_pool`. `card_idle_agents` (`boards.rs:2131-2160`) only puts this device's own idle agents on a board, so it isn't the leak. The board key `agent:<cardId>` has no device (`comments.rs:1597-1601`), so **the `spawned_for` mark must be on the board's agent card (`BoardCard`)**, and `offer_pool` on every member's device must skip marked agents.
 - A board's spawning switch is per person: each member decides for the cards they make.
 
