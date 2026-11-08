@@ -150,7 +150,7 @@ describe("the go lines' settings match the assistant's prompt (card #784)", () =
   test("every page the prompt lists, the chat knows", () => {
     const line =
       /<<go page NAME>> a page: ([^\n]*)/
-        .exec(system.replace(/\\\n/g, ""))?.[1]
+        .exec(system.replace(/\\\r?\n/g, ""))?.[1]
         ?.replace(/\([^)]*\)/g, "") ?? ""
     const pages = line
       .split(/,|\bor\b/)
