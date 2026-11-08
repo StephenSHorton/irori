@@ -6,8 +6,8 @@
 
 use crate::common;
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
 use common::mesh::{Dev, invited, person};
@@ -85,12 +85,16 @@ fn world(bobs: usize, installed: bool) -> World {
     }
     let bob_id = b1.core.person().id;
     let conv = assistants_channel_id(&space);
-    wait_for(WAIT, "bob's assistant card is minted and alice sees it", || {
-        !pointer(b1, &space, &bob_id).is_empty()
-            && !pointer(a1, &space, &bob_id).is_empty()
-            && a1.core.talk().channel(&conv).is_some()
-            && b1.core.talk().channel(&conv).is_some()
-    });
+    wait_for(
+        WAIT,
+        "bob's assistant card is minted and alice sees it",
+        || {
+            !pointer(b1, &space, &bob_id).is_empty()
+                && !pointer(a1, &space, &bob_id).is_empty()
+                && a1.core.talk().channel(&conv).is_some()
+                && b1.core.talk().channel(&conv).is_some()
+        },
+    );
     let card = pointer(b1, &space, &bob_id);
     let w = World {
         alice,
@@ -240,8 +244,7 @@ fn open_answers_once_and_the_checks_stop_the_rest() {
     );
 
     // A mention in another channel runs nothing.
-    let other = w
-        .alice[0]
+    let other = w.alice[0]
         .core
         .talk_channel_create_in(&w.alice[0].user(), "general", "", &w.space)
         .unwrap();
@@ -348,7 +351,10 @@ fn the_rate_limit_holds_the_ninth_question() {
     }
     answered(&w, b1, &qs[7].post_id);
     wait_for(WAIT, "the ninth is held", || {
-        b1.core.assistant_held().iter().any(|h| h.text.contains("were not answered"))
+        b1.core
+            .assistant_held()
+            .iter()
+            .any(|h| h.text.contains("were not answered"))
     });
     assert!(answers(b1, &w.conv, &qs[8].post_id).is_empty());
     close(w);

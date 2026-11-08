@@ -185,7 +185,13 @@ impl Services {
     }
 
     /// §5's table, in order. The first check that fails stops the question.
-    fn assistant_check(&self, b: &BoardLog, q: Question, at: &gocompat::time::GoTime, author: &str) {
+    fn assistant_check(
+        &self,
+        b: &BoardLog,
+        q: Question,
+        at: &gocompat::time::GoTime,
+        author: &str,
+    ) {
         let card = self.my_assistant_card(b);
         // Another active member asked, in this space's channel.
         if card.is_empty()
@@ -304,9 +310,8 @@ impl Services {
     pub(crate) fn answers_loop(&self, rx: mpsc::Receiver<Job>) {
         while let Ok(job) = rx.recv() {
             let id = job.q.post_id.clone();
-            let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                self.answers_run(&job)
-            }));
+            let run =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.answers_run(&job)));
             if run.is_err() {
                 logf(format_args!("assistant: answering {id} failed"));
             }
@@ -335,7 +340,10 @@ impl Services {
                 let owner = self.ident.current().name;
                 let text = format!("I've asked {owner}");
                 if let Err(e) = self.assistant_post(&b, &card, q, id, text, Some("ask")) {
-                    logf(format_args!("assistant: waiting line on {}: {e}", q.post_id));
+                    logf(format_args!(
+                        "assistant: waiting line on {}: {e}",
+                        q.post_id
+                    ));
                 }
             }
             JobKind::Answer => {
