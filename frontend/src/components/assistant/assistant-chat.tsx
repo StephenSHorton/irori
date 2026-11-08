@@ -303,7 +303,8 @@ function AskButton({
           />
         }
       >
-        <MessageCircleIcon className="size-5.5" aria-hidden />
+        {/* Filled, as the person asked on #782. */}
+        <MessageCircleIcon className="size-5.5 fill-current" aria-hidden />
         {unread && (
           <span
             aria-hidden
