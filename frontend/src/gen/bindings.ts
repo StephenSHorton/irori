@@ -538,11 +538,12 @@ export const commands = {
 	assistantAttach: (files: UploadFile[]) => __TAURI_INVOKE<AssistantFile[]>("assistant_attach", { files }),
 	/**
 	 *  Asks the corner chat's assistant `text` after `history`, with `files`
-	 *  from [`assistant_attach`]. Returns the run's id at once; its events
-	 *  come on `on`, ending with one `done` or `error` (a failure to start
-	 *  included).
+	 *  from [`assistant_attach`]; `screen` is the window's plain-text snapshot
+	 *  of what is shown (card #1009; "" sends none). Returns the run's id at
+	 *  once; its events come on `on`, ending with one `done` or `error` (a
+	 *  failure to start included).
 	 */
-	assistantAsk: (history: AssistantTurn[], text: string, files: AssistantFile[], on: Channel<AssistantEvent>) => __TAURI_INVOKE<number>("assistant_ask", { history, text, files, on }),
+	assistantAsk: (history: AssistantTurn[], text: string, files: AssistantFile[], screen: string, on: Channel<AssistantEvent>) => __TAURI_INVOKE<number>("assistant_ask", { history, text, files, screen, on }),
 	/**
 	 *  Stops assistant run `id`: its channel gets error "Stopped." or nothing
 	 *  more. An unknown or finished id is fine.

@@ -711,11 +711,12 @@ export const AssistantService = {
     history: B.AssistantTurn[],
     text: string,
     files: B.AssistantFile[],
+    screen: string,
     onEvent: (ev: B.AssistantEvent) => void
   ): Promise<number> {
     const on = new Channel<B.AssistantEvent>()
     on.onmessage = onEvent
-    return call(commands.assistantAsk(history, text, files, on))
+    return call(commands.assistantAsk(history, text, files, screen, on))
   },
   Stop: (id: number) => done(commands.assistantStop(id)),
   // Rewrite in the Start a thread box (card #981): the checked wording.

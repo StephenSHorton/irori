@@ -2525,9 +2525,10 @@ pub async fn assistant_attach(w: W<'_>, files: Vec<UploadFile>) -> R<Vec<Assista
 }
 
 /// Asks the corner chat's assistant `text` after `history`, with `files`
-/// from [`assistant_attach`]. Returns the run's id at once; its events
-/// come on `on`, ending with one `done` or `error` (a failure to start
-/// included).
+/// from [`assistant_attach`]; `screen` is the window's plain-text snapshot
+/// of what is shown (card #1009; "" sends none). Returns the run's id at
+/// once; its events come on `on`, ending with one `done` or `error` (a
+/// failure to start included).
 #[tauri::command]
 #[specta::specta]
 pub async fn assistant_ask(
@@ -2535,6 +2536,7 @@ pub async fn assistant_ask(
     history: Vec<AssistantTurn>,
     text: String,
     files: Vec<AssistantFile>,
+    screen: String,
     on: tauri::ipc::Channel<AssistantEvent>,
 ) -> R<u32> {
     if text.trim().is_empty() && files.is_empty() {
@@ -2545,6 +2547,7 @@ pub async fn assistant_ask(
             &history,
             &text,
             &files,
+            &screen,
             Box::new(move |e| on.send(e).is_ok()),
         ))
     })

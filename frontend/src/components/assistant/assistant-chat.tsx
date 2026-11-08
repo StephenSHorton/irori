@@ -26,6 +26,7 @@ import {
   XIcon,
 } from "lucide-react"
 
+import { screenLabel } from "@/lib/assistant-screen"
 import { goThere } from "@/components/assistant/go-there"
 import { SpotlightLine } from "@/components/assistant/spotlight-line"
 import {
@@ -860,6 +861,7 @@ function Entry({
       <MessageContent className="gap-2 text-[13.5px] leading-relaxed">
         {text && <RichText bold text={replyText(text)} />}
         {go && <GoButton target={go} onGo={onGo} />}
+        {entry.looked && <LookedAt text={entry.looked} />}
         {draft && (
           <DraftThread
             draft={draft}
@@ -871,6 +873,24 @@ function Entry({
         )}
       </MessageContent>
     </Message>
+  )
+}
+
+// LookedAt is the small line under a reply that read the screen (card
+// #1009): it opens to the exact text the assistant was given.
+function LookedAt({ text }: { text: string }) {
+  return (
+    <details
+      className="text-[12px] text-muted-foreground"
+      data-assistant-looked=""
+    >
+      <summary className="cursor-pointer truncate select-none">
+        Looked at: {screenLabel(text) || "your screen"}
+      </summary>
+      <pre className="mt-1 rounded-md bg-muted/60 px-2 py-1.5 font-sans whitespace-pre-wrap">
+        {text}
+      </pre>
+    </details>
   )
 }
 

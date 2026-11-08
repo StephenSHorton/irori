@@ -325,6 +325,9 @@ struct Services {
     /// two writes only per grant (card #987).
     /// Only in memory and in the assistant's own 0600 MCP config.
     assistant: String,
+    /// What the window last said it shows (card #1009), for the
+    /// assistant's `screen` tool. In memory only; the newest ask wins.
+    assistant_screen: Mutex<String>,
     /// What the person's message lets the assistant change (card #987).
     assistant_grants: tools::Grants,
     reviver: Arc<Mutex<Option<ReviveFn>>>,
@@ -422,6 +425,14 @@ impl tools::Attacher for ToolsView {
 }
 
 impl tools::Backend for ToolsView {
+    fn assistant_screen(&self) -> String {
+        self.0
+            .assistant_screen
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     fn device_id(&self) -> String {
         self.0.device.id.clone()
     }
@@ -811,6 +822,9 @@ fn assistant_skip(dir: &Path) -> Vec<String> {
     }
     v
 }
+
+/// The most characters of the window's snapshot the Core keeps (card #1009).
+pub const ASSISTANT_SCREEN_MAX: usize = 4000;
 
 /// The window assistant's run dir's name in the data dir (card #783).
 pub const ASSISTANT_DIR: &str = "assistant";
@@ -1586,6 +1600,7 @@ impl Core {
             secrets: Mutex::new(Vec::new()),
             token: token.clone(),
             assistant: assistant.clone(),
+            assistant_screen: Mutex::new(String::new()),
             assistant_grants: Default::default(),
             reviver,
             spawn: spawn_state,
@@ -2460,6 +2475,18 @@ impl Core {
     /// never log it.
     pub fn assistant_secret(&self) -> &str {
         &self.s.assistant
+    }
+
+    /// Keeps the window's plain-text snapshot of what it shows (card
+    /// #1009) for the assistant's `screen` tool, cut to
+    /// [`ASSISTANT_SCREEN_MAX`] characters. An empty one clears it.
+    pub fn set_assistant_screen(&self, text: &str) {
+        let t: String = text.trim().chars().take(ASSISTANT_SCREEN_MAX).collect();
+        *self
+            .s
+            .assistant_screen
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = t;
     }
 
     /// What the person's message lets the window assistant change, for
