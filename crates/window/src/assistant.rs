@@ -22,6 +22,19 @@
 //! as `stream_event` `text_delta`s, tool calls as `assistant` messages'
 //! `tool_use` blocks, and the run ends with one `result` line; signed out,
 //! the result says "Not logged in · Please run /login".
+//!
+//! Attachments, measured on a Mac with 2.1.319 (#999): with `--tools ""`
+//! still empty, `--input-format stream-json` takes one `user` line whose
+//! content has `image` and `document` base64 blocks. It works beside the
+//! chat's MCP tools and system prompt file, and the output stream has the
+//! same shape as with a plain stdin prompt, so [`Parser`] is unchanged.
+//! Read correctly: PNG, HEIC sent as `image/heic` (Claude Code converts it
+//! on the client), a 24 MB PNG (about 3.4 s; Claude Code resizes it, so
+//! [`TIMEOUT`] is no concern) and a PDF as a `document` block. Corrupt
+//! image bytes come back as an honest "couldn't be processed". A .docx sent
+//! as a `document` block is not refused: Haiku wrote a made-up tool call
+//! as its reply. So a type it can't read is never sent; the prompt says
+//! the file can't be read instead.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
