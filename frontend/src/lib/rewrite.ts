@@ -142,6 +142,28 @@ export async function startRewrite(
   })
 }
 
+let autoClaimed = false
+
+// useAutoRewrite reads a window check's or the preview's ?rewrite-auto=<text>
+// &rewrite-mentions=<a,b>&rewrite-pause=<ms>. Absent in a person's app
+// (previewFlag answers only with ?dev there).
+export function useAutoRewrite() {
+  const text = previewFlag("rewrite-auto") ?? ""
+  return {
+    text,
+    pause: Number(previewFlag("rewrite-pause") ?? 8000),
+    mentions: (previewFlag("rewrite-mentions") ?? "")
+      .split(",")
+      .filter(Boolean)
+      .map((name) => ({ key: `dev:${name}`, name })),
+    claim() {
+      if (!text || autoClaimed) return false
+      autoClaimed = true
+      return true
+    },
+  }
+}
+
 // rewriteUsed records taking the wording. A second Use this keeps the
 // first Undo, so Undo always goes back to what the person wrote.
 export function rewriteUsed(key: string, undo: UndoTo) {

@@ -460,7 +460,9 @@ export function TalkPage({
         Start a thread about anything. An agent on the cards you name answers,
         or an idle one does. It stays in Threads until you resolve it.
       </p>
+      {/* By its draft: a space picked here is another draft (card #981). */}
       <AskBox
+        key={board}
         board={board}
         onThread={(id) => {
           setComposing(false)

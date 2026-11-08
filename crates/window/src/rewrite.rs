@@ -75,6 +75,7 @@ fn clean(text: &str, reply: &str) -> String {
     if !text.trim_start().starts_with('"')
         && s.chars().count() >= 2
         && let Some(inner) = s.strip_prefix('"').and_then(|r| r.strip_suffix('"'))
+        && !inner.contains('"')
     {
         s = inner.trim();
     }
@@ -95,11 +96,22 @@ fn keeps_marks(text: &str, mentions: &[String], out: &str) -> Result<(), String>
     if let Some(w) = differs(&a, &b) {
         return Err(changed(&format!("@{w}")));
     }
-    let (a, b) = (refs(text), refs(out));
-    if let Some(r) = differs(&a, &b) {
-        return Err(changed(&r));
+    // Twice: the Core reads a ref only after an ASCII space, who hears
+    // hangs on that, and the window also links one after a wide space.
+    for read in [str::to_string as fn(&str) -> String, wide_spaces_plain] {
+        let (a, b) = (refs(&read(text)), refs(&read(out)));
+        if let Some(r) = differs(&a, &b) {
+            return Err(changed(&r));
+        }
     }
     Ok(())
+}
+
+/// `text` with every non-ASCII space as a plain one.
+fn wide_spaces_plain(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_whitespace() { ' ' } else { c })
+        .collect()
 }
 
 /// The first key the two counts disagree on.
@@ -136,11 +148,10 @@ fn at_words(text: &str) -> BTreeMap<String, usize> {
         }
         let word: String = text[i + 1..]
             .chars()
-            .take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.'))
+            .take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '-'))
             .collect();
-        let word = word.trim_end_matches('.');
         if !word.is_empty() {
-            *out.entry(word.to_string()).or_default() += 1;
+            *out.entry(word).or_default() += 1;
         }
     }
     out
@@ -233,6 +244,29 @@ mod tests {
             "Hello"
         );
         assert_eq!(checked("\"hi\"", &[], "\"Hello\"").unwrap(), "\"Hello\"");
+    }
+
+    #[test]
+    fn a_space_after_a_mentions_dot_is_a_fix_not_a_change() {
+        let m = names(&["oak"]);
+        assert!(checked("hey @oak.Can you check", &m, "Hey @oak. Can you check?").is_ok());
+    }
+
+    #[test]
+    fn separate_quotes_at_each_end_are_not_a_wrapper() {
+        let reply = "\"foo\" should be called \"bar\"";
+        assert_eq!(
+            checked("the \"foo\" option should be called \"bar\"", &[], reply).unwrap(),
+            reply
+        );
+    }
+
+    #[test]
+    fn a_ref_after_a_wide_space_counts_both_ways() {
+        checked("見て\u{3000}#12", &[], "見て").unwrap_err();
+        // A plain space would make the Core hear a ref the draft didn't name.
+        checked("見て\u{3000}#12", &[], "見て #12").unwrap_err();
+        assert!(checked("見て\u{3000}#12", &[], "ご覧ください\u{3000}#12").is_ok());
     }
 
     #[test]

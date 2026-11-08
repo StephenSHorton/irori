@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { LoaderCircleIcon, WandSparklesIcon } from "lucide-react"
 
 import {
@@ -21,6 +21,7 @@ import {
   rewriteReset,
   rewriteUsed,
   startRewrite,
+  useAutoRewrite,
   useRewrite,
 } from "@/lib/rewrite"
 import { errorText } from "@/lib/talk"
@@ -73,18 +74,41 @@ export function AskBox({
   const rewrite = useRewrite(draft)
   const useSuggestion = () => {
     const s = rewrite.suggestion
-    if (!s || s.from !== text) return
+    if (!s || busy || s.from !== text) return
     rewriteUsed(draft, { text, mentions })
     setText(s.text)
     setLine(null)
   }
   const undoRewrite = () => {
-    if (!rewrite.undo) return
+    if (!rewrite.undo || busy) return
     setText(rewrite.undo.text)
     setMentions(rewrite.undo.mentions)
     rewriteReset(draft)
     setLine(null)
   }
+
+  // A window check's ?rewrite-auto (lib/rewrite.ts): types the text, then
+  // presses Rewrite, Use this and Undo, a pause apart for the shots.
+  const auto = useAutoRewrite()
+  useEffect(() => {
+    if (!auto.claim()) return
+    setText(auto.text)
+    setMentions(auto.mentions)
+    void startRewrite(draft, auto.text, auto.mentions)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on open
+  }, [])
+  useEffect(() => {
+    if (!auto.text || !rewrite.suggestion) return
+    const t = setTimeout(useSuggestion, auto.pause)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- by the state
+  }, [rewrite.suggestion])
+  useEffect(() => {
+    if (!auto.text || !rewrite.undo) return
+    const t = setTimeout(undoRewrite, auto.pause)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- by the state
+  }, [rewrite.undo])
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -232,13 +256,19 @@ export function AskBox({
               {rewrite.suggestion.text}
             </p>
             <div className="flex gap-2">
-              <Button type="button" size="sm" onClick={useSuggestion}>
+              <Button
+                type="button"
+                size="sm"
+                disabled={busy}
+                onClick={useSuggestion}
+              >
                 Use this
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
+                disabled={busy}
                 onClick={() => rewriteDismissed(draft)}
               >
                 Dismiss
@@ -254,6 +284,7 @@ export function AskBox({
               size="sm"
               variant="link"
               className="h-auto p-0 text-xs"
+              disabled={busy}
               onClick={undoRewrite}
             >
               Undo
