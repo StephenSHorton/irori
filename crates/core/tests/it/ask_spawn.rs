@@ -455,6 +455,154 @@ fn a_thread_the_person_makes_a_card_gets_a_card_agent_in_the_threads_home() {
     );
 }
 
+// Card #1027: talk_thread's `agent` and `watch`.
+
+fn talk_thread(r: &Rig, key: &str, args: serde_json::Value) -> String {
+    let c = tools::Caller {
+        sender: inbox::Sender::new(key, "alpha", "claude"),
+        path: inbox::path::MOD.into(),
+    };
+    r.core
+        .tools()
+        .call(&c, "talk_thread", &serde_json::to_vec(&args).unwrap())
+        .unwrap()
+}
+
+fn threads(r: &Rig) -> usize {
+    r.core
+        .coord()
+        .list_tasks(&coord::TaskFilter::default())
+        .iter()
+        .filter(|t| t.ask.as_ref().is_some_and(|a| a.thread))
+        .count()
+}
+
+#[test]
+fn agent_new_starts_a_counted_agent_that_holds_the_thread() {
+    let r = Rig::new();
+    let (_repo, _dir) = agent_in_repo(&r);
+    let fake = Arc::new(Fake::default());
+    let co = r.core.coord();
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    spawning_on(&r);
+    r.core.set_agent_starts(true, 5).unwrap();
+    let out = talk_thread(
+        &r,
+        &r.key_a,
+        serde_json::json!({ "text": "Ship the beta?", "agent": "new" }),
+    );
+    assert!(
+        !out.starts_with("Error: ") && out.contains("gave it to a new agent"),
+        "{out}"
+    );
+    assert_eq!(r.core.agent_starts().used, 1, "it counts: {out}");
+    wait_for(60, "the new agent started", || {
+        !fake.started.lock().unwrap().is_empty()
+    });
+    let req = fake.started.lock().unwrap()[0].clone();
+    let brief = std::fs::read_to_string(&req.brief_path).unwrap();
+    assert!(
+        brief.contains("gave to you") && brief.contains("Ship the beta?"),
+        "{brief}"
+    );
+    let me = r.core.device_id().to_string();
+    let spawned = format!("{me}/{SPAWNED_SESS}");
+    wait_for(60, "the new agent holds the thread", || {
+        co.list_tasks(&coord::TaskFilter::default())
+            .iter()
+            .any(|t| {
+                t.ask
+                    .as_ref()
+                    .is_some_and(|a| a.thread && a.taker == spawned)
+            })
+    });
+    let t = co
+        .list_tasks(&coord::TaskFilter::default())
+        .into_iter()
+        .find(|t| t.ask.as_ref().is_some_and(|a| a.thread))
+        .unwrap();
+    let a = t.ask.unwrap();
+    assert!(a.gave && a.opener == r.key_a, "opener gave it away: {a:?}");
+    assert_eq!(r.core.agent_starts().used, 1);
+}
+
+#[test]
+fn agent_new_is_refused_as_agent_start_is_and_opens_nothing() {
+    let r = Rig::new();
+    let (_repo, _dir) = agent_in_repo(&r);
+    let fake = Arc::new(Fake::default());
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    spawning_on(&r);
+    let args = serde_json::json!({ "text": "Ship the beta?", "agent": "new" });
+    r.core.set_agent_starts(false, 100).unwrap();
+    let out = talk_thread(&r, &r.key_a, args.clone());
+    assert!(
+        out.starts_with("Error: ") && out.contains("Settings › Agents"),
+        "{out}"
+    );
+    assert_eq!(threads(&r), 0, "nothing opened");
+    r.core.set_agent_starts(true, 0).unwrap();
+    let out = talk_thread(&r, &r.key_a, args);
+    assert!(out.starts_with("Error: ") && out.contains("(0/0)"), "{out}");
+    assert_eq!(threads(&r), 0, "nothing opened");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(fake.started.lock().unwrap().is_empty());
+    assert_eq!(r.core.agent_starts().used, 0);
+}
+
+#[test]
+fn agent_by_name_hands_the_thread_over_and_watch_keeps_the_opener() {
+    let r = Rig::new();
+    let (_repo, _dir) = agent_in_repo(&r);
+    let me = r.core.device_id().to_string();
+    let gamma = format!("{me}/{REPO_SESS}");
+    let co = r.core.coord();
+    let out = talk_thread(
+        &r,
+        &r.key_a,
+        serde_json::json!({ "text": "Gamma, thoughts on the beta?", "agent": "gamma" }),
+    );
+    assert!(
+        !out.starts_with("Error: ") && out.contains("handed it to"),
+        "{out}"
+    );
+    let a = co
+        .list_tasks(&coord::TaskFilter::default())
+        .into_iter()
+        .find_map(|t| t.ask.filter(|a| a.thread))
+        .unwrap();
+    assert_eq!(a.taker, gamma, "{a:?}");
+    assert!(a.gave, "the opener gave it away: {a:?}");
+    // Watching keeps the opener on the replies.
+    let out = talk_thread(
+        &r,
+        &r.key_a,
+        serde_json::json!({ "text": "Gamma again?", "agent": "gamma", "watch": true }),
+    );
+    assert!(!out.starts_with("Error: "), "{out}");
+    let w = co
+        .list_tasks(&coord::TaskFilter::default())
+        .into_iter()
+        .find(|t| t.objective == "Gamma again?")
+        .and_then(|t| t.ask)
+        .unwrap();
+    assert!(!w.gave && w.taker == gamma, "the opener watches: {w:?}");
+    // A name nobody answers to opens nothing.
+    let before = threads(&r);
+    let out = talk_thread(
+        &r,
+        &r.key_a,
+        serde_json::json!({ "text": "Anyone?", "agent": "nobodyhere" }),
+    );
+    assert!(out.starts_with("Error: "), "{out}");
+    assert_eq!(threads(&r), before);
+    // Without the parameter nothing changes: the opener holds it.
+    let out = talk_thread(&r, &r.key_a, serde_json::json!({ "text": "Just me" }));
+    assert!(out.contains("You hold it"), "{out}");
+}
+
 /// A spawner whose every start is a new session: `cccccccc-…-00000000001N`
 /// for the Nth start, so a second agent for the same thread is a session
 /// of its own, as `claude --bg` makes it. Ending one removes its file.
