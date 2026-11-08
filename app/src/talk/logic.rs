@@ -659,6 +659,18 @@ pub fn read_mark(
     (mark != last).then_some(mark)
 }
 
+/// Thread `id` is read: its unread mark drops at once in the list (and so
+/// in the sidebar's Talk count) before the backend's read comes back
+/// (card #719). Says whether anything changed.
+pub fn mark_thread_read(threads: &mut [ThreadSummary], id: &str) -> bool {
+    let mut changed = false;
+    for t in threads.iter_mut().filter(|t| t.id == id && t.unread) {
+        t.unread = false;
+        changed = true;
+    }
+    changed
+}
+
 /// Whether a channel or DM fits the search: its name, topic, newest line
 /// or a member's name.
 pub fn conv_matches(c: &TalkConversation, query: &str) -> bool {
@@ -1774,6 +1786,21 @@ mod tests {
     fn channel_names_are_cleaned() {
         assert_eq!(channel_name("  #Release Notes! "), "release-notes");
         assert_eq!(channel_name("###"), "");
+    }
+
+    #[test]
+    fn reading_a_thread_drops_its_unread_mark_at_once() {
+        let th = |id: &str, unread: bool| ThreadSummary {
+            id: id.into(),
+            unread,
+            ..ThreadSummary::default()
+        };
+        let mut ts = vec![th("t1", true), th("t2", true)];
+        assert!(mark_thread_read(&mut ts, "t1"));
+        assert!(!ts[0].unread);
+        assert!(ts[1].unread, "another thread stays unread");
+        assert!(!mark_thread_read(&mut ts, "t1"), "already read");
+        assert!(!mark_thread_read(&mut ts, "nope"));
     }
 
     #[test]

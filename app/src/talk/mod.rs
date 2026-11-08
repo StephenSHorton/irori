@@ -373,7 +373,17 @@ fn read_thread(s: &mut State) {
     };
     s.talk.read_mark = mark;
     let id = d.summary.id.clone();
-    s.spawn(move |w| w.read_thread(&id), |_, _| {});
+    // The list's dot and the sidebar's Talk count drop at once, and again
+    // from the backend once it has the read (nothing else signals it).
+    logic::mark_thread_read(&mut s.talk.threads, &id);
+    s.spawn(
+        move |w| w.read_thread(&id),
+        |s, r| {
+            if r.is_ok() {
+                load_threads(s);
+            }
+        },
+    );
 }
 
 /// What a Talk message's Make a card fills New card with: its title and
