@@ -30,6 +30,15 @@ pub struct TalkMember {
     /// Whose agent it is when it is another member's ("Spencer"), else "".
     #[serde(default)]
     pub owner: String,
+    /// It is its owner's Office Assistant (kind `assistant` and the
+    /// owner's profile points at it). `name` is then the label.
+    #[serde(default)]
+    #[specta(optional)]
+    pub assistant: bool,
+    /// The assistant's chosen name, "" for the default.
+    #[serde(default)]
+    #[specta(optional)]
+    pub assistant_name: String,
 }
 
 /// Who to add to or take out of a conversation.
@@ -306,6 +315,8 @@ impl Window {
                         name: m.name,
                         status: m.status,
                         owner: m.owner,
+                        assistant: m.assistant,
+                        assistant_name: m.assistant_name,
                     })
                     .collect(),
                 last_at: c.last_at,

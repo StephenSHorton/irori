@@ -504,6 +504,32 @@ describe("boardRows", () => {
   })
 })
 
+describe("boardRows and assistants (assistants talk, card 3)", () => {
+  const row = (key: string, kind?: string) => ({
+    who: AgentRef({ key, name: key, status: "idle", live: true, where: "" }),
+    cwd: "",
+    repo: "",
+    board: "b1",
+    kind,
+  })
+  const rows = [
+    row("person:addam"),
+    row("agent:c1", "assistant"),
+    row("agent:c2"),
+  ]
+  test("assistants are offered only in #office-assistants", () => {
+    expect(boardRows(rows, "b1").map((r) => r.who.key)).toEqual([
+      "person:addam",
+      "agent:c2",
+    ])
+    expect(boardRows(rows, "b1", true).map((r) => r.who.key)).toEqual([
+      "person:addam",
+      "agent:c1",
+      "agent:c2",
+    ])
+  })
+})
+
 describe("the agent on #N (card #452, spawned-agents §4)", () => {
   const fern = cand("dev/fern", "fern")
   const clover = cand("dev/clover", "clover")

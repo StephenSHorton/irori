@@ -29,7 +29,19 @@ export function useFileAttach(
 ) {
   const [files, setFiles] = useState<File[]>(() => [...start])
   const [refused, setRefused] = useState<string | null>(null)
+  // Clipboard pictures still being read from the host: a send waits for
+  // them, or they would miss it and turn up after it.
+  const [reading, setReading] = useState(0)
   const picker = useRef<HTMLInputElement>(null)
+  const clear = useCallback(() => {
+    setFiles([])
+    setRefused(null)
+  }, [])
+  // discard takes off only the files that went. A refusal stays: it
+  // explains a file that never made the list.
+  const discard = useCallback((sent: readonly File[]) => {
+    setFiles((fs) => withoutSent(fs, sent))
+  }, [])
   const add = (list: FileList | File[] | null | undefined) => {
     const more = pastedFiles(list)
     if (!more.length || off) return false
@@ -52,10 +64,9 @@ export function useFileAttach(
     full: files.length >= MaxUploadFiles,
     add,
     refused,
-    clear: () => {
-      setFiles([])
-      setRefused(null)
-    },
+    reading: reading > 0,
+    clear,
+    discard,
     remove: (i: number) => setFiles((fs) => fs.filter((_, j) => j !== i)),
     pick: () => picker.current?.click(),
     // A pasted screenshot or Finder file is a file; pasted text stays
@@ -72,13 +83,16 @@ export function useFileAttach(
           if (why) setRefused(why)
           return false
         }
-        clipboardImage().then(
-          (f) => add([f]),
-          (err: unknown) =>
-            setRefused(
-              `Couldn't paste the picture: ${err instanceof Error ? err.message : String(err)}`
-            )
-        )
+        setReading((n) => n + 1)
+        clipboardImage()
+          .then(
+            (f) => add([f]),
+            (err: unknown) =>
+              setRefused(
+                `Couldn't paste the picture: ${err instanceof Error ? err.message : String(err)}`
+              )
+          )
+          .finally(() => setReading((n) => n - 1))
         return true
       }
       const done = took(more)
@@ -114,6 +128,15 @@ export function useFileAttach(
 }
 
 export type FileAttach = ReturnType<typeof useFileAttach>
+
+// withoutSent is the files still waiting once sent have gone: anything
+// that arrived meanwhile stays.
+export function withoutSent(
+  files: readonly File[],
+  sent: readonly File[]
+): File[] {
+  return files.filter((f) => !sent.includes(f))
+}
 
 // clipboardFiles is the files a paste or drop carries: its file list, or
 // its file items when the list is empty (some webviews fill only one).
@@ -202,23 +225,26 @@ export function PendingFiles({
   label?: string
   className?: string
 }) {
-  if (!attach.files.length)
-    return attach.refused ? (
-      <p role="status" className="px-1 text-xs text-muted-foreground">
-        {attach.refused}
-      </p>
-    ) : null
+  const refused = attach.refused ? (
+    <p role="status" className="px-1 text-xs text-muted-foreground">
+      {attach.refused}
+    </p>
+  ) : null
+  if (!attach.files.length) return refused
   return (
-    <ul className={className} aria-label={label}>
-      {attach.files.map((f, i) => (
-        <PendingFile
-          key={fileKey(f)}
-          file={f}
-          disabled={!!disabled}
-          onRemove={() => attach.remove(i)}
-        />
-      ))}
-    </ul>
+    <>
+      <ul className={className} aria-label={label}>
+        {attach.files.map((f, i) => (
+          <PendingFile
+            key={fileKey(f)}
+            file={f}
+            disabled={!!disabled}
+            onRemove={() => attach.remove(i)}
+          />
+        ))}
+      </ul>
+      {refused}
+    </>
   )
 }
 

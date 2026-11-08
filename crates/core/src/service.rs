@@ -72,6 +72,7 @@ mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
 pub mod huddle_packet;
+mod huddle_rules;
 pub mod huddle_session;
 mod liveness;
 mod mirror;
@@ -484,6 +485,7 @@ impl tools::Backend for ToolsView {
                 board: a.board,
                 person: a.person,
                 card: presence_card(a.card),
+                assistant: a.assistant,
             })
             .collect()
     }

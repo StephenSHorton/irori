@@ -497,10 +497,18 @@ impl Window {
                 }
             }
         }
+        let chat = crate::assistant::chat_files(&self.core);
         files
             .into_iter()
             .map(|(id, bytes)| {
                 let o = offers.remove(&id).unwrap_or_default();
+                // A file only the assistant chat has (card #999) was never
+                // offered, so nothing else holds it.
+                let chat_only = o
+                    .name
+                    .is_empty()
+                    .then(|| chat.get(&id).map(|r| r.name.clone()))
+                    .flatten();
                 let path = self.core.files().path(&id);
                 let from = if o.from.is_empty() {
                     String::new()
@@ -511,14 +519,16 @@ impl Window {
                     }
                 };
                 StorageItem {
-                    name: blob::safe_name(&o.name, &id),
+                    name: blob::safe_name(chat_only.as_deref().unwrap_or(&o.name), &id),
                     at: if o.at.is_zero() { mtime(&path) } else { o.at },
-                    detail: if o.mine && !o.others {
+                    detail: if chat_only.is_some() {
+                        "From the assistant chat".into()
+                    } else if o.mine && !o.others {
                         "Attached on this device".into()
                     } else {
                         from
                     },
-                    only_here: o.mine && !o.others,
+                    only_here: chat_only.is_some() || (o.mine && !o.others),
                     cleanable: true,
                     id,
                     bytes: bytes as i64,

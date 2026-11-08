@@ -89,7 +89,12 @@ import {
   startShare,
   stopShare,
 } from "@/lib/call"
-import { composing, MentionBoard, type Mention } from "@/lib/mentions"
+import {
+  composing,
+  MentionAssistants,
+  MentionBoard,
+  type Mention,
+} from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
 import { parseTime, plainLine } from "@/lib/irori"
 import { useMedia } from "@/lib/media"
@@ -823,7 +828,7 @@ export function PostRow({
           </span>
           {m.kind === "agent" && (
             <span className="shrink-0 text-[10.5px] text-muted-foreground uppercase">
-              agent
+              {m.assistant ? "assistant" : "agent"}
             </span>
           )}
           <time
@@ -1124,33 +1129,35 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
       <div className="flex flex-wrap items-start gap-2 p-1.5 glass-panel">
         {/* A space's channel offers its other people's agents too (#461). */}
         <MentionBoard.Provider value={conv.spaceId ?? ""}>
-          {/* The mic (card #643): "main", since the ask box, the other
+          <MentionAssistants.Provider value={!!conv.pinned}>
+            {/* The mic (card #643): "main", since the ask box, the other
             "main" composer, never shows beside a conversation. */}
-          <MentionTextarea
-            autoSize
-            voice="main"
-            rows={1}
-            value={text}
-            mentions={mentions}
-            onChange={(v, ms) => {
-              setText(v)
-              setMentions(ms)
-            }}
-            onPaste={(e) => {
-              if (attach.onPaste(e)) setError(null)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !composing(e)) {
-                e.preventDefault()
-                e.currentTarget.form?.requestSubmit()
-              }
-            }}
-            placeholder={placeholder}
-            aria-label={placeholder}
-            className="max-h-40 min-h-9 min-w-40 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent md:min-w-48"
-            readOnly={busy}
-            aria-busy={busy}
-          />
+            <MentionTextarea
+              autoSize
+              voice="main"
+              rows={1}
+              value={text}
+              mentions={mentions}
+              onChange={(v, ms) => {
+                setText(v)
+                setMentions(ms)
+              }}
+              onPaste={(e) => {
+                if (attach.onPaste(e)) setError(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !composing(e)) {
+                  e.preventDefault()
+                  e.currentTarget.form?.requestSubmit()
+                }
+              }}
+              placeholder={placeholder}
+              aria-label={placeholder}
+              className="max-h-40 min-h-9 min-w-40 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent md:min-w-48"
+              readOnly={busy}
+              aria-busy={busy}
+            />
+          </MentionAssistants.Provider>
         </MentionBoard.Provider>
         <div className="ml-auto flex h-9 shrink-0 items-center gap-2">
           {channel && (

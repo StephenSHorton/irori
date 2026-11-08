@@ -1128,6 +1128,7 @@ fn other_members_agents_go_by_name_never_their_key() {
             status: "idle".into(),
             ..presence::AgentCard::default()
         },
+        ..tools::BoardAgent::default()
     });
     let me = ct::Member::of(USER);
     let say = |other: &str, text: &str| {
@@ -1424,6 +1425,7 @@ fn bobs_harness() -> (Harness, std::sync::Arc<Shared>) {
             status: "idle".into(),
             ..presence::AgentCard::default()
         },
+        ..tools::BoardAgent::default()
     });
     (h, shared)
 }

@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use irori_core::huddle_session::RESTART_AT;
 use irori_core::{HuddleRunner, HuddleSeed};
-use irori_window::assistant::{HUDDLES_DIR, HeldRunner, Job};
+use irori_window::assistant::{HUDDLES_DIR, HeldRunner, Input, Job};
 
 use crate::common::Rig;
 
@@ -259,6 +259,7 @@ fn live_held_session_numbers() {
             exe: PathBuf::new(),
             system: system("Juno \u{b7} Addam's assistant"),
             prompt: String::new(),
+            input: Input::Text,
             model: model.into(),
             effort: effort.map(String::from),
             claude_config_dir: None,
