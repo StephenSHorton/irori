@@ -7,6 +7,8 @@ import {
 } from "react"
 import { cn } from "cn"
 import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
   DownloadIcon,
   ExternalLinkIcon,
   ImageIcon,
@@ -37,6 +39,7 @@ import {
   type FileRef,
   type Loaded,
 } from "@/lib/attachments"
+import { navDirection, stepIndex } from "@/lib/image-viewer"
 import { plainLine } from "@/lib/irori"
 
 import { FileKindIcon } from "./file-kind-icon"
@@ -61,7 +64,27 @@ export function AttachmentList({
   className?: string
   compact?: boolean
 }) {
+  // The picture open in the viewer (an index into images), and what the
+  // thumbnails have already loaded, so the viewer doesn't fetch it twice.
+  const [viewing, setViewing] = useState<number | null>(null)
+  const [loaded, setLoaded] = useState<Record<string, Loaded>>({})
   if (attachments.length === 0) return null
+  const images = attachments.filter(looksLikeImage)
+  const files = attachments.filter((f) => !looksLikeImage(f))
+  const picture = (f: FileRef) => ({
+    file: f,
+    onOpen: () => setViewing(images.indexOf(f)),
+    onLoaded: (l: Loaded) =>
+      setLoaded((m) => (m[f.sha256] === l ? m : { ...m, [f.sha256]: l })),
+  })
+  const viewer = images.length > 0 && (
+    <ImageViewer
+      images={images}
+      index={viewing}
+      loaded={loaded}
+      onIndex={setViewing}
+    />
+  )
   if (compact) {
     return (
       <div className={cn("flex flex-wrap gap-2", className)}>
@@ -69,20 +92,21 @@ export function AttachmentList({
           <FileChip
             key={f.sha256}
             file={f}
-            icon={looksLikeImage(f) ? <SmallThumbnail file={f} /> : undefined}
+            icon={
+              looksLikeImage(f) ? <SmallThumbnail {...picture(f)} /> : undefined
+            }
           />
         ))}
+        {viewer}
       </div>
     )
   }
-  const images = attachments.filter(looksLikeImage)
-  const files = attachments.filter((f) => !looksLikeImage(f))
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       {images.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {images.map((f) => (
-            <Thumbnail key={f.sha256} file={f} />
+            <Thumbnail key={f.sha256} {...picture(f)} />
           ))}
         </div>
       )}
@@ -93,6 +117,146 @@ export function AttachmentList({
           ))}
         </div>
       )}
+      {viewer}
+    </div>
+  )
+}
+
+// ImageViewer is the one full-size view for a message's pictures: Previous
+// and Next (and the arrow keys) wrap around when there are several. A
+// picture the thumbnail hasn't loaded (a big one waits for a click) loads
+// when the viewer reaches it, under a loading state.
+function ImageViewer({
+  images,
+  index,
+  loaded,
+  onIndex,
+}: {
+  images: FileRef[]
+  index: number | null
+  loaded: Record<string, Loaded>
+  onIndex: (i: number | null) => void
+}) {
+  const cur = index !== null && index < images.length ? index : null
+  const open = cur !== null
+  const file = cur !== null ? images[cur] : null
+  const many = images.length > 1
+
+  useEffect(() => {
+    if (cur === null || !many) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      const dir = navDirection(e)
+      if (dir === null) return
+      e.preventDefault()
+      onIndex(stepIndex(cur, dir, images.length))
+    }
+    // Capture: the dialog may stop the event before it bubbles to window.
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
+  }, [cur, many, images.length, onIndex])
+
+  const name = file ? fileName(file) : ""
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onIndex(null)}>
+      {file && (
+        <DialogContent className="sm:max-w-[min(90vw,1200px)]">
+          <DialogHeader>
+            <DialogTitle className="truncate">{name}</DialogTitle>
+            <DialogDescription>
+              {humanSize(file.size)}
+              {many && ` · ${(cur ?? 0) + 1} of ${images.length}`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="relative flex max-h-[75vh] min-h-40 justify-center overflow-auto rounded-lg bg-muted/40">
+            <ViewerImage
+              key={file.sha256}
+              file={file}
+              name={name}
+              have={loaded[file.sha256]}
+            />
+            {many && (
+              <>
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  className="absolute top-1/2 left-2 -translate-y-1/2"
+                  aria-label="Previous image"
+                  onClick={() =>
+                    onIndex(stepIndex(cur ?? 0, -1, images.length))
+                  }
+                >
+                  <ChevronLeftIcon />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  className="absolute top-1/2 right-2 -translate-y-1/2"
+                  aria-label="Next image"
+                  onClick={() => onIndex(stepIndex(cur ?? 0, 1, images.length))}
+                >
+                  <ChevronRightIcon />
+                </Button>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <FileActions file={file} />
+          </DialogFooter>
+        </DialogContent>
+      )}
+    </Dialog>
+  )
+}
+
+// ViewerImage shows one picture: the thumbnail's copy when it has one, else
+// it loads the file now.
+function ViewerImage({
+  file,
+  name,
+  have,
+}: {
+  file: FileRef
+  name: string
+  have: Loaded | undefined
+}) {
+  const own = useLoaded(file.sha256, have?.kind !== "image")
+  const state = have?.kind === "image" ? have : own.state
+  if (state?.kind === "image") {
+    return (
+      <img
+        src={state.url}
+        alt={name}
+        className="max-h-[75vh] max-w-full object-contain"
+      />
+    )
+  }
+  if (state) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-1.5 p-6 text-center text-xs text-muted-foreground">
+        <ImageOffIcon className="size-4" />
+        <span>
+          {state.kind === "error"
+            ? state.offline
+              ? offlineLine(state.message)
+              : "Couldn't load it"
+            : "Not a picture"}
+        </span>
+        {state.kind === "error" && (
+          <Button size="xs" variant="ghost" onClick={own.retry}>
+            <RotateCwIcon />
+            Retry
+          </Button>
+        )}
+      </div>
+    )
+  }
+  return (
+    <div
+      className="flex items-center justify-center p-10 text-muted-foreground"
+      aria-label={`Loading ${name}`}
+    >
+      <LoaderCircleIcon className="size-5 animate-spin" />
     </div>
   )
 }
@@ -156,13 +320,24 @@ function useLoaded(sha: string, visible: boolean) {
   }
 }
 
-function Thumbnail({ file }: { file: FileRef }) {
+function Thumbnail({
+  file,
+  onOpen,
+  onLoaded,
+}: {
+  file: FileRef
+  onOpen: () => void
+  onLoaded: (l: Loaded) => void
+}) {
   const [ref, visible] = useVisible<HTMLDivElement>()
   // A big picture crosses devices whole: only when asked.
   const [wanted, setWanted] = useState(file.size <= MaxAutoPreview)
   const { state, retry } = useLoaded(file.sha256, visible && wanted)
-  const [full, setFull] = useState(false)
   const name = fileName(file)
+  useEffect(() => {
+    if (state) onLoaded(state)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state])
 
   // The route serves it as a download after all: show a chip.
   if (state?.kind === "file") return <FileChip file={file} />
@@ -172,7 +347,7 @@ function Thumbnail({ file }: { file: FileRef }) {
       {state?.kind === "image" ? (
         <button
           type="button"
-          onClick={() => setFull(true)}
+          onClick={onOpen}
           title={`${name} (${humanSize(file.size)})`}
           className="block h-28 w-40 overflow-hidden rounded-lg border border-border bg-muted outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         >
@@ -219,45 +394,7 @@ function Thumbnail({ file }: { file: FileRef }) {
       <div className="mt-1 truncate text-xs text-muted-foreground" title={name}>
         {name}
       </div>
-      {state?.kind === "image" && (
-        <FullSize file={file} url={state.url} open={full} onOpen={setFull} />
-      )}
     </div>
-  )
-}
-
-// FullSize is a picture at full size, with Save and Open.
-function FullSize({
-  file,
-  url,
-  open: shown,
-  onOpen,
-}: {
-  file: FileRef
-  url: string
-  open: boolean
-  onOpen: (open: boolean) => void
-}) {
-  const name = fileName(file)
-  return (
-    <Dialog open={shown} onOpenChange={onOpen}>
-      <DialogContent className="sm:max-w-[min(90vw,1200px)]">
-        <DialogHeader>
-          <DialogTitle className="truncate">{name}</DialogTitle>
-          <DialogDescription>{humanSize(file.size)}</DialogDescription>
-        </DialogHeader>
-        <div className="flex max-h-[75vh] justify-center overflow-auto rounded-lg bg-muted/40">
-          <img
-            src={url}
-            alt={name}
-            className="max-h-[75vh] max-w-full object-contain"
-          />
-        </div>
-        <DialogFooter>
-          <FileActions file={file} />
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }
 
@@ -267,12 +404,23 @@ const smallThumbnail =
 // SmallThumbnail is a picture in a chip's icon place, doing what Thumbnail
 // does in less room: a click opens it full size, loads a big one, or tries
 // again after a failure, and its tooltip says which.
-function SmallThumbnail({ file }: { file: FileRef }) {
+function SmallThumbnail({
+  file,
+  onOpen,
+  onLoaded,
+}: {
+  file: FileRef
+  onOpen: () => void
+  onLoaded: (l: Loaded) => void
+}) {
   const [ref, visible] = useVisible<HTMLDivElement>()
   const [wanted, setWanted] = useState(file.size <= MaxAutoPreview)
   const { state, retry } = useLoaded(file.sha256, visible && wanted)
-  const [full, setFull] = useState(false)
   const name = fileName(file)
+  useEffect(() => {
+    if (state) onLoaded(state)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state])
 
   let inner
   if (state?.kind === "file") {
@@ -287,7 +435,7 @@ function SmallThumbnail({ file }: { file: FileRef }) {
     inner = (
       <button
         type="button"
-        onClick={() => setFull(true)}
+        onClick={onOpen}
         title="Open full size"
         className={smallThumbnail}
       >
@@ -336,9 +484,6 @@ function SmallThumbnail({ file }: { file: FileRef }) {
   return (
     <div ref={ref} className="shrink-0">
       {inner}
-      {state?.kind === "image" && (
-        <FullSize file={file} url={state.url} open={full} onOpen={setFull} />
-      )}
     </div>
   )
 }

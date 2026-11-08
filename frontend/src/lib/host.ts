@@ -434,6 +434,7 @@ export const AgentsService = {
   Attach: (key: string, cols: number, rows: number) =>
     call(commands.agentsAttach(key, cols, rows)),
   Running: () => call(commands.agentsRunning()),
+  Usage: (key: string) => call(commands.agentsUsage(key)),
   Limits: () => call(commands.agentsLimits()),
   CapSet: (device: string, cap: number) =>
     call(commands.agentsCapSet(device, cap)),
