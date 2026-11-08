@@ -340,7 +340,7 @@ impl Fold {
         )?;
         let prs = key.replace(',', ", ");
         let cx = format!(
-            "Merged: {prs}. Nobody is on it, so nothing closes it unless you do. Mark it done, or Undo on the thread leaves it open and stops this asking."
+            "Merged: {prs}. Nobody is on it, so nothing closes it unless you do. Mark it done, or Undo on the thread leaves it open, not offered to an agent, and stops this asking."
         );
         let (_, b) = self.raise_locked(
             SWEEPER,
