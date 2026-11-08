@@ -51,6 +51,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "cn"
+import { useNarrow } from "@/lib/media"
 
 // ---------- fake data ----------
 
@@ -360,6 +361,7 @@ export default function HuddleMock() {
   const [speed, setSpeed] = useState(1)
   const [phase, setPhase] = useState<Phase>(mode === "ended" ? "ended" : "live")
   const [names, setNames] = useState(DEFAULT_NAMES)
+  const narrow = useNarrow()
   const [tab, setTab] = useState<"talk" | "canvas" | "people">("canvas")
   const [filter, setFilter] = useState<Kind | "all">("all")
   const [draft, setDraft] = useState("")
@@ -821,18 +823,10 @@ export default function HuddleMock() {
         ))}
       </nav>
 
-      <div className="grid min-h-0 flex-1 md:grid-cols-[minmax(0,1fr)_22rem] lg:grid-cols-[14rem_minmax(0,1fr)_24rem]">
-        <aside
-          className={cn(
-            "overflow-y-auto border-border p-3 lg:block lg:border-r",
-            tab === "people" ? "block" : "hidden"
-          )}
-        >
-          {roster}
-        </aside>
+      <div className="relative flex min-h-0 flex-1 flex-col md:block">
         <section
           className={cn(
-            "min-h-0 flex-col md:flex",
+            "min-h-0 flex-1 flex-col md:absolute md:inset-0 md:flex",
             tab === "canvas" ? "flex" : "hidden"
           )}
         >
@@ -842,17 +836,111 @@ export default function HuddleMock() {
           </Heading>
           {canvas}
         </section>
-        <section
-          className={cn(
-            "min-h-0 flex-col border-border md:flex md:border-l",
-            tab === "talk" ? "flex" : "hidden"
-          )}
+        <FloatPane
+          title="Roster · assistants"
+          show={tab === "people"}
+          wide={!narrow}
+          at="md:top-14 md:left-3"
+          className="md:w-60"
         >
-          <Heading>Transcript · live</Heading>
+          {roster}
+        </FloatPane>
+        <FloatPane
+          title="Transcript · live"
+          show={tab === "talk"}
+          wide={!narrow}
+          at="md:top-14 md:right-3"
+          className="md:bottom-3 md:w-[24rem]"
+          flush
+        >
           {transcript}
-        </section>
+        </FloatPane>
       </div>
     </Shell>
+  )
+}
+
+// A pane that floats over the canvas on a wide screen: drag it by its title,
+// fold it with the chevron. On a phone it is just the tab's page.
+function FloatPane({
+  title,
+  show,
+  wide,
+  at,
+  className,
+  flush,
+  children,
+}: {
+  title: string
+  show: boolean
+  wide: boolean
+  at: string
+  className?: string
+  flush?: boolean
+  children: React.ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const [folded, setFolded] = useState(false)
+  function drag(e: React.PointerEvent) {
+    const el = ref.current
+    const box = el?.parentElement
+    if (!el || !box || !wide) return
+    const r = el.getBoundingClientRect()
+    const pr = box.getBoundingClientRect()
+    const dx = e.clientX - r.left
+    const dy = e.clientY - r.top
+    const move = (m: PointerEvent) =>
+      setPos({
+        x: Math.min(Math.max(0, m.clientX - dx - pr.left), pr.width - 80),
+        y: Math.min(Math.max(0, m.clientY - dy - pr.top), pr.height - 40),
+      })
+    const up = () => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", up)
+    }
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", up)
+  }
+  return (
+    <aside
+      ref={ref}
+      style={
+        wide && pos ? { left: pos.x, top: pos.y, right: "auto" } : undefined
+      }
+      className={cn(
+        "min-h-0 flex-1 flex-col md:absolute md:z-20 md:flex md:flex-none md:overflow-hidden md:rounded-xl md:border md:border-border md:bg-background/90 md:shadow-2xl md:backdrop-blur",
+        wide && !pos && at,
+        wide && folded && "md:!bottom-auto",
+        show ? "flex overflow-y-auto" : "hidden",
+        className
+      )}
+    >
+      <div
+        onPointerDown={drag}
+        className="hidden cursor-grab touch-none items-center justify-between border-b border-border px-3 py-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase select-none active:cursor-grabbing md:flex"
+      >
+        {title}
+        <button
+          type="button"
+          aria-label={folded ? `Unfold ${title}` : `Fold ${title}`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => setFolded((f) => !f)}
+          className="text-sm leading-none"
+        >
+          {folded ? "▾" : "▴"}
+        </button>
+      </div>
+      <div
+        className={cn(
+          "min-h-0 flex-1 flex-col",
+          folded && wide ? "hidden" : "flex",
+          flush ? "" : "overflow-y-auto p-3"
+        )}
+      >
+        {children}
+      </div>
+    </aside>
   )
 }
 
