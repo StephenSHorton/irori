@@ -237,7 +237,7 @@ The five cap is only for the scan, where the computer really was away or behind.
 - The turns before this one, after the newest New chat. Runs of `update` lines are grouped into one assistant turn, as `historyFor` does. A posted draft gets its "(This draft was posted as thread …)" note.
 - Left out, as notes are today: turns with no `said` row yet, turns whose `said` row is `skipped` or has an `error`, and imported turns with no reply. The last 12 turns that go in are used, as `HISTORY_TURNS` says today.
 - Drafts, and anything else carrying another person's words, never go in as the assistant's words (assistants-talk §8).
-- **A late question** is one the catch-up scan found, or one whose row reached this computer more than two minutes after its `at`. A question queued live is never late, however long it waits behind other turns. A late question is marked: "(Asked at 14:02 on the phone; it is now 17:40. Your computer was away. Changes asked for this long ago aren't made: if the person still wants one, ask them to say it again.)" So an old question gets today's answer and says so.
+- **A late question** is judged by time only. Take when the row reached this computer: for a row seen live, the moment the kind loop got it; for a row the catch-up scan found, now. If that is more than five minutes after the row's `at`, corrected by the asking device's clock skew where the mesh knows it (`PeerInfo.skew`), the question is late. So a question asked ten seconds before the computer finished starting isn't late, a phone whose clock runs a few minutes off isn't late, and a question queued live is never late, however long it waits behind other turns. A late question is marked: "(Asked at 14:02 on the phone; it reached your computer at 17:40. Changes asked for this long ago aren't made: if the person still wants one, ask them to say it again.)" So an old question gets today's answer and says so, without claiming which device was off.
 
 **Grants.** The question's row is the person's typed message.
 
@@ -442,7 +442,7 @@ Done when, with a fake turn returning fixed text, tests show:
 - A question delivered both live and by the catch-up scan runs once.
 - A question that arrived before the hook was installed is answered by the scan. So is one inside a burst that overflows the subscription (a resync). So is one that waited while another computer was recorded, after a person's row moves the assistant here.
 - Six questions sent while the computer is connected are all answered. Twenty found by the scan give five answers and fifteen `skipped`.
-- A question an hour old gets the age note and no grants: a "close #12" asked an hour before its turn closes nothing.
+- A question an hour old gets the age note and no grants: a "close #12" asked an hour before it arrived closes nothing. A question found by the catch-up scan ten seconds after it was asked isn't late and keeps its grants. A question from a device whose clock is four minutes behind, with that skew known, isn't late.
 - `grants_for`'s `earlier` holds only the rows before the question: "close it" (with #5 named before it), then a question naming #9 sent while the first waits, gives the first turn Close #5 only. Imported rows are never in it.
 - A Stop row before the turn starts gives "Stopped". A Stop row during a run that is waiting on a tool call ends the child within a second, and the `said` row says "Stopped". A New chat during a run stops it too.
 - An imported question with no `said` row is never run.
