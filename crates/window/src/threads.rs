@@ -18,6 +18,15 @@ use crate::board::{TaskResult, Told, UploadFile};
 use crate::cards::AgentRef;
 use crate::ts;
 
+/// Where a new thread came from, for [`Window::start_thread_in`].
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ThreadFrom<'a> {
+    /// The Talk channel it was started from (its `ch_` id); "" none.
+    pub channel: &'a str,
+    /// The Office Assistant posted it (card #991).
+    pub assistant: bool,
+}
+
 /// Where a thread stands, for the panel.
 pub const THREAD_WAITING: &str = "waiting";
 /// Irori's own key on a card's thread.
@@ -199,11 +208,12 @@ impl Window {
         files: &[UploadFile],
         board_id: &str,
     ) -> Result<TaskResult, String> {
-        self.start_thread_with(text, mentions, files, board_id, None)
+        self.start_thread_with(text, mentions, files, board_id, None, false)
     }
 
     /// [`Self::start_thread`] with the composer's "Agents answer now" (card
-    /// #391); none: the default for its mentions.
+    /// #391); none: the default for its mentions. `assistant`: the Office
+    /// Assistant posted it (card #991), so Irori doesn't name it.
     pub fn start_thread_with(
         &self,
         text: &str,
@@ -211,14 +221,20 @@ impl Window {
         files: &[UploadFile],
         board_id: &str,
         agents_now: Option<bool>,
+        assistant: bool,
     ) -> Result<TaskResult, String> {
-        self.start_thread_in(text, mentions, files, board_id, agents_now, "")
+        let from = ThreadFrom {
+            channel: "",
+            assistant,
+        };
+        self.start_thread_in(text, mentions, files, board_id, agents_now, from)
     }
 
     /// [`Self::start_thread_with`] from a message in Talk channel `channel`
     /// (its `ch_` id; "" none, card #454): the thread records the channel,
     /// and in your own log, in a channel named after a repo here it is that
     /// repo's thread, so the agent Irori starts for it starts in that repo.
+    /// `from` says where it came from.
     pub(crate) fn start_thread_in(
         &self,
         text: &str,
@@ -226,14 +242,15 @@ impl Window {
         files: &[UploadFile],
         board_id: &str,
         agents_now: Option<bool>,
-        channel: &str,
+        from: ThreadFrom<'_>,
     ) -> Result<TaskResult, String> {
+        let ThreadFrom { channel, assistant } = from;
         let quiet = !agents_now.unwrap_or_else(|| agents_now_default(mentions));
         let board_id = crate::trim(board_id);
         let private = !board_id.is_empty()
             && self.core.inbox().threads_mode(board_id) == inbox::threads_mode::PRIVATE;
         let (t, n) = if private {
-            self.private_board_thread(text, mentions, files, board_id, quiet, channel)?
+            self.private_board_thread(text, mentions, files, board_id, quiet, from)?
         } else if board_id.is_empty() {
             let plan = self.plan_mentions("", mentions);
             let refs = self.store_uploads(files)?;
@@ -249,6 +266,7 @@ impl Window {
                         quiet,
                         channel: channel.into(),
                         repo_key: self.channel_repo(channel),
+                        assistant,
                         ..Default::default()
                     },
                     &self.core.ask_agents(),
@@ -274,6 +292,7 @@ impl Window {
                         // No repo: another member's device has its own
                         // checkouts, and a board ask names none.
                         channel: channel.into(),
+                        assistant,
                         ..Default::default()
                     },
                 )
@@ -316,7 +335,7 @@ impl Window {
         files: &[UploadFile],
         board_id: &str,
         quiet: bool,
-        channel: &str,
+        from: ThreadFrom<'_>,
     ) -> Result<(Task, coord::Notice), String> {
         let bc = self.core.board_coord(board_id).map_err(|e| e.to_string())?;
         let theirs = |k: &str| {
@@ -369,8 +388,9 @@ impl Window {
                     thread: true,
                     board: board_id.into(),
                     quiet,
-                    channel: channel.into(),
-                    repo_key: self.channel_repo(channel),
+                    channel: from.channel.into(),
+                    repo_key: self.channel_repo(from.channel),
+                    assistant: from.assistant,
                     ..Default::default()
                 },
                 &self.core.ask_agents(),

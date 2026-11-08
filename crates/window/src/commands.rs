@@ -774,8 +774,9 @@ pub async fn board_start_thread(
     mentions: Vec<crate::ts::Mention>,
     board_id: String,
     agents_now: Option<bool>,
+    assistant: bool,
 ) -> R<TaskResult> {
-    w.start_thread_with(&text, &mentions, &[], &board_id, agents_now)
+    w.start_thread_with(&text, &mentions, &[], &board_id, agents_now, assistant)
 }
 
 /// A thread with files (card #124), as an ask takes them; your own
@@ -788,9 +789,10 @@ pub async fn board_start_thread_with_files(
     mentions: Vec<crate::ts::Mention>,
     files: Vec<UploadFile>,
     agents_now: Option<bool>,
+    assistant: bool,
 ) -> R<TaskResult> {
     blocking(&w, move |w| {
-        w.start_thread_with(&text, &mentions, &files, "", agents_now)
+        w.start_thread_with(&text, &mentions, &files, "", agents_now, assistant)
     })
     .await
 }

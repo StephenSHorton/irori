@@ -676,13 +676,15 @@ export const threads = {
   // files (picked, dropped or pasted) go on it as an ask's do (card
   // #124). boardId starts it on that shared board (card #134): no
   // mentions or files there. agentsNow is the box's "Agents answer now"
-  // (card #391); null: the default for its mentions.
+  // (card #391); null: the default for its mentions. assistant: the Office
+  // Assistant is posting it (card #991), so it keeps its title.
   async start(
     text: string,
     mentions: Mention[] = [],
     files: File[] = [],
     boardId = "",
-    agentsNow: boolean | null = null
+    agentsNow: boolean | null = null,
+    { assistant = false }: { assistant?: boolean } = {}
   ): Promise<TaskResult> {
     checkUploads(files)
     if (inWails()) {
@@ -695,9 +697,16 @@ export const threads = {
             text,
             mentions,
             await Promise.all(files.map(uploadOf)),
-            agentsNow
+            agentsNow,
+            assistant
           )
-        : await BoardService.StartThread(text, mentions, boardId, agentsNow)
+        : await BoardService.StartThread(
+            text,
+            mentions,
+            boardId,
+            agentsNow,
+            assistant
+          )
       rememberStarted(boardId, startedRow(res))
       return res
     }
