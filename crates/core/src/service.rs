@@ -477,6 +477,12 @@ impl tools::Backend for ToolsView {
     fn agent_end(&self, caller: &str, key: &str) -> Result<String, String> {
         self.0.agent_end(caller, key)
     }
+    fn thread_agent_check(&self, caller: &str) -> Result<(), String> {
+        self.0.thread_agent_check(caller)
+    }
+    fn thread_new_agent(&self, caller: &str, task_id: &str, watch: bool) -> Result<String, String> {
+        self.0.thread_new_agent(caller, task_id, watch)
+    }
     fn agents_pause(&self, caller: &str, on: bool) -> Result<String, String> {
         self.0.agent_set_paused(caller, on)
     }
