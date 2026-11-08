@@ -1,5 +1,7 @@
 # Office Assistants talking across people: design
 
+*Amended 2026-11-08 by [one-assistant.md](one-assistant.md) (card #1095): the person's assistant runs on one recorded computer, and taps go to it. The notes marked **One assistant** below say what changes.*
+
 *2026-11-08, card #1030, from the person's idea on thread #1021. Design only: nothing here is built yet. Build cards are in §12, and mockups of what people see are in §15. Checked against main by five adversarial reviews (identity, leaks, delivery, buildability, consistency), then a second pass on the revision. What they found is folded in.*
 
 The idea, in the person's words: "Maybe office assistants can communicate with other people's office assistants", to agree on who should review a PR, or because "I need to ask addam some questions, maybe office assistants already have that info". "Would want this to be legit though", and "We don't have to go hard on this. just an idea."
@@ -24,7 +26,7 @@ So this is the smallest version that is legit. One person or agent asks, and the
 
 The earlier check on #1023 read a checkout 265 commits behind main. On main:
 
-- **The Office Assistant exists, per device, not per person.** Each question is one headless `claude -p` on Haiku, with no session between turns (`crates/window/src/assistant.rs`). Its history lives in the webview's localStorage. It's off the roster on purpose, so it has no agent key, card or inbox.
+- **The Office Assistant exists, per device, not per person.** Each question is one headless `claude -p` on the model set in Settings › Agents (Sonnet low by default, since #1014), with no session between turns (`crates/window/src/assistant.rs`). Its history lives in the webview's localStorage. It's off the roster on purpose, so it has no agent key, card or inbox.
 - **Its authority is the person's, read-only.** The API treats its secret as `Sender("user:<device>", …, "assistant")` and allows only `tools::ASSISTANT_TOOLS` (14 read tools, pinned by a test). It reads private cards and its own agents' transcripts.
 - **Delivery across people already works in space channels.** `talk_post_bridge` wakes the `agent:` keys a post mentions, under the receive setting, Pause, rate limit and hop limit. Card #1030's "mentions aren't delivered across people" is out of date for channels, cards and threads. It is still true for `send`/`reply`, and DMs to another person's agent are refused on purpose.
 - **#1000 cut the chat to what waits on the person.** Its follower (`frontend/src/lib/assistant-follow.ts`) follows only threads the chat posted. `parseHistory` drops a saved update line unless it has an answer act or passes `waitsOnPerson`. The reply act and `replyOn` are gone.
@@ -98,9 +100,11 @@ Two members can share a profile name. Eve can rename herself "Addam", and then h
 - If two members share a name, the name is ambiguous and the sender gets the candidates' keys, as today.
 - The picker offers assistants only in `#office-assistants`. Today `MentionBoard.Provider` carries only the space, and `MentionCandidate` has no kind. Card 3 passes the conversation id and adds the kind (`frontend/src/lib/mentions.ts`, `frontend/src/components/common/mention-textarea.tsx`, `crates/window/src/mentions.rs`).
 
+> **One assistant** (one-assistant.md §3): the assistant's computer is now recorded in an `assistant.home` row, not ranked from each device's mesh view. It moves only when the person picks another computer or it is removed. So the split described below is down to the one-time first claim, and `is_assistant_home` reads the row.
+
 **Which computer answers.** One of the person's desktops that can run the answering turn (a desktop with Claude Code signed in, the same condition as the namer):
 
-- Each such desktop says so with a new `assistantTurn: true` field on its `spawn.host` row. (`spawn.answers` is already a kind, so don't call it `answers`.) `spawn.host` is a private-log row that only the device itself writes, and older builds ignore the field.
+- Each such desktop says so with a new `assistantTurn: true` field on its `spawn.host` row. (Don't call it `answers`: `spawn.answers` is an in-memory map of brief notes in `spawn.rs`, and the name would mislead.) `spawn.host` is a private-log row that only the device itself writes, and older builds ignore the field.
 - `publish_host` rewrites the row only when its `(os, repos, no_agents, moves, held)` tuple changes, and reloads that tuple after a restart. `assistantTurn` must join the tuple, or an upgraded desktop never publishes it.
 - The assistant's computer is the first device in `AgentDevices.homes` (built in `refresh_agent_devices`, `crates/core/src/service/spawn_capable.rs`) whose `spawn.host` says `assistantTurn`. `homes` already leaves out phones and builds without `moves`. `agent_home` itself returns one device, so filter `homes`, not its result.
 - `homes` is ranked from each device's own mesh view. So when two of the person's desktops can't see each other, both may think they're home. §5's answer id makes that harmless.
@@ -225,6 +229,8 @@ The system prompt sends to `NEEDS_OWNER` anything that would commit the owner: t
 
 ## 7. The owner's OK
 
+> **One assistant** (one-assistant.md §9): the tap appends an `assistant.answer.requested` row with `how: "draft"`, and the turn runs on the assistant's computer, not the device tapped. The draft is an `assistant.chat.said` row with a `draft` field, so every device shows it, and Send works from any of them.
+
 The `needs` line shows the question with **Answer this**. Nothing about private work leaves without these steps:
 
 1. The tap starts **a turn of its own, not an ordinary chat turn**, on the device where it was tapped:
@@ -284,6 +290,8 @@ For example:
 - `held` lines come from a Core event on the assistant's computer and show only there.
 - The channel is the permanent record. localStorage is only a view.
 
+> **One assistant** (one-assistant.md §9): **Let it answer** also appends `assistant.answer.requested` (`how: "let"`) and runs on the assistant's computer, so a phone gets both buttons. `held` lines become `assistant.chat.update` rows, so every device shows them.
+
 **Taps:**
 
 - **Let it answer** runs the tool-less turn (§5) on the device where it was tapped, if that device can run it, through a new Tauri command and a Core entry point, `Services::answer_now(board, post_id)`. A person's tap skips §5's home check, the waiting-line check, the rate limit, the hour and the receive setting, since the owner chose it. It keeps the author and channel check, the answer-id check (so a second tap elsewhere does nothing), the hop limit, the scrub and the cap.
@@ -333,6 +341,8 @@ Tap-to-send matters here because the model holds private reads while writing a q
 `ASSISTANT_TOOLS`, #987's `ASSISTANT_WRITE_TOOLS` and their tests stay exactly as they are. `grants_for` must not grant anything from an ask draft: sending one is a tap, not a write tool.
 
 ## 10. Devices, offline, limits
+
+> **One assistant** (one-assistant.md §6, §7): an assistant's computer that is off doesn't move. Two desktops answer at once only during the one-time first claim, or while the person moves it during a split.
 
 - **The assistant's computer is off or signed out:** the post sits in the channel and no answer comes. On return, §5's catch-up scan answers questions under an hour old, and older ones become a `held` line. A person can tell the assistant's computer is away from that person's presence.
 - **Two of the person's desktops can't see each other:** both may answer. The answer id means peers show one.

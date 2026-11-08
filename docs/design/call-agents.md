@@ -167,6 +167,8 @@ L4 runs off `over`, apart from #656's end wake (`call_end_bridge`, `tell_call_en
 
 It's the Office Assistant, not an agent: still off the roster, not counted against agent limits, and no cards handed to it.
 
+> **One assistant** (one-assistant.md §9, card #1095): it is hosted on the recorded assistant's computer only. The 60 s takeover by the next device below is dropped. When that computer is away, the roster shows "not connected: Mac is offline". Stop here or Stop everywhere there keeps the assistant out of calls.
+
 **Which device hosts it.** The same computer #1030 uses for the person's assistant, so one person's assistant never runs in two places: the first device in `AgentDevices.homes` (what `coord.agent_home("")` reads, ranked by `refresh_agent_devices` from each device's replicated `spawn.host` row and mesh state) that `agents_paused_on` doesn't hold (Stop here, Stop everywhere).
 - Each device's view of who is online is its own, so two devices can both pick themselves. **`call.assist` arbitrates:** the host writes `on` when it connects and `off` when it stops. A device that sees an `on` for this huddle from another of its person's devices that ranks above it stands down and writes `off`. An `on` whose device has been away in presence for over 60 s counts as off, the roster shows "reconnecting", and the next device takes over. A host that wakes from sleep re-runs the pick before any look.
 - `spawn.host`'s `no_agents` says Claude Code is installed, not signed in. A signed-out Claude Code fails the first look: the host writes `off` and the roster shows "not connected".
