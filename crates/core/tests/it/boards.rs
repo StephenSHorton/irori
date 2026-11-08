@@ -2497,3 +2497,46 @@ fn board_rows_wait_for_every_device_to_store_them() {
             .is_ok_and(|bs| bs[0].description == "The game")
     });
 }
+
+/// Card #779: a subtask the person named keeps that name as theirs on the
+/// board its family is shared to, so an agent there can't rename it.
+#[test]
+fn a_shared_subtask_keeps_the_name_the_person_gave_it() {
+    let r = Rig::new();
+    let c = &r.core;
+    let id = c.create_board("MLG", "mlg").unwrap();
+    let co = c.coord();
+    let parent = co
+        .create_task(&r.key_a, new_task("ship the release"))
+        .unwrap();
+    let sub = |t: &str| coord::NewSubtask {
+        title: t.into(),
+        ..Default::default()
+    };
+    let (_, kids) = co
+        .split(
+            &r.key_a,
+            &parent.id,
+            vec![sub("release notes"), sub("announce it")],
+            vec![],
+        )
+        .unwrap();
+    let user = c.user_sender().key;
+    co.rename_task(&user, &kids[0].id, "Write the release notes")
+        .unwrap();
+
+    let p = c.preview_share(&parent.id, &id).unwrap();
+    let shared = c.share_to_board(&parent.id, &id, &p.hash).unwrap();
+    let bco = c.board_coord(&id).unwrap();
+    let on_board = bco.get_task(&shared.id).unwrap();
+    let kid = |title: &str| {
+        on_board
+            .subtasks
+            .iter()
+            .map(|k| bco.get_task(k).unwrap())
+            .find(|t| t.title == title)
+            .unwrap()
+    };
+    assert!(kid("Write the release notes").title_by_person);
+    assert!(!kid("announce it").title_by_person);
+}

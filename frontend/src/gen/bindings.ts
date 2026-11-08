@@ -99,6 +99,8 @@ export const commands = {
 	boardClose: (id: string, state: string, note: string) => __TAURI_INVOKE<Task>("board_close", { id, state, note }),
 	boardDelete: (id: string) => __TAURI_INVOKE<null>("board_delete", { id }),
 	boardMove: (id: string, board: string) => __TAURI_INVOKE<Task>("board_move", { id, board }),
+	/**  The person renames a card or thread by hand (card #779). */
+	boardRename: (id: string, title: string) => __TAURI_INVOKE<Task>("board_rename", { id, title }),
 	boardPin: (id: string, pinned: boolean) => __TAURI_INVOKE<null>("board_pin", { id, pinned }),
 	/**
 	 *  Pause on a card (card #207): its holders are stopped and their tools
@@ -3049,6 +3051,8 @@ export type Task = {
 	sideWait?: string,
 	withdrawn?: boolean,
 	title: string,
+	/**  The person named it by hand (card #779). */
+	titleByPerson?: boolean,
 	objective: string,
 	doneCriteria?: string,
 	repoKey?: string,

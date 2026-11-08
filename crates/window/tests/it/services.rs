@@ -1661,3 +1661,86 @@ fn the_names_themes_through_the_window() {
     assert!(w.names_theme_set("westerns", false).is_err());
     assert!(on(&w.names_theme_set("movies", true).unwrap(), "movies"));
 }
+
+/// Card #779: the person renames a card and a thread from its page. The
+/// board and the Threads list show the new names, an agent's rename after
+/// it is refused, and both stay after a restart.
+#[test]
+fn rename_by_hand() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let t = co
+        .create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: "lobby join".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let (th, _) = co
+        .post_ask(
+            &r.w.core.user_sender().key,
+            coord::NewAsk {
+                text: "can I rename threads?".into(),
+                thread: true,
+                ..Default::default()
+            },
+            &[],
+        )
+        .unwrap();
+    let got = r.w.rename_card(&t.id, " Join the lobby ").unwrap();
+    assert_eq!(got.title, "Join the lobby");
+    assert!(got.title_by_person);
+    r.w.rename_card(&th.id, "Renaming threads").unwrap();
+    assert!(
+        r.w.rename_card(&t.id, "  ")
+            .unwrap_err()
+            .contains("needs a title")
+    );
+
+    let on_board = |w: &irori_window::Window| {
+        w.cards()
+            .iter()
+            .find(|s| s.id == t.id)
+            .map(|s| s.title.clone())
+    };
+    let in_threads = |w: &irori_window::Window| {
+        w.threads("")
+            .iter()
+            .find(|s| s.id == th.id)
+            .map(|s| s.title.clone())
+    };
+    assert_eq!(on_board(&r.w).as_deref(), Some("Join the lobby"));
+    assert_eq!(in_threads(&r.w).as_deref(), Some("Renaming threads"));
+    assert_eq!(r.w.card(&t.id).unwrap().summary.title, "Join the lobby");
+
+    // The agent that holds it can't name it back.
+    let e = co
+        .edit_task(
+            &r.key_a,
+            &t.id,
+            coord::TaskEdit {
+                title: Some("lobby join".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("the person named"), "{e}");
+
+    // A restart over the same data dir keeps both names.
+    r.w.core.close().unwrap();
+    let data = r.data.clone();
+    let again = Rig::with(|o| o.data_dir = data);
+    assert_eq!(on_board(&again.w).as_deref(), Some("Join the lobby"));
+    assert_eq!(in_threads(&again.w).as_deref(), Some("Renaming threads"));
+    assert!(
+        again
+            .w
+            .core
+            .coord()
+            .get_task(&t.id)
+            .unwrap()
+            .title_by_person
+    );
+}
