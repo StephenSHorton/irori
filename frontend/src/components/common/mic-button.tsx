@@ -74,7 +74,7 @@ export function MicButton({
   // no box has focus.
   main?: boolean
 }) {
-  const voice = useSyncExternalStore(subscribeVoice, sharedVoice)
+  const voice = useSyncExternalStore(subscribeVoice, sharedVoice, sharedVoice)
   // A huddle has the mic (#654): dictation waits until it ends.
   // Only whether there is one, so a call's health doesn't render it again.
   const inCallNow = () => !!sharedCall().mine
