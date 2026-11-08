@@ -495,7 +495,8 @@ pub(crate) struct Caller {
     /// Through a mod attach secret (not a member).
     pub attach: bool,
     /// The window assistant (card #783): reads as the person, through
-    /// `tools::ASSISTANT_TOOLS` only. Only [`Handler::assistant`] makes one.
+    /// `tools::ASSISTANT_TOOLS` (and writes per grant, card #987). Only
+    /// [`Handler::assistant`] makes one.
     pub assistant: bool,
 }
 
@@ -574,7 +575,8 @@ impl Handler<'_> {
     /// `X-Irori-Assistant` sent alone: the person at this device
     /// (`user:<device>`, the key the Board's person view reads as), so
     /// search, show and board read exactly what the person sees. Only the
-    /// tool routes take it, and only for `tools::ASSISTANT_TOOLS`.
+    /// tool routes take it, and only for `tools::ASSISTANT_TOOLS` and, per
+    /// grant, `tools::ASSISTANT_WRITE_TOOLS`.
     pub fn assistant(&self) -> Option<Caller> {
         if !matches!(self.assistant_header(), AssistantHeader::Ok) {
             return None;
