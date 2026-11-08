@@ -1133,7 +1133,10 @@ fn done_on_the_first_try_is_tallied() {
     let s = at_done_check();
     let co = s.r.core.coord();
     let b = check_of(co, &s.t.id);
+    // A Not done they take back with Done on the same check doesn't count.
+    not_done(&s, "wait");
     co.say_done(&s.person, &s.t.id, &b, &[]).unwrap();
+    assert_eq!(co.get_task(&s.t.id).unwrap().run_level(), "normal");
     let tally = co.run_tally();
     assert_eq!(tally.len(), 1, "{tally:?}");
     assert_eq!(
