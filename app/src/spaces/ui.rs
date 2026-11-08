@@ -128,22 +128,22 @@ pub fn state_bar(k: &Kit, key: &str, segs: &[Seg], width: f32) -> El {
     )
 }
 
-/// A round face with the holder's initial (cards/faces.tsx, cut down).
+/// A round face with the holder's initial (cards/faces.tsx, cut down:
+/// its ui/avatar is the kit Avatar).
 pub fn face(k: &Kit, name: &str, size: f32) -> El {
     let initial = logic::plain_line(name)
         .chars()
         .next()
         .map(|c| c.to_uppercase().to_string())
         .unwrap_or_else(|| "?".into());
-    el().size(size, size)
-        .radius(size / 2.0)
-        .fill(k.alpha(k.c.text_accent, 0.22))
-        .center()
-        .child(
-            text(initial)
-                .font(TextStyle::new(size * 0.5, 600.0))
-                .color(k.c.text_accent),
-        )
+    let letters = crate::profile::avatar::Letters {
+        text: initial,
+        size: size * 0.5,
+        weight: 600.0,
+        ink: k.c.text_accent,
+    };
+    let fill = k.alpha(k.c.text_accent, 0.22);
+    crate::profile::avatar::kit_face(k, name, size, fill, letters, None, None)
 }
 
 /// A tile's few most recently active cards, with their holders' faces.
@@ -249,23 +249,11 @@ pub fn confirm(
                 .build(k)
                 .default_button(),
         );
-    // Rune's dialog description doesn't wrap in a fitted panel, so the
-    // question is the body's first, wrapping line.
-    let body = col()
-        .w_full()
-        .child(
-            text(question.to_string())
-                .font(k.ty.ui.lh(20.0))
-                .color(k.c.text_muted)
-                .w_full()
-                .wrap()
-                .px(16.0),
-        )
-        .child(buttons);
     Dialog::new(key.to_string(), label.to_string())
+        .description(question.to_string())
         .open(true)
         .fit()
         .on_close(on_cancel)
-        .child(body)
+        .child(buttons)
         .build(k, f.layer);
 }

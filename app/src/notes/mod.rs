@@ -626,14 +626,6 @@ fn form_dialog(s: &State, f: &mut Frame) {
         .px(16.0)
         .pb(16.0)
         .child(
-            // Rune's dialog description doesn't wrap in a fitted panel.
-            text("A short fact an agent should know before it acts. Long material belongs in the repo's docs.")
-                .font(k.ty.ui.lh(20.0))
-                .color(k.c.text_muted)
-                .w_full()
-                .wrap(),
-        )
-        .child(
             col()
                 .w_full()
                 .gap(4.0)
@@ -651,12 +643,30 @@ fn form_dialog(s: &State, f: &mut Frame) {
                     row().w_full().justify_end().child(
                         text(format!("{chars}/{NOTE_MAX_CHARS}"))
                             .font(t(11.0))
-                            .color(if chars > NOTE_MAX_CHARS { k.c.danger.icon } else { k.c.text_muted }),
+                            .color(if chars > NOTE_MAX_CHARS {
+                                k.c.danger.icon
+                            } else {
+                                k.c.text_muted
+                            }),
                     ),
                 ),
         )
-        .child(row().w_full().gap(12.0).center_y().child(label("Kind")).child(kind_sel))
-        .child(row().w_full().gap(12.0).items_start().child(label("Applies to").pt(4.0)).child(applies));
+        .child(
+            row()
+                .w_full()
+                .gap(12.0)
+                .center_y()
+                .child(label("Kind"))
+                .child(kind_sel),
+        )
+        .child(
+            row()
+                .w_full()
+                .gap(12.0)
+                .items_start()
+                .child(label("Applies to").pt(4.0))
+                .child(applies),
+        );
     if !fm.error.is_empty() {
         body = body.child(
             text(fm.error.clone())
@@ -688,6 +698,7 @@ fn form_dialog(s: &State, f: &mut Frame) {
             ),
     );
     Dialog::new("notes-form-dialog", fm.title.clone())
+        .description("A short fact an agent should know before it acts. Long material belongs in the repo's docs.")
         .width(512.0)
         .fit()
         .open(true)

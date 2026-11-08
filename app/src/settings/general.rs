@@ -3,8 +3,8 @@
 //! cards/clear-done.tsx) and lib/settings.ts.
 
 use irori_window::settings::{EVENT_LAUNCH_AT_LOGIN, NotifyOptions};
-use rune::{Drag, El, Phase, col, el, row, text};
-use rune_kit::{Button, ButtonVariant};
+use rune::{El, Tx, col, el, row, text};
+use rune_kit::{Button, ButtonVariant, Slider};
 
 use crate::ui::{Event, Frame, State};
 
@@ -182,69 +182,28 @@ pub fn notifications(s: &State, f: &mut Frame) -> El {
     out
 }
 
-/// The volume, 0 to 100 in fives (ui/slider has no kit widget: Rune's
-/// examples/settings slider, by hand).
+/// The volume, 0 to 100% in fives (ui/slider): the value follows a drag
+/// and is saved once it settles (a released drag, a key step).
 fn slider(f: &Frame, v: f32, disabled: bool) -> El {
-    let k = f.k;
-    let (w, h, knob, bar) = (160.0, 20.0, 16.0, 4.0);
-    let travel = w - knob;
-    let to_value =
-        move |x: f32| (((x - knob / 2.0) / travel).clamp(0.0, 1.0) * 20.0).round() / 20.0;
-    let mut e = el()
-        .key("settings-volume")
-        .role("slider")
+    Slider::new(v)
+        .range(0.0, 1.0)
+        .step(0.05)
+        .width(160.0)
         .label("Volume")
-        .range_value(f64::from(v), 0.0, 1.0)
-        .range_step(0.05)
-        .a11y_value(format!("{}%", (v * 100.0).round()))
-        .size(w, h)
-        .child(
-            el().size(w, bar)
-                .absolute(0.0, (h - bar) / 2.0)
-                .radius(bar / 2.0)
-                .fill(k.c.layer_04)
-                .a11y_hidden(),
-        )
-        .child(
-            el().size(knob / 2.0 + v * travel, bar)
-                .absolute(0.0, (h - bar) / 2.0)
-                .radius(bar / 2.0)
-                .fill(k.c.bg_accent)
-                .a11y_hidden(),
-        )
-        .child(
-            el().size(knob, knob)
-                .absolute(v * travel, (h - knob) / 2.0)
-                .radius(knob / 2.0)
-                .fill(k.c.knob)
-                .border(1.0, k.c.border_base)
-                .a11y_hidden(),
-        );
-    if disabled {
-        return e.opacity(0.5);
-    }
-    e = e
-        .focusable(true)
-        .on_step(|s: &mut State, steps, _| {
-            let Some(n) = &s.settings.general.notify else {
-                return;
-            };
-            let v = (n.volume + f64::from(steps) * 0.05).clamp(0.0, 1.0);
-            set_notify(s, move |n| n.volume = v);
+        .disabled(disabled)
+        .on_change(|s: &mut State, v, tx: &mut Tx| {
+            let g = &mut s.settings.general;
+            // A cancelled drag reports the saved value: nothing to hold.
+            let saved = g.notify.as_ref().map(|n| n.volume as f32);
+            g.volume_drag = (saved != Some(v)).then_some(v);
+            tx.instant();
         })
-        .on_drag(move |s: &mut State, d: &mut Drag, tx| match d.phase {
-            Phase::Down | Phase::Move => {
-                s.settings.general.volume_drag = Some(to_value(d.x));
-                tx.instant();
-            }
-            Phase::Up => {
-                let v = s.settings.general.volume_drag.take();
-                if let (Some(v), false) = (v, d.cancelled()) {
-                    set_notify(s, move |n| n.volume = f64::from(v));
-                }
-            }
-        });
-    e
+        .on_commit(|s: &mut State, v, _| {
+            s.settings.general.volume_drag = None;
+            set_notify(s, move |n| n.volume = f64::from(v));
+        })
+        .build(f.k)
+        .key("settings-volume")
 }
 
 // ---- App ----------------------------------------------------------------------

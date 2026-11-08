@@ -3,23 +3,19 @@
 //! size and rhythm of what loads, pulsing softly. Each text line of the
 //! React shapes is a bar here, as the skeleton drew it.
 
-use rune::{El, LoopSpec, col, el, row};
+use rune::{El, col, el, row};
+use rune_kit::Skeleton;
 
 use crate::ui::Frame;
 
-/// One skeleton block, `w` wide (`None`: the full width), `h` tall.
+/// One skeleton block (kit Skeleton), `w` wide (`None`: the full width),
+/// `h` tall.
 pub fn block(f: &Frame, key: &str, w: Option<f32>, h: f32, radius: f32) -> El {
-    let b = el()
-        .key(key.to_string())
-        .h(h)
-        .radius(radius)
-        .fill(f.k.c.layer_03)
-        .looping(LoopSpec::opacity(1.6, 0.0, 0.45, 1.0))
-        .a11y_hidden();
-    match w {
-        Some(w) => b.w(w),
-        None => b.w_full(),
+    let mut b = Skeleton::new().height(h).radius(radius);
+    if let Some(w) = w {
+        b = b.width(w);
     }
+    b.build(f.k).key(key.to_string())
 }
 
 /// A text line of `chars` characters at a font of `size`: a bar of about

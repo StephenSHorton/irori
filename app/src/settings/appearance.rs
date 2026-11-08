@@ -19,7 +19,10 @@
 
 use irori_window::settings::{CardColors, CardLook};
 use rune::{El, Tx, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, PaletteSeed, SegmentedControl, TextInput};
+use rune_kit::{
+    Button, ButtonVariant, ColorPicker, ColorPickerState, ColorSwatch, PaletteSeed,
+    SegmentedControl,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::ui::prefs::Prefs;
@@ -693,9 +696,10 @@ fn changed(s: &mut State) {
 
 #[derive(Default)]
 pub struct Model {
-    pub accent: rune::TextEdit,
-    pub tint: rune::TextEdit,
-    /// Which colour's presets are open: "accent" or "tint".
+    /// The colour pickers' hex fields.
+    pub accent: ColorPickerState,
+    pub tint: ColorPickerState,
+    /// Which colour's picker is open: "accent" or "tint".
     pub picking: Option<&'static str>,
     pub error: String,
     /// The look the cards were last sent.
@@ -722,8 +726,8 @@ fn custom_or_base(p: &Prefs) -> (String, Custom) {
 /// Fills the colour fields from what's saved (when the pane opens).
 pub fn load(s: &mut State) {
     let (_, c) = custom_or_base(&s.prefs);
-    s.settings.appearance.accent = rune::TextEdit::new(c.accent);
-    s.settings.appearance.tint = rune::TextEdit::new(c.tint);
+    s.settings.appearance.accent = ColorPickerState::new(super::hex(&c.accent));
+    s.settings.appearance.tint = ColorPickerState::new(super::hex(&c.tint));
     s.settings.appearance.error.clear();
 }
 
@@ -741,6 +745,7 @@ fn pick_theme(s: &mut State, id: &str) {
 }
 
 /// Sets one of your colours ("accent" or "tint") and switches to Custom.
+/// Each change in the picker sets it, as main's colour input does.
 fn pick_colour(s: &mut State, which: &str, hex: &str) {
     let hex = hex.trim().to_ascii_lowercase();
     let hex = if hex.starts_with('#') {
@@ -765,8 +770,9 @@ fn pick_colour(s: &mut State, which: &str, hex: &str) {
     }
     s.prefs.set(CUSTOM, &c);
     s.prefs.set(THEME, "custom");
-    s.settings.appearance.picking = None;
-    load(s);
+    // The picker stays open (as main's native one does while you pick) and
+    // keeps its field, so a hue drag turns the colour it started from.
+    s.settings.appearance.error.clear();
     changed(s);
 }
 
@@ -841,69 +847,44 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     }
 
     let m = &s.settings.appearance;
-    let colour = |f: &mut Frame, which: &'static str, label: &str, edit: &rune::TextEdit| -> El {
+    let (_, custom) = custom_or_base(&s.prefs);
+    // main's `<input type="color">`: the colour, which opens a picker (kit
+    // ColorPicker) under the row, and its name.
+    let colour = |f: &mut Frame, which: &'static str, label: &str, value: &str| -> El {
         let k = f.k;
-        let value = edit.text.clone();
-        let shown = if valid_hex(&value) {
-            super::hex(&value)
+        let open = m.picking == Some(which);
+        let shown = if valid_hex(value) {
+            super::hex(value)
         } else {
             k.c.layer_02
         };
-        col()
+        row()
             .key(format!("settings-colour-{which}"))
-            .gap(6.0)
+            .gap(8.0)
+            .center_y()
             .child(
-                row()
-                    .gap(8.0)
-                    .center_y()
-                    .child(
-                        el().key(format!("settings-colour-{which}-swatch"))
-                            .size(28.0, 28.0)
-                            .radius(6.0)
-                            .fill(shown)
-                            .border(1.0, k.c.border_base)
-                            .role("button")
-                            .label(format!("{label}: pick a colour"))
-                            .focusable(true)
-                            .on_press(move |s: &mut State| {
-                                let p = &mut s.settings.appearance.picking;
-                                *p = if *p == Some(which) { None } else { Some(which) };
-                            }),
-                    )
-                    .child(
-                        TextInput::new(edit)
-                            .label(label.to_string())
-                            .placeholder("#rrggbb")
-                            .width(Some(96.0))
-                            .on_edit(move |s: &mut State| {
-                                if which == "accent" {
-                                    &mut s.settings.appearance.accent
-                                } else {
-                                    &mut s.settings.appearance.tint
-                                }
-                            })
-                            .on_submit(move |s: &mut State, _: &mut Tx| {
-                                let v = if which == "accent" {
-                                    s.settings.appearance.accent.text.clone()
-                                } else {
-                                    s.settings.appearance.tint.text.clone()
-                                };
-                                pick_colour(s, which, &v);
-                            })
-                            .build(k)
-                            .key(format!("settings-colour-{which}-field")),
-                    )
-                    .child(text(label.to_string()).font(k.ty.ui).color(k.c.text_base)),
+                ColorSwatch::new(shown)
+                    .size(32.0)
+                    .label(format!("{label}: pick a colour"))
+                    .on_press(move |s: &mut State| {
+                        let p = &mut s.settings.appearance.picking;
+                        *p = if *p == Some(which) { None } else { Some(which) };
+                    })
+                    .build(k)
+                    .key(format!("settings-colour-{which}-swatch"))
+                    .role("button")
+                    .expanded(open),
             )
+            .child(text(label.to_string()).font(k.ty.ui).color(k.c.text_base))
     };
-    let mut colours = row()
+    let colours = row()
         .key("settings-colours")
         .w_full()
         .gap(16.0)
         .center_y()
         .flex_wrap()
-        .child(colour(f, "accent", "Accent", &m.accent))
-        .child(colour(f, "tint", "Background tint", &m.tint))
+        .child(colour(f, "accent", "Accent", &custom.accent))
+        .child(colour(f, "tint", "Background tint", &custom.tint))
         .child(
             Button::new(format!("Reset to {}", base_theme.name))
                 .variant(ButtonVariant::Outline)
@@ -914,9 +895,6 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 })
                 .build(k),
         );
-    if m.picking.is_none() {
-        colours = colours.child(el());
-    }
     let mut your = col()
         .key("settings-your-colours")
         .w_full()
@@ -928,21 +906,34 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         ))
         .child(colours);
     if let Some(which) = m.picking {
-        let mut presets = row().key("settings-presets").gap(6.0).flex_wrap();
-        for (i, p) in PRESETS.iter().enumerate() {
-            let p = *p;
-            presets = presets.child(
-                el().key(format!("settings-preset-{i}"))
-                    .size(20.0, 20.0)
-                    .radius(10.0)
-                    .fill(super::hex(p))
-                    .role("button")
-                    .label(p)
-                    .focusable(true)
-                    .on_press(move |s: &mut State| pick_colour(s, which, p)),
-            );
-        }
-        your = your.child(presets);
+        let presets: Vec<rune::Color> = PRESETS.iter().map(|p| super::hex(p)).collect();
+        let (state, value) = if which == "accent" {
+            (&m.accent, &custom.accent)
+        } else {
+            (&m.tint, &custom.tint)
+        };
+        let picker = ColorPicker::new(
+            format!("settings-picker-{which}"),
+            state,
+            move |s: &mut State| {
+                if which == "accent" {
+                    &mut s.settings.appearance.accent
+                } else {
+                    &mut s.settings.appearance.tint
+                }
+            },
+        )
+        .value(super::hex(value))
+        .presets(&presets)
+        .columns(7)
+        .hue(true)
+        .on_change(move |s: &mut State, c: rune::Color, _: &mut Tx| {
+            let mut h = c.hex();
+            h.truncate(7);
+            pick_colour(s, which, &h);
+        })
+        .build(k);
+        your = your.child(picker);
     }
     if !m.error.is_empty() {
         your = your.child(super::error_line(f, &m.error));

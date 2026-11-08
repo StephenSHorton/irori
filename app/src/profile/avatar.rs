@@ -4,7 +4,10 @@
 //! Face (profile/face.tsx): the picture, else the initial on their colour.
 
 use base64::Engine;
-use rune::{Color, El, Pixels, SurfaceFit, el, text};
+use std::sync::{Arc, LazyLock};
+
+use rune::{Color, El, ImageCache, Pixels, el, text};
+use rune_kit::{Avatar, Kit};
 
 use crate::ui::Frame;
 
@@ -139,27 +142,39 @@ pub fn shrink_avatar(bytes: &[u8]) -> Result<String, String> {
     Err("That picture is still too big after shrinking it.".into())
 }
 
-/// An avatar's pixels (straight RGBA), for [`face`]; None when it isn't one
-/// (the face falls back to the initial). PNG, JPEG and WebP (the React
-/// app saved WebP first) all decode.
-pub fn decode(avatar: &str) -> Option<(u32, u32, Vec<u8>)> {
+/// Avatars decode on Rune's image workers; [`decode`] waits for its own
+/// decode off the UI thread, so the cache needs no wake.
+static IMAGES: LazyLock<ImageCache> = LazyLock::new(|| ImageCache::new(Arc::new(|| {})));
+
+/// An avatar's picture, decoded by Rune (PNG, JPEG and WebP: the React
+/// app saved WebP first), for [`face`]; None when it isn't one (the face
+/// falls back to the initial). It waits for the decode: call it off the
+/// UI thread.
+pub fn decode(avatar: &str) -> Option<Pixels> {
     if !is_avatar(avatar) {
         return None;
     }
     let b64 = avatar.split_once(',')?.1;
     let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
-    let img = image::load_from_memory(&bytes).ok()?.to_rgba8();
-    Some((img.width(), img.height(), img.into_raw()))
+    // Rune would also draw SVG, which it knows by content: only the three
+    // kinds an avatar may be reach it.
+    if !is_raster(&bytes) {
+        return None;
+    }
+    let img = IMAGES.load(bytes);
+    img.wait().ok()?;
+    Some(img.pixels().clone())
 }
 
-pub fn pixels(w: u32, h: u32, rgba: Vec<u8>) -> Pixels {
-    let p = Pixels::new();
-    p.set(w, h, rgba);
-    p
+/// True for PNG, JPEG or WebP bytes, by their magic numbers.
+fn is_raster(b: &[u8]) -> bool {
+    b.starts_with(b"\x89PNG\r\n\x1a\n")
+        || b.starts_with(&[0xFF, 0xD8, 0xFF])
+        || (b.len() >= 12 && &b[..4] == b"RIFF" && &b[8..12] == b"WEBP")
 }
 
-/// A person's face: their picture, else their initial on their colour
-/// (grey with none). `size` is its side in points.
+/// A person's face (kit Avatar): their picture, else their initial on
+/// their colour (grey with none). `size` is its side in points.
 pub fn face(
     f: &Frame,
     key: String,
@@ -169,29 +184,67 @@ pub fn face(
     size: f32,
 ) -> El {
     let k = f.k;
-    let e = el()
-        .key(key)
-        .size(size, size)
-        .radius(size / 2.0)
-        .center()
-        .clip_rounded(size / 2.0)
-        .label(name.to_string())
-        .help(name.to_string());
-    if let Some(p) = pic {
-        return e.pixels_fit(p, SurfaceFit::Fill);
-    }
-    let (bg, fg) = match color {
+    let (fill, ink) = match color {
         Some(c) => (c, k.c.bg_base),
         None => (k.c.layer_03, k.c.text_muted),
     };
-    e.fill(bg).child(
-        text(initials(name))
-            .font(rune::tok::TextStyle::new(
-                (size * 0.42).round().max(9.0),
-                600.0,
-            ))
-            .color(fg)
-            .a11y_hidden(),
+    let letters = Letters {
+        text: initials(name),
+        size: (size * 0.42).round().max(9.0),
+        weight: 600.0,
+        ink,
+    };
+    kit_face(k, name, size, fill, letters, pic, None)
+        .key(key)
+        .help(name.to_string())
+}
+
+/// The letters a face shows without a picture, at main's size for it.
+pub struct Letters {
+    pub text: String,
+    pub size: f32,
+    pub weight: f32,
+    pub ink: Color,
+}
+
+/// A kit Avatar `side` points across, named `name`, drawn as main's
+/// faces are: with a picture, only the picture (no colour or letters
+/// behind it, so a transparent one shows the page, as face.tsx); without
+/// one, `letters` on `fill`. The kit's own letters are 0.4 of the side
+/// with no size setter (8 pt on a 20 pt face, where main's are 10), so
+/// they are drawn here over its empty ones. `status` is its corner dot.
+pub fn kit_face(
+    k: &Kit,
+    name: &str,
+    side: f32,
+    fill: Color,
+    letters: Letters,
+    pic: Option<&Pixels>,
+    status: Option<Color>,
+) -> El {
+    let mut a = Avatar::new(name).size(side).initials("");
+    a = match pic {
+        Some(p) => a.fill(Color::TRANSPARENT).image(p),
+        None => a.fill(fill),
+    };
+    if let Some(c) = status {
+        a = a.status(c);
+    }
+    let e = a.build(k);
+    if pic.is_some() {
+        return e;
+    }
+    e.child(
+        el().key("letters")
+            .absolute(0.0, 0.0)
+            .size(side, side)
+            .center()
+            .a11y_hidden()
+            .child(
+                text(letters.text)
+                    .font(rune::tok::TextStyle::new(letters.size, letters.weight))
+                    .color(letters.ink),
+            ),
     )
 }
 
@@ -237,9 +290,7 @@ mod tests {
         let a = shrink_avatar(&png).unwrap();
         assert!(a.starts_with("data:image/jpeg;base64,"));
         assert!(is_avatar(&a));
-        let (w, h, px) = decode(&a).unwrap();
-        assert_eq!((w, h), (AVATAR_SIZE, AVATAR_SIZE));
-        assert_eq!(px.len(), (w * h * 4) as usize);
+        assert_eq!(decode(&a).unwrap().size(), (AVATAR_SIZE, AVATAR_SIZE));
         assert!(shrink_avatar(b"not a picture").is_err());
     }
 
@@ -267,8 +318,12 @@ mod tests {
         ))
         .unwrap();
         assert!(a.starts_with("data:image/png;base64,"), "{}", &a[..30]);
-        let (_, _, px) = decode(&a).unwrap();
-        assert_eq!(px[3], 0, "the corner is still clear");
+        let png = base64::engine::general_purpose::STANDARD
+            .decode(a.split_once(',').unwrap().1)
+            .unwrap();
+        let px = image::load_from_memory(&png).unwrap().to_rgba8();
+        assert_eq!(px.get_pixel(0, 0)[3], 0, "the corner is still clear");
+        assert_eq!(decode(&a).unwrap().size(), (AVATAR_SIZE, AVATAR_SIZE));
     }
 
     #[test]
@@ -301,9 +356,14 @@ mod tests {
             "data:image/webp;base64,{}",
             base64::engine::general_purpose::STANDARD.encode(&webp)
         );
-        let (w, h, px) = decode(&url).expect("webp decodes");
-        assert_eq!((w, h), (16, 12));
-        assert_eq!(&px[..4], &[0, 0, 99, 255]);
+        // Rune decodes WebP itself.
+        assert_eq!(decode(&url).expect("webp decodes").size(), (16, 12));
+        assert!(decode("data:image/png;base64,AAAA").is_none());
+        // SVG labelled as PNG: Rune would rasterize it, so it never gets there.
+        let svg = base64::engine::general_purpose::STANDARD.encode(
+            br#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>"#,
+        );
+        assert!(decode(&format!("data:image/png;base64,{svg}")).is_none());
         // And a picked WebP shrinks like any other picture.
         assert!(shrink_avatar(&webp).is_ok());
     }

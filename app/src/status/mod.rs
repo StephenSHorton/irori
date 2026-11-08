@@ -254,13 +254,16 @@ fn update_banner(s: &State, f: &mut Frame) -> Option<El> {
                         ),
                 )
                 .child(
+                    // irori-sweep: a quarter-width segment crosses the
+                    // track, then comes round from the left again. Square
+                    // ended as main's UpdateBanner; the kit Progress always
+                    // rounds its ends.
                     el().key("status-update-sweep")
                         .w_full()
                         .h(4.0)
                         .fill(k.c.surface_weak)
                         .clip_soft(0.0)
-                        // irori-sweep: a quarter-width segment crosses the
-                        // track, then comes round from the left again.
+                        .label(format!("Downloading Irori {v}"))
                         .child(
                             el().w_frac(0.25)
                                 .h_full()

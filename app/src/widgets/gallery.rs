@@ -81,6 +81,8 @@ pub fn prepare(s: &mut State) {
         s.widgets.hover = Some(super::agent_hover::Hover {
             anchor: HOVER_FACE.into(),
             who,
+            over_face: true,
+            over_card: false,
         });
     }
     let pick = s

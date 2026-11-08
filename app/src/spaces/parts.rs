@@ -6,7 +6,7 @@
 //! `BoardSettingsPanel`, `Reviewers`); settings/space-agents.tsx's
 //! "agents are off" line.
 
-use rune::{El, ScrollSpec, Tx, col, el, icon, row, text};
+use rune::{El, Tx, col, el, icon, row, text};
 use rune_kit::{
     Button, ButtonVariant, Checkbox, Dialog, Select, SelectAppearance, Switch, TextInput,
 };
@@ -863,16 +863,6 @@ pub fn settings_dialog(s: &State, f: &mut Frame, b: &BoardSummary) {
         .gap(14.0)
         .px(16.0)
         .pb(16.0);
-    // The kit Dialog's description doesn't wrap in a fitted panel: the
-    // line goes in the body, where it wraps.
-    body = body.child(
-        u::line(
-            format!("{name}: who is on it, what reaches your agents and what they may do here."),
-            t13(k),
-            k.c.text_muted,
-        )
-        .key("spaces-settings-desc"),
-    );
     body = body.child(board_invite(s, f, b, st));
     if let Some(panel) = settings_panel(f, st) {
         body = body.child(panel);
@@ -880,22 +870,17 @@ pub fn settings_dialog(s: &State, f: &mut Frame, b: &BoardSummary) {
         body = body.child(u::error_line(k, e.clone()));
     }
     let over: Vec<El> = f.layer.drain(n..).collect();
-    let h = f.cx.layout_size("main").map_or(720.0, |s| s[1]);
+    // A fitted kit Dialog is at most the window's height and scrolls its
+    // body under the header.
     Dialog::new("spaces-settings", "Space settings")
+        .description(format!(
+            "{name}: who is on it, what reaches your agents and what they may do here."
+        ))
         .width(512.0)
         .fit()
         .open(true)
         .on_close(close_settings)
-        .child(
-            col()
-                .key("spaces-settings-scroll")
-                .w_full()
-                .max_h((h * 0.85 - 90.0).max(240.0))
-                .scroll(ScrollSpec {
-                    stick_bottom: false,
-                })
-                .child(body),
-        )
+        .child(body)
         .build(k, f.layer);
     f.layer.extend(over);
     // A member step that asks first sits over the dialog.

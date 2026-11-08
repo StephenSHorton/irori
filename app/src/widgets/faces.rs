@@ -320,6 +320,7 @@ pub enum PersonSize {
 }
 
 impl PersonSize {
+    /// The face's side and its letters' size in points (face.tsx `sizes`).
     fn px(self) -> (f32, f32) {
         match self {
             PersonSize::Sm => (20.0, 10.0),
@@ -341,28 +342,20 @@ pub fn person_face(
     size: PersonSize,
 ) -> El {
     let k = f.k;
-    let (side, font) = size.px();
-    let base = el()
-        .key(key.to_string())
-        .size(side, side)
-        .radius(side / 2.0)
-        .clip_rounded(side / 2.0)
-        .role("img")
-        .label(name.to_string())
-        .help(name.to_string());
-    if let Some(p) = pic {
-        return base.pixels_fit(p, rune::SurfaceFit::Fill);
-    }
-    let (bg, fg) = match device_color(color) {
+    let (fill, ink) = match device_color(color) {
         Some(c) => (c, k.c.bg_base),
         None => (k.c.layer_03, k.c.text_muted),
     };
-    base.fill(bg).center().child(
-        text(avatar::initials(name))
-            .font(rune::tok::TextStyle::new(font, 600.0))
-            .color(fg)
-            .a11y_hidden(),
-    )
+    let (side, font) = size.px();
+    let letters = crate::profile::avatar::Letters {
+        text: avatar::initials(name),
+        size: font,
+        weight: 600.0,
+        ink,
+    };
+    crate::profile::avatar::kit_face(k, name, side, fill, letters, pic, None)
+        .key(key.to_string())
+        .help(name.to_string())
 }
 
 /// The person's own face: their avatar from the window (decoded in the

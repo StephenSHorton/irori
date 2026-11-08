@@ -5,7 +5,10 @@
 
 use irori_window::call::{CallCaptionView, CallMineView, CallPeerView, CallRingView};
 use rune::{Color, El, ScrollSpec, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, Kit, Placement, Popover};
+use rune_kit::{
+    Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButtonVariant, Kit, Placement,
+    Popover,
+};
 
 use super::icons as ic;
 use super::logic::{self, Health, StartWhere};
@@ -100,36 +103,20 @@ fn mic_off(m: &CallMineView) -> bool {
 
 /// An avatar: the name's initials on its hue, with the link's dot.
 pub(super) fn avatar(k: &Kit, key: String, name: &str, health: Option<Health>, small: bool) -> El {
-    let (size, font, dot) = if small {
-        (20.0, 9.0, 8.0)
-    } else {
-        (40.0, 14.0, 12.0)
+    let (side, font) = if small { (20.0, 9.0) } else { (40.0, 14.0) };
+    let letters = crate::profile::avatar::Letters {
+        text: logic::initials(name),
+        size: font,
+        weight: 650.0,
+        ink: k.c.bg_base,
     };
-    let mut a = el()
-        .key(key)
-        .size(size, size)
-        .radius(size / 2.0)
-        .fill(hue(name))
-        .center()
-        .child(
-            text(logic::initials(name))
-                .font(rune::tok::TextStyle::new(font, 650.0))
-                .color(k.c.bg_base),
-        );
-    if let Some(h) = health {
-        a = a.child(
-            el().absolute(size - dot + 2.0, size - dot + 2.0)
-                .size(dot, dot)
-                .radius(dot / 2.0)
-                .fill(health_color(k, h))
-                .border(2.0, k.c.bg_base),
-        );
-    }
-    a
+    let status = health.map(|h| health_color(k, h));
+    crate::profile::avatar::kit_face(k, name, side, hue(name), letters, None, status).key(key)
 }
 
-/// A square icon button the kit has no colour for (destructive, the
-/// call's green): `fill` behind, `ink` on the icon.
+/// A call's square icon button: on `fill` with `ink` on the icon (red for
+/// the destructive ones, the call's green), or with no fill a ghost one,
+/// muted when `ink` is the muted icon colour.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn round_button(
     k: &Kit,
@@ -141,29 +128,20 @@ pub(super) fn round_button(
     label: &str,
     on: impl Fn(&mut State) + 'static,
 ) -> El {
-    let (size, glyph) = if large { (36.0, 18.0) } else { (24.0, 14.0) };
-    let base = fill.unwrap_or(Color::TRANSPARENT);
-    el().key(key)
-        .role("button")
-        .label(label.to_string())
-        .help(label.to_string())
-        .focusable(true)
-        .size(size, size)
-        .radius(if large { 8.0 } else { 6.0 })
-        .fill(base)
-        .hover(if fill.is_some() {
-            base.mix(k.c.black, 0.12)
+    let b = IconButton::new(i)
+        .control_size(if large {
+            ControlSize::ExtraLarge
         } else {
-            k.c.hover
+            ControlSize::Regular
         })
-        .press(if fill.is_some() {
-            base.mix(k.c.black, 0.2)
-        } else {
-            k.c.pressed
-        })
-        .center()
-        .child(icon(i, glyph).color(ink))
-        .on_press(on)
+        .help(label.to_string());
+    let b = match fill {
+        Some(c) => b.tint(c, ink),
+        None if ink == k.c.icon_muted => b.variant(IconButtonVariant::GhostMuted),
+        None if ink == k.c.icon_base => b.variant(IconButtonVariant::Ghost),
+        None => b.tint(Color::TRANSPARENT, ink),
+    };
+    b.on_press(on).build(k).key(key)
 }
 
 fn mute_button(k: &Kit, key: &str, muted: bool, large: bool) -> El {
