@@ -151,7 +151,7 @@ fn screen_returns_the_windows_snapshot_and_only_to_the_assistant() {
     assert_eq!(text, "Page: Home\nIn view: #12 Rename the pineapple");
 
     // The mod and `irori mcp` for agents never list it.
-    for client in ["claude", "grok", ""] {
+    for client in ["claude", "grok", "assistant"] {
         let out = rig
             .rt
             .block_on(
@@ -161,6 +161,6 @@ fn screen_returns_the_windows_snapshot_and_only_to_the_assistant() {
             .unwrap();
         let specs: Vec<Value> = serde_json::from_slice(&out).unwrap();
         let has = specs.iter().any(|s| s["name"] == "screen");
-        assert_eq!(has, client.is_empty(), "client {client:?}");
+        assert_eq!(has, client == "assistant", "client {client:?}");
     }
 }
