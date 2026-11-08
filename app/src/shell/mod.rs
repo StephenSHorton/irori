@@ -359,6 +359,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         window.assistant_shutdown();
                         h.core.set_reviver(None);
                         h.core.set_spawner(None);
+                        h.core.set_huddle_runner(None);
                         h.close()
                     }
                     None => Ok(()),
@@ -542,6 +543,9 @@ fn start_core(
                 None => Err("Irori is closing".into()),
             },
         )));
+        // And holds a huddle's assistant session (card #1046): one
+        // `claude -p` per huddle, kept up between looks.
+        core.set_huddle_runner(Some(window.huddle_runner()));
     }
     // Spawning is on by default for the private board where agents can
     // start (card #448, decision 1 (a)); his own switch wins.
@@ -712,7 +716,13 @@ fn main_window(app: &AppHandle, startup: bool) -> tauri::Result<()> {
     #[cfg(desktop)]
     let b = {
         let (w, h) = shot::window_size().unwrap_or((1100.0, 720.0));
-        b.inner_size(w, h).center().visible(!startup)
+        // Tauri's handler takes a file dropped from the OS for its own
+        // events and the page's drop never fires; the boxes that take
+        // files read the page's (#999).
+        b.inner_size(w, h)
+            .center()
+            .visible(!startup)
+            .disable_drag_drop_handler()
     };
     #[cfg(mobile)]
     let _ = startup;

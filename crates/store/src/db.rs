@@ -687,7 +687,9 @@ impl Store {
     }
 
     /// Rows matching `f`, by `(hlc, device_id, seq)`. One device's rows in
-    /// `events` are in seq order too: hlc rises with seq.
+    /// `events` are in seq order too: hlc rises with seq. Check a device filter's
+    /// plan on a real log through this call (`board_cost.rs`): the `sqlite3`
+    /// CLI can plan it differently from the bundled build.
     pub fn list(&self, f: &Filter) -> Result<Vec<Event>> {
         self.inner.list(f)
     }

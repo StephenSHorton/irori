@@ -377,6 +377,7 @@ impl Session {
             Ok(evs) if !evs.is_empty() => evs,
             _ => return Vec::new(),
         };
+        self.n.activity().pulse();
         let mut f = batches(&evs, false).swap_remove(0);
         let mut ext: BTreeMap<String, (i64, i64)> = BTreeMap::new();
         for r in &f.events {
@@ -642,6 +643,9 @@ impl Session {
 
     /// Go `onRows`: applies a rows frame, then acks with this vector.
     async fn on_rows(self: &Arc<Self>, f: Frame) {
+        if !f.events.is_empty() {
+            self.n.activity().pulse();
+        }
         if f.loose {
             // Not an ack: the sender's batch in flight is another frame.
             self.on_loose(f.events).await;
@@ -675,6 +679,9 @@ impl Session {
             if let Err(e) = r {
                 self.refusal(&dev, &evs[applied..], &e).await;
             }
+        }
+        if !f.events.is_empty() {
+            self.n.activity().pulse();
         }
         self.n.synced(&self.conn.id());
         self.vector(true, f.batch);

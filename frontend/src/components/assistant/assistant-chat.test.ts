@@ -108,6 +108,30 @@ describe("Ask Irori's panel (card #783)", () => {
     expect(html).toContain("What are my agents doing?")
     expect(html).toContain('aria-label="Send"')
   })
+  test("a message of files alone has no empty text line (card #999)", () => {
+    const html = render({
+      entries: [
+        {
+          role: "person",
+          text: "",
+          files: [
+            {
+              sha256: "a".repeat(64),
+              name: "report.pdf",
+              size: 2048,
+              mime: "application/pdf",
+              device: "d1",
+            },
+          ],
+        },
+      ],
+    })
+    expect(html).toContain("report.pdf")
+    expect(html).not.toContain('data-slot="bubble-content"')
+  })
+  test("the box has the clip (card #999)", () => {
+    expect(render({})).toContain('aria-label="Add files"')
+  })
   test("reply text is never markup", () => {
     const html = render({
       entries: [{ role: "assistant", text: "<img src=x onerror=alert(1)>" }],

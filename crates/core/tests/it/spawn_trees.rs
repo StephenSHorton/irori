@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use common::*;
 use coord::{NewTask, Where};
-use irori_core::spawn::{BUILD_OUTPUT, SpawnReq, SpawnSetting, SpawnStarted, Spawner};
+use irori_core::spawn::{BUILD_OUTPUT, DEVICE_FREE, SpawnReq, SpawnSetting, SpawnStarted, Spawner};
 use irori_core::treeclean::{Book, Check, Verdict, key, remove};
 
 const K: &str = "remote:github.com/acme/app";
@@ -178,6 +178,7 @@ fn a_fresh_card_gets_a_tree_its_card_owns_and_builds_land_in_it() {
     assert!(book.trees[&tree].contains(&t.id), "{book:?}");
     let brief = std::fs::read_to_string(&req.brief_path).unwrap();
     assert!(brief.contains(BUILD_OUTPUT), "{brief}");
+    assert!(brief.contains(DEVICE_FREE), "{brief}");
 }
 
 #[test]

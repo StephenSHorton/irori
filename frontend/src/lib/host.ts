@@ -715,15 +715,18 @@ export const UsageService = {
 // AssistantEvents on a Channel (delta, tool, then done or error); Ask
 // returns the run's id at once, and Stop(id) ends it.
 export const AssistantService = {
+  // Card #999: stores the chat's files; Ask takes back what this returned.
+  Attach: (files: B.UploadFile[]) => call(commands.assistantAttach(files)),
   Ask(
     history: B.AssistantTurn[],
     text: string,
+    files: B.AssistantFile[],
     screen: string,
     onEvent: (ev: B.AssistantEvent) => void
   ): Promise<number> {
     const on = new Channel<B.AssistantEvent>()
     on.onmessage = onEvent
-    return call(commands.assistantAsk(history, text, screen, on))
+    return call(commands.assistantAsk(history, text, files, screen, on))
   },
   Stop: (id: number) => done(commands.assistantStop(id)),
   // Rewrite in the Start a thread box (card #981): the checked wording.
