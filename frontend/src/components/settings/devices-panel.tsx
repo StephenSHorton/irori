@@ -24,7 +24,6 @@ import {
   type DeviceView,
   type HomeServerView,
   type PairStatus,
-  type RelayView,
 } from "@/lib/devices"
 import { parseTime, plainLine, relativeTime, useNow } from "@/lib/irori"
 import { isMac } from "@/lib/commands"
@@ -91,10 +90,9 @@ export function DevicesPanel({ open }: { open: boolean }) {
         Devices find each other on your local network, through your home server,
         and with public relays on, through iroh&apos;s free relays, which see
         your IP address and which devices connect but never what they say.
-        Others on a network see that sealed messages pass, never their content,
-        and a relay you add under Advanced sees IP addresses. What reaches
-        another device stays there, so a secret an agent wrote that the scrubber
-        missed is copied for good.
+        Others on a network see that sealed messages pass, never their content.
+        What reaches another device stays there, so a secret an agent wrote that
+        the scrubber missed is copied for good.
       </p>
     </div>
   )
@@ -182,9 +180,6 @@ function HomeServerShape() {
           className="block h-4 w-7 shrink-0 rounded-full"
         />
       </div>
-      <span className="justify-self-start text-xs text-muted-foreground">
-        Advanced
-      </span>
     </div>
   )
 }
@@ -307,7 +302,6 @@ function DeviceRow({
 // address field when mapping failed). On every device: a line when this
 // one can't be found on its network, and one when your home server can't
 // be reached. "Meet through public relays" (card #328) on every device.
-// Advanced holds the relay you run or rent elsewhere.
 // homeLine is the warning under the home server. Its "can't be reached
 // from outside" lines (CGNAT, port forward needed) tell the truth about the
 // home server, but with public relays on (decision 43) devices and invites
@@ -336,7 +330,6 @@ export function homeLine(hs: HomeServerView): string {
 function HomeServer({ open }: { open: boolean }) {
   const [hs, setHs] = useState<HomeServerView | null>(null)
   const [publicAddr, setPublicAddr] = useState("")
-  const [advanced, setAdvanced] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // A failed first read ends the skeleton; the section stays away, as it
   // always has, until a later read answers.
@@ -526,97 +519,8 @@ function HomeServer({ open }: { open: boolean }) {
           <p className="text-xs text-warning">{plainLine(hs.remote)}</p>
         )}
         {error && <span className="text-xs text-destructive">{error}</span>}
-        <button
-          type="button"
-          aria-expanded={advanced}
-          className="justify-self-start text-xs text-muted-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-1 focus-visible:ring-ring"
-          onClick={() => setAdvanced((v) => !v)}
-        >
-          {advanced ? "Hide advanced" : "Advanced"}
-        </button>
-        {advanced && <Relay open={open} />}
       </div>
     </Loading>
-  )
-}
-
-// Relay is the advanced relay line (§4.4, §9): a TURN relay you run or rent
-// elsewhere, used beside the home server's. "None" with none set, else the
-// credential URL (its query hidden); a warning only when it is failing.
-// Change opens a field for the credential URL.
-function Relay({ open }: { open: boolean }) {
-  const [relay, setRelay] = useState<RelayView | null>(null)
-  const [editing, setEditing] = useState(false)
-  const [url, setUrl] = useState("")
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-    let live = true
-    void actions
-      .relay()
-      .then((r) => live && setRelay(r))
-      .catch(() => {})
-    return () => {
-      live = false
-    }
-  }, [open])
-
-  const save = async (e: FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    try {
-      setRelay(await actions.setRelay(url.trim()))
-      setEditing(false)
-      setUrl("")
-    } catch (err) {
-      setError(errorText(err))
-    }
-  }
-
-  const direct = !relay || relay.state === "none"
-  return (
-    <div className="grid gap-1 text-[13px]">
-      {editing ? (
-        <form className="flex gap-2" onSubmit={(e) => void save(e)}>
-          <Input
-            autoFocus
-            aria-label="TURN credential URL"
-            placeholder="https://… TURN credential URL (empty: none)"
-            value={url}
-            spellCheck={false}
-            autoComplete="off"
-            onChange={(e) => setUrl(e.target.value)}
-          />
-          <Button type="submit">Save</Button>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => setEditing(false)}
-          >
-            Back
-          </Button>
-        </form>
-      ) : (
-        <div className="flex items-center justify-between gap-2">
-          <span className="min-w-0 truncate text-muted-foreground">
-            Other relay:{" "}
-            <span className="text-ink">
-              {direct ? "none" : plainLine(relay?.credentialUrl ?? "")}
-            </span>
-          </span>
-          <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
-            Change
-          </Button>
-        </div>
-      )}
-      {relay?.state === "error" && (
-        <span className="text-xs text-warning">
-          The relay is failing: {plainLine(relay.detail ?? "")}
-        </span>
-      )}
-      {error && <span className="text-xs text-destructive">{error}</span>}
-    </div>
   )
 }
 
