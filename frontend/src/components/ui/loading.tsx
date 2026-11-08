@@ -5,7 +5,12 @@ import {
 } from "skullet/react"
 import { forgetShapes } from "skullet"
 
+import { sweepEndless } from "@/lib/endless-animations"
 import { previewFlag } from "@/lib/preview"
+
+// skullet never cancels a skeleton's endless shimmer, which kept every
+// skeleton ever shown alive and ran a core flat out (card #765).
+sweepEndless()
 
 // Loading is the app's one loading state (card #598). It draws a skeleton
 // in the exact shape of what will load, so nothing jumps when it arrives:
