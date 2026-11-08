@@ -138,7 +138,7 @@ function subscribe(l: () => void): () => void {
   if (!stop) {
     read()
     const id = window.setInterval(read, RefreshMs)
-    const off = inWails() ? Events.On(EventBoardsChanged, read) : () => {}
+    const off = inWails() ? Events.OnShown(EventBoardsChanged, read) : () => {}
     stop = () => {
       window.clearInterval(id)
       off()

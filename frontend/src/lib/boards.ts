@@ -738,7 +738,7 @@ const listState = {
 // onBoardsMoved calls fn whenever the list may have changed: the host's
 // boards:changed, or a sample board moving in a plain browser.
 function onBoardsMoved(fn: () => void): () => void {
-  if (inWails()) return Events.On(EventBoardsChanged, fn)
+  if (inWails()) return Events.OnShown(EventBoardsChanged, fn)
   sampleListeners.add(fn)
   return () => {
     sampleListeners.delete(fn)

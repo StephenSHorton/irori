@@ -15,6 +15,7 @@ import { openUrl } from "@tauri-apps/plugin-opener"
 
 import { commands } from "../gen/bindings"
 import type * as B from "../gen/bindings"
+import { whileShown } from "./shown"
 
 // asError makes a Tauri rejection (the command's error text) an Error.
 export function asError(err: unknown): Error {
@@ -71,6 +72,17 @@ export const Events = {
       cancelled = true
       off?.()
       off = null
+    }
+  },
+  // OnShown is On for a signal that only re-reads a list (board:changed,
+  // inbox:changed and the like): while the window is hidden the signals
+  // are held, and fn runs once when it shows again (card #765).
+  OnShown(name: string, fn: () => void): () => void {
+    const held = whileShown(fn)
+    const off = Events.On(name, held.run)
+    return () => {
+      off()
+      held.stop()
     }
   },
   // Emit tells the host something happened here.
