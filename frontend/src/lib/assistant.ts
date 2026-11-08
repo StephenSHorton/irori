@@ -13,6 +13,7 @@
 import type { AssistantEvent, AssistantTurn } from "../gen/bindings"
 import {
   createFollower,
+  finished,
   listenCards,
   parseSeen,
   readWork,
@@ -113,12 +114,30 @@ export function capHistory<T>(entries: readonly T[], n = HistoryCap): T[] {
 // the assistant's own words, without the chat's notes. A posted draft
 // says which thread it became, and a reply sent on a thread says where,
 // so the assistant can look them up (card #785).
+// The chat's own lines on the work it follows go in as one turn per run,
+// marked as the chat's, so they don't crowd out the conversation.
 export function historyFor(entries: readonly ChatEntry[]): AssistantTurn[] {
-  return capHistory(
-    entries
-      .filter((e) => !e.note)
-      .map((e) => ({ role: e.role, text: turnText(e) }))
-  )
+  const out: AssistantTurn[] = []
+  let ups: string[] = []
+  const flush = () => {
+    if (ups.length)
+      out.push({
+        role: "assistant",
+        text: `(The chat's own lines on the work it follows:)\n${ups.map((u) => `- ${u}`).join("\n")}`,
+      })
+    ups = []
+  }
+  for (const e of entries) {
+    if (e.note) continue
+    if (e.update) {
+      ups.push(e.text)
+      continue
+    }
+    flush()
+    out.push({ role: e.role, text: turnText(e) })
+  }
+  flush()
+  return capHistory(out)
 }
 
 function turnText(e: ChatEntry): string {
@@ -186,7 +205,36 @@ function parseAct(v: unknown): Act | undefined {
 }
 
 export function serializeHistory(entries: readonly ChatEntry[]): string {
-  return JSON.stringify(capHistory(entries))
+  return JSON.stringify(capKeeping(entries, live))
+}
+
+// live is the threads the chat still follows (card #785): their posted
+// messages stay through the cap, or following would stop while the work
+// goes on (the follower's own lines would push them out).
+const live = new Set<string>()
+
+// capKeeping is capHistory that drops the oldest messages other than the
+// posted ones of threads in keep.
+export function capKeeping(
+  entries: readonly ChatEntry[],
+  keep: ReadonlySet<string>,
+  n = HistoryCap
+): ChatEntry[] {
+  let drop = entries.length - n
+  if (drop <= 0) return [...entries]
+  const out: ChatEntry[] = []
+  for (const e of entries) {
+    if (drop > 0 && !(e.posted && keep.has(e.posted.id))) {
+      drop--
+      continue
+    }
+    out.push(e)
+  }
+  return out
+}
+
+function capChat(entries: readonly ChatEntry[]): ChatEntry[] {
+  return capKeeping(entries, live)
 }
 
 const storeKey = "irori.assistant.history"
@@ -338,7 +386,7 @@ function finish(r: Reply) {
   run = null
   const s = assistantState()
   set({
-    entries: capHistory([...s.entries, ...settled(r)]),
+    entries: capChat([...s.entries, ...settled(r)]),
     reply: null,
     unread: !s.open,
   })
@@ -354,7 +402,7 @@ export async function ask(text: string): Promise<void> {
   const token = ++tokens
   run = { token, id: null }
   set({
-    entries: capHistory([...s.entries, { role: "person", text: body }]),
+    entries: capChat([...s.entries, { role: "person", text: body }]),
     reply: freshReply,
   })
   const onEvent = (ev: AssistantEvent) => {
@@ -522,6 +570,8 @@ function said(id: string, lines: Fact[], work: WorkThread | null) {
   // The chat may have moved on (New chat) while it read.
   if (!postedIds(s.entries).includes(id)) return
   const next: Partial<AssistantState> = {}
+  if (work && !finished(work)) live.add(id)
+  else live.delete(id)
   if (work) {
     if (JSON.stringify(s.work[id]) !== JSON.stringify(work))
       next.work = { ...s.work, [id]: work }
@@ -531,7 +581,7 @@ function said(id: string, lines: Fact[], work: WorkThread | null) {
     next.work = w
   }
   if (lines.length) {
-    next.entries = capHistory([...s.entries, ...updateEntries(id, lines)])
+    next.entries = capChat([...s.entries, ...updateEntries(id, lines)])
     if (!s.open) next.unread = true
   }
   if (Object.keys(next).length) set(next)
@@ -593,9 +643,9 @@ export async function replyOn(
   await cards.comment(thread, body)
   const s = assistantState()
   set({
-    entries: capHistory([
+    entries: capChat([
       ...s.entries,
-      { role: "person", text: body, to: ref },
+      { role: "person", text: body, to: ref || "the thread" },
     ]),
   })
 }

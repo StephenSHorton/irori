@@ -59,6 +59,9 @@ import {
   type WorkThread,
 } from "@/lib/assistant"
 import { BlockerState, useCard } from "@/lib/cards"
+import { useDraft } from "@/lib/drafts"
+import { GIVEN_QUESTION } from "@/lib/needs"
+import { byRecommendation } from "@/components/cards/card-detail"
 import { composing } from "@/lib/mentions"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
@@ -331,6 +334,20 @@ function AskButton({
   )
 }
 
+// entryKey is a message's React key: the same message object keeps it as
+// the cap drops older ones (an index would move an open answer box onto
+// another card's question). capHistory and the follower keep objects.
+const entryKeys = new WeakMap<ChatEntry, number>()
+let nextEntryKey = 0
+function entryKey(e: ChatEntry): number {
+  let k = entryKeys.get(e)
+  if (k === undefined) {
+    k = nextEntryKey++
+    entryKeys.set(e, k)
+  }
+  return k
+}
+
 // The chat's composer keeps what was typed while the panel is closed.
 let draft = ""
 
@@ -386,30 +403,37 @@ export function AssistantPanel({
         m.set(e.posted.id, `${e.posted.tag ?? ""}#${e.posted.short}`)
     return m
   }, [entries])
+  // Whether the person is at the end. Lines the follower adds (card #785)
+  // come at any time: they keep the end in view only while the person is
+  // there, never pulling them away from an older line they read or answer.
+  const atEnd = useRef(true)
+  const newest = entries[entries.length - 1]
+  const mine = newest?.role === "person"
   useEffect(() => {
-    end.current?.scrollIntoView({ block: "end" })
-  }, [last, growing, posted])
+    if (atEnd.current || mine) end.current?.scrollIntoView({ block: "end" })
+  }, [last, growing, posted, mine])
   // Card chips fill in after the text lays out, growing it: while the
   // person is at the end, it stays at the end.
   const scroller = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const box = scroller.current
+    if (!box) return
+    const onScroll = () => {
+      atEnd.current = box.scrollHeight - box.scrollTop - box.clientHeight < 48
+    }
+    box.addEventListener("scroll", onScroll, { passive: true })
+    return () => box.removeEventListener("scroll", onScroll)
+  }, [])
+  useEffect(() => {
+    const box = scroller.current
     const inner = list.current
     if (!box || !inner) return
-    let atEnd = true
-    const onScroll = () => {
-      atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 48
-    }
     const grew = new ResizeObserver(() => {
-      if (atEnd) box.scrollTop = box.scrollHeight
+      if (atEnd.current) box.scrollTop = box.scrollHeight
     })
     grew.observe(inner)
-    box.addEventListener("scroll", onScroll, { passive: true })
-    return () => {
-      grew.disconnect()
-      box.removeEventListener("scroll", onScroll)
-    }
+    return () => grew.disconnect()
   }, [last])
 
   const busy = !!reply
@@ -487,7 +511,7 @@ export function AssistantPanel({
           <div ref={list} className="flex flex-col gap-4">
             {entries.map((e, i) => (
               <Entry
-                key={i}
+                key={entryKey(e)}
                 entry={e}
                 work={e.posted ? work[e.posted.id] : undefined}
                 threadRef={e.update ? (refs.get(e.update) ?? "") : ""}
@@ -803,32 +827,68 @@ function WorkLine({ work }: { work: WorkThread }) {
 // Update is a line the chat says about a thread it posted (card #785):
 // the line, its cards as chips, and what it lets the person do.
 function Update({ entry, threadRef }: { entry: ChatEntry; threadRef: string }) {
+  // Sending unmounts the box that had focus: focus stays in the panel, on
+  // this line, so Escape still closes it.
+  const row = useRef<HTMLDivElement>(null)
+  const settle = useCallback(() => {
+    if (row.current?.contains(document.activeElement))
+      row.current.focus({ preventScroll: true })
+  }, [])
   return (
     <div
-      className="grid min-w-0 gap-1.5 border-l-2 border-primary/40 pl-2.5 text-[13px] leading-relaxed [overflow-wrap:anywhere]"
+      ref={row}
+      tabIndex={-1}
+      className="grid min-w-0 gap-1.5 border-l-2 border-primary/40 pl-2.5 text-[13px] leading-relaxed [overflow-wrap:anywhere] outline-none"
       data-assistant-update=""
     >
       <RichText bold text={replyText(entry.text)} />
-      {entry.act && <ActRow act={entry.act} threadRef={threadRef} />}
+      {entry.act && (
+        <ActRow act={entry.act} threadRef={threadRef} settle={settle} />
+      )}
     </div>
   )
 }
 
-function ActRow({ act, threadRef }: { act: Act; threadRef: string }) {
+function ActRow({
+  act,
+  threadRef,
+  settle,
+}: {
+  act: Act
+  threadRef: string
+  settle: () => void
+}) {
   if (act.kind === "answer")
-    return <AnswerAsk card={act.card} blocker={act.blocker} />
-  return <ReplyOnThread thread={act.thread} threadRef={threadRef} to={act.to} />
+    return <AnswerAsk card={act.card} blocker={act.blocker} settle={settle} />
+  return (
+    <ReplyOnThread
+      thread={act.thread}
+      threadRef={act.ref || threadRef}
+      to={act.to}
+      settle={settle}
+    />
+  )
 }
 
 // AnswerAsk is a card's open item answered from the chat, as its card
 // page does: its options as buttons (the recommended one first, filled),
-// and own words. Once answered it says so; the card has the rest.
-function AnswerAsk({ card, blocker }: { card: string; blocker: string }) {
+// and own words. Once answered it says so; the card has the rest. Words
+// typed are kept with the card page's own draft of the same answer.
+function AnswerAsk({
+  card,
+  blocker,
+  settle,
+}: {
+  card: string
+  blocker: string
+  settle: () => void
+}) {
   const { detail } = useCard(card)
   const b = detail?.blockers.find((x) => x.id === blocker)
   const [busy, setBusy] = useState(-2)
   const [error, setError] = useState("")
-  const [words, setWords] = useState<string | null>(null)
+  const [text, setText] = useDraft(`${card}/blocker/${blocker}`)
+  const [open, setOpen] = useState(() => text !== "")
   if (!b) return null
   if (b.resolved || b.state === BlockerState.Resolved)
     return <Muted>Settled.</Muted>
@@ -841,24 +901,33 @@ function AnswerAsk({ card, blocker }: { card: string; blocker: string }) {
     setError("")
     try {
       await answerAsk(card, blocker, i, text)
-      setWords(null)
+      settle()
+      setText("")
+      setOpen(false)
     } catch (err) {
       setError(errorText(err))
     } finally {
       setBusy(-2)
     }
   }
-  const options = b.optionsAside ? [] : b.options
+  // As the card page: the recommended answer (or Done) first and filled.
+  const options = b.optionsAside ? [] : byRecommendation(b.options)
+  // Irori's own "OK to start an agent on this?" takes its buttons only.
+  const words = b.question !== GIVEN_QUESTION
   return (
     <div className="grid gap-1.5" data-assistant-answer="">
       {options.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {options.map((o, i) => (
+          {options.map(([o, i], n) => (
             <Button
               key={i}
               type="button"
               size="sm"
-              variant={o.recommended ? "default" : "outline"}
+              variant={
+                n === 0 && (o.recommended || b.doneCheck)
+                  ? "default"
+                  : "outline"
+              }
               className="h-auto max-w-full py-1 text-left whitespace-normal"
               disabled={busy !== -2}
               title={o.why || undefined}
@@ -875,22 +944,24 @@ function AnswerAsk({ card, blocker }: { card: string; blocker: string }) {
           ))}
         </div>
       )}
-      <WordsBox
-        open={words !== null}
-        text={words ?? ""}
-        label={
-          b.doneCheck
-            ? "Say what's missing"
-            : options.length
-              ? "Answer in your own words"
-              : "Answer"
-        }
-        busy={busy === -1}
-        onOpen={() => setWords("")}
-        onText={setWords}
-        onCancel={() => setWords(null)}
-        onSend={(t) => void send(-1, t)}
-      />
+      {words && (
+        <WordsBox
+          open={open}
+          text={text}
+          label={
+            b.doneCheck
+              ? "Say what's missing"
+              : options.length
+                ? "Answer in your own words"
+                : "Answer"
+          }
+          busy={busy === -1}
+          onOpen={() => setOpen(true)}
+          onText={setText}
+          onCancel={() => setOpen(false)}
+          onSend={(t) => void send(-1, t)}
+        />
+      )}
       {error && (
         <span className="text-[12px] text-destructive" role="alert">
           {error}
@@ -906,12 +977,16 @@ function ReplyOnThread({
   thread,
   threadRef,
   to,
+  settle,
 }: {
   thread: string
   threadRef: string
   to: string
+  settle: () => void
 }) {
-  const [words, setWords] = useState<string | null>(null)
+  // Kept with the thread's own reply box's draft.
+  const [text, setText] = useDraft(`${thread}/comment`)
+  const [open, setOpen] = useState(() => text !== "")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const send = async (t: string) => {
@@ -920,7 +995,9 @@ function ReplyOnThread({
     setError("")
     try {
       await replyOn(thread, threadRef, t)
-      setWords(null)
+      settle()
+      setText("")
+      setOpen(false)
     } catch (err) {
       setError(errorText(err))
     } finally {
@@ -930,13 +1007,13 @@ function ReplyOnThread({
   return (
     <div className="grid gap-1.5" data-assistant-reply="">
       <WordsBox
-        open={words !== null}
-        text={words ?? ""}
+        open={open}
+        text={text}
         label={to ? `Reply to ${to}` : "Reply"}
         busy={busy}
-        onOpen={() => setWords("")}
-        onText={setWords}
-        onCancel={() => setWords(null)}
+        onOpen={() => setOpen(true)}
+        onText={setText}
+        onCancel={() => setOpen(false)}
         onSend={(t) => void send(t)}
       />
       {error && (

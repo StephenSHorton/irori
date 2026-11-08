@@ -6,6 +6,8 @@ import {
   finished,
   news,
   parseSeen,
+  quiet,
+  workThread,
   type Fact,
   type SeenStore,
   type WorkCard,
@@ -71,7 +73,12 @@ describe("Ask Irori follows the work it posted (card #785)", () => {
       "ask:c1:b1",
     ])
     expect(fs[0].text).toBe("**otter** took your thread #20.")
-    expect(fs[1].act).toEqual({ kind: "reply", thread: "t1", to: "otter" })
+    expect(fs[1].act).toEqual({
+      kind: "reply",
+      thread: "t1",
+      to: "otter",
+      ref: "#20",
+    })
     expect(fs[2].text).toBe("Your thread #20 became #21.")
     expect(fs[3].text).toBe("otter started on #21.")
     expect(fs[4].text).toBe("#21 needs you: Merge PR #9?")
@@ -304,5 +311,125 @@ describe("a thread closed as a card is that card (card #785)", () => {
     expect(facts(thread({ closed: true, outcome: "answered" }))[0].text).toBe(
       "#20 was answered."
     )
+  })
+})
+
+describe("review fixes (card #785)", () => {
+  const ask = (round = "") => ({
+    id: "b1",
+    question: "Steam or relay?",
+    by: "otter",
+    doneCheck: false,
+    permission: false,
+    round,
+  })
+  test("a question back with the person a second round is said again", () => {
+    const one = facts(thread({ cards: [card({ asks: [ask()] })] }))
+    const two = facts(thread({ cards: [card({ asks: [ask("it9")] })] }))
+    expect(one.at(-1)?.key).toBe("ask:c1:b1")
+    expect(two.at(-1)?.key).toBe("ask:c1:b1:it9")
+  })
+  test("a card the thread changed is said once, not followed", () => {
+    const t = thread({
+      closed: true,
+      cards: [card({ state: "working", changed: true, asks: [ask()] })],
+    })
+    const fs = facts(t)
+    expect(keys(fs)).toEqual(["made:c1"])
+    expect(fs[0].text).toBe("Your thread #20 changed #21.")
+    expect(finished(t)).toBe(true)
+  })
+  test("quiet: answered, cards over, nothing on the person", () => {
+    expect(quiet(thread({ answered: true }))).toBe(true)
+    expect(quiet(thread())).toBe(false)
+    expect(
+      quiet(thread({ answered: true, cards: [card({ state: "working" })] }))
+    ).toBe(false)
+  })
+
+  // A thread card as the Board gives it, as far as workThread reads it.
+  const detail = (over: Record<string, unknown> = {}) =>
+    ({
+      id: "t1",
+      short: "20",
+      tag: "",
+      title: "Fix the typo",
+      state: "submitted",
+      working: [],
+      blockers: [],
+      thread: [],
+      ask: {
+        state: "taken",
+        taker: null,
+        told: 1,
+        owner: "",
+        wake: true,
+        outcomeRef: "",
+      },
+      ...over,
+    }) as unknown as Parameters<typeof workThread>[0]
+  const who = (name: string, status: string) => ({
+    key: name,
+    name,
+    status,
+    live: true,
+    where: "",
+  })
+
+  test("Irori's own comments and the person's are not passed on as replies", () => {
+    const t = workThread(
+      detail({
+        thread: [
+          {
+            id: "a",
+            kind: "comment",
+            text: "No agent can start.",
+            who: who("Irori", "irori"),
+          },
+          {
+            id: "b",
+            kind: "comment",
+            text: "Thanks",
+            who: who("You", "person"),
+          },
+          {
+            id: "c",
+            kind: "comment",
+            text: "On it.",
+            who: who("otter", "idle"),
+          },
+        ],
+      }),
+      undefined,
+      new Map()
+    )
+    expect(t.replies.map((r) => r.id)).toEqual(["c"])
+  })
+  test("cards already said stay when the thread's row is gone", () => {
+    const made = detail({
+      id: "c1",
+      short: "21",
+      state: "working",
+      ask: null,
+      fromThread: { id: "t1", short: "20", tag: "", title: "" },
+    })
+    const t = workThread(
+      detail({
+        state: "completed",
+        ask: {
+          state: "closed",
+          told: 1,
+          owner: "",
+          wake: true,
+          outcomeRef: "",
+        },
+      }),
+      undefined,
+      new Map([["c1", made]]),
+      ["c1"]
+    )
+    expect(t.cards.map((c) => c.id)).toEqual(["c1"])
+    expect(finished(t)).toBe(false)
+    expect(keys(facts(t))).not.toContain("closed")
   })
 })

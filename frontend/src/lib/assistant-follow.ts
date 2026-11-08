@@ -37,6 +37,10 @@ export type WorkAsk = {
   by: string
   doneCheck: boolean
   permission: boolean
+  // Which round it is in: the newest item in its own thread (an agent's
+  // ask-back or revision sends it back to the person under the same id),
+  // "" for its first. Each round is said once.
+  round?: string
 }
 
 export type WorkCard = {
@@ -48,6 +52,9 @@ export type WorkCard = {
   // Who is busy on it now, by name.
   working: string[]
   asks: WorkAsk[]
+  // The thread changed this card rather than made it (an edit outcome):
+  // said once, not followed as the thread's work.
+  changed?: boolean
 }
 
 export type WorkReply = { id: string; by: string; text: string }
@@ -64,6 +71,8 @@ export type WorkThread = {
   closed: boolean
   // How its ask closed: "answered", "none", "edit", "card", or "".
   outcome: string
+  // An agent answered it (still open, the person may reply).
+  answered?: boolean
   // The agents' replies on it, oldest first.
   replies: WorkReply[]
   asks: WorkAsk[]
@@ -78,7 +87,7 @@ export type WorkThread = {
 // the person's tap does (as #783 settled: nothing posts without a tap).
 export type Act =
   | { kind: "answer"; card: string; blocker: string }
-  | { kind: "reply"; thread: string; to: string }
+  | { kind: "reply"; thread: string; to: string; ref?: string }
 
 // Fact is one line the chat says about the work, known by its key.
 export type Fact = { key: string; text: string; act?: Act }
@@ -117,14 +126,15 @@ function askFacts(ref: string, cardId: string, asks: WorkAsk[]): Fact[] {
         text: `${ref} is waiting for your permission: ${clip(a.question)}`,
       }
     const act: Act = { kind: "answer", card: cardId, blocker: a.id }
+    const r = a.round ? `:${a.round}` : ""
     if (a.doneCheck)
       return {
-        key: `ready:${cardId}:${a.id}`,
+        key: `ready:${cardId}:${a.id}${r}`,
         text: `${ref} is ready: ${a.by || "its agent"} says it's done.`,
         act,
       }
     return {
-      key: `ask:${cardId}:${a.id}`,
+      key: `ask:${cardId}:${a.id}${r}`,
       text: `${ref} needs you: ${clip(a.question)}`,
       act,
     }
@@ -149,10 +159,17 @@ export function facts(t: WorkThread): Fact[] {
     out.push({
       key: `reply:${r.id}`,
       text: `${r.by} replied on ${t.ref}: ${clip(r.text)}`,
-      act: { kind: "reply", thread: t.id, to: r.by },
+      act: { kind: "reply", thread: t.id, to: r.by, ref: t.ref },
     })
   out.push(...askFacts(t.ref, t.id, t.asks))
   for (const c of t.cards) {
+    if (c.changed) {
+      out.push({
+        key: `made:${c.id}`,
+        text: `Your thread ${t.ref} changed ${c.ref}.`,
+      })
+      continue
+    }
     out.push({
       key: `made:${c.id}`,
       text:
@@ -187,7 +204,18 @@ export function facts(t: WorkThread): Fact[] {
 // finished says nothing more will happen to the work: the thread is
 // resolved and every card made from it is over.
 export function finished(t: WorkThread): boolean {
-  return t.closed && t.cards.every((c) => over(c.state))
+  return t.closed && t.cards.every((c) => c.changed || over(c.state))
+}
+
+// quiet says nothing is moving: the thread is answered or closed, every
+// card made from it is over and nothing waits on the person. A later
+// reply is still said, but read less often (see createFollower).
+export function quiet(t: WorkThread): boolean {
+  return (
+    t.asks.length === 0 &&
+    (t.closed || !!t.answered) &&
+    t.cards.every((c) => c.changed || over(c.state))
+  )
 }
 
 // ---- from the Board's cards --------------------------------------------------------
@@ -208,6 +236,7 @@ function asksOf(c: CardDetail): WorkAsk[] {
     by: b.raisedBy ? displayName(b.raisedBy) : "",
     doneCheck: !!b.doneCheck,
     permission: !!b.permission,
+    round: b.thread?.length ? b.thread[b.thread.length - 1].id : "",
   }))
 }
 
@@ -221,13 +250,19 @@ function busyNames(c: CardDetail): string[] {
 export function workThread(
   thread: CardDetail,
   row: ThreadSummary | undefined,
-  byId: Map<string, CardDetail | null>
+  byId: Map<string, CardDetail | null>,
+  // Cards already said to be made from it: kept when its row is gone
+  // (the thread list keeps only the newest resolved threads).
+  known: readonly string[] = []
 ): WorkThread {
   const taker = thread.ask?.taker ? displayName(thread.ask.taker) : ""
   const replies: WorkReply[] = (thread.thread ?? [])
     .filter(
       (it) =>
-        it.kind === "comment" && it.who.status !== "person" && it.text.trim()
+        it.kind === "comment" &&
+        it.who.status !== "person" &&
+        it.who.status !== "irori" &&
+        it.text.trim()
     )
     .map((it) => ({ id: it.id, by: displayName(it.who), text: it.text }))
   // Closed as a card: the thread is that card now.
@@ -245,33 +280,50 @@ export function workThread(
         },
       ]
     : []
-  const made: WorkCard[] = (row?.cards ?? [])
-    .filter((c) => c.id !== thread.id)
-    .map((rc) => {
-      const c = byId.get(rc.id)
-      if (!c)
-        return {
-          id: rc.id,
-          ref: cardRefOf(rc),
-          title: rc.title,
-          state: rc.state,
-          working: [],
-          asks: [],
-        }
-      return {
+  const listed = (row?.cards ?? []).filter((c) => c.id !== thread.id)
+  const ids = [
+    ...listed.map((c) => c.id),
+    ...known.filter(
+      (id) => id !== thread.id && !listed.some((c) => c.id === id)
+    ),
+  ]
+  const made: WorkCard[] = []
+  for (const id of ids) {
+    const c = byId.get(id)
+    const rc = listed.find((x) => x.id === id)
+    if (c)
+      made.push({
         id: c.id,
         ref: cardRefOf(c),
         title: c.title,
         state: c.state,
         working: busyNames(c),
         asks: asksOf(c),
-      }
-    })
+        // A card the thread changed was made from something else.
+        ...(c.fromThread && c.fromThread.id !== thread.id
+          ? { changed: true }
+          : {}),
+      })
+    else if (rc)
+      made.push({
+        id: rc.id,
+        ref: cardRefOf(rc),
+        title: rc.title,
+        state: rc.state,
+        working: [],
+        asks: [],
+      })
+  }
   return {
     id: thread.id,
     ref: cardRefOf(row ?? thread),
     taker,
-    cantStart: row?.cantStart || thread.cantStart || "",
+    cantStart:
+      row?.cantStart ||
+      thread.cantStart ||
+      row?.noAgent ||
+      thread.noAgent ||
+      "",
     closed: became
       ? over(thread.state)
       : row?.state === "resolved" ||
@@ -279,6 +331,7 @@ export function workThread(
         over(thread.state),
     outcome:
       thread.ask?.state === "closed" ? (thread.ask.outcome?.kind ?? "") : "",
+    answered: row?.state === "answered",
     replies,
     // As a card, its items are the card's (said once, there).
     asks: became ? [] : asksOf(thread),
@@ -290,13 +343,15 @@ export function workThread(
 // thread is gone (deleted, or no longer on this device). Throws when the
 // Board couldn't be read at all, so the round is tried again later.
 export async function readWork(
-  ids: string[]
+  ids: string[],
+  known: ReadonlyMap<string, readonly string[]> = new Map()
 ): Promise<Map<string, WorkThread | null>> {
   const rows = await threads.listAll()
   const byId = new Map(rows.map((r) => [r.id, r]))
-  const madeIds = ids.flatMap(
-    (id) => byId.get(id)?.cards.map((c) => c.id) ?? []
-  )
+  const madeIds = ids.flatMap((id) => [
+    ...(byId.get(id)?.cards.map((c) => c.id) ?? []),
+    ...(known.get(id) ?? []),
+  ])
   const got = await cardsById([...new Set([...ids, ...madeIds])])
   const out = new Map<string, WorkThread | null>()
   for (const id of ids) {
@@ -306,10 +361,16 @@ export async function readWork(
       if (!byId.has(id) && /no such/i.test(slot?.error ?? "")) out.set(id, null)
       continue
     }
+    const row = byId.get(id)
+    const had = known.get(id) ?? []
     const made = new Map<string, CardDetail | null>()
-    for (const c of byId.get(id)?.cards ?? [])
-      made.set(c.id, got.get(c.id)?.detail ?? null)
-    out.set(id, workThread(slot.detail, byId.get(id), made))
+    for (const c of [...(row?.cards.map((x) => x.id) ?? []), ...had])
+      made.set(c, got.get(c)?.detail ?? null)
+    // A card it made that can't be read now, with no row to stand in:
+    // skip the thread this round rather than lose that card.
+    const listed = new Set(row?.cards.map((x) => x.id) ?? [])
+    if (had.some((c) => c !== id && !listed.has(c) && !made.get(c))) continue
+    out.set(id, workThread(slot.detail, row, made, had))
   }
   return out
 }
@@ -375,13 +436,20 @@ export function news(
 export type FollowDeps = {
   // The threads the chat posted, as its messages hold them now.
   ids: () => string[]
-  read: (ids: string[]) => Promise<Map<string, WorkThread | null>>
+  // known: each thread's cards already said to be made from it.
+  read: (
+    ids: string[],
+    known: ReadonlyMap<string, readonly string[]>
+  ) => Promise<Map<string, WorkThread | null>>
   listen: (again: () => void) => () => void
   load: () => SeenStore
   save: (s: SeenStore) => void
   // A thread's new lines, and its work as read (null: it is gone).
   say: (id: string, lines: Fact[], work: WorkThread | null) => void
   delayMs?: number
+  // How long a card change waits while every followed thread is quiet
+  // (answered or resolved, its cards over, nothing on the person).
+  quietMs?: number
 }
 
 export type Follower = {
@@ -399,6 +467,10 @@ export function createFollower(d: FollowDeps): Follower {
   let timer: ReturnType<typeof setTimeout> | undefined
   let stopped = false
   const delay = d.delayMs ?? 400
+  const quietDelay = d.quietMs ?? 60_000
+  // Every thread read last round was quiet: card changes wait longer.
+  let allQuiet = false
+  let timerQuiet = false
 
   const active = () => {
     const ids = [...new Set(d.ids())]
@@ -432,13 +504,21 @@ export function createFollower(d: FollowDeps): Follower {
           if (forget()) d.save(store)
           break
         }
+        const known = new Map<string, string[]>()
+        for (const id of ids) {
+          const made = (store[id]?.said ?? [])
+            .filter((k) => k.startsWith("made:"))
+            .map((k) => k.slice("made:".length))
+          if (made.length) known.set(id, made)
+        }
         let got: Map<string, WorkThread | null>
         try {
-          got = await d.read(ids)
+          got = await d.read(ids, known)
         } catch {
           break
         }
         if (stopped) return
+        let calm = true
         for (const id of ids) {
           if (!got.has(id)) continue
           const t = got.get(id) ?? null
@@ -449,8 +529,10 @@ export function createFollower(d: FollowDeps): Follower {
           }
           const n = news(store[id], t)
           store[id] = n.seen
+          if (!n.seen.done && !quiet(t)) calm = false
           d.say(id, n.say, t)
         }
+        allQuiet = calm
         forget()
         d.save(store)
       } while (again && !stopped)
@@ -459,15 +541,25 @@ export function createFollower(d: FollowDeps): Follower {
     }
   }
 
-  const schedule = () => {
-    if (stopped || timer !== undefined) return
-    timer = setTimeout(() => {
-      timer = undefined
-      void run()
-    }, delay)
+  const schedule = (soon: boolean) => {
+    if (stopped) return
+    const slow = !soon && allQuiet
+    if (timer !== undefined) {
+      // A quiet wait gives way to a sooner one.
+      if (!timerQuiet || slow) return
+      clearTimeout(timer)
+    }
+    timerQuiet = slow
+    timer = setTimeout(
+      () => {
+        timer = undefined
+        void run()
+      },
+      slow ? quietDelay : delay
+    )
   }
 
-  const off = d.listen(schedule)
+  const off = d.listen(() => schedule(false))
   void run()
 
   return {
@@ -476,7 +568,7 @@ export function createFollower(d: FollowDeps): Follower {
       d.save(store)
       void run()
     },
-    poke: schedule,
+    poke: () => schedule(true),
     stop() {
       stopped = true
       clearTimeout(timer)

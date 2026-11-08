@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import {
   capHistory,
+  capKeeping,
   failedLine,
   foldEvent,
   freshReply,
@@ -266,7 +267,7 @@ describe("Ask Irori's drafted thread (card #783)", () => {
     )
     expect(h[1]).toEqual({
       role: "assistant",
-      text: "**otter** took your thread mlg#5.",
+      text: "(The chat's own lines on the work it follows:)\n- **otter** took your thread mlg#5.",
     })
     expect(h[2]).toEqual({
       role: "person",
@@ -326,5 +327,24 @@ describe("Ask Irori's drafted thread (card #783)", () => {
     expect(work.draft).toContain("Add a changelog page.")
     expect(work.partial).toBe(false)
     expect(splitDraft(sampleAnswer("What's blocked?").text).draft).toBe("")
+  })
+})
+
+describe("the cap keeps what the chat still follows (card #785)", () => {
+  test("a followed thread's posted message stays; others go oldest first", () => {
+    const posted: ChatEntry = {
+      role: "assistant",
+      text: "A draft",
+      posted: { id: "t1", short: "1" },
+    }
+    const lines: ChatEntry[] = Array.from({ length: 5 }, (_, i) => ({
+      role: "assistant",
+      text: `line ${i}`,
+      update: "t1",
+    }))
+    const all = [{ role: "person", text: "q" } as ChatEntry, posted, ...lines]
+    const kept = capKeeping(all, new Set(["t1"]), 4)
+    expect(kept).toEqual([posted, lines[2], lines[3], lines[4]])
+    expect(capKeeping(all, new Set(), 4)).toEqual(lines.slice(1))
   })
 })
