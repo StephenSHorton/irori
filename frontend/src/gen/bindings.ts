@@ -421,6 +421,11 @@ export const commands = {
 	termFolders: (card: string) => __TAURI_INVOKE<Folder[]>("term_folders", { card }),
 	termList: (card: string) => __TAURI_INVOKE<TermInfo[]>("term_list", { card }),
 	/**
+	 *  The person's own terminals on this device, for the bottom panel off a
+	 *  card's page (card #734). It never starts one.
+	 */
+	termDeviceList: () => __TAURI_INVOKE<TermInfo[]>("term_device_list"),
+	/**
 	 *  A board's spawned-agent switch, model and effort (`""`: the private
 	 *  board).
 	 */
@@ -2644,7 +2649,12 @@ export type Scope =
 /**  A card, by its task id. */
 { kind: "card"; id: string } | 
 /**  An agent session, by its key (S3). */
-{ kind: "agent"; id: string };
+{ kind: "agent"; id: string } | 
+/**
+ *  The person's own terminal on this device, tied to no card: the
+ *  bottom panel's shell on pages other than a card's (card #734).
+ */
+{ kind: "device" };
 
 /**  Send's answer: the message, and what each mention came to. */
 export type SendResult = {

@@ -617,6 +617,8 @@ export const ShareService = {
 export const TermService = {
   Folders: (card: string) => call(commands.termFolders(card)),
   List: (card: string) => call(commands.termList(card)),
+  // The person's own shells here, off a card (the bottom panel, card #734).
+  DeviceList: () => call(commands.termDeviceList()),
   Open: (scope: B.Scope, cols: number, rows: number, cwd: string | null) =>
     call(commands.termOpen(scope, cols, rows, cwd)),
   Attach(

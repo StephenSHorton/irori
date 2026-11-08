@@ -31,12 +31,24 @@ export function Terminal({
   id,
   cwd,
   onRestart,
+  fill = false,
+  onCwd,
 }: {
   id: number
   cwd: string
   onRestart: () => void
+  // fill: the terminal takes its container's height (the bottom panel,
+  // card #734) instead of its own resizable 360px.
+  fill?: boolean
+  // onCwd hears the folder the shell is in each time it reports one.
+  onCwd?: (cwd: string) => void
 }) {
   const box = useRef<HTMLDivElement>(null)
+  // The latest onCwd, so a new callback doesn't remount the view.
+  const cwdTo = useRef(onCwd)
+  useEffect(() => {
+    cwdTo.current = onCwd
+  })
   const [exit, setExit] = useState<{ code: number | null } | null>(null)
   const [clip, setClip] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -60,7 +72,9 @@ export function Terminal({
       font: GOHU_FONT,
     })
     const onMsg = (m: TermMsg) => {
-      if (m.t === "exit") {
+      if (m.t === "shell") {
+        if (m.cwd) cwdTo.current?.(m.cwd)
+      } else if (m.t === "exit") {
         setExit({ code: m.code })
       } else if (m.t === "clip") {
         // A program's copy is offered, never written for it (design 5).
@@ -135,44 +149,56 @@ export function Terminal({
   }
 
   return (
-    <div className="grid gap-2">
-      <div>
+    <div
+      className={cn("gap-2", fill ? "flex min-h-0 flex-1 flex-col" : "grid")}
+    >
+      {fill ? (
+        // In the bottom panel (card #734) the panel's own edge sets the
+        // height, so the box fills it and has no grip of its own.
         <div
           ref={box}
-          // The window's height caps it in CSS too, so a window made
-          // smaller than the saved height still shows the handle.
-          className="max-h-[calc(100svh-6rem)] min-h-[200px] overflow-hidden rounded-md border border-border bg-[#0c0c0c]"
-          style={{ height }}
+          className="min-h-0 flex-1 overflow-hidden rounded-md border border-border bg-[#0c0c0c]"
           aria-label={`Terminal in ${cwd}`}
         />
-        <div
-          role="separator"
-          aria-orientation="horizontal"
-          aria-label="Resize the terminal"
-          aria-valuemin={minHeight}
-          aria-valuemax={maxHeight(window.innerHeight)}
-          aria-valuenow={clampHeight(height, window.innerHeight)}
-          tabIndex={0}
-          title="Drag to change the terminal's height. Double-click: default height"
-          onPointerDown={startDrag}
-          onDoubleClick={resetHeight}
-          onKeyDown={keyEdge}
-          className={cn(
-            // 12px to grab under the box, a grip in the middle.
-            "group flex h-3 cursor-row-resize touch-none items-center justify-center rounded-sm outline-none",
-            "focus-visible:ring-2 focus-visible:ring-ring/50"
-          )}
-        >
-          <span
-            aria-hidden
-            className={cn(
-              "h-1 w-10 rounded-full bg-muted-foreground/40 transition-colors",
-              "group-hover:bg-primary/70 group-focus-visible:bg-primary",
-              dragging && "bg-primary"
-            )}
+      ) : (
+        <div>
+          <div
+            ref={box}
+            // The window's height caps it in CSS too, so a window made
+            // smaller than the saved height still shows the handle.
+            className="max-h-[calc(100svh-6rem)] min-h-[200px] overflow-hidden rounded-md border border-border bg-[#0c0c0c]"
+            style={{ height }}
+            aria-label={`Terminal in ${cwd}`}
           />
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize the terminal"
+            aria-valuemin={minHeight}
+            aria-valuemax={maxHeight(window.innerHeight)}
+            aria-valuenow={clampHeight(height, window.innerHeight)}
+            tabIndex={0}
+            title="Drag to change the terminal's height. Double-click: default height"
+            onPointerDown={startDrag}
+            onDoubleClick={resetHeight}
+            onKeyDown={keyEdge}
+            className={cn(
+              // 12px to grab under the box, a grip in the middle.
+              "group flex h-3 cursor-row-resize touch-none items-center justify-center rounded-sm outline-none",
+              "focus-visible:ring-2 focus-visible:ring-ring/50"
+            )}
+          >
+            <span
+              aria-hidden
+              className={cn(
+                "h-1 w-10 rounded-full bg-muted-foreground/40 transition-colors",
+                "group-hover:bg-primary/70 group-focus-visible:bg-primary",
+                dragging && "bg-primary"
+              )}
+            />
+          </div>
         </div>
-      </div>
+      )}
       {clip !== null && (
         <div className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
           <span className="min-w-0 truncate">

@@ -27,6 +27,7 @@ let nextSampleId = 2
 
 const SampleTermService: typeof TermService = {
   Folders: () => Promise.resolve([{ path: sampleFolder, why: "repo" }]),
+  DeviceList: () => Promise.resolve([]),
   List: (card) =>
     Promise.resolve([
       {
@@ -170,16 +171,83 @@ export function termHost(
 
 // attachTerm starts the view's streams: the cached state, then a full
 // frame. detach is called when the view goes; the shell keeps running.
+//
+// A shell has one local view, and the Core forgets it on any detach. When
+// one view of a shell goes and another comes in the same render (the card
+// page's section handing it to the bottom panel, card #734, or a remount),
+// the two calls are separate invokes that may land in either order; a
+// detach landing last would leave the new view blank. So each shell's
+// attach and detach go out one after another, each after the last ended
+// (exported for its test).
+const pending = new Map<number, Promise<unknown>>()
+
+export function inTurn<T>(id: number, call: () => Promise<T>): Promise<T> {
+  const prev = pending.get(id) ?? Promise.resolve()
+  const next = prev.catch(() => {}).then(call)
+  const tail = next.catch(() => {})
+  pending.set(id, tail)
+  void tail.then(() => {
+    if (pending.get(id) === tail) pending.delete(id)
+  })
+  return next
+}
+
 export function attachTerm(
   id: number,
   onFrame: (frame: ArrayBuffer) => void,
   onMsg: (msg: TermMsg) => void
 ): Promise<void> {
-  return svc().Attach(id, onFrame, onMsg)
+  return inTurn(id, () => svc().Attach(id, onFrame, onMsg))
 }
 
 export function detachTerm(id: number): void {
-  svc()
-    .Detach(id)
-    .catch(() => {})
+  inTurn(id, () => svc().Detach(id)).catch(() => {})
+}
+
+// The person's own shells on this device (the device scope, card #734):
+// the terminal panel's on pages other than a card's.
+export function deviceTerms(): Promise<TermInfo[]> {
+  return svc().DeviceList()
+}
+
+// openDeviceTerm starts one of the person's own shells in cwd, or at home
+// when cwd is null. A folder that has gone since (a removed worktree)
+// opens at home instead of failing.
+export async function openDeviceTerm(
+  cols: number,
+  rows: number,
+  cwd: string | null
+): Promise<TermInfo> {
+  const scope: B.Scope = { kind: "device" }
+  if (!cwd) return svc().Open(scope, cols, rows, null)
+  try {
+    return await svc().Open(scope, cols, rows, cwd)
+  } catch {
+    return svc().Open(scope, cols, rows, null)
+  }
+}
+
+// firstDeviceTerm is what the panel shows when it opens off a card: the
+// shells already there, and a new one in cwd when none of them runs. Opening the panel is the
+// person asking for a shell. Calls made while one is under way share it,
+// so a double mount (StrictMode, a quick toggle) never starts two.
+let starting: Promise<TermInfo[]> | null = null
+
+export function firstDeviceTerm(
+  cols: number,
+  rows: number,
+  cwd: string | null
+): Promise<TermInfo[]> {
+  starting ??= deviceTerms()
+    // Shells that ended stay listed (with Restart) until closed; with
+    // none still running, a new one is started beside them.
+    .then(async (ts) =>
+      ts.some((t) => t.running)
+        ? ts
+        : [...ts, await openDeviceTerm(cols, rows, cwd)]
+    )
+    .finally(() => {
+      starting = null
+    })
+  return starting
 }

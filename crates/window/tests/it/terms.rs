@@ -108,3 +108,30 @@ fn a_card_can_hold_several_shells() {
         std::fs::remove_dir_all(dir.path()).is_ok()
     });
 }
+
+#[test]
+fn the_device_shell_is_apart_from_cards() {
+    // The bottom panel's own shell off a card's page (card #734): its own
+    // scope, never listed on a card, and a card's never listed with it.
+    let r = Rig::new();
+    let t = card(&r, "");
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = Some(dir.path().to_string_lossy().into_owned());
+    let mine =
+        r.w.term_open(term::Scope::Device, 80, 24, cwd.clone())
+            .unwrap();
+    let theirs =
+        r.w.term_open(term::Scope::Card(t.id.clone()), 80, 24, cwd)
+            .unwrap();
+    let ids: Vec<u32> = r.w.term_device_list().iter().map(|i| i.id).collect();
+    assert_eq!(ids, vec![mine.id]);
+    assert_eq!(mine.scope, term::Scope::Device);
+    let ids: Vec<u32> = r.w.term_list(&t.id).iter().map(|i| i.id).collect();
+    assert_eq!(ids, vec![theirs.id]);
+    r.w.core.terms().close(mine.id).unwrap();
+    r.w.core.terms().close(theirs.id).unwrap();
+    assert!(r.w.term_device_list().is_empty());
+    wait("the shells to leave their folder", || {
+        std::fs::remove_dir_all(dir.path()).is_ok()
+    });
+}

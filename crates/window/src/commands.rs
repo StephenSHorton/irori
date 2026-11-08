@@ -2359,6 +2359,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             term_close,
             term_folders,
             term_list,
+            term_device_list,
             agents_settings,
             agents_set,
             names_themes,
@@ -2517,6 +2518,14 @@ pub async fn term_close(w: W<'_>, id: u32) -> R<()> {
 #[specta::specta]
 pub async fn term_list(w: W<'_>, card: String) -> R<Vec<term::TermInfo>> {
     Ok(w.term_list(&card))
+}
+
+/// The person's own terminals on this device, for the bottom panel off a
+/// card's page (card #734). It never starts one.
+#[tauri::command]
+#[specta::specta]
+pub async fn term_device_list(w: W<'_>) -> R<Vec<term::TermInfo>> {
+    Ok(w.term_device_list())
 }
 
 #[tauri::command]
