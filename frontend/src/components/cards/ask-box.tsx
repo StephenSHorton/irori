@@ -171,7 +171,7 @@ export function AskBox({
         onSubmit={(e) => void submit(e)}
         {...attach.drop}
       >
-        <div className="flex items-start gap-2 p-1.5 glass-panel @max-xl:flex-wrap">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 p-1.5 glass-panel">
           <MentionTextarea
             autoSize
             voice="main"
@@ -195,16 +195,15 @@ export function AskBox({
             }}
             placeholder="Start a thread…"
             aria-label="Start a thread"
-            className="max-h-40 min-h-9 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent @max-xl:basis-[calc(100%-2.75rem)]"
+            className="max-h-40 min-h-9 basis-full border-transparent bg-transparent shadow-none focus-visible:border-transparent"
             // readOnly, not disabled: disabling the focused box would blur it,
             // and the next message would need a click back in.
             readOnly={busy}
             aria-busy={busy}
           />
-          {/* The controls ride the box's first line (h-9, its min height)
-            whatever their own heights, and stay up top as it grows; in a
-            narrow box they take a line of their own (card #981). */}
-          <div className="flex h-9 shrink-0 items-center gap-2 @max-xl:w-full @max-xl:justify-end">
+          {/* The writing has the whole width; the mic and the controls take
+            the row under it (card #981). */}
+          <div className="flex min-h-9 min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
             <AgentsNowToggle
               on={agentsNow.on}
               onChange={agentsNow.set}
@@ -228,7 +227,7 @@ export function AskBox({
               ) : (
                 <WandSparklesIcon aria-hidden />
               )}
-              <span className="@max-xs:hidden">
+              <span className="@max-md:hidden">
                 {rewrite.running ? "Rewriting…" : "Rewrite"}
               </span>
             </Button>
