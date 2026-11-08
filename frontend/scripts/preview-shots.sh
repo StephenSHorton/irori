@@ -86,3 +86,15 @@ shot 28-meters-board "#board/sample-board-mlg" 1440 300      # a board's page: t
 shot 29-usage-none "?meters=open&usage=none"                 # no Claude usage reading yet
 shot 30-usage-stale "?meters=open&usage=stale"               # an old usage reading: "as of"
 shot 31-meters-nogpu "?meters=open&gpu=none"                 # a machine with no GPU
+shot 32-board-closed-fold "?closed#board/sample-board-mlg"   # tiles with descriptions, Closed boards open (card #690)
+shot 33-board-description "#board/sample-board-mlg/sample-board-mlg-net" # a board's description at its top, More
+shot 34-board-no-description "#board/sample-board-mlg/sample-board-mlg-art" # no description: nothing shown
+shot 35-board-close "?close=sample-board-mlg-net#board/sample-board-mlg/sample-board-mlg-net" # Close board with open cards: move or cancel
+shot 36-board-closed "#board/sample-board-mlg/sample-board-mlg-proto" # a closed board: read-only, Reopen
+shot 37-personal-closed "?closed#board/personal"             # Personal's boards and its Closed boards fold
+shot 38-board-new "?addboard#board/sample-board-mlg"         # New board with its optional description
+shot 39-board-edit-description "?description=sample-board-mlg-net#board/sample-board-mlg/sample-board-mlg-net" # Edit description
+shot 40-storage "?storage"                                   # Storage: what Irori keeps and its size (card #728)
+shot 41-storage-builds "?storage=builds"                     # one kind's page: build output with Delete
+shot 42-storage-log "?storage=log"                           # the log's page: Clear done cards and threads, Put back
+shot 43-storage-closed "?storage=closed"                     # closed boards, to browse and open (with #690)

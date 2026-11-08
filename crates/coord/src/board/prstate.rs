@@ -41,7 +41,7 @@ use store::{Event, kinds};
 use super::error::{Result, invalid, not_found};
 use super::fold::Fold;
 use super::links::pr_link;
-use super::rows::{PrStateRow, TaskCommentRow, TaskStateRow, row};
+use super::rows::{PrReview, PrStateRow, TaskCommentRow, TaskStateRow, row};
 use super::types::*;
 use super::util::{SWEEPER, deeper};
 use gocompat::quote::quote;
@@ -86,6 +86,21 @@ pub struct PrState {
     /// shows it while nothing newer was heard and the PR isn't settled.
     #[serde(skip)]
     pub last_error: String,
+    /// Who commented on the PR, and GitHub's reviews of it (merge desk
+    /// §12.4): from the newest row that carried any, whatever order rows
+    /// come in. A row without them leaves what is known.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub commenters: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reviews: Vec<PrReview>,
+    /// The first changed paths, and whether there were more.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub paths_cut: bool,
+    /// Which row those came from: its time and device, to pick the newest.
+    #[serde(skip)]
+    pub activity_from: (GoTime, String),
     #[serde(skip)]
     pub error_at: GoTime,
     /// Everything GitHub was heard to say of it, oldest first, whatever
@@ -216,6 +231,23 @@ pub struct PrCheck {
     /// GitHub's mergeCommit oid, for a merged PR (card #421); "" unknown.
     pub merge_sha: String,
     pub error: String,
+    /// What GitHub's comments and reviews say (merge desk §12.4). Empty
+    /// is "not asked": it keeps what is known and never clears.
+    pub commenters: Vec<String>,
+    pub reviews: Vec<PrReview>,
+    pub paths: Vec<String>,
+    pub paths_cut: bool,
+}
+
+impl PrCheck {
+    /// Whether this check carries what GitHub's comments, reviews or
+    /// files said.
+    fn has_activity(&self) -> bool {
+        !self.commenters.is_empty()
+            || !self.reviews.is_empty()
+            || !self.paths.is_empty()
+            || self.paths_cut
+    }
 }
 
 /// The PR states by card, then by PR URL.
@@ -266,6 +298,10 @@ pub fn desk_pr_card(t: &Task) -> bool {
         && t.objective.contains(DESK_PR_CARD_MARK)
 }
 
+/// What a PR card's cancel note starts with when its PR closed: only such
+/// a cancel is undone when the PR reopens.
+pub const PR_CARD_CLOSED: &str = "its PR was closed without merging";
+
 /// The words a "PR #n" card's objective carries (the desk poller writes
 /// them, `map_desk`), which [`desk_pr_card`] looks for.
 pub const DESK_PR_CARD_MARK: &str = "has no author card";
@@ -289,7 +325,29 @@ impl Fold {
             st.error.clone(),
             st.at,
             st.merge_sha.clone(),
+            (
+                st.commenters.clone(),
+                st.reviews.clone(),
+                st.paths.clone(),
+                st.paths_cut,
+            ),
         );
+        // Merge desk §12.4: the newest row that carries any wins, by time
+        // then device, so every device ends on the same one.
+        if !p.commenters.is_empty() || !p.reviews.is_empty() || !p.paths.is_empty() || p.paths_cut {
+            let from = (p.at, ev.device_id.clone());
+            let newer = st.activity_from.0.is_zero()
+                || crate::gotime::cmp(&from.0, &st.activity_from.0)
+                    .then_with(|| from.1.cmp(&st.activity_from.1))
+                    .is_gt();
+            if newer {
+                st.commenters = p.commenters.clone();
+                st.reviews = p.reviews.clone();
+                st.paths = p.paths.clone();
+                st.paths_cut = p.paths_cut;
+                st.activity_from = from;
+            }
+        }
         if p.error.is_empty() && !p.state.is_empty() {
             st.note_heard(PrHeard {
                 at: p.at,
@@ -344,6 +402,12 @@ impl Fold {
                 st.error.clone(),
                 st.at,
                 st.merge_sha.clone(),
+                (
+                    st.commenters.clone(),
+                    st.reviews.clone(),
+                    st.paths.clone(),
+                    st.paths_cut,
+                ),
             )
         {
             return;
@@ -369,45 +433,28 @@ impl Fold {
             .collect()
     }
 
-    /// Whether PR `pr` on card `id` is known merged or closed (card #509):
-    /// a wait on it no longer needs the person.
-    pub(crate) fn pr_settled(&self, id: &str, pr: &str) -> bool {
-        self.pr_states
-            .get(id)
-            .and_then(|by_pr| by_pr.get(pr))
-            .is_some_and(|p| p.state == PR_MERGED || p.state == PR_CLOSED)
-    }
-
-    /// The PRs t's open, unanswered external waits ask this person to
-    /// merge (card #509), not yet known merged or closed. On a shared
-    /// board only their own agents' waits: another member's is theirs.
-    pub(crate) fn merge_waits(&self, t: &Task) -> Vec<String> {
-        self.waits_on(t, |pr| !self.pr_settled(&t.id, pr))
-    }
-
-    /// The PRs of [`Fold::merge_waits`] the poller still asks about: a
-    /// closed one too, which GitHub can reopen (card #548).
+    /// The PRs t's open, unanswered external waits are on (card #509) that
+    /// the poller still asks about, whoever holds the card: not known
+    /// merged (a closed one too, which GitHub can reopen, card #548). Its
+    /// holders hear the merge; the person is never asked to merge (card
+    /// #970). On a shared board only this person's own agents' waits.
     pub(crate) fn polled_waits(&self, t: &Task) -> Vec<String> {
-        let by_pr = self.pr_states.get(&t.id);
-        self.waits_on(t, |pr| {
-            !by_pr
-                .and_then(|m| m.get(pr))
-                .is_some_and(|p| p.state == PR_MERGED)
-        })
-    }
-
-    fn waits_on(&self, t: &Task, keep: impl Fn(&str) -> bool) -> Vec<String> {
         if t.state != BLOCKED {
             return Vec::new();
         }
+        let by_pr = self.pr_states.get(&t.id);
         let mut out: Vec<String> = Vec::new();
         for b in &t.blockers {
             if b.status == BLOCKER_ANSWERED || self.on_board && !self.own_on_board(b) {
                 continue;
             }
-            if let Some(pr) = b.merge_wait().filter(|pr| keep(pr))
-                && !out.contains(&pr)
-            {
+            let Some(pr) = b.pr_wait() else {
+                continue;
+            };
+            let merged = by_pr
+                .and_then(|m| m.get(&pr))
+                .is_some_and(|p| p.state == PR_MERGED);
+            if !merged && !out.contains(&pr) {
                 out.push(pr);
             }
         }
@@ -441,7 +488,7 @@ impl Fold {
             )));
         }
         Err(invalid(format!(
-            "{} links a pull request that is still open ({prs}): ask the person “Can I merge…?” with board_block and merge it yourself on their yes; Irori checks GitHub and tells you when it merges",
+            "{} links a pull request that GitHub still shows open ({prs}). If you merged it, check it with `gh pr view` and set completed again once it shows merged. If not, ask the person “Can I merge…?” with board_block and merge it yourself on their yes. Never raise a wait on it: Irori checks GitHub and tells you when it merges",
             t.short_ref()
         )))
     }
@@ -505,7 +552,7 @@ impl Fold {
             && !t
                 .blockers
                 .iter()
-                .any(|b| b.merge_wait().is_some_and(|w| w == c.pr))
+                .any(|b| b.pr_wait().is_some_and(|w| w == c.pr))
         {
             return Err(invalid(format!(
                 "{} links no pull request {}",
@@ -527,18 +574,32 @@ impl Fold {
             && c.state == PR_MERGED
             && !c.merge_sha.is_empty()
             && old.merge_sha.is_empty();
+        // Merge desk §12.4: a comment or review alone is a change; a check
+        // without any keeps what is known and says nothing of it.
+        let same_activity = !c.has_activity()
+            || (old.commenters == c.commenters
+                && old.reviews == c.reviews
+                && old.paths == c.paths
+                && old.paths_cut == c.paths_cut);
         let unchanged = !new_sha
             && (!beside_open && certainty(&c.state) < certainty(&old.state)
                 || if c.error.is_empty() {
                     old.error.is_empty()
                         && old.state == c.state
                         && old.review == c.review
+                        && same_activity
                         && !old.at.is_zero()
                 } else {
                     // Said once: a later failure stays quiet until it is heard again.
                     !old.error.is_empty()
                 });
         if unchanged {
+            // A PR card follows its PR on every poll, so a step that
+            // didn't land is made up (merge desk §12.2).
+            if c.error.is_empty() && t.pr_card.as_ref().is_some_and(|k| k.pr == c.pr) {
+                self.follow_pr_card(id, &c.pr)?;
+                return Ok((self.tasks[id].clone(), Vec::new()));
+            }
             return Ok((t, Vec::new()));
         }
         // Card #548: heard after what this fold knows, so stamped after
@@ -568,6 +629,10 @@ impl Fold {
                 by: SWEEPER.into(),
                 at,
                 over_closed: c.state == PR_OPEN && old.state == PR_CLOSED,
+                commenters: c.commenters.clone(),
+                reviews: c.reviews.clone(),
+                paths: c.paths.clone(),
+                paths_cut: c.paths_cut,
             },
         )?;
         // A row this log didn't take (a board's writer rules) changes
@@ -586,6 +651,13 @@ impl Fold {
         }
         if new_sha {
             self.say_merge_sha(&t, &c.pr, &c.merge_sha, c.merged_at);
+        }
+        // Merge desk §12.2: a PR card ends with its PR, and comes back if
+        // it reopens. Before the terminal return below, which a cancelled
+        // card would take.
+        if c.error.is_empty() && t.pr_card.as_ref().is_some_and(|k| k.pr == c.pr) {
+            self.follow_pr_card(id, &c.pr)?;
+            return Ok((self.tasks[id].clone(), Vec::new()));
         }
         if !c.error.is_empty() || is_terminal(&t.state) {
             return Ok((self.tasks[id].clone(), Vec::new()));
@@ -656,6 +728,55 @@ impl Fold {
             .map(|ch| self.change_notice(&t, &c.pr, ch))
             .filter(|n| !n.to.is_empty());
         Ok((self.tasks[id].clone(), ns.into_iter().collect()))
+    }
+
+    /// Makes PR card `id` stand as its PR `pr` does (merge desk §12.2),
+    /// as the card's creator's person: completed on a merge, cancelled on
+    /// a close, and put back when the PR is open again after that close.
+    /// Only the creator's person's own devices write it (they are the ones
+    /// that poll and may cancel). Safe to repeat.
+    fn follow_pr_card(&mut self, id: &str, pr: &str) -> Result<()> {
+        let Some(t) = self.tasks.get(id).cloned() else {
+            return Ok(());
+        };
+        let by = t.created_by.clone();
+        if t.pr_card.is_none() || !self.is_owner(&by) {
+            return Ok(());
+        }
+        let Some(p) = self.pr_states.get(id).and_then(|m| m.get(pr)).cloned() else {
+            return Ok(());
+        };
+        let to = if p.state == PR_MERGED && !is_terminal(&t.state) {
+            let note = if p.merge_sha.is_empty() {
+                format!("{pr} was merged on GitHub")
+            } else {
+                format!("{pr} was merged on GitHub as {}", p.merge_sha)
+            };
+            Some((COMPLETED, note))
+        } else if p.state == PR_CLOSED && !is_terminal(&t.state) {
+            Some((CANCELED, format!("{PR_CARD_CLOSED}: {pr}")))
+        } else if p.state == PR_OPEN && t.state == CANCELED && t.note.starts_with(PR_CARD_CLOSED) {
+            // Only a cancel this made: a duplicate's stays cancelled.
+            return self.reopen_locked(&by, id, &format!("its PR was reopened on GitHub: {pr}"));
+        } else {
+            None
+        };
+        if let Some((state, note)) = to {
+            let at = self.stamp();
+            self.write(
+                &by,
+                kinds::TASK_STATUS,
+                &TaskStateRow {
+                    task_id: id.into(),
+                    state: state.into(),
+                    note,
+                    by: by.clone(),
+                    at,
+                    ..TaskStateRow::default()
+                },
+            )?;
+        }
+        Ok(())
     }
 
     /// The notice for `change` to PR `pr` on `t`.
@@ -747,7 +868,7 @@ impl Fold {
                     .any(|l| l.reference == *pr && pr_link(l).is_some())
                     || t.blockers
                         .iter()
-                        .any(|b| b.merge_wait().is_some_and(|w| w == *pr));
+                        .any(|b| b.pr_wait().is_some_and(|w| w == *pr));
                 let Some((change, name, writers)) = p.news().filter(|_| on_card) else {
                     continue;
                 };
@@ -829,7 +950,18 @@ impl Fold {
             .chain(
                 t.blockers
                     .iter()
-                    .filter_map(|b| b.merge_wait().map(|pr| (pr, b.raised_by.clone()))),
+                    .filter_map(|b| b.pr_wait().map(|pr| (pr, b.raised_by.clone()))),
+            )
+            .collect();
+        // The creator of a PR card vouches for its PR's state (merge desk
+        // §12.2): nobody holds it, and Irori's row from the author's
+        // devices has to fold on every device.
+        let now: Vec<(String, String)> = now
+            .into_iter()
+            .chain(
+                t.pr_card
+                    .as_ref()
+                    .map(|_| (String::new(), t.created_by.clone())),
             )
             .collect();
         let vs = self.pr_vouchers.entry(id.to_string()).or_default();

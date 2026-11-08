@@ -48,7 +48,7 @@ use store::{Event, Filter, Store, kinds};
 use crate::board::{Error, ErrorKind, MAX_COMMENT, MAX_MENTIONS, MAX_PERSON_TEXT, Result, new_id};
 
 /// The rows Talk folds.
-pub const KINDS: [&str; 7] = [
+pub const KINDS: [&str; 8] = [
     kinds::TALK_CHANNEL_CREATED,
     kinds::TALK_CHANNEL_EDITED,
     kinds::TALK_MEMBER,
@@ -56,6 +56,7 @@ pub const KINDS: [&str; 7] = [
     kinds::TALK_READ,
     kinds::TALK_CARD,
     kinds::CALL_SEGMENT,
+    kinds::CALL_TITLE,
 ];
 
 /// A member's kind: the person.
@@ -172,6 +173,34 @@ pub fn pair_dm_id(a: &str, b: &str) -> String {
     let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
     let sum = Sha256::digest(format!("{PAIR_DM_DOMAIN}|{lo}|{hi}").as_bytes());
     format!("{DM_PREFIX}{}", &hex::encode(sum)[..16])
+}
+
+/// What [`assistants_channel_id`] hashes before the space id.
+pub const ASSISTANTS_DOMAIN: &str = "irori.assistants.channel.1";
+/// A space's assistants channel's id starts with this. Ordinary channel ids
+/// are `ch_` and an uppercase ULID, so `oa_` is unambiguous.
+pub const ASSISTANTS_PREFIX: &str = "ch_oa_";
+/// The assistants channel's name and topic (assistants-talk.md §4).
+pub const ASSISTANTS_NAME: &str = "office-assistants";
+pub const ASSISTANTS_TOPIC: &str = "Ask anyone's assistant. It answers from what is on this space.";
+
+/// Space `space`'s assistants channel (assistants-talk.md §4): `ch_oa_` and
+/// the first 16 hex digits of the SHA-256 of [`ASSISTANTS_DOMAIN`] and the
+/// space id. Every member's Core computes the same id, so the fold keeps
+/// one channel however many of them write it.
+pub fn assistants_channel_id(space: &str) -> String {
+    let sum = Sha256::digest(format!("{ASSISTANTS_DOMAIN}|{space}").as_bytes());
+    format!("{ASSISTANTS_PREFIX}{}", &hex::encode(sum)[..16])
+}
+
+/// Whether `id` is space `space`'s assistants channel.
+pub fn is_assistants_channel(id: &str, space: &str) -> bool {
+    !space.is_empty() && id == assistants_channel_id(space)
+}
+
+/// Whether `id` is in the assistants channels' id range, whichever space.
+fn in_assistants_range(id: &str) -> bool {
+    id.starts_with(ASSISTANTS_PREFIX)
 }
 
 /// Whether `conv` names a DM.
@@ -412,6 +441,27 @@ pub struct SegmentRow {
     pub start_ms: i64,
     pub end_ms: i64,
     pub text: String,
+    /// The speaker's notice allowed the huddle's assistants and agents to
+    /// read this line (call-agents.md section 10). Written `false` until the
+    /// notice that sets it ships; an older row reads as `false`.
+    pub agents: bool,
+    pub by: String,
+    pub at: GoTime,
+}
+
+/// The longest huddle title, in bytes.
+pub const MAX_TITLE: usize = 200;
+
+/// `call.title` (card #1043): a huddle's title, set by a person or proposed
+/// by an assistant (`assistant: true`, written by the person's device under
+/// their own key). A person's newest title beats an assistant's.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TitleRow {
+    pub call_id: String,
+    pub conv_id: String,
+    pub title: String,
+    pub assistant: bool,
     pub by: String,
     pub at: GoTime,
 }
@@ -474,6 +524,10 @@ pub struct Post {
     pub text: String,
     pub mentions: Vec<String>,
     pub agents_now: bool,
+    /// A huddle line the speaker's notice let agents read (call-agents.md
+    /// section 10); false on every other post.
+    #[serde(skip_serializing_if = "is_false")]
+    pub agents: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_from: Option<String>,
     /// The card made from it (`talk.card`).
@@ -546,6 +600,19 @@ struct State {
     drafts: BTreeMap<String, [Member; 2]>,
     /// Each huddle's marks and lines, by call id (card #656).
     calls: HashMap<String, CallIdx>,
+    /// Each huddle's titles (card #1043), kept apart from `calls` so a
+    /// title that names the wrong conversation can't bind a huddle to it,
+    /// and so the fold doesn't depend on which row came first.
+    titles: HashMap<String, Vec<TitleRec>>,
+}
+
+/// One `call.title` row as folded: the newest per conversation and kind.
+#[derive(Debug, Clone)]
+struct TitleRec {
+    conv: String,
+    title: String,
+    assistant: bool,
+    at: Ord3,
 }
 
 /// One huddle as Talk has it (card #656).
@@ -582,6 +649,17 @@ pub struct CallInfo {
     pub last: GoTime,
     /// How many lines its transcript has.
     pub lines: usize,
+    /// Its title (card #1043): a person's newest, else an assistant's
+    /// newest, else empty.
+    pub title: String,
+    /// Whether [`CallInfo::title`] was proposed by an assistant.
+    pub title_by_assistant: bool,
+    /// Who took part: the end mark's people once it ended; before that (and
+    /// after a crash, which leaves no end mark) the start mark's author and
+    /// everyone who spoke, by key in this device's form, each once.
+    pub people: Vec<String>,
+    /// The newest of its transcript lines, when it has any.
+    pub last_line: Option<GoTime>,
 }
 
 /// What to post.
@@ -868,6 +946,34 @@ impl Talk {
         self.join(&id, &Member::of(by), by)?;
         self.channel(&id)
             .ok_or_else(|| Error::raw(ErrorKind::Store, "talk: the channel didn't fold"))
+    }
+
+    /// Makes space `space`'s assistants channel as `irori` unless Talk has
+    /// folded it already (archived or not, so an archived one stays so).
+    /// True when it wrote the row. Nobody joins it: it isn't
+    /// [`Self::create_channel_in`].
+    pub fn ensure_assistants_channel(&self, space: &str) -> Result<bool> {
+        let space = space.trim();
+        if space.is_empty() {
+            return Ok(false);
+        }
+        let id = assistants_channel_id(space);
+        if self.channel(&id).is_some() {
+            return Ok(false);
+        }
+        self.write(
+            space,
+            "irori",
+            kinds::TALK_CHANNEL_CREATED,
+            &ChannelCreatedRow {
+                channel_id: id,
+                space_id: space.into(),
+                name: ASSISTANTS_NAME.into(),
+                topic: Some(ASSISTANTS_TOPIC.into()),
+                by: "irori".into(),
+            },
+        )?;
+        Ok(true)
     }
 
     /// Adds `m` to conversation `conv` (a channel or a DM). Joining twice
@@ -1172,6 +1278,24 @@ impl Talk {
         text: &str,
         by: &str,
     ) -> Result<Post> {
+        self.write_segment_marked(conv, call_id, seg, start_ms, end_ms, text, by, false)
+    }
+
+    /// [`Talk::write_segment`] with the `agents` mark (card #1047): `true`
+    /// when the speaker's notice said agents hear the huddle, so a person
+    /// DM's agents may read the line (call-agents.md section 10).
+    #[allow(clippy::too_many_arguments)]
+    pub fn write_segment_marked(
+        &self,
+        conv: &str,
+        call_id: &str,
+        seg: i64,
+        start_ms: i64,
+        end_ms: i64,
+        text: &str,
+        by: &str,
+        agents: bool,
+    ) -> Result<Post> {
         let by = need_by(by)?.to_string();
         let (conv, call_id) = (conv.trim().to_string(), call_id.trim().to_string());
         if call_id.is_empty() {
@@ -1185,23 +1309,7 @@ impl Talk {
         if !is_person_key(&by) {
             return Err(not_allowed("only a person speaks in a huddle"));
         }
-        let space = if is_channel(&conv) {
-            match self.channel(&conv) {
-                None => return Err(not_found(format!("no channel {conv}"))),
-                Some(c) if c.archived => {
-                    return Err(invalid(format!("#{} is archived", c.name)));
-                }
-                Some(c) => c.space_id,
-            }
-        } else if let Some(other) = self.pair_other(&conv) {
-            let space = self.dm_space(&other)?;
-            self.join_log(&conv, &space, &by, &other)?;
-            space
-        } else {
-            return Err(invalid(format!(
-                "{conv} isn't a channel or a DM with a person: no huddle is there"
-            )));
-        };
+        let space = self.call_log(&conv, &by)?;
         let ev = self.write(
             &space,
             &by,
@@ -1213,6 +1321,7 @@ impl Talk {
                 start_ms,
                 end_ms: end_ms.max(start_ms),
                 text,
+                agents,
                 by: by.clone(),
                 at: (self.now)(),
             },
@@ -1223,6 +1332,90 @@ impl Talk {
             .get(&call_id)
             .and_then(|c| c.lines.iter().find(|x| x.post_id == id).cloned())
             .ok_or_else(|| Error::raw(ErrorKind::Store, "talk: the line didn't fold"))
+    }
+
+    /// The log a huddle's rows in `conv` go to, as `by` (card #656, #1043):
+    /// a channel's space (Personal: the private log, ""), or a person DM's,
+    /// whose log is joined first.
+    fn call_log(&self, conv: &str, by: &str) -> Result<String> {
+        if is_channel(conv) {
+            match self.channel(conv) {
+                None => Err(not_found(format!("no channel {conv}"))),
+                Some(c) if c.archived => Err(invalid(format!("#{} is archived", c.name))),
+                Some(c) => Ok(c.space_id),
+            }
+        } else if let Some(other) = self.pair_other(conv) {
+            let space = self.dm_space(&other)?;
+            self.join_log(conv, &space, by, &other)?;
+            Ok(space)
+        } else {
+            Err(invalid(format!(
+                "{conv} isn't a channel or a DM with a person: no huddle is there"
+            )))
+        }
+    }
+
+    /// Writes huddle `call_id`'s title (card #1043) as a `call.title` row,
+    /// by the person `by`, into the log `conv`'s posts go to. Anyone in the
+    /// conversation may. `assistant` marks a title an assistant proposed:
+    /// it shows only while no person has set one. Returns the title the
+    /// huddle now shows.
+    pub fn write_title(
+        &self,
+        conv: &str,
+        call_id: &str,
+        title: &str,
+        assistant: bool,
+        by: &str,
+    ) -> Result<String> {
+        let by = need_by(by)?.to_string();
+        let (conv, call_id) = (conv.trim().to_string(), call_id.trim().to_string());
+        if call_id.is_empty() {
+            return Err(invalid("a huddle title needs its call's id"));
+        }
+        let title = title.trim().to_string();
+        if title.is_empty() {
+            return Err(invalid("a huddle's title can't be empty"));
+        }
+        if title.len() > MAX_TITLE {
+            return Err(invalid(format!(
+                "a huddle's title is at most {MAX_TITLE} bytes"
+            )));
+        }
+        if !is_person_key(&by) {
+            return Err(not_allowed("only a person titles a huddle"));
+        }
+        // The huddle must be this conversation's, or the row would fold to
+        // nothing.
+        if let Some(c) = self.call_conv(&call_id)
+            && c != conv
+        {
+            return Err(invalid(format!("huddle {call_id} isn't in {conv}")));
+        }
+        let space = self.call_log(&conv, &by)?;
+        self.write(
+            &space,
+            &by,
+            kinds::CALL_TITLE,
+            &TitleRow {
+                call_id: call_id.clone(),
+                conv_id: conv.clone(),
+                title,
+                assistant,
+                by: by.clone(),
+                at: (self.now)(),
+            },
+        )?;
+        Ok(self.call_title(&call_id).unwrap_or_default())
+    }
+
+    /// Huddle `call_id`'s title, when it has one (card #1043).
+    pub fn call_title(&self, call_id: &str) -> Option<String> {
+        let s = self.lock();
+        let id = call_id.trim();
+        let conv = s.calls.get(id).map(|c| c.conv.as_str())?;
+        let (t, _) = title_of(&s, id, conv);
+        (!t.is_empty()).then_some(t)
     }
 
     /// Writes both people's joins into `space`, the first time this person
@@ -1527,6 +1720,25 @@ impl Talk {
                     .map(|p| p.at)
                     .max_by(crate::gotime::cmp)
                     .unwrap_or_default();
+                let (title, title_by_assistant) = title_of(&s, id, &c.conv);
+                let people = match &end {
+                    Some(e) => e.people.clone(),
+                    None => {
+                        let mut out: Vec<String> = Vec::new();
+                        let starter = c
+                            .marks
+                            .iter()
+                            .find(|p| p.call.as_ref().is_some_and(|m| m.op == CALL_START))
+                            .map(|p| p.by.as_str());
+                        let speakers = c.lines.iter().map(|p| p.by.as_str());
+                        for k in starter.into_iter().chain(speakers) {
+                            if !out.iter().any(|x| canon(x) == canon(k)) {
+                                out.push(k.to_string());
+                            }
+                        }
+                        out
+                    }
+                };
                 CallInfo {
                     call_id: id.clone(),
                     conv_id: c.conv.clone(),
@@ -1534,6 +1746,10 @@ impl Talk {
                     end,
                     last,
                     lines: c.lines.len(),
+                    title,
+                    title_by_assistant,
+                    people,
+                    last_line: c.lines.iter().map(|p| p.at).max_by(crate::gotime::cmp),
                 }
             })
             .collect();
@@ -1552,6 +1768,24 @@ impl Talk {
             .filter(|c| c.conv == conv)
             .find_map(|c| c.fallback.iter().find(|p| p.post_id == post_id))
             .cloned()
+    }
+}
+
+/// Huddle `call_id`'s title in conversation `conv` (card #1043): a person's
+/// newest, else an assistant's newest. Rows naming another conversation
+/// than the huddle's don't count. The flag says an assistant proposed it.
+fn title_of(s: &State, call_id: &str, conv: &str) -> (String, bool) {
+    let newest = |assistant: bool| {
+        s.titles
+            .get(call_id)?
+            .iter()
+            .filter(|t| t.conv == conv && t.assistant == assistant)
+            .max_by(|a, b| a.at.cmp(&b.at))
+    };
+    match (newest(false), newest(true)) {
+        (Some(t), _) => (t.title.clone(), false),
+        (None, Some(t)) => (t.title.clone(), true),
+        (None, None) => (String::new(), false),
     }
 }
 
@@ -1636,6 +1870,14 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 return false;
             };
             if r.channel_id.is_empty() {
+                return false;
+            }
+            // The fold keeps the first copy, so a member of two spaces
+            // could make S1's assistants channel inside S2. `space_id` is
+            // the log that carried the row, not the row's say-so.
+            if in_assistants_range(&r.channel_id)
+                && !is_assistants_channel(&r.channel_id, &r.space_id)
+            {
                 return false;
             }
             let c = s.channels.entry(r.channel_id.clone()).or_default();
@@ -1750,6 +1992,7 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 text: r.text,
                 mentions: r.mentions,
                 agents_now: r.agents_now,
+                agents: false,
                 thread_from: r.thread_from,
                 files: r
                     .attach
@@ -1824,6 +2067,7 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                     conv_id: format!("{CALL_PREFIX}{}", r.call_id),
                     by: r.by,
                     text: text.to_string(),
+                    agents: r.agents,
                     at: at_ms(r.start_ms),
                     ord: (r.start_ms.max(0) as u64, ev.device_id.clone(), r.seg),
                     space: row_space(ev).unwrap_or_default(),
@@ -1831,6 +2075,42 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                     ..Post::default()
                 },
             );
+            true
+        }
+        kinds::CALL_TITLE => {
+            let Ok(r) = serde_json::from_slice::<TitleRow>(&ev.payload) else {
+                return false;
+            };
+            let title = r.title.trim();
+            // Only a person sets or proposes a title (an assistant's is the
+            // person's row, flagged); never an agent.
+            if r.call_id.is_empty()
+                || !(is_channel(&r.conv_id) || is_dm(&r.conv_id))
+                || title.is_empty()
+                || title.len() > MAX_TITLE
+                || !(is_person_key(&r.by) || is_other_person_key(&r.by))
+            {
+                return false;
+            }
+            let recs = s.titles.entry(r.call_id).or_default();
+            let rec = TitleRec {
+                conv: r.conv_id,
+                title: title.to_string(),
+                assistant: r.assistant,
+                at,
+            };
+            match recs
+                .iter_mut()
+                .find(|x| x.conv == rec.conv && x.assistant == rec.assistant)
+            {
+                Some(x) => {
+                    if x.at >= rec.at {
+                        return false;
+                    }
+                    *x = rec;
+                }
+                None => recs.push(rec),
+            }
             true
         }
         kinds::TALK_READ => {

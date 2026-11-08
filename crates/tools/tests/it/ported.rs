@@ -212,6 +212,7 @@ fn test_unbound_caller() {
         "board_assign",
         "board_status",
         "board_link",
+        "board_move",
         "board_edit",
         "board_later",
         "board_steps",
@@ -432,6 +433,7 @@ fn test_specs() {
         "board_assign",
         "board_status",
         "board_link",
+        "board_move",
         "board_edit",
         "board_later",
         "board_steps",
@@ -443,6 +445,7 @@ fn test_specs() {
         "ask_close",
         "lease",
         "leases",
+        "device_free",
         "release",
         "timeline",
         "why",
@@ -490,6 +493,7 @@ fn test_specs() {
         "inbox",
         "board",
         "leases",
+        "device_free",
         "timeline",
         "why",
         "commits",
@@ -499,6 +503,7 @@ fn test_specs() {
         "talk_list",
         "notes_search",
         "agents_started",
+        "screen",
     ];
     for sp in s.specs("") {
         assert_eq!(
@@ -610,7 +615,10 @@ fn test_specs() {
             "“Can I merge PR #N (covers #a, #b)?”",
             "options Merge it (recommended) and Not yet",
             "merge it yourself",
-            "Never sit on an external wait for a merge",
+            // Card #970: never a wait on a PR; a refused completed after a
+            // merge is retried once GitHub says merged.
+            "Never raise a wait on a PR, nor set completed while it is open",
+            "Retry once gh pr view says merged",
         ],
     );
     has(&desc("reply"), &["also goes on that card's thread"]);

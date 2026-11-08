@@ -58,7 +58,7 @@ pub use ids::IdGen;
 pub use messages::clip_show;
 pub use pr::normalize_pr;
 pub use progress::{ProgressBy, progress_of};
-pub use state::{Inbox, Subscription, decode_message};
+pub use state::{Inbox, SawOthers, Subscription, decode_message};
 pub use wake::TalkWake;
 
 // ---- errors ---------------------------------------------------------------
@@ -168,6 +168,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// The note on a delivery the sweeper took away from a session that ended.
 pub const NOTE_RECIPIENT_GONE: &str = "recipient gone";
+/// The note on a wind-down the person turned off before it reached its
+/// agent (card #787).
+pub const NOTE_WIND_DOWN_OFF: &str = "wind down turned off";
 
 pub const MAX_TEXT: usize = 8000;
 /// The person's own message may run to this many bytes (card #265); it
@@ -319,6 +322,8 @@ pub mod choice {
     pub const RELEASE: &str = "release";
     pub const DISMISS: &str = "dismiss";
     pub const MOVE: &str = "move";
+    /// Wind down turned off (card #787): a wind-down not reached yet closes.
+    pub const CANCEL: &str = "cancel";
 }
 
 // ---- types ----------------------------------------------------------------
@@ -422,6 +427,10 @@ pub struct Message {
     pub attachments: Vec<FileRef>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub mentions: Vec<Mention>,
+    /// The sender had read another person's text (card #1075): the agent
+    /// that reads this is flagged too, as the hop count rides on a send.
+    #[serde(skip_serializing_if = "is_false")]
+    pub others: bool,
     /// The device that wrote the message.sent row (memory only).
     #[serde(skip)]
     pub writer: String,

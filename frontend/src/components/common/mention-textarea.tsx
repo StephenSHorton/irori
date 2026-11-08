@@ -17,12 +17,7 @@ import { Face } from "@/components/cards/faces"
 import { Popover, PopoverContent } from "@/components/ui/popover"
 import { Textarea } from "@/components/ui/textarea"
 import { RefDot } from "@/components/common/rich-text"
-import {
-  cardStatus,
-  deviceVar,
-  useMentionCandidates,
-  type RefStatus,
-} from "@/lib/cards"
+import { deviceVar, refCandidates, useMentionCandidates } from "@/lib/cards"
 import { agentStatus } from "@/lib/agent-status"
 import { plainLine } from "@/lib/irori"
 import {
@@ -124,19 +119,9 @@ export function MentionTextarea({
     ]
   }, [all, board, ctx?.cards, card])
   const names = useMemo(() => cands.map(rowName), [cands])
-  const cardCands = useMemo<(CardCandidate & { status: RefStatus })[]>(
-    () =>
-      (ctx?.cards ?? [])
-        .filter((c) => c.short)
-        .map((c) => ({
-          id: c.id,
-          short: c.short,
-          ref: `${c.tag ?? ""}#${c.short}`,
-          title: plainLine(c.title),
-          // Its state as the chip it becomes shows it (card #343).
-          status: cardStatus(c),
-        })),
-    [ctx?.cards]
+  const cardCands = useMemo(
+    () => refCandidates(ctx?.cards ?? [], ctx?.threads ?? []),
+    [ctx?.cards, ctx?.threads]
   )
   const agentToken: Token | null =
     focused && !disabledMentions ? tokenAt(value, caret, names) : null
@@ -145,7 +130,10 @@ export function MentionTextarea({
       ? cardTokenAt(
           value,
           caret,
-          cardCands.map((c) => c.title)
+          // Cards' only: a thread's title is a whole sentence, so ordinary
+          // words after a "#" would hold the list open and Enter would
+          // replace them (card #982).
+          cardCands.filter((c) => !c.thread).map((c) => c.title)
         )
       : null
   const token: Token | null = agentToken ?? cardToken
@@ -385,14 +373,14 @@ export function MentionTextarea({
             <div
               role="listbox"
               id={listId}
-              aria-label="Cards to mention"
+              aria-label="Cards and threads to mention"
               className="grid max-h-72 overflow-y-auto"
             >
               {cardRows.length === 0 ? (
                 <p className="px-2 py-1.5 text-xs text-muted-foreground">
                   {token?.query
-                    ? `No card matches ${plainLine(token.query)}`
-                    : "No cards"}
+                    ? `No card or thread matches ${plainLine(token.query)}`
+                    : "No cards or threads"}
                 </p>
               ) : (
                 cardRows.map((c, i) => (

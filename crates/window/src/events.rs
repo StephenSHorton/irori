@@ -20,6 +20,7 @@
 //! | `voice:download` | `VoiceDownload` | the speech model's one-time download, about every 1% (#240) |
 //! | `meters:changed` | `MetersSample` | this computer's hardware meters, every 2 s, desktop only (#599, meters.rs) |
 //! | `usage:changed` | `UsageLimits` | coalesced, 250 ms: a session reported Claude usage (#599, usage.rs) |
+//! | `sync:changed` | `bool` | on change: this device is exchanging rows or blobs with a peer, held 1 s (#1089, sync_badge.rs) |
 //! | `call:state` | `CallView` | coalesced, 100 ms: every huddle change, and its health and speaking during one (#654, call.rs) |
 //!
 //! `roster:changed` follows this device's presence only, as Go's
@@ -44,6 +45,7 @@ pub use crate::call::EVENT_CALL_STATE;
 pub use crate::meters::EVENT_METERS_CHANGED;
 pub use crate::notifications::EVENT_NOTIFICATIONS_CHANGED;
 pub use crate::settings::EVENT_LAUNCH_AT_LOGIN;
+pub use crate::sync_badge::EVENT_SYNC_CHANGED;
 pub use crate::update::EVENT_UPDATE_STATUS;
 pub use crate::usage::EVENT_USAGE_CHANGED;
 
@@ -57,6 +59,9 @@ pub const EVENT_TALK_CHANGED: &str = "talk:changed";
 /// Who is replying in Talk changed (card #645); the payload is the list.
 pub const EVENT_TALK_REPLYING: &str = "talk:replying";
 pub const EVENT_APP_OPEN: &str = "app:open";
+/// How often the window reads Wind down's switch for a change made on
+/// another device (card #787).
+const WIND_DOWN_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 /// From the page: it listens for app:open now (card #395: a phone
 /// notification tapped while Irori was closed opens then).
 pub const EVENT_APP_OPEN_READY: &str = "app:open-ready";
@@ -146,7 +151,14 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
         let feed = w.core.feed(&[Topic::Presence]);
         out.push(spawn("irori-window-roster", move || {
             let q = feed.queue().clone();
+            // Wind down's switch can move on another device (card #787):
+            // read it now and then, telling the window when it moved.
+            let mut wind_down_at = std::time::Instant::now();
             while !stop.is_canceled() {
+                if wind_down_at.elapsed() >= WIND_DOWN_EVERY {
+                    wind_down_at = std::time::Instant::now();
+                    w.wind_down_tick();
+                }
                 match q.recv_timeout(std::time::Duration::from_millis(200)) {
                     Ok(Some(CoreEvent::Presence(ch))) => {
                         let payload = RosterChange {
@@ -329,6 +341,8 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
     }
     // The hardware meters (card #599): desktop only.
     out.extend(crate::meters::start(w.clone(), stop.clone()));
+    // The header's sync badge (card #1089).
+    out.extend(crate::sync_badge::start(w.clone(), stop.clone()));
     out
 }
 

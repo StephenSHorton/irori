@@ -19,6 +19,8 @@ const ME: &str = "person:pStephen";
 /// One shared board, "MLG farming" (mlg), with Stephen and Blake.
 struct Fake {
     info: BoardInfo,
+    /// Boards inside the space beside its first (card #690).
+    inside: Mutex<Vec<BoardInfo>>,
     st: Arc<store::Store>,
     co: Arc<Coord>,
     private: Arc<Coord>,
@@ -101,6 +103,7 @@ impl Fake {
                 people: vec!["Stephen".into(), "Blake".into()],
                 ..Default::default()
             },
+            inside: Mutex::default(),
             st,
             co,
             private,
@@ -187,7 +190,9 @@ impl TaskRouter for Fake {
 
 impl SharedBoards for Fake {
     fn boards(&self) -> Vec<BoardInfo> {
-        vec![self.info.clone()]
+        let mut out = vec![self.info.clone()];
+        out.extend(self.inside.lock().unwrap().iter().cloned());
+        out
     }
     fn board_of(&self, task_id: &str) -> Option<BoardInfo> {
         self.co.get_task(task_id).map(|_| self.info.clone())
@@ -580,6 +585,57 @@ fn the_board_tool_lists_shared_boards() {
         json!({"title": "x", "board": "nope"}),
         &["no board \"nope\" in a shared space", "Yours: mlg."],
     );
+}
+
+/// Card #690: the board tool shows each board's description, briefly,
+/// and leaves out closed boards; a card can't go on a closed one.
+#[test]
+fn closed_boards_leave_the_list_and_take_no_cards() {
+    let r = rig();
+    let inner = |tag: &str, name: &str, description: &str, closed: bool| BoardInfo {
+        tag: tag.into(),
+        name: name.into(),
+        space_board: format!("bd_{tag}"),
+        space_name: "MLG farming".into(),
+        description: description.into(),
+        closed,
+        ..r.fake.info.clone()
+    };
+    *r.fake.inside.lock().unwrap() = vec![
+        inner(
+            "farm",
+            "Farming",
+            &format!("Grow the\nfarm {}", "x".repeat(200)),
+            false,
+        ),
+        inner("old", "Old run", "Done and dusted", true),
+    ];
+    let out = r.h.okj(&call_a(), "board", json!({}));
+    has(
+        &out,
+        &["boards: mlg \"MLG farming\", farm \"Farming\"\n  farm: \"Grow the farm xxx"],
+    );
+    assert!(out.contains("…\""), "{out}");
+    assert!(
+        !out.contains("Old run") && !out.contains("Done and dusted"),
+        "{out}"
+    );
+    r.h.failsj(
+        &call_a(),
+        "board_create",
+        json!({"title": "x", "board": "nope"}),
+        &["Yours: mlg, farm."],
+    );
+    r.h.failsj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Another run", "board": "old"}),
+        &[
+            "Old run (old) in MLG farming is closed",
+            "Reopen it in Irori first, or pick another board",
+        ],
+    );
+    assert!(r.board_titles().is_empty());
 }
 
 #[test]
@@ -1026,6 +1082,7 @@ fn personal_board(r: &Rig, id: &str, name: &str, tag: &str) {
         board_id: id.into(),
         name: name.into(),
         tag: tag.into(),
+        ..Default::default()
     });
 }
 
@@ -1117,4 +1174,24 @@ fn talk_space_errors_dont_offer_personal_boards() {
         &["no board \"nope\" in a shared space", "Yours: mlg."],
     );
     has_not(&out, &["Personal's boards"]);
+}
+
+/// Card #964: on a shared board the weight hint goes on the card too,
+/// written as the agent's card (its writer there), so the board counts it.
+#[test]
+fn a_shared_boards_card_takes_the_weight() {
+    let r = rig();
+    let out = r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Tune the loader", "board": "mlg",
+               "weight": {"level": "light", "why": "a known pattern"}}),
+    );
+    has(&out, &["Created mlg#1 (task:"]);
+    let t = &r.fake.co.list_tasks(&coord::TaskFilter::default())[0];
+    let w = t.weight.clone().expect("weighed on the board");
+    assert_eq!(
+        (w.level.as_str(), w.reason.as_str(), w.set_by.as_str()),
+        ("light", "a known pattern", coord::SET_BY_AGENT)
+    );
 }

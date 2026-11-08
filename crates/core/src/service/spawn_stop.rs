@@ -653,6 +653,48 @@ impl Services {
         }
     }
 
+    /// Closes the questions Irori asked because no agent could start for a
+    /// card, once an agent holds it (card #717): "no copy here", "couldn't
+    /// start: try again?" and "crashed: start another?" all ask about
+    /// starting one, which no longer happens. Only the device that hands
+    /// the card out, which asked them, closes them. The crash count stays,
+    /// so if the holder goes before it's done the crash question comes back.
+    pub(crate) fn drop_held_waits(&self) {
+        let open = TaskFilter {
+            open: true,
+            ..TaskFilter::default()
+        };
+        for (_, co) in self.agent_coords() {
+            for t in co.list_tasks(&open) {
+                let Some(who) = agent_holder(&t) else {
+                    continue;
+                };
+                let asks: Vec<&Blocker> = t
+                    .blockers
+                    .iter()
+                    .filter(|b| b.open() && irori_acts_on(b))
+                    .collect();
+                if asks.is_empty() || !co.hands_out_here(&t.id) {
+                    continue;
+                }
+                let name = match self.agent_name(who) {
+                    n if n.is_empty() => "An agent".to_string(),
+                    n => n,
+                };
+                for b in asks {
+                    let a = BlockerAnswer {
+                        text: format!("{name} took the card, so no agent needs to start for it."),
+                        resolve: true,
+                        ..BlockerAnswer::default()
+                    };
+                    if let Err(e) = co.answer(SWEEPER, &t.id, &b.id, a) {
+                        logf(format_args!("held {}: {e}", t.short_ref()));
+                    }
+                }
+            }
+        }
+    }
+
     /// Lifts the "no copy" blockers this device raised once a copy is here
     /// (a Where, a checkout, or a folder the person named): the card then
     /// starts as any other does.
@@ -685,6 +727,24 @@ impl Services {
     }
 }
 
+/// The first of card t's holders that is an agent, not a person: one on
+/// it means no agent needs to start for it (card #717).
+pub(crate) fn agent_holder(t: &Task) -> Option<&String> {
+    t.holders.iter().find(|k| is_agent_key(k))
+}
+
+/// The agent card t is with (card #717): one holding it, else one it was
+/// given to. A person holding it (a card given to them, say) isn't one:
+/// their agent still has to start.
+pub fn agent_on(t: &Task) -> Option<&String> {
+    agent_holder(t).or_else(|| t.assigned.iter().find(|k| is_agent_key(k)))
+}
+
+/// Whether `k` is an agent's key, not a person's.
+pub fn is_agent_key(k: &str) -> bool {
+    !k.starts_with(irori_identity::kinds::PERSON_ACTOR_PREFIX) && !k.starts_with("user:")
+}
+
 /// A helper's part (spawned agents part 7): its folder is a worktree of the
 /// lead's, so a missing one is the lead's matter, not a question.
 pub(crate) fn is_helper(t: &Task) -> bool {
@@ -694,6 +754,24 @@ pub(crate) fn is_helper(t: &Task) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Card #717: a person holding a card (one given to them) isn't an
+    /// agent on it; an agent holding it, or given it, is.
+    #[test]
+    fn only_an_agent_is_on_a_card() {
+        let mut t = Task {
+            holders: vec!["person:p1".into()],
+            assigned: vec!["person:p1".into()],
+            ..Task::default()
+        };
+        assert_eq!(agent_on(&t), None);
+        t.holders.push("user:dev1".into());
+        assert_eq!(agent_on(&t), None);
+        t.assigned.push("agent:c1".into());
+        assert_eq!(agent_on(&t).map(String::as_str), Some("agent:c1"));
+        t.holders.push("agent:c2".into());
+        assert_eq!(agent_on(&t).map(String::as_str), Some("agent:c2"));
+    }
 
     #[test]
     fn replies_name_folders() {
