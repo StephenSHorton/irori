@@ -1897,6 +1897,9 @@ impl Services {
             .unwrap_or_else(|e| e.into_inner());
         let rows = self.store.as_ref();
         load_spawn(rows, &self.spawn);
+        // Each shared space's #office-assistants (assistants-talk.md §4):
+        // no event fires when a space's gate opens, so the sweep retries.
+        self.ensure_assistants_channels();
         self.clean_after_start();
         self.bind_spawns();
         self.take_up_started();
