@@ -35,6 +35,40 @@ pub struct RunningAgent {
     pub started_at: i64,
 }
 
+/// Token counts for one session (card #1020), a transcript's, so only this
+/// device's.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTokens {
+    /// Every kind added up.
+    #[specta(type = f64)]
+    pub total: u64,
+    #[specta(type = f64)]
+    pub input: u64,
+    #[specta(type = f64)]
+    pub output: u64,
+    #[specta(type = f64)]
+    pub cache_read: u64,
+    #[specta(type = f64)]
+    pub cache_write: u64,
+}
+
+/// What is known of one agent's model, effort and tokens, for its hover card
+/// (card #1020). A field that isn't known is empty or left out.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentUsage {
+    /// The model Irori asked for ("sonnet"), else the one its transcript
+    /// last answered with ("claude-opus-5-5"); `""` when unknown.
+    pub model: String,
+    /// The effort Irori asked for; `""` for an agent it didn't start.
+    pub effort: String,
+    /// Read from its transcript: only for an agent on this device.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub tokens: Option<AgentTokens>,
+}
+
 /// What Settings › Agents shows for one board.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -404,6 +438,44 @@ impl Window {
             cwd,
             command: Some(argv),
         })
+    }
+
+    /// An agent's model, effort and tokens (card #1020). The model and effort
+    /// are the spawn record's, which every device has for an agent Irori
+    /// started; the tokens come from the transcript, so only for an agent on
+    /// this device. What isn't known is left empty.
+    pub fn agent_usage(&self, key: &str) -> AgentUsage {
+        let co = self.core.coord();
+        let req = co.spawned(key).and_then(|sp| {
+            co.get_task(&sp.task_id).and_then(|t| {
+                t.spawns
+                    .iter()
+                    .find(|s| s.key == key)
+                    .or_else(|| t.spawn_request())
+                    .cloned()
+            })
+        });
+        let mut out = AgentUsage {
+            model: req.as_ref().map(|r| r.model.clone()).unwrap_or_default(),
+            effort: req.as_ref().map(|r| r.effort.clone()).unwrap_or_default(),
+            tokens: None,
+        };
+        let (dev, session) = key.split_once('/').unwrap_or(("", key));
+        if dev == self.core.device_id()
+            && let Some(u) = COSTS.usage(&self.core.claude_dir(), session)
+        {
+            if out.model.is_empty() {
+                out.model = u.model;
+            }
+            out.tokens = Some(AgentTokens {
+                total: u.tokens.total(),
+                input: u.tokens.input,
+                output: u.tokens.output,
+                cache_read: u.tokens.cache_read,
+                cache_write: u.tokens.cache_write,
+            });
+        }
+        out
     }
 
     /// Every agent Irori started that is still running, and every card an
