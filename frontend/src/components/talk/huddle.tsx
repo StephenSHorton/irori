@@ -19,6 +19,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import {
   CircleDotIcon,
+  ExternalLinkIcon,
   FileTextIcon,
   HeadphoneOffIcon,
   HeadphonesIcon,
@@ -570,6 +571,7 @@ export function CallPanel({
   onShare,
   onStopShare,
   onShareNoteSeen,
+  onOpenHuddle,
 }: {
   mine: CallMineView
   wide?: boolean
@@ -582,6 +584,8 @@ export function CallPanel({
   onStopShare?: () => void
   // The share's note line was dismissed (its ×).
   onShareNoteSeen?: () => void
+  // Opens the huddle's page (card #1044).
+  onOpenHuddle?: () => void
 }) {
   const who = whoIn(mine)
   const captions = mine.captions.length > 0
@@ -660,6 +664,14 @@ export function CallPanel({
         </span>
       </div>
       {notes}
+      {onOpenHuddle && (
+        <div className="px-3 pb-2">
+          <Button size="xs" variant="secondary" onClick={onOpenHuddle}>
+            <ExternalLinkIcon />
+            Open huddle
+          </Button>
+        </div>
+      )}
       <div
         className={cn(
           "grid min-h-0 content-start gap-1.5 overflow-y-auto px-3 pb-3",
@@ -803,7 +815,7 @@ export function CallBar({
           type="button"
           onClick={onOpen}
           className="min-w-0 flex-1 truncate text-left font-medium text-ink hover:underline"
-          title={`Open ${where}`}
+          title={`Open the huddle in ${where}`}
         >
           Huddle · {where}
         </button>
@@ -862,9 +874,14 @@ export function CallBar({
 // HuddleStarted is the post a huddle's start leaves; Join while it's on.
 export function HuddleStarted({
   by,
+  title,
+  onOpen,
   onJoin,
 }: {
   by: string
+  // Its title when it has one (card #1044), and opening its page.
+  title?: string
+  onOpen?: () => void
   // Set while it's on and you aren't in it.
   onJoin?: () => void
 }) {
@@ -873,7 +890,23 @@ export function HuddleStarted({
       <HeadphonesIcon className="size-4 shrink-0 text-success" />
       <span className="min-w-0 text-ink-2">
         <span className="font-medium text-ink">{by}</span> started a huddle
+        {title && (
+          <>
+            {": "}
+            <span className="font-medium text-ink">{title}</span>
+          </>
+        )}
       </span>
+      {onOpen && (
+        <Button
+          size="xs"
+          variant="ghost"
+          className={cn("shrink-0", !onJoin && "ml-auto")}
+          onClick={onOpen}
+        >
+          Open
+        </Button>
+      )}
       {onJoin && (
         <Button
           size="xs"
@@ -893,10 +926,15 @@ export function HuddleStarted({
 export function HuddleEnded({
   durationMs,
   people,
+  title,
+  onOpen,
   onTranscript,
 }: {
   durationMs: number
   people: readonly string[]
+  // Its title when it has one (card #1044), and opening its page.
+  title?: string
+  onOpen?: () => void
   // Set when it has a transcript (#656): opens it.
   onTranscript?: () => void
 }) {
@@ -904,8 +942,11 @@ export function HuddleEnded({
     <div className="mx-2 my-1.5 rounded-lg border border-border bg-card/60 px-3 py-2 text-[13px]">
       <div className="flex items-center gap-2">
         <HeadphonesIcon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="shrink-0 font-medium text-ink">Huddle ended</span>
-        <span className="min-w-0 truncate text-[12px] text-muted-foreground">
+        <span className="min-w-0 truncate font-medium text-ink">
+          {title || "Huddle ended"}
+        </span>
+        <span className="shrink-0 text-[12px] text-muted-foreground">
+          {title && "ended · "}
           {lengthText(durationMs)}
         </span>
       </div>
@@ -914,12 +955,20 @@ export function HuddleEnded({
           {namesText(people)} {people.length === 1 ? "was" : "were"} in it.
         </p>
       )}
-      {onTranscript && (
-        <div className="mt-2 pl-6">
-          <Button size="xs" variant="secondary" onClick={onTranscript}>
-            <FileTextIcon />
-            Transcript
-          </Button>
+      {(onOpen || onTranscript) && (
+        <div className="mt-2 flex flex-wrap gap-1.5 pl-6">
+          {onOpen && (
+            <Button size="xs" variant="secondary" onClick={onOpen}>
+              <ExternalLinkIcon />
+              Open
+            </Button>
+          )}
+          {onTranscript && (
+            <Button size="xs" variant="secondary" onClick={onTranscript}>
+              <FileTextIcon />
+              Transcript
+            </Button>
+          )}
         </div>
       )}
     </div>
@@ -1216,7 +1265,8 @@ export function PhoneCallBar({
 }: {
   // The conversation open now ("" for none).
   here: string
-  onOpen: (convId: string) => void
+  // Opens the huddle's page (card #1044).
+  onOpen: (callId: string) => void
 }) {
   const mine = useCallPart((s) => s.mine)
   if (!mine || mine.convId === here) return null
@@ -1225,7 +1275,7 @@ export function PhoneCallBar({
     <div className="pt-2" data-assistant-avoid="bar">
       <CallBar
         mine={mine}
-        onOpen={() => onOpen(mine.convId)}
+        onOpen={() => onOpen(mine.callId)}
         onMute={(on) => void setMuted(on).catch(() => {})}
         onDeafen={(on) => void setDeafened(on).catch(() => {})}
         onLeave={() => void leaveHuddle().catch(() => {})}

@@ -135,6 +135,7 @@ import {
 } from "@/lib/app-shortcuts"
 import { spawnedKeys } from "@/lib/roster-groups"
 import { PhoneCallBar, Ringing } from "@/components/talk/huddle"
+import { HuddlePage } from "@/components/talk/huddle-page"
 import { startCallState } from "@/lib/call"
 
 // PageState is the history entry of a card's page. fromGrid: the grid is
@@ -967,7 +968,10 @@ export function App() {
     id ? boards.find((b) => b.boardId === id)?.name || "A space" : "Personal"
   // (section "boards", "#boards", renders nothing: it is on its way to the
   // picked space's page.)
-  const fullScreen = narrow && !open && section.kind === "talk" && !!section.id
+  const fullScreen =
+    narrow &&
+    !open &&
+    ((section.kind === "talk" && !!section.id) || section.kind === "huddle")
 
   return (
     <AgentCards.Provider value={agentCards}>
@@ -1010,7 +1014,7 @@ export function App() {
                       ? "Personal"
                       : section.kind === "boards"
                         ? "Boards"
-                        : section.kind === "talk"
+                        : section.kind === "talk" || section.kind === "huddle"
                           ? "Talk"
                           : section.kind === "notes"
                             ? "Notes"
@@ -1091,6 +1095,14 @@ export function App() {
                 </Scroll>
               ) : section.kind === "settings" ? (
                 <SettingsPage tab={section.tab} />
+              ) : section.kind === "huddle" ? (
+                <HuddlePage
+                  key={section.id}
+                  callId={section.id}
+                  now={now}
+                  onBack={() => go({ kind: "talk", id: "" })}
+                  onOpenConv={(id) => go({ kind: "talk", id })}
+                />
               ) : section.kind === "talk" ? (
                 <TalkPage
                   threads={allThreads}
@@ -1104,6 +1116,7 @@ export function App() {
                   }))}
                   open={section.id}
                   onOpen={(id) => go({ kind: "talk", id })}
+                  onOpenHuddle={(id) => go({ kind: "huddle", id })}
                   now={now}
                   why={whyWaiting(
                     roster.agents.filter((a) => !spawned.has(a.key))
@@ -1294,7 +1307,7 @@ export function App() {
             {narrow && (
               <PhoneCallBar
                 here={!open && section.kind === "talk" ? section.id : ""}
-                onOpen={(id) => goTo({ kind: "talk", id })}
+                onOpen={(id) => goTo({ kind: "huddle", id })}
               />
             )}
             {narrow && (

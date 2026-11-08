@@ -377,6 +377,10 @@ export const commands = {
 	assistantWeighsSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_weighs_set", { on }),
 	/**  A huddle's transcript (#656): every line, named. */
 	talkCallTranscript: (callId: string) => __TAURI_INVOKE<TalkTranscript>("talk_call_transcript", { callId }),
+	/**  Every huddle in Talk (card #1044), newest first. */
+	talkHuddles: () => __TAURI_INVOKE<TalkHuddle[]>("talk_huddles"),
+	/**  Sets a huddle's title (card #1044); returns the title it now shows. */
+	talkCallTitleSet: (callId: string, title: string) => __TAURI_INVOKE<string>("talk_call_title_set", { callId, title }),
 	/**  What this device can share: displays, then windows. */
 	shareSources: () => __TAURI_INVOKE<ShareSourceView[]>("share_sources"),
 	/**  Shares a window or display (an id from share_sources) in the huddle. */
@@ -3113,6 +3117,36 @@ export type TalkConversation = {
 	 *  updating"). Absent otherwise. `name` is who they are.
 	 */
 	waiting?: string,
+};
+
+/**  One huddle in Talk's Huddles list (card #1044), newest first. */
+export type TalkHuddle = {
+	callId: string,
+	/**  The channel or DM it was in. */
+	convId: string,
+	/**  The channel's name, or the DM's other person. */
+	convName: string,
+	/**  `channel` or `dm`. */
+	convKind: string,
+	/**  The huddle's title; empty when it has none. */
+	title: string,
+	titleByAssistant: boolean,
+	/**  When it started, Unix ms; null when its start post isn't here. */
+	startedAtMs: number | null,
+	/**  When its newest row was written, Unix ms. */
+	lastAtMs: number,
+	ended: boolean,
+	/**  How long it ran, once ended; 0 before. */
+	durationMs: number,
+	/**
+	 *  The huddle is over as this device can tell (see
+	 *  [`TalkTranscript::over`]).
+	 */
+	over: boolean,
+	/**  Who took part, by name ("you" for the person), never a key. */
+	people: string[],
+	/**  How many lines its transcript has. */
+	lines: number,
 };
 
 /**  One side of a conversation. */

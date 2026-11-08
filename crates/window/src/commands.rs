@@ -34,7 +34,9 @@ use crate::mentions::{MentionCandidate, MentionOutcome};
 use crate::meters::MetersSample;
 use crate::roster::{GoneSession, RosterChange};
 use crate::settings::{CardLook, NotifyOptions, Target};
-use crate::talk::{TalkConversation, TalkMemberRef, TalkPerson, TalkPost, TalkTranscript};
+use crate::talk::{
+    TalkConversation, TalkHuddle, TalkMemberRef, TalkPerson, TalkPost, TalkTranscript,
+};
 use crate::ts::{self, Typed};
 use crate::update::UpdateStatus;
 use crate::usage::UsageLimits;
@@ -1803,6 +1805,20 @@ pub async fn call_transcribe_set(w: W<'_>, on: bool) -> R<()> {
     blocking(&w, move |w| w.call_transcribe_set(on)).await
 }
 
+/// Every huddle in Talk (card #1044), newest first.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_huddles(w: W<'_>) -> R<Vec<TalkHuddle>> {
+    blocking(&w, move |w| Ok(w.talk_huddles())).await
+}
+
+/// Sets a huddle's title (card #1044); returns the title it now shows.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_call_title_set(w: W<'_>, call_id: String, title: String) -> R<String> {
+    blocking(&w, move |w| w.talk_call_title_set(&call_id, &title)).await
+}
+
 /// A huddle's transcript (#656): every line, named.
 #[tauri::command]
 #[specta::specta]
@@ -2440,6 +2456,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_weighs,
             assistant_weighs_set,
             talk_call_transcript,
+            talk_huddles,
+            talk_call_title_set,
             share_sources,
             share_start,
             share_stop,
