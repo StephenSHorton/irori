@@ -1,7 +1,8 @@
 // SpaceSwitcher sits at the top of the sidebar (card #393, mockup talk-6):
-// it picks the space Dashboard, Talk and Boards show. All spaces is everything,
-// Needs you across all of it; Personal is you and your agents; then each
-// shared space, "with" whoever is in it. It is the one place for spaces
+// it picks the space Talk and Boards show (the Dashboard always shows every
+// space, card #1001). Personal is you and your agents; then each shared
+// space, "with" whoever is in it. A dot on a row says something there waits
+// for you. It is the one place for spaces
 // (card #689, which dropped the Spaces tab; Boards shows only the picked
 // space's): at its foot, Space settings for a shared pick (its page: its
 // boards, people, invites and settings) and New or join a space.
@@ -9,7 +10,6 @@
 import {
   CheckIcon,
   ChevronDownIcon,
-  LayersIcon,
   PlusIcon,
   SettingsIcon,
   UserIcon,
@@ -27,13 +27,7 @@ import type { BoardSummary } from "@/lib/boards"
 import { plainLine } from "@/lib/irori"
 import { go } from "@/lib/nav"
 import { previewFlag } from "@/lib/preview"
-import {
-  AllSpaces,
-  Personal,
-  spacesOf,
-  withLine,
-  type Space,
-} from "@/lib/spaces"
+import { Personal, spacesOf, withLine, type Space } from "@/lib/spaces"
 import { cn } from "@/lib/utils"
 
 function Mark({ s, className }: { s: Space; className?: string }) {
@@ -41,12 +35,6 @@ function Mark({ s, className }: { s: Space; className?: string }) {
     "flex size-5 shrink-0 items-center justify-center rounded text-[10.5px] font-semibold",
     className
   )
-  if (s.id === AllSpaces)
-    return (
-      <span className={cn(base, "bg-secondary text-muted-foreground")}>
-        <LayersIcon className="size-3" aria-hidden />
-      </span>
-    )
   if (s.id === Personal)
     return (
       <span className={cn(base, "bg-secondary text-muted-foreground")}>
@@ -76,6 +64,7 @@ export function SpaceSwitcher({
   onSpace,
   onNewSpace,
   folded,
+  waiting,
 }: {
   boards: BoardSummary[]
   space: string
@@ -83,6 +72,8 @@ export function SpaceSwitcher({
   // Opens New or join a space (App's dialog, which the palette opens too).
   onNewSpace: () => void
   folded: boolean
+  // The spaces with something waiting for the person (card #1001).
+  waiting?: ReadonlySet<string>
 }) {
   const spaces = spacesOf(boards)
   const cur = spaces.find((s) => s.id === space) ?? spaces[0]
@@ -97,7 +88,7 @@ export function SpaceSwitcher({
             title={
               folded
                 ? `Space: ${plainLine(cur.name)}`
-                : "Pick the space Dashboard, Talk and Boards show, or make or join one"
+                : "Pick the space Talk and Boards show, or make or join one"
             }
             className={cn(
               "flex h-9 w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/40 text-left text-sm text-ink hover:bg-secondary pointer-coarse:h-11",
@@ -122,8 +113,8 @@ export function SpaceSwitcher({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64">
         {spaces.map((s, i) => (
-          <div key={s.id || "all"}>
-            {i === 2 && <DropdownMenuSeparator />}
+          <div key={s.id}>
+            {i === 1 && <DropdownMenuSeparator />}
             <DropdownMenuItem onClick={() => onSpace(s.id)}>
               <Mark s={s} />
               <span className="grid min-w-0 flex-1">
@@ -136,23 +127,24 @@ export function SpaceSwitcher({
                     </span>
                   )}
                 </span>
-                {s.id !== AllSpaces && (
-                  <FreshnessShort log={s.id} className="text-[11px]" />
-                )}
+                <FreshnessShort log={s.id} className="text-[11px]" />
               </span>
+              {waiting?.has(s.id) && (
+                <span
+                  role="img"
+                  aria-label="Something waits for you here"
+                  title="Something waits for you here"
+                  className="size-2 shrink-0 rounded-full bg-primary"
+                />
+              )}
               {s.id === cur.id && (
                 <CheckIcon className="size-3.5" aria-hidden />
               )}
             </DropdownMenuItem>
-            {i === 0 && (
-              <p className="px-2 pb-1 text-[11px] text-muted-foreground">
-                Needs you across everything
-              </p>
-            )}
           </div>
         ))}
         <DropdownMenuSeparator />
-        {cur.id !== AllSpaces && cur.id !== Personal && (
+        {cur.id !== Personal && (
           <DropdownMenuItem
             onClick={() => go({ kind: "board", id: cur.id })}
             title={`${plainLine(cur.name)}'s boards, people, invites and settings`}
