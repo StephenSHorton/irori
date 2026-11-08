@@ -2215,7 +2215,7 @@
         },
         "step_id": {
           "type": "string",
-          "description": "The step they named, e.g. s2."
+          "description": "The step as the person named it: s2, or 2 for the second one listed."
         }
       },
       "required": [

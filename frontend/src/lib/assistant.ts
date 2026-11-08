@@ -433,6 +433,19 @@ export function addNote(text: string) {
   })
 }
 
+// addChanged says what a run stopped early had already changed.
+function addChanged(line: string) {
+  const text = line.trim()
+  if (!text) return
+  const s = assistantState()
+  set({
+    entries: capHistory([
+      ...s.entries,
+      { role: "assistant", text, note: true, changed: true },
+    ]),
+  })
+}
+
 // The chat's way to go somewhere (components/assistant/assistant-chat.tsx
 // registers it while it is mounted).
 let goHandler: ((t: GoTarget) => void) | null = null
@@ -454,6 +467,11 @@ export async function ask(text: string): Promise<void> {
     reply: freshReply,
   })
   const onEvent = (ev: AssistantEvent) => {
+    // Card #987: a change made before Stop still happened, so say so.
+    if (ev.kind === "changed" && run?.token !== token) {
+      addChanged(ev.text)
+      return
+    }
     if (run?.token !== token) return
     const r = foldEvent(assistantState().reply ?? freshReply, ev)
     if (r.end) finish(r)

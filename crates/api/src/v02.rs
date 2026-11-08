@@ -213,9 +213,19 @@ fn assistant_write_allowed(h: &Handler, name: &str, args: &[u8]) -> bool {
     let Some(g) = h.s.b.assistant_grants() else {
         return false;
     };
-    let Ok(v) = serde_json::from_slice::<serde_json::Value>(args) else {
+    let Ok(serde_json::Value::Object(v)) = serde_json::from_slice(args) else {
         return false;
     };
+    // Exactly the names read here: the tool's decoder also folds case, so
+    // a `TASK_ID` beside `task_id` would act on a card this didn't check.
+    let known: &[&str] = if name == "assistant_tick" {
+        &["task_id", "step_id"]
+    } else {
+        &["task_id"]
+    };
+    if v.keys().any(|k| !known.contains(&k.as_str())) {
+        return false;
+    }
     let arg = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or_default();
     g.take(name, arg("task_id"), arg("step_id"))
 }

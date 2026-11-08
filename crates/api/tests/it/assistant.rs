@@ -197,6 +197,17 @@ fn a_write_needs_the_persons_own_message_for_that_card() {
     assert_eq!(code, 403, "{text}");
     assert!(!co.get_task(&planted.id).unwrap().steps[0].done);
 
+    // A second spelling of the argument can't move a grant to another card.
+    let (code, text) = call(
+        &rig,
+        &h,
+        "assistant_close",
+        json!({ "task_id": a, "TASK_ID": p }),
+    );
+    assert_eq!(code, 403, "{text}");
+    assert_eq!(state(&planted.id), before);
+    assert_eq!(state(&asked.id), before);
+
     // The step they named on the card they named, once.
     let (code, text) = call(
         &rig,
