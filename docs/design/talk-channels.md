@@ -74,7 +74,7 @@ talk.card             {postId, taskId}                     (a card made from a m
 ## 7. Agent tools
 
 - `talk_post {conv, text, mention?, space?}` posts to a channel, DM or thread.
-- `talk_thread {text, conv?, mention?, space?}` opens a thread with the person (card #631), in Personal or a space, about a channel when `conv` names one (a pointer post goes there). The agent holds it, the agents it names are woken, and no agent is handed or started for it, even after its opener ends, until the person writes in it ([spawned-agents.md](spawned-agents.md) §7).
+- `talk_thread {text, conv?, mention?, space?, agent?, watch?}` opens a thread with the person (card #631), in Personal or a space, about a channel when `conv` names one (a pointer post goes there). The agent holds it, the agents it names are woken, and no agent is handed or started for it, even after its opener ends, until the person writes in it ([spawned-agents.md](spawned-agents.md) §7). *Card #1027:* `agent="new"` starts a fresh agent to hold the thread (counted and refused as `agent_start` is, decision 51), `agent=<name>` hands it to that live agent; the opener then hears the replies only with `watch=true`.
 - `talk_read {conv, since?, space?}` reads history, in pages.
 - `talk_list` lists your channels and DMs, and the threads you're on in the private log and every space's, with unread counts.
 - `talk_join` / `talk_leave {conv, space?}` join or leave a channel.
