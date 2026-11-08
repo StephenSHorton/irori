@@ -212,7 +212,7 @@ export function AskBoxShape() {
   return (
     <div className="flex items-center gap-2 p-1.5 glass-panel">
       <span className="flex-1 px-3 py-2 text-sm text-muted-foreground">
-        Ask about anything…
+        Start a thread…
       </span>
       <span skullet-block="" className="block h-8 w-14 rounded-md" />
     </div>
