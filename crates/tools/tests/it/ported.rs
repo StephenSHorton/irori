@@ -501,6 +501,7 @@ fn test_specs() {
         "talk_list",
         "notes_search",
         "agents_started",
+        "screen",
     ];
     for sp in s.specs("") {
         assert_eq!(

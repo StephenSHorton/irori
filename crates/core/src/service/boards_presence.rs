@@ -143,8 +143,12 @@ impl Services {
                 .into_iter()
                 .filter_map(|a| {
                     let id = a.key.strip_prefix(AGENT_ACTOR_PREFIX)?;
-                    let person = m.cards.get(id)?.person_id.clone();
-                    Some((person, a.status))
+                    let card = m.cards.get(id)?;
+                    // The Office Assistant is not a working agent.
+                    if card.kind == coord::roster::ASSISTANT_KIND {
+                        return None;
+                    }
+                    Some((card.person_id.clone(), a.status))
                 })
                 .collect()
         };

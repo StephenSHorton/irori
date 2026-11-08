@@ -914,7 +914,9 @@ impl Fold {
                     return;
                 };
                 let person = self.person_row(ev, &p.by);
-                let said = self.given_say(&p, person);
+                let said = self
+                    .given_say(&p, person)
+                    .or_else(|| self.marked_say(&p, person));
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
