@@ -8,7 +8,7 @@
 // stale). Custom colours are derived from an accent and a background tint
 // with the same ramp, then nudged until text passes WCAG AA (4.5:1).
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 
 // ---- colour ------------------------------------------------------------
 
@@ -622,18 +622,23 @@ export function applyAppearance(a: Appearance) {
   for (const fn of appliedListeners) fn(a)
 }
 
-// useAppearance is the saved choice and its setter; it follows the
-// system's light/dark while the choice is "system".
+// followSystem (card #1067) re-applies what the page shows whenever the
+// computer's light/dark flips, so "system" follows it wherever the person
+// is in the app, not only while Settings > Appearance is open. Call once at
+// startup; it returns the stop.
+export function followSystem(): () => void {
+  if (typeof window === "undefined" || !window.matchMedia) return () => {}
+  const mq = window.matchMedia("(prefers-color-scheme: dark)")
+  const on = () => {
+    if (shown?.mode === "system") applyAppearance(shown)
+  }
+  mq.addEventListener("change", on)
+  return () => mq.removeEventListener("change", on)
+}
+
+// useAppearance is the saved choice and its setter.
 export function useAppearance() {
   const [a, setA] = useState<Appearance>(() => shown ?? loadAppearance())
-
-  useEffect(() => {
-    if (a.mode !== "system") return
-    const mq = window.matchMedia("(prefers-color-scheme: dark)")
-    const on = () => applyAppearance(a)
-    mq.addEventListener("change", on)
-    return () => mq.removeEventListener("change", on)
-  }, [a])
 
   const set = useCallback((patch: Partial<Appearance>) => {
     setA((cur) => {

@@ -7,7 +7,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use gocompat::quote::quote;
 use gocompat::time::GoTime;
 
-use super::error::{Error, ErrorKind, Result, not_found};
+use super::error::{Error, ErrorKind, Result, not_allowed, not_found};
 use super::fold::{Fold, ShortClaim};
 use super::types::*;
 use super::util::{SWEEPER, collapse_space};
@@ -276,12 +276,53 @@ impl Fold {
         board.to_string()
     }
 
+    /// Whether `board` is closed (card #690). The first board never is.
+    pub(crate) fn board_closed(&self, board: &str) -> bool {
+        let b = self.own_board(board);
+        !b.is_empty() && self.board_view.closed.contains(&b)
+    }
+
+    /// The refusal for writing onto closed board `board`.
+    pub(crate) fn closed_refusal(&self, board: &str) -> Error {
+        let tag = self.board_tag(board).unwrap_or_else(|| board.to_string());
+        not_allowed(format!(
+            "board {} is closed: reopen it first, or pick another board",
+            quote(&tag)
+        ))
+    }
+
+    /// See [`crate::Coord::open_on_board`].
+    pub(crate) fn open_on_board(&self, board: &str) -> Vec<Task> {
+        let b = self.own_board(board);
+        let mut out: Vec<Task> = self
+            .tasks
+            .values()
+            .filter(|t| t.board == b && !t.withdrawn && !is_terminal(effective_state(t)))
+            .map(|t| self.shown(t))
+            .collect();
+        out.sort_by(|a, b| {
+            let pa = if a.parent.is_empty() {
+                &a.id
+            } else {
+                &a.parent
+            };
+            let pb = if b.parent.is_empty() {
+                &b.id
+            } else {
+                &b.parent
+            };
+            (pa, !a.parent.is_empty(), &a.id).cmp(&(pb, !b.parent.is_empty(), &b.id))
+        });
+        out
+    }
+
     /// Reads the board list. True when it changed.
     pub(crate) fn read_board_view(&mut self) -> bool {
         let Some(mut v) = self.board_view_fn.as_ref().and_then(|f| f()) else {
             return false;
         };
         v.deleted.sort_by(|a, b| a.1.cmp(&b.1));
+        v.closed.sort();
         if v == self.board_view {
             return false;
         }

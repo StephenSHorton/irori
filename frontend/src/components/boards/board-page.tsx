@@ -6,7 +6,8 @@
 // cards starts a thread on this board (card #134), listed in the board's
 // own Threads panel above who is on it.
 
-import { useEffect, useState, type FormEvent } from "react"
+import { useContext, useEffect, useState, type FormEvent } from "react"
+import { AgentCards } from "@/components/cards/agent-hover"
 import {
   ArrowLeftIcon,
   EllipsisIcon,
@@ -57,7 +58,7 @@ import {
 import { useThreads, type CardSummary, type DoneState } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import { go, Home } from "@/lib/nav"
-import { boardsOf } from "@/lib/spaces"
+import { boardsOf, openBoards } from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import { FreshnessLine } from "@/components/common/freshness-line"
@@ -69,6 +70,7 @@ import {
   InvitePanel,
   useInviteReach,
 } from "./parts"
+import { BoardTop } from "./board-project"
 import { cardsOnBoard, ListHeaderBar, SpaceBoards } from "./space-boards"
 
 export function BoardPage({
@@ -106,6 +108,7 @@ export function BoardPage({
 }) {
   const { boards, loaded } = useBoards()
   const { threads } = useThreads(boardId)
+  const ctx = useContext(AgentCards)
   // Presence on the member chips (card #371) moves without a
   // boards:changed: read the list again while the page is open.
   useEffect(() => {
@@ -162,18 +165,40 @@ export function BoardPage({
         onOpen={onOpen}
         now={now}
         header={
-          <AskBox
-            board={boardId}
-            onThread={(id) => {
-              setThread(id)
-              setThreadsHidden(false)
-            }}
-          />
+          <>
+            {open && (
+              <BoardTop
+                space={b.boardId}
+                board={open}
+                boards={openBoards(boardsOf(b))}
+                open={shown}
+                now={now}
+                onOpen={onOpen}
+              />
+            )}
+            {/* A closed board is read-only (card #690): no new threads
+                or cards from its page. */}
+            {!open?.closed && (
+              <AskBox
+                board={boardId}
+                onThread={(id) => {
+                  setThread(id)
+                  setThreadsHidden(false)
+                  // It opens in Talk, in its ask card view (card #780).
+                  ctx?.onOpenThread?.(id)
+                }}
+              />
+            )}
+          </>
         }
         empty={
-          open ? (
+          open?.closed ? (
             <p className="px-1 text-[12.5px] text-muted-foreground">
-              No cards on this board yet. Make one with New card, or move one
+              No open cards: its done cards are under Closed.
+            </p>
+          ) : open ? (
+            <p className="px-1 text-[12.5px] text-muted-foreground">
+              No open cards on this board. Make one with New card, or move one
               here from its page.
             </p>
           ) : (
@@ -225,6 +250,10 @@ function BoardHeaderShape() {
   )
 }
 
+function boardCount(n: number): string {
+  return n === 1 ? "1 board" : `${n} boards`
+}
+
 // BackHome leaves a space that isn't here any more (the Spaces page it
 // went back to is gone, card #689).
 function BackHome() {
@@ -236,7 +265,7 @@ function BackHome() {
       onClick={() => go(Home)}
     >
       <ArrowLeftIcon aria-hidden />
-      Home
+      Dashboard
     </Button>
   )
 }
@@ -367,7 +396,7 @@ export function BoardHeaderBar({
       )}
       <span className="hidden min-w-0 truncate text-xs text-muted-foreground lg:inline">
         {b.ready
-          ? `${boardsOf(b).length === 1 ? "1 board" : `${boardsOf(b).length} boards`} · ${b.people.map(plainLine).join(", ")}`
+          ? `${boardCount(openBoards(boardsOf(b)).length)} · ${b.people.map(plainLine).join(", ")}`
           : "Its cards are still arriving from your other device"}
       </span>
       {error && (

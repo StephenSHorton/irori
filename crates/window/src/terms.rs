@@ -118,6 +118,12 @@ impl Window {
             .terms()
             .in_scope(&term::Scope::Card(crate::trim(card).to_string()))
     }
+
+    /// The person's own terminals on this device (the bottom panel's, card
+    /// #734), oldest first.
+    pub fn term_device_list(&self) -> Vec<term::TermInfo> {
+        self.core.terms().in_scope(&term::Scope::Device)
+    }
 }
 
 /// Adds the folders that exist on this device, once each.

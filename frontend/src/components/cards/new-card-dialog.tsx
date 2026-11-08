@@ -33,7 +33,7 @@ import { boardTarget } from "@/lib/new-card"
 import { plainLine } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { effortLabel, modelLabel, useAgents } from "@/lib/agents"
-import { openSettings } from "@/components/settings/settings-menu"
+import { openSettings } from "@/lib/nav"
 import { ZapIcon } from "lucide-react"
 
 // NewCardDialog is New card (card #116): the person makes a card straight
@@ -60,9 +60,14 @@ export function NewCardDialog({
   list,
   from,
   spawned,
+  draftLost,
+  dashboard = false,
 }: {
   open: boolean
   onClose: () => void
+  // Going to Settings would take this dialog's page with it, and the draft
+  // with that (a Talk message's Make a card): the rule is said, not linked.
+  draftLost?: boolean
   onMade: (id: string) => void
   // The shared board whose page it was made from; left out: your own.
   board?: BoardSummary
@@ -73,6 +78,9 @@ export function NewCardDialog({
   from?: { title: string; objective: string }
   // Agents Irori started for a card, left out of the picker.
   spawned?: Set<string>
+  // Made from the Dashboard (card #1001), which spans every space: the card
+  // goes to Personal, and the form says so.
+  dashboard?: boolean
 }) {
   const { boards: personal } = usePersonalBoards()
   const [picked, setPicked] = useState<string | null>(null)
@@ -177,6 +185,15 @@ export function NewCardDialog({
     }
   }
 
+  // Settings is a page: closed first, so this dialog isn't left over it and
+  // a space's card doesn't quietly become a Personal one (card #1007). Not
+  // while the card is being made: its page opens when that ends.
+  const settingsAgents = () => {
+    if (busy) return
+    onClose()
+    openSettings("agents")
+  }
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && !busy && onClose()}>
       <DialogContent className="sm:max-w-lg">
@@ -200,6 +217,10 @@ export function NewCardDialog({
                 on &&
                 (list || target.choices.length > 1) &&
                 ` Goes on ${plainLine(on.name)}.`}
+              {!board &&
+                !list &&
+                dashboard &&
+                " From the Dashboard it goes to Personal."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5">
@@ -298,15 +319,19 @@ export function NewCardDialog({
             <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[12.5px] text-muted-foreground">
               Irori won't start an agent for this card: your agents are off in
               this space.{" "}
-              <Button
-                type="button"
-                variant="link"
-                size="xs"
-                className="h-auto px-0 align-baseline"
-                onClick={() => openSettings("agents")}
-              >
-                Turn them on in Settings › Agents
-              </Button>
+              {draftLost ? (
+                "Turn them on in Settings › Agents."
+              ) : (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="xs"
+                  className="h-auto px-0 align-baseline"
+                  onClick={settingsAgents}
+                >
+                  Turn them on in Settings › Agents
+                </Button>
+              )}
             </p>
           )}
           {fresh && spawn && assignTo === "" && (
@@ -322,15 +347,19 @@ export function NewCardDialog({
                   {effortLabel(spawn.effort, "").toLowerCase()}
                 </span>{" "}
                 and ends when it's done.{" "}
-                <Button
-                  type="button"
-                  variant="link"
-                  size="xs"
-                  className="h-auto px-0 align-baseline"
-                  onClick={() => openSettings("agents")}
-                >
-                  Change in Settings › Agents
-                </Button>
+                {draftLost ? (
+                  "Change it in Settings › Agents."
+                ) : (
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="xs"
+                    className="h-auto px-0 align-baseline"
+                    onClick={settingsAgents}
+                  >
+                    Change in Settings › Agents
+                  </Button>
+                )}
               </span>
             </p>
           )}

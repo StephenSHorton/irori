@@ -2372,3 +2372,171 @@ fn sync_out_waits_until_another_device_holds_the_last_row() {
     let p = alone.log(irori_core::PERSONAL_LOG).unwrap();
     assert_eq!(p.taken_by, None, "{alone:?}");
 }
+
+/// Card #690: a Personal board's description and close reach the
+/// person's other device through the private log, and its reopen does too.
+#[test]
+fn a_personal_boards_description_and_close_reach_the_other_device() {
+    let (a, b) = paired();
+    let home = a
+        .core
+        .create_personal_board_with("House", "home", "Fix up the house")
+        .unwrap();
+    let on = |c: &Core| {
+        c.personal_boards()
+            .ok()
+            .and_then(|bs| bs.into_iter().find(|x| x.board_id == home))
+    };
+    wait_for(45, "b gets the board with its description", || {
+        on(&b.core).is_some_and(|x| x.description == "Fix up the house")
+    });
+    b.core
+        .set_personal_board_description(irori_core::PERSONAL_BOARD, "Everything else")
+        .unwrap();
+    wait_for(45, "a gets b's description on the default board", || {
+        a.core
+            .personal_boards()
+            .is_ok_and(|bs| bs[0].description == "Everything else")
+    });
+    a.core
+        .close_personal_board(&home, irori_core::OpenCards::Keep)
+        .unwrap();
+    wait_for(45, "b sees it closed", || {
+        on(&b.core).is_some_and(|x| x.closed)
+    });
+    // b's coord reads it too: no card goes on it there.
+    let e = b
+        .core
+        .coord()
+        .create_task(
+            &b.core.user_sender().key,
+            coord::NewTask {
+                title: "late".into(),
+                board: home.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("is closed"), "{e}");
+    b.core.reopen_personal_board(&home).unwrap();
+    wait_for(45, "a sees it reopened", || {
+        on(&a.core).is_some_and(|x| !x.closed)
+    });
+}
+
+/// Card #690: a space writes a board's description or close only once
+/// every member device stores unknown `space.*` rows (`tolerant` 1). A
+/// device last heard at `tolerant` 0 (spaces, but before v0.12.4) blocks
+/// it, named; a New board's description rides its create row, so the
+/// spaces gate alone holds that.
+#[test]
+fn board_rows_wait_for_every_device_to_store_them() {
+    let (a, b) = paired();
+    let id = a.core.create_board("Wind", "wind").unwrap();
+    // As if a last heard b on an Irori with spaces but before v0.12.4.
+    a.core
+        .board_store(&id)
+        .unwrap()
+        .append_local(
+            "irori",
+            mesh::boardmesh::KIND_BOARD_HELLO,
+            &mesh::boardmesh::SavedHello {
+                device_id: b.core.device_id().to_string(),
+                core_version: "0.12.3".into(),
+                spaces: 1,
+                tolerant: 0,
+                seq: i64::MAX,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let short = b.core.device_id()[..6].to_string();
+    {
+        let net = a
+            .core
+            .create_space_board_with(&id, "Netcode", "net", "Ship it")
+            .unwrap();
+        let e = a
+            .core
+            .set_space_board_description(&id, &net, "x")
+            .unwrap_err();
+        assert!(
+            e.to_string().contains("0.12.4") && e.to_string().contains(&short),
+            "{e}"
+        );
+        let e = a
+            .core
+            .close_space_board(&id, &net, irori_core::OpenCards::Keep)
+            .unwrap_err();
+        assert!(e.to_string().contains(&short), "{e}");
+        let rows = a
+            .core
+            .board_store(&id)
+            .unwrap()
+            .list(&Filter {
+                kinds: vec![
+                    kinds::SPACE_BOARD_DESCRIBED.into(),
+                    kinds::SPACE_BOARD_CLOSED.into(),
+                ],
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(rows.is_empty(), "nothing written");
+        assert_eq!(a.core.space_boards(&id).unwrap()[1].description, "Ship it");
+    }
+    wait_for(45, "b opens the space", || b.core.board_coord(&id).is_ok());
+    wait_for(45, "a hears b store space rows", || {
+        a.core.board_rows_not_ready(&id).unwrap().is_empty()
+    });
+    a.core
+        .set_space_board_description(&id, &id, "The game")
+        .unwrap();
+    wait_for(45, "b gets the first board's description", || {
+        b.core
+            .space_boards(&id)
+            .is_ok_and(|bs| bs[0].description == "The game")
+    });
+}
+
+/// Card #779: a subtask the person named keeps that name as theirs on the
+/// board its family is shared to, so an agent there can't rename it.
+#[test]
+fn a_shared_subtask_keeps_the_name_the_person_gave_it() {
+    let r = Rig::new();
+    let c = &r.core;
+    let id = c.create_board("MLG", "mlg").unwrap();
+    let co = c.coord();
+    let parent = co
+        .create_task(&r.key_a, new_task("ship the release"))
+        .unwrap();
+    let sub = |t: &str| coord::NewSubtask {
+        title: t.into(),
+        ..Default::default()
+    };
+    let (_, kids) = co
+        .split(
+            &r.key_a,
+            &parent.id,
+            vec![sub("release notes"), sub("announce it")],
+            vec![],
+        )
+        .unwrap();
+    let user = c.user_sender().key;
+    co.rename_task(&user, &kids[0].id, "Write the release notes")
+        .unwrap();
+
+    let p = c.preview_share(&parent.id, &id).unwrap();
+    let shared = c.share_to_board(&parent.id, &id, &p.hash).unwrap();
+    let bco = c.board_coord(&id).unwrap();
+    let on_board = bco.get_task(&shared.id).unwrap();
+    let kid = |title: &str| {
+        on_board
+            .subtasks
+            .iter()
+            .map(|k| bco.get_task(k).unwrap())
+            .find(|t| t.title == title)
+            .unwrap()
+    };
+    assert!(kid("Write the release notes").title_by_person);
+    assert!(!kid("announce it").title_by_person);
+}

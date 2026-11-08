@@ -44,6 +44,8 @@ import {
   USAGE_PATH,
   usageBody,
   measureMovedLimits,
+  accountFromConfig,
+  claudeConfigPath,
 } from './lib'
 
 /** How long /irori reconnect waits for the new hello before it answers. */
@@ -454,13 +456,31 @@ async function onHello($: EngineInterface, e: AttachEvent) {
  * session's problem, and the next measurement sends a fresh reading.
  */
 function postUsage($: EngineInterface, rateLimits: unknown) {
-  const body = usageBody(rateLimits)
-  if (!body || !api || !attachSecret) return
-  void callCore($, 'POST', USAGE_PATH, body)
-    .then(answer => {
-      if (!answer.ok) $.ui.log(`irori: usage not posted: ${answer.error}`, { to: 'debug' })
-    })
-    .catch(() => {})
+  if (!usageBody(rateLimits) || !api || !attachSecret) return
+  void (async () => {
+    // The account the session is signed in as, so the Core replaces the
+    // windows when the subscription changes (card #1040). Read with each
+    // post: the login can change between two readings.
+    const body = usageBody(rateLimits, await sessionAccount($))
+    if (!body || !api || !attachSecret) return
+    const answer = await callCore($, 'POST', USAGE_PATH, body)
+    if (!answer.ok) $.ui.log(`irori: usage not posted: ${answer.error}`, { to: 'debug' })
+  })().catch(() => {})
+}
+
+/**
+ * The Claude account this session is signed in as (card #1040), from the
+ * login record Claude Code keeps: the engine tells a mod its account only
+ * when managed settings install it. Undefined when the record can't be read;
+ * the Core then merges the reading as before.
+ */
+async function sessionAccount($: EngineInterface): Promise<string | undefined> {
+  try {
+    const path = claudeConfigPath(await $.env.get('CLAUDE_CONFIG_DIR'), (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE')))
+    return path ? accountFromConfig(await $.fs.read(path)) : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**

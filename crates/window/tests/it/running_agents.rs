@@ -146,4 +146,14 @@ fn a_shared_space_agent_shows_its_card_and_model_like_a_personal_one() {
         "{pst:?}"
     );
     assert_eq!(rows.len(), 4, "{rows:?}");
+
+    // Its hover card (card #1020) says the same.
+    for (key, model, effort) in [(&r.key_b, "sonnet", "medium"), (&r.key_a, "opus", "high")] {
+        let u = w.agent_usage(key);
+        assert_eq!(
+            (u.model.as_str(), u.effort.as_str()),
+            (model, effort),
+            "{key}: {u:?}"
+        );
+    }
 }

@@ -3,11 +3,24 @@
 // a space's page. It lives in the address, like an open
 // card ("#card/<id>"), so back and forward move between them: "#talk",
 // "#talk/<id>" (a conversation open), "#notes", "#profile" (card #393: your name, colour and
-// picture, and your spaces), "#boards" (Boards with All spaces picked,
-// card #689: pick a space), "#board/<id>", and no hash for Home. A card's page opens over whichever
+// picture, and your spaces), "#boards" (opens the picked space's page), "#board/<id>", and no hash for Home. A card's page opens over whichever
 // of them it was opened from.
 
-import { AllSpaces, Personal } from "./spaces"
+import { Personal } from "./spaces"
+
+// SettingsSection is a section of Settings, in the order its list shows
+// them (the words and icons are components/settings/settings-page.tsx's).
+export const settingsSectionIds = [
+  "agents",
+  "desks",
+  "notifications",
+  "appearance",
+  "people",
+  "devices",
+  "app",
+] as const
+
+export type SettingsSection = (typeof settingsSectionIds)[number]
 
 export type Section =
   | { kind: "home" }
@@ -15,8 +28,8 @@ export type Section =
   | { kind: "notes" }
   // A merge desk (card #417): "#desk", or "#desk/<repoKey>" for one repo.
   | { kind: "desk"; repo: string }
-  // Boards with no space picked (card #689): it asks for one, since boards
-  // are never shown across spaces.
+  // "#boards": no space named (card #689). App sends it on to the picked
+  // space's page (card #1001: there is no pick-a-space page any more).
   | { kind: "boards" }
   // A space's page (card #558): its boards. With board, that one board's
   // list ("#board/<space>/<board>"). Personal's page is "#board/personal".
@@ -24,6 +37,13 @@ export type Section =
   | { kind: "profile" }
   // Card #377: every notification sent to the person.
   | { kind: "notifications" }
+  // Storage (card #728): what Irori keeps and its size. tab is "" for the
+  // overview, else one kind's page ("#storage/files").
+  | { kind: "storage"; tab: string }
+  // Settings (card #1007): "#settings", or "#settings/<section>" for one
+  // section. tab "" is the page itself: the first section on a wide
+  // window, the list of sections on a phone.
+  | { kind: "settings"; tab: SettingsSection | "" }
 
 export const Home: Section = { kind: "home" }
 
@@ -42,6 +62,9 @@ export function sectionFromHash(hash: string): Section {
   const d = hash.match(/^#desk\/(.+)$/)
   if (d) return { kind: "desk", repo: decodeURIComponent(d[1]) }
   if (hash === "#notifications") return { kind: "notifications" }
+  if (hash === "#storage") return { kind: "storage", tab: "" }
+  const st = hash.match(/^#storage\/(.+)$/)
+  if (st) return { kind: "storage", tab: decodeURIComponent(st[1]) }
   const l = hash.match(/^#board\/([^/]+)\/([^/]+)$/)
   if (l)
     return {
@@ -51,6 +74,14 @@ export function sectionFromHash(hash: string): Section {
     }
   const m = hash.match(/^#board\/(.+)$/)
   if (m) return { kind: "board", id: decodeURIComponent(m[1]) }
+  if (hash === "#settings") return { kind: "settings", tab: "" }
+  const set = hash.match(/^#settings\/(.+)$/)
+  if (set) {
+    const want = decodeURIComponent(set[1])
+    // A section that's gone (a saved link) still opens Settings.
+    const tab = settingsSectionIds.find((s) => s === want) ?? ""
+    return { kind: "settings", tab }
+  }
   return Home
 }
 
@@ -63,19 +94,45 @@ export function sectionHash(s: Section): string {
   if (s.kind === "desk")
     return s.repo ? `#desk/${encodeURIComponent(s.repo)}` : "#desk"
   if (s.kind === "notifications") return "#notifications"
+  if (s.kind === "storage")
+    return s.tab ? `#storage/${encodeURIComponent(s.tab)}` : "#storage"
   if (s.kind === "board")
     return s.board
       ? `#board/${encodeURIComponent(s.id)}/${encodeURIComponent(s.board)}`
       : `#board/${encodeURIComponent(s.id)}`
+  if (s.kind === "settings") return s.tab ? `#settings/${s.tab}` : "#settings"
   return ""
 }
 
 // go moves the window to section s as a new history entry; App follows
-// it through popstate, the same as the browser's back and forward.
-export function go(s: Section): void {
+// it through popstate, the same as the browser's back and forward. mark
+// rides along in the entry's state, for a Back that wants to know how the
+// window got there (Settings' list, settingsBack).
+export function go(s: Section, mark?: { fromList?: boolean }): void {
   const url = window.location.pathname + window.location.search + sectionHash(s)
-  window.history.pushState({ section: s }, "", url)
-  window.dispatchEvent(new PopStateEvent("popstate", { state: { section: s } }))
+  const state = { section: s, ...mark }
+  window.history.pushState(state, "", url)
+  window.dispatchEvent(new PopStateEvent("popstate", { state }))
+}
+
+// openSettings goes to Settings, at one section if named. Going where the
+// window already is adds no history entry, and with no section named,
+// already being on Settings is enough: the gear or Cmd+, keeps the section
+// shown, as the old dialog did (card #1007).
+export function openSettings(tab: SettingsSection | "" = ""): void {
+  const s: Section = { kind: "settings", tab }
+  if (!tab && sectionFromHash(window.location.hash).kind === "settings") return
+  if (window.location.hash !== sectionHash(s)) go(s)
+}
+
+// settingsBack is a Settings section's own Back where the list stands
+// alone (a phone, a small window): the browser's back when the list opened
+// it, so system Back doesn't return to the section just left, else the
+// list in place of the section (a deep link, the assistant).
+export function settingsBack(): void {
+  const st = window.history.state as { fromList?: boolean } | null
+  if (st?.fromList) window.history.back()
+  else replace({ kind: "settings", tab: "" })
 }
 
 // replace moves the window to section s in place of where it is: no
@@ -92,19 +149,20 @@ export function sameSection(a: Section, b: Section): boolean {
     return b.kind === "board" && a.id === b.id && a.board === b.board
   if (a.kind === "talk") return b.kind === "talk" && a.id === b.id
   if (a.kind === "desk") return b.kind === "desk" && a.repo === b.repo
+  if (a.kind === "settings") return b.kind === "settings" && a.tab === b.tab
+  if (a.kind === "storage") return b.kind === "storage" && a.tab === b.tab
   return true
 }
 
 // boardsFor is where the Boards tab goes with space picked (card #689): a
-// shared space's page, Personal's, or with All spaces the page that asks
-// for a space.
+// shared space's page, or Personal's.
 export function boardsFor(space: string): Section {
-  if (space === AllSpaces) return { kind: "boards" }
-  return { kind: "board", id: space === Personal ? Personal : space }
+  return { kind: "board", id: space || Personal }
 }
 
 // onBoards says whether s is under the Boards tab: a space's page or one
-// of its boards, Personal's, or the pick-a-space page.
+// of its boards, Personal's, or "#boards", which App sends on to the picked
+// space's page.
 export function onBoards(s: Section): boolean {
   return s.kind === "boards" || s.kind === "board"
 }
