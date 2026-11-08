@@ -305,7 +305,7 @@ fn a_card_is_weighed_as_it_is_made() {
 
 fn stepped(e: &Env, by: &str) -> Task {
     let t = e.c.create_task(USER, nt("Move me")).unwrap();
-    e.c.claim(by, &t.id).unwrap();
+    e.c.claim_task(by, &t.id).unwrap();
     e.c.set_steps(
         by,
         &t.id,
@@ -344,7 +344,7 @@ fn a_holder_moves_its_card_one_weight() {
     assert_eq!(got.left_off.unwrap().text, "next");
     assert!(got.holders.is_empty(), "it left");
     // Heavy is the top; moved up, it doesn't come back down.
-    e.c.claim(ALICE, &t.id).unwrap();
+    e.c.claim_task(ALICE, &t.id).unwrap();
     want_err(
         e.c.move_weight(ALICE, &t.id, true, "why", "next"),
         ErrorKind::Invalid,
@@ -353,6 +353,7 @@ fn a_holder_moves_its_card_one_weight() {
         e.c.move_weight(ALICE, &t.id, false, "why", "next"),
         ErrorKind::NotAllowed,
     );
+    e.c.leave(ALICE, &t.id, ALICE).unwrap();
     // Down works the same way, from normal, and the person's weight is theirs.
     let d = stepped(&e, ALICE);
     let got =
