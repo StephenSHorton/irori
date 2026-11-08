@@ -208,7 +208,7 @@ impl Services {
         }
     }
 
-    fn huddle_runner(&self) -> Result<Arc<dyn HuddleRunner>, String> {
+    pub(super) fn huddle_runner(&self) -> Result<Arc<dyn HuddleRunner>, String> {
         lock(&self.held.runner).clone().ok_or_else(|| {
             "no assistant on this device: it needs a computer with Claude Code".into()
         })
@@ -244,7 +244,9 @@ impl Services {
     ) -> Result<Look, LookError> {
         let packet = self.huddle_packet_text(seed).map_err(LookError::Failed)?;
         let first = first_message(&packet, &seed.recent);
-        let look = runner.open(&seed.call_id, &system(&seed.name), &first)?;
+        let look = runner
+            .open(&seed.call_id, &system(&seed.name), &first)
+            .inspect_err(|e| self.huddle_host_note(&seed.call_id, e))?;
         logf!(
             "huddle {}: session open ({} ms, ${:.5}, {} tokens{})",
             seed.call_id,
@@ -308,11 +310,13 @@ impl Services {
                     .map_err(|e| e.to_string())?;
                 runner.look(call, message).map_err(|e| {
                     lock(&self.held.open).remove(call);
+                    self.huddle_host_note(call, &e);
                     e.to_string()
                 })?
             }
             Err(e) => {
                 logf!("huddle {call}: look failed: {e}");
+                self.huddle_host_note(call, &e);
                 if matches!(e, LookError::Gone(_)) {
                     lock(&self.held.open).remove(call);
                 }

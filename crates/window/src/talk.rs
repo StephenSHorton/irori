@@ -200,8 +200,23 @@ pub struct TalkTranscript {
     /// The huddle is over as this device can tell (card #1043): an end
     /// mark, or a crash that left the call quiet. False when unsure.
     pub over: bool,
+    /// Each person's assistant in a live huddle (card #1049): connected,
+    /// reconnecting or not connected. Empty once it is over.
+    pub assistants: Vec<TalkAssistant>,
     /// What was said, oldest first.
     pub lines: Vec<TalkTranscriptLine>,
+}
+
+/// One person's assistant in a huddle's roster (card #1049).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TalkAssistant {
+    /// The person, as a key (`names` in the transcript read it).
+    pub person: String,
+    /// `connected`, `reconnecting` or `not connected`.
+    pub state: String,
+    /// Why it isn't connected, when this device knows; else empty.
+    pub why: String,
 }
 
 /// One line of a huddle's transcript.
@@ -539,6 +554,16 @@ impl Window {
             title,
             title_by_assistant,
             over: self.core.call_over(id),
+            assistants: self
+                .core
+                .call_assistants(id)
+                .into_iter()
+                .map(|a| TalkAssistant {
+                    person: a.person,
+                    state: a.state,
+                    why: a.why,
+                })
+                .collect(),
             lines: lines
                 .into_iter()
                 .map(|p| {

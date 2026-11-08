@@ -158,6 +158,7 @@ export type StorageKind = B.StorageKind
 export type StorageReport = B.StorageReport
 export type SubtaskPreview = B.SubtaskPreview
 export type SummaryMember = B.SummaryMember
+export type TalkAssistant = B.TalkAssistant
 export type TalkCall = B.TalkCall
 export type TalkConversation = B.TalkConversation
 export type TalkHuddle = B.TalkHuddle
@@ -901,6 +902,11 @@ export function SummaryMember(p: Partial<B.SummaryMember> = {}): B.SummaryMember
   return { "personId": "", "name": "", "me": false, "presence": "", "working": 0, "free": 0, ...p } as B.SummaryMember
 }
 
+/** TalkAssistant with Go's zero values for every field left out. */
+export function TalkAssistant(p: Partial<B.TalkAssistant> = {}): B.TalkAssistant {
+  return { "person": "", "state": "", "why": "", ...p } as B.TalkAssistant
+}
+
 /** TalkCall with Go's zero values for every field left out. */
 export function TalkCall(p: Partial<B.TalkCall> = {}): B.TalkCall {
   return { "callId": "", "op": "", "durationMs": 0, "people": [], "transcript": false, "title": "", ...p } as B.TalkCall
@@ -948,7 +954,7 @@ export function TalkReplying(p: Partial<B.TalkReplying> = {}): B.TalkReplying {
 
 /** TalkTranscript with Go's zero values for every field left out. */
 export function TalkTranscript(p: Partial<B.TalkTranscript> = {}): B.TalkTranscript {
-  return { "callId": "", "convId": "", "convName": "", "convKind": "", "agents": false, "startedAtMs": null, "ended": false, "durationMs": 0, "title": "", "titleByAssistant": false, "over": false, "lines": [], ...p } as B.TalkTranscript
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "agents": false, "startedAtMs": null, "ended": false, "durationMs": 0, "title": "", "titleByAssistant": false, "over": false, "assistants": [], "lines": [], ...p } as B.TalkTranscript
 }
 
 /** TalkTranscriptLine with Go's zero values for every field left out. */

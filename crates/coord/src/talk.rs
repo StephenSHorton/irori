@@ -48,7 +48,7 @@ use store::{Event, Filter, Store, kinds};
 use crate::board::{Error, ErrorKind, MAX_COMMENT, MAX_MENTIONS, MAX_PERSON_TEXT, Result, new_id};
 
 /// The rows Talk folds.
-pub const KINDS: [&str; 8] = [
+pub const KINDS: [&str; 9] = [
     kinds::TALK_CHANNEL_CREATED,
     kinds::TALK_CHANNEL_EDITED,
     kinds::TALK_MEMBER,
@@ -57,6 +57,7 @@ pub const KINDS: [&str; 8] = [
     kinds::TALK_CARD,
     kinds::CALL_SEGMENT,
     kinds::CALL_TITLE,
+    kinds::CALL_ASSIST,
 ];
 
 /// A member's kind: the person.
@@ -604,6 +605,56 @@ struct State {
     /// title that names the wrong conversation can't bind a huddle to it,
     /// and so the fold doesn't depend on which row came first.
     titles: HashMap<String, Vec<TitleRec>>,
+    /// Each huddle's `call.assist` rows (card #1049), kept apart from
+    /// `calls` as `titles` are.
+    assists: HashMap<String, Vec<AssistRec>>,
+}
+
+/// `call.assist` (card #1049, call-agents.md §7, §8): a person's assistant is
+/// hosted (`on`) or not (`off`) on `device` for a huddle. Written by the
+/// hosting person's own device; the newest per device wins.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AssistRow {
+    pub call_id: String,
+    pub conv_id: String,
+    /// The device that hosts (or stopped hosting) the assistant.
+    pub device: String,
+    /// `on` or `off`.
+    pub state: String,
+    /// Whether this assistant is the huddle's chair (card 10); written
+    /// `false` until then.
+    pub chair: bool,
+    pub by: String,
+    pub at: GoTime,
+}
+
+/// What `call.assist`'s `state` says when the assistant is hosted.
+pub const ASSIST_ON: &str = "on";
+/// What `call.assist`'s `state` says when it stopped.
+pub const ASSIST_OFF: &str = "off";
+
+/// One `call.assist` row as folded: the newest per conversation, person and
+/// device.
+#[derive(Debug, Clone)]
+struct AssistRec {
+    conv: String,
+    device: String,
+    /// The writing person, as the log names them.
+    by: String,
+    on: bool,
+    chair: bool,
+    at: Ord3,
+}
+
+/// A device's newest word on hosting a person's assistant in a huddle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssistInfo {
+    pub device: String,
+    /// The person, as the log names them (`user:<device>` for this one).
+    pub by: String,
+    pub on: bool,
+    pub chair: bool,
 }
 
 /// One `call.title` row as folded: the newest per conversation and kind.
@@ -1418,6 +1469,73 @@ impl Talk {
         (!t.is_empty()).then_some(t)
     }
 
+    /// Writes huddle `call_id`'s `call.assist` row (card #1049) as the
+    /// person `by`: the assistant is hosted on `device` (`on`) or stopped
+    /// (`off`). Anyone in the conversation may write their own; the fold
+    /// keeps the newest per device.
+    pub fn write_assist(
+        &self,
+        conv: &str,
+        call_id: &str,
+        device: &str,
+        on: bool,
+        by: &str,
+    ) -> Result<()> {
+        let by = need_by(by)?.to_string();
+        let (conv, call_id) = (conv.trim().to_string(), call_id.trim().to_string());
+        if call_id.is_empty() || device.trim().is_empty() {
+            return Err(invalid("an assistant row needs its call and its device"));
+        }
+        if !is_person_key(&by) {
+            return Err(not_allowed("only a person's device hosts an assistant"));
+        }
+        if let Some(c) = self.call_conv(&call_id)
+            && c != conv
+        {
+            return Err(invalid(format!("huddle {call_id} isn't in {conv}")));
+        }
+        let space = self.call_log(&conv, &by)?;
+        self.write(
+            &space,
+            &by,
+            kinds::CALL_ASSIST,
+            &AssistRow {
+                call_id,
+                conv_id: conv,
+                device: device.trim().to_string(),
+                state: if on { ASSIST_ON } else { ASSIST_OFF }.into(),
+                chair: false,
+                by: by.clone(),
+                at: (self.now)(),
+            },
+        )?;
+        Ok(())
+    }
+
+    /// Huddle `call_id`'s hosting rows (card #1049): each device's newest
+    /// per person, on or off, in no particular order. Rows naming another
+    /// conversation than the huddle's don't count; a huddle this device has
+    /// no mark or line of yet has none.
+    pub fn call_assists(&self, call_id: &str) -> Vec<AssistInfo> {
+        let s = self.lock();
+        let id = call_id.trim();
+        let Some(conv) = s.calls.get(id).map(|c| c.conv.as_str()) else {
+            return Vec::new();
+        };
+        s.assists
+            .get(id)
+            .into_iter()
+            .flatten()
+            .filter(|a| a.conv == conv)
+            .map(|a| AssistInfo {
+                device: a.device.clone(),
+                by: a.by.clone(),
+                on: a.on,
+                chair: a.chair,
+            })
+            .collect()
+    }
+
     /// Writes both people's joins into `space`, the first time this person
     /// DM uses that log: a log carries its own members, so the DM outlives
     /// the other log it may share the conversation with.
@@ -2102,6 +2220,46 @@ fn fold(s: &mut State, ev: &Event) -> bool {
             match recs
                 .iter_mut()
                 .find(|x| x.conv == rec.conv && x.assistant == rec.assistant)
+            {
+                Some(x) => {
+                    if x.at >= rec.at {
+                        return false;
+                    }
+                    *x = rec;
+                }
+                None => recs.push(rec),
+            }
+            true
+        }
+        kinds::CALL_ASSIST => {
+            let Ok(r) = serde_json::from_slice::<AssistRow>(&ev.payload) else {
+                return false;
+            };
+            let device = r.device.trim();
+            let on = r.state == ASSIST_ON;
+            // A person's device only; never an agent. The device is the
+            // row's own writer: a device speaks for no other.
+            if r.call_id.is_empty()
+                || !(is_channel(&r.conv_id) || is_dm(&r.conv_id))
+                || device.is_empty()
+                || !(on || r.state == ASSIST_OFF)
+                || !(is_person_key(&r.by) || is_other_person_key(&r.by))
+                || ev.device_id != device
+            {
+                return false;
+            }
+            let recs = s.assists.entry(r.call_id).or_default();
+            let rec = AssistRec {
+                conv: r.conv_id,
+                device: device.to_string(),
+                by: r.by,
+                on,
+                chair: r.chair,
+                at,
+            };
+            match recs
+                .iter_mut()
+                .find(|x| x.conv == rec.conv && x.device == rec.device)
             {
                 Some(x) => {
                     if x.at >= rec.at {

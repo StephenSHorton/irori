@@ -70,6 +70,7 @@ pub mod card_weights;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
+pub mod huddle_host;
 pub mod huddle_packet;
 pub mod huddle_session;
 mod liveness;
@@ -363,6 +364,8 @@ struct Services {
     weighing: card_weights::Weighing,
     /// The assistant's held session per huddle (card #1046).
     held: huddle_session::HeldSessions,
+    /// Which device hosts each person's assistant per huddle (card #1049).
+    hosting: huddle_host::Hosting,
     /// The themes new agents' names come from (card #702), shared with
     /// `names`.
     name_themes: Arc<name_themes::NameThemes>,
@@ -1677,6 +1680,7 @@ impl Core {
             naming,
             weighing,
             held: Default::default(),
+            hosting: Default::default(),
             name_themes,
             invites,
         });

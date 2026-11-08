@@ -2252,3 +2252,162 @@ fn a_lines_agents_mark_folds() {
     assert!(!by_text("plain"));
     assert!(by_text("marked"));
 }
+
+// ---- who hosts a person's assistant in a huddle (card #1049) -----------------
+
+fn assist_row(
+    dev: &str,
+    seq: i64,
+    at: u64,
+    conv: &str,
+    call: &str,
+    device: &str,
+    state: &str,
+    by: &str,
+) -> store::Event {
+    row(
+        dev,
+        seq,
+        at,
+        "user",
+        kinds::CALL_ASSIST,
+        &serde_json::json!({
+            "callId": call, "convId": conv, "device": device,
+            "state": state, "chair": false, "by": by,
+        }),
+    )
+}
+
+fn assist_of(t: &Talk, call: &str) -> Vec<(String, bool)> {
+    let mut v: Vec<(String, bool)> = t
+        .call_assists(call)
+        .into_iter()
+        .map(|a| (a.device, a.on))
+        .collect();
+    v.sort();
+    v
+}
+
+/// The newest row per device wins whichever order rows arrive in; a device
+/// speaks only for itself; a row naming another conversation, a bad state or
+/// an agent is dropped; the write path refuses an agent and a wrong
+/// conversation.
+#[test]
+fn call_assist_rows_fold_newest_per_device() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    let other = t.create_channel(USER, "other", "").unwrap();
+    line(&t, &c.id, 0, 0, "hello").unwrap();
+    assert!(assist_of(&t, "call_1").is_empty());
+
+    let t0 = hlc_at(fixed_now());
+    assert!(t.apply(&assist_row(
+        "dev-b",
+        1,
+        t0 + 10,
+        &c.id,
+        "call_1",
+        "dev-b",
+        "on",
+        PEER
+    )));
+    assert!(t.apply(&assist_row(
+        "dev-c",
+        1,
+        t0 + 20,
+        &c.id,
+        "call_1",
+        "dev-c",
+        "on",
+        PEER
+    )));
+    assert_eq!(
+        assist_of(&t, "call_1"),
+        vec![("dev-b".into(), true), ("dev-c".into(), true)]
+    );
+    // b stops; an older row arriving late changes nothing.
+    assert!(t.apply(&assist_row(
+        "dev-b",
+        2,
+        t0 + 30,
+        &c.id,
+        "call_1",
+        "dev-b",
+        "off",
+        PEER
+    )));
+    assert!(!t.apply(&assist_row(
+        "dev-b",
+        0,
+        t0 + 5,
+        &c.id,
+        "call_1",
+        "dev-b",
+        "on",
+        PEER
+    )));
+    assert_eq!(
+        assist_of(&t, "call_1"),
+        vec![("dev-b".into(), false), ("dev-c".into(), true)]
+    );
+    // A device speaks only for itself; states are on or off; people only.
+    assert!(!t.apply(&assist_row(
+        "dev-d",
+        1,
+        t0 + 40,
+        &c.id,
+        "call_1",
+        "dev-b",
+        "on",
+        PEER
+    )));
+    assert!(!t.apply(&assist_row(
+        "dev-d",
+        2,
+        t0 + 41,
+        &c.id,
+        "call_1",
+        "dev-d",
+        "maybe",
+        PEER
+    )));
+    assert!(!t.apply(&assist_row(
+        "dev-d",
+        3,
+        t0 + 42,
+        &c.id,
+        "call_1",
+        "dev-d",
+        "on",
+        "agent:x/y"
+    )));
+    // A row naming another conversation can't add a host to this huddle.
+    assert!(t.apply(&assist_row(
+        "dev-e",
+        1,
+        t0 + 50,
+        &other.id,
+        "call_1",
+        "dev-e",
+        "on",
+        PEER
+    )));
+    assert_eq!(
+        assist_of(&t, "call_1"),
+        vec![("dev-b".into(), false), ("dev-c".into(), true)]
+    );
+
+    // The write path.
+    assert!(
+        t.write_assist(&other.id, "call_1", "dev-a", true, USER)
+            .is_err()
+    );
+    assert!(
+        t.write_assist(&c.id, "call_1", "dev-a", true, "agent:x/y")
+            .is_err()
+    );
+    assert!(t.write_assist(&c.id, "call_1", "", true, USER).is_err());
+    t.write_assist(&c.id, "call_1", "dev-a", true, USER)
+        .unwrap();
+}
