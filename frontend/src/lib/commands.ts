@@ -128,3 +128,13 @@ export function shortcutKeys(s: string, mac = isMac()): string[] {
     return k
   })
 }
+
+// runCommand runs the registered command id if it applies now (as the
+// palette would), and says whether it ran: a shortcut takes its key only
+// then.
+export function runCommand(id: string): boolean {
+  const c = registry.get(id)
+  if (!c || activeCommands([c]).length === 0) return false
+  c.run()
+  return true
+}

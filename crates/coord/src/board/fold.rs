@@ -255,6 +255,7 @@ pub struct Fold {
     pub(crate) now: NowFn,
     pub(crate) grace: Duration,
     pub(crate) holder_grace: Duration,
+    pub(crate) ask_room_hold: Duration,
     pub(crate) owner_fn: KeyFn,
     pub(crate) revoked: Option<KeyFn>,
     /// See [`super::Options::busy_elsewhere`].
@@ -402,6 +403,10 @@ pub struct Fold {
     /// Cards the person paused (card #207), by id, with the row that last
     /// set it.
     pub(crate) paused: HashMap<String, (bool, RowPos)>,
+    /// Each card's newest weight rows (card #963).
+    pub(crate) weights: HashMap<String, super::weight::WeightSlots>,
+    /// Each card's attempts, by request generation (card #966).
+    pub(crate) runs: HashMap<String, HashMap<i64, super::runs::Run>>,
     /// A board's review requests by card, and its dedicated reviewers.
     pub(crate) reviews: BTreeMap<String, Vec<super::review::ReviewRequest>>,
     /// Agents whose device reads offline, for the presence notices (card
@@ -486,6 +491,11 @@ impl Fold {
             } else {
                 o.holder_grace
             },
+            ask_room_hold: if o.ask_room_hold.is_zero() {
+                super::ASK_ROOM_HOLD
+            } else {
+                o.ask_room_hold
+            },
             owner_fn,
             revoked: o.revoked,
             busy_elsewhere: o.busy_elsewhere,
@@ -568,6 +578,8 @@ impl Fold {
             pins: HashMap::new(),
             archived: HashMap::new(),
             paused: HashMap::new(),
+            weights: HashMap::new(),
+            runs: HashMap::new(),
             reviews: BTreeMap::new(),
             away: HashMap::new(),
             reviewers: BTreeMap::new(),
@@ -797,6 +809,7 @@ impl Fold {
                 add_holder(&mut t, &p.by);
                 t.assigned = remove_str(&t.assigned, &p.by);
                 sync_holder(&mut t);
+                close_given_for_agent(&mut t, &p.by, at(p.at));
                 if t.state == SUBMITTED {
                     t.state = WORKING.into();
                 }
@@ -822,6 +835,7 @@ impl Fold {
                 }
                 let gave = self.gave_to_person(ev, &p);
                 let back = self.takes_back(ev, &p);
+                let to_agent = gave.is_none() && !back;
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
                     return;
                 };
@@ -848,6 +862,10 @@ impl Fold {
                 add_holder(&mut t, &p.to);
                 if !engaged && !contains(&t.assigned, &p.to) {
                     t.assigned.push(p.to.clone());
+                }
+                // Given on to one of their agents (card #717).
+                if to_agent {
+                    close_given_for_agent(&mut t, &p.to, at(p.at));
                 }
                 let note = trim_space(&p.note).to_string();
                 if !engaged && !note.is_empty() {
@@ -899,6 +917,7 @@ impl Fold {
                     if !contains(&t.holders, &p.who) {
                         t.holders.push(p.who.clone());
                     }
+                    close_given_for_agent(&mut t, &p.who, at(p.at));
                     if t.state == SUBMITTED {
                         t.state = WORKING.into();
                     }
@@ -931,6 +950,7 @@ impl Fold {
                     if self.spawned.get(&p.who).is_some_and(|m| m.task_id == t.id) {
                         if p.reason == LEFT_GONE {
                             t.spawn_crashes += 1;
+                            t.note_retry(RETRY_CRASH, &p.who, p.at.unix_nano());
                         } else {
                             t.spawn_crashes = 0;
                         }
@@ -1086,6 +1106,7 @@ impl Fold {
             kinds::TASK_PINNED => self.fold_pin(ev),
             kinds::TASK_ARCHIVED => self.fold_archived(ev),
             kinds::TASK_PAUSED => self.fold_paused(ev),
+            kinds::TASK_WEIGHT => self.fold_weight(ev),
             kinds::TASK_OWNER => self.fold_owner(ev),
             kinds::TASK_PLACED => self.fold_placed(ev),
             kinds::TASK_COMMENT_EDITED => self.fold_comment_edited(ev, &at),
@@ -1300,9 +1321,11 @@ impl Fold {
                 links.push(l.clone());
             }
         }
+        let title_by_person = p.title_by_person && self.person_row(ev, &p.by);
         let mut task = Task {
             id: p.task_id.clone(),
             title: p.title.clone(),
+            title_by_person,
             objective: p.objective.clone(),
             done_criteria: p.done_criteria.clone(),
             // Cards from before #480 may carry any case; read them back in
@@ -2270,6 +2293,9 @@ impl Fold {
         }
         match ev.kind.as_str() {
             kinds::LEASE_RELEASED => true,
+            // Irori's office assistant weighs cards (card #963); the fold
+            // keeps a weight the person set.
+            kinds::TASK_WEIGHT => true,
             // The take lock: its fold counts only the asking device's.
             kinds::BOARD_ASK_STATE => true,
             // Its fold checks who may take the ask (card #541).
@@ -2639,7 +2665,7 @@ pub const MADE_KIND: &str = "task.made";
 /// The card refs in text: `#12` (tag None) or `mlg#12`, each a whole word
 /// (start, whitespace or "(" before; not a digit or letter after). The
 /// number is returned as written.
-pub(crate) fn card_refs(text: &str) -> Vec<(Option<String>, String)> {
+pub fn card_refs(text: &str) -> Vec<(Option<String>, String)> {
     let b = text.as_bytes();
     let mut out = Vec::new();
     for (i, &c) in b.iter().enumerate() {
@@ -2749,5 +2775,14 @@ fn offered_by(st: &Store, dev: &str) -> Result<HashSet<String>> {
             return Ok(out);
         }
         f.after = evs.last().map(Event::cursor).unwrap_or_default();
+    }
+}
+
+/// An agent took card t (card #717): "OK to start an agent on this?" no
+/// longer asks anything, so it closes, as the given card's other turns do.
+/// A person joining leaves it: the question is whether an agent starts.
+fn close_given_for_agent(t: &mut Task, who: &str, when: GoTime) {
+    if !who.starts_with(kinds::PERSON_ACTOR_PREFIX) && !who.starts_with("user:") {
+        super::cards::close_given_question(t, when);
     }
 }

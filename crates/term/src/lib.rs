@@ -29,6 +29,19 @@ mod stub;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use stub::Terms;
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod replay;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub use replay::replay_text;
+
+/// The text a recorded terminal stream leaves on screen (card #741). A
+/// phone has no VT engine and no `claude` to record from; it gives the
+/// bytes back as text.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn replay_text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).trim().to_string()
+}
+
 /// A terminal's id on this device.
 pub type TermId = u32;
 
@@ -41,6 +54,9 @@ pub enum Scope {
     Card(String),
     /// An agent session, by its key (S3).
     Agent(String),
+    /// The person's own terminal on this device, tied to no card: the
+    /// bottom panel's shell on pages other than a card's (card #734).
+    Device,
 }
 
 /// What `term_open` answers.
@@ -139,3 +155,21 @@ impl Viewer {
 pub(crate) const NOT_HERE: &str = "terminals are not on this device";
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub(crate) const NO_TERM: &str = "no such terminal";
+
+#[cfg(test)]
+mod tests {
+    use super::Scope;
+
+    #[test]
+    fn scopes_keep_their_wire_shape() {
+        // The window's bindings send these as they are (card #734 adds
+        // the device scope, which has no id).
+        let j = |s: &Scope| serde_json::to_string(s).unwrap();
+        assert_eq!(j(&Scope::Card("t1".into())), r#"{"kind":"card","id":"t1"}"#);
+        assert_eq!(j(&Scope::Device), r#"{"kind":"device"}"#);
+        let back: Scope = serde_json::from_str(r#"{"kind":"device"}"#).unwrap();
+        assert_eq!(back, Scope::Device);
+        let back: Scope = serde_json::from_str(r#"{"kind":"card","id":"t1"}"#).unwrap();
+        assert_eq!(back, Scope::Card("t1".into()));
+    }
+}

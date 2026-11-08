@@ -53,6 +53,11 @@ pub(crate) struct CleanTask {
     pub after: Vec<String>,
     /// Held as Not yet from the start (card #570).
     pub later: Option<super::later::Back>,
+    /// The person named it by hand (card #779).
+    pub title_by_person: bool,
+    /// Its weight from the start and why (card #964); "" is none.
+    pub weight: String,
+    pub weight_reason: String,
 }
 
 /// CreateTask's checks.
@@ -110,7 +115,10 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
     check_reason(&reason, false)?;
     let mut steps = nt.steps.clone();
     check_steps(&mut steps)?;
+    let (weight, weight_reason) = super::weight::clean_new_weight(&nt.weight, &nt.weight_reason)?;
     Ok(CleanTask {
+        weight,
+        weight_reason,
         by: by.into(),
         title,
         obj,
@@ -124,6 +132,7 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
         steps: new_steps(&steps),
         after: nt.after.clone(),
         later: nt.later.clone(),
+        title_by_person: nt.title_by_person,
         parent: String::new(),
         spawn: false,
         from: String::new(),
@@ -206,12 +215,16 @@ impl Fold {
         if let Some(p) = self.tasks.get(&ct.parent) {
             ct.board = p.board.clone();
         }
+        if self.board_closed(&ct.board) {
+            return Err(self.closed_refusal(&ct.board));
+        }
         let mut bb = None;
         if !ct.reason.is_empty() {
             bb = self.check_blocker(ct.blocked_by.as_ref(), "")?;
         }
         // All of it before the first row (card #570).
         let waits = self.new_waits(&ct, bb.as_ref())?;
+        self.check_new_weight(by, &ct.weight, &ct.weight_reason)?;
         let at = self.stamp();
         let id = new_id(&at);
         let num = self.next_short(&ct.board);
@@ -233,6 +246,7 @@ impl Fold {
                 from: ct.from.clone(),
                 board: ct.board.clone(),
                 side: ct.side.clone(),
+                title_by_person: ct.title_by_person,
                 by: by.into(),
                 at,
                 ask: None,
@@ -277,6 +291,8 @@ impl Fold {
             )?;
         }
         if self.tasks.contains_key(&id) {
+            // Weighed with the card (card #964): before anyone is handed it.
+            self.write_new_weight(by, &id, &ct.weight, &ct.weight_reason)?;
             self.write_new_waits(by, &id, waits)?;
         }
         // The fold can set the row aside (a writer the board doesn't count).
@@ -584,6 +600,9 @@ impl Fold {
     pub(crate) fn reopen_locked(&mut self, by: &str, id: &str, note: &str) -> Result<()> {
         let t = self.tasks[id].clone();
         self.reopen_refusal(&t)?;
+        if self.board_closed(&t.board) {
+            return Err(self.closed_refusal(&t.board));
+        }
         if let Some(p) = self.tasks.get(&t.parent).cloned()
             && is_terminal(&p.state)
         {

@@ -21,7 +21,7 @@ use crate::names::trim_space;
 use crate::roster::AgentCard;
 
 /// The text of the comment that carries an ask's files.
-pub(crate) const ASK_FILES_NOTE: &str = "Files with the ask.";
+pub const ASK_FILES_NOTE: &str = "Files with the ask.";
 
 pub const TAKE_CLAIM: &str = "claim";
 pub const TAKE_RELEASE: &str = "release";
@@ -105,6 +105,13 @@ pub const ASK_FULL_SETTLE: Duration = Duration::from_secs(60);
 /// computer that counted the owner's agents a moment late doesn't take it
 /// from under that start.
 pub const ASK_FULL_GRACE: Duration = Duration::from_secs(5);
+
+/// How long the "Nobody took" notice holds off for a computer that looks
+/// about to take the ask (card #995): well past [`ASK_FULL_GRACE`] and the
+/// new owner's next sweep, and short enough that a move that never comes
+/// still gets said. After a move it counts from the end of
+/// [`ASK_FULL_SETTLE`], since the next move can't come sooner.
+pub const ASK_ROOM_HOLD: Duration = Duration::from_secs(30);
 
 /// How many times an ask may move within [`ASK_FULL_WINDOW`] and still
 /// move because its owner is full (card #686): past this it waits where it
@@ -313,6 +320,7 @@ impl Fold {
             } else {
                 String::new()
             },
+            assistant: a.thread && a.assistant,
             ..Ask::default()
         });
     }
@@ -533,6 +541,9 @@ impl Fold {
                         .then(|| self.moved_line(b))
                 });
                 let another = self.edited_by_another(ev, &p.task_id, &p.by);
+                // A name the person gave stays theirs (card #779).
+                let by_person = self.person_row(ev, &p.by);
+                let irori_title = irori_title_row(ev, &p);
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -542,7 +553,23 @@ impl Fold {
                 let moved_lines = changed.len();
                 if let Some(title) = &p.title
                     && !trim_space(title).is_empty()
+                    && (by_person || !t.title_by_person)
                 {
+                    if by_person {
+                        t.title_by_person = true;
+                    }
+                    // Irori's assistant names a thread (card #782): what
+                    // it was is kept for Undo.
+                    if *title != t.title {
+                        if irori_title {
+                            t.irori_titled += 1;
+                            t.title_was = t.title.clone();
+                        } else {
+                            // Someone else renamed it: the name isn't
+                            // Irori's any more, so there is nothing to undo.
+                            t.title_was.clear();
+                        }
+                    }
                     if *title != t.title {
                         changed.push(format!(
                             "renamed it from “{}” to “{}”",
@@ -574,7 +601,7 @@ impl Fold {
                 }
                 // A yes is for the words they read: someone else changing
                 // them asks again (card #573).
-                if changed.len() > moved_lines && another {
+                if changed.len() > moved_lines && another && !irori_title {
                     super::cards::close_given_question(t, at(p.at));
                     t.given_said = None;
                 }
@@ -589,6 +616,12 @@ impl Fold {
                         "turned Agents answer now {}",
                         if on { "on" } else { "off" }
                     ));
+                }
+                // Irori's name that didn't take (the person named it
+                // meanwhile, or it already read so) leaves no line, as on
+                // a device that folded the person's row after it.
+                if irori_title && changed.is_empty() {
+                    return;
                 }
                 let when = at(p.at);
                 t.updated_at = when;
@@ -612,7 +645,9 @@ impl Fold {
                 }
                 let ti = Touch::of(t);
                 let holder = t.holder.clone();
-                self.touch(ev, &ti, when, &p.by, &what, true, Vec::new());
+                // Irori naming a thread wakes nobody (card #782): the line
+                // is on the thread, with its Undo.
+                self.touch(ev, &ti, when, &p.by, &what, !irori_title, Vec::new());
                 if from_thread {
                     self.fold_made(ev, &p.from, &p.task_id, when, &p.by, "changed");
                 }
@@ -799,6 +834,16 @@ impl Fold {
         if self.person_row(ev, &p.by) {
             return (true, String::new());
         }
+        // Irori's assistant names a thread on the person's own log (card
+        // #782): a title and nothing else. A shared board takes no row from
+        // Irori, so its threads aren't named.
+        if irori_title_row(ev, &p) {
+            if self.on_board {
+                self.ignore(&ev.device_id);
+                return (false, String::new());
+            }
+            return (true, String::new());
+        }
         // Only a person turns a thread's Agents answer now (card #391).
         if p.agents_now.is_some() {
             self.ignore(&ev.device_id);
@@ -922,6 +967,7 @@ impl Fold {
                     } else {
                         String::new()
                     },
+                    assistant: input.thread && input.assistant,
                 }),
                 side,
                 by: by.clone(),
@@ -1087,6 +1133,7 @@ impl Fold {
                     },
                     owner: String::new(),
                     channel: clean_channel(&input.channel),
+                    assistant: false,
                 }),
                 side,
                 by: by.clone(),
@@ -1366,6 +1413,60 @@ impl Fold {
             return None;
         }
         self.room_home(&t.side, &a.owner)
+    }
+
+    /// How much longer the "Nobody took" notice holds off for ask t (card
+    /// #995), or None when it doesn't: a computer with room is about to
+    /// take it, it just moved to one that has room, or its agent was just
+    /// bound and the row saying it took the ask hasn't folded here yet.
+    /// Each counts from its own moment and runs out by itself, so an ask
+    /// nobody ends up taking is still said. A request still waiting for its
+    /// agent is [`Task::spawn_pending`], which the notice checks itself.
+    pub(crate) fn ask_notice_hold(&self, t: &Task) -> Option<Duration> {
+        let a = t.open_ask()?;
+        if !a.unclaimed || !a.taker.is_empty() {
+            return None;
+        }
+        let opened = a.since.unix_nano().max(t.created_at.unix_nano());
+        // From this opening only: an agent or move from an earlier one says
+        // nothing about this one.
+        let bound = t
+            .spawn_request()
+            .filter(|s| s.op == super::spawn::SPAWN_REQUESTED && !s.key.is_empty())
+            .and_then(|s| self.spawned_for(&s.key))
+            .map(|s| s.at.unix_nano())
+            .filter(|at| *at >= opened);
+        let moved = self
+            .asks
+            .moved_at
+            .get(&t.id)
+            .and_then(|v| v.last())
+            .map(GoTime::unix_nano)
+            .filter(|at| *at >= opened && !self.is_full(&a.owner));
+        // What pull_asks needs before it would write the move. One that
+        // just moved can't move again until it settles, so the hold counts
+        // from then.
+        let settled = self
+            .asks
+            .moved_at
+            .get(&t.id)
+            .and_then(|v| v.last())
+            .map_or(0, |at| {
+                at.unix_nano()
+                    .saturating_add(ASK_FULL_SETTLE.as_nanos() as i64)
+            });
+        let target = (self.would_wait_for_agent(t)
+            && (self.on_board || self.reads_moves(&a.owner))
+            && self.full_target(t).is_some())
+        .then_some(opened.max(settled));
+        let from = [bound, moved, target].into_iter().flatten().max()?;
+        let hold = self.ask_room_hold;
+        let gone = self.stamp().unix_nano().saturating_sub(from).max(0) as u128;
+        // A moment still ahead of this clock (the settle, or another
+        // device's stamp within the skew the store allows) holds until this
+        // clock reaches it, then for the bound.
+        hold.checked_sub(Duration::from_nanos(gone.min(u64::MAX as u128) as u64))
+            .filter(|left| !left.is_zero())
     }
 
     /// Where an ask whose owner can't serve it goes (card #541): the ask
@@ -2137,6 +2238,7 @@ impl Fold {
                 if title.is_empty() {
                     return Err(invalid("a card outcome needs a title"));
                 }
+                self.check_person_title(&by, &t, &title)?;
                 self.write(
                     &by,
                     self.ask_kind(kinds::TASK_EDITED),
@@ -2240,6 +2342,7 @@ impl Fold {
                         m.state
                     )));
                 }
+                self.check_person_title(&by, &m, &title)?;
                 self.write(
                     &by,
                     self.ask_kind(kinds::TASK_EDITED),
@@ -2443,4 +2546,18 @@ fn clean_channel(c: &str) -> String {
     } else {
         String::new()
     }
+}
+
+/// Whether a task.edited row is Irori's assistant naming a thread (card
+/// #782): written by Irori itself, carrying a title and nothing else.
+fn irori_title_row(ev: &Event, p: &TaskEditedRow) -> bool {
+    p.by == SWEEPER
+        && ev.actor == SWEEPER
+        && p.title.is_some()
+        && p.objective.is_none()
+        && p.done_criteria.is_none()
+        && p.repo_key.is_none()
+        && p.from.is_empty()
+        && p.agents_now.is_none()
+        && p.board.is_none()
 }

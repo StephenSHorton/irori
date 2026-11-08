@@ -552,7 +552,9 @@ export function ConversationView({
         ) : narrow && showMembers && conv.kind === "channel" ? (
           <Members members={conv.members} live={live} wide />
         ) : (
-          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto px-3 py-3 mac:overscroll-none">
+          // The newest post clears Ask Irori's button, which sits above
+          // the composer (pb-16, card #783).
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto px-3 pt-3 pb-16 mac:overscroll-none">
             {error && (
               <p className="px-2 text-xs text-destructive" role="alert">
                 Could not load the posts: {error}
@@ -656,6 +658,7 @@ export function ConversationView({
         // A space's channel makes its cards in the space (card #558).
         board={boards.find((b) => b.boardId === conv.spaceId)}
         from={prefill}
+        draftLost
         onClose={() => setMaking(null)}
         onMade={(id) => {
           if (making) void talkApi.linkCard(making.postId, id).catch(() => {})
@@ -806,7 +809,7 @@ export function PostRow({
               type="button"
               onClick={() => setAsking((a) => !a)}
               className="ml-auto hidden items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-secondary hover:text-ink focus-visible:opacity-100 pointer-fine:md:flex"
-              title="Ask about this in a thread: it goes in Threads, and this channel gets a one-line pointer"
+              title="Start a thread about this: it goes in Threads, and this channel gets a one-line pointer"
             >
               <MessageSquareTextIcon className="size-3.5" aria-hidden />
               Start a thread
@@ -931,8 +934,8 @@ function ThreadFrom({
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && onDone()}
-        placeholder="Ask about this in a thread…"
-        aria-label="Your question for the thread"
+        placeholder="Start a thread about this…"
+        aria-label="Start a thread about this"
         readOnly={busy}
         className="rounded-md border border-border bg-card px-2 py-1 text-[12.5px] text-ink outline-none focus:border-primary"
       />
@@ -1074,6 +1077,8 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
   return (
     <form
       className="grid gap-1 border-t border-border px-3 py-2.5"
+      // Ask Irori's button sits above the composer, off its Send (#783).
+      data-assistant-avoid=""
       onSubmit={(e) => void submit(e)}
       {...attach.drop}
     >

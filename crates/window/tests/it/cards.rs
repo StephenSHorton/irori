@@ -844,6 +844,61 @@ fn a_thread_from_the_header_box() {
     );
 }
 
+/// Card #719: a thread counts in Talk only while an agent's reply in it is
+/// unread. Two answered threads, one opened since: only the other is
+/// unread; opening it reads it; a new agent reply brings it back; the
+/// person's own reply reads it too.
+#[test]
+fn a_thread_is_unread_until_the_person_opens_it() {
+    let r = Rig::new();
+    let t = held_task(&r);
+    let start = |q: &str| {
+        r.w.start_thread(&format!("{q} #{}", t.short), &[], &[], "")
+            .unwrap()
+            .task
+            .id
+    };
+    let (a, b) = (start("Is it moving?"), start("Any blockers?"));
+    let answer = |id: &str, text: &str| {
+        r.w.core
+            .coord()
+            .add_comment(&r.key_a, id, text, false)
+            .unwrap();
+    };
+    let unread = |id: &str| {
+        r.w.threads("")
+            .into_iter()
+            .find(|s| s.id == id)
+            .unwrap()
+            .unread
+    };
+    assert!(!unread(&a) && !unread(&b), "nobody answered yet");
+    answer(&a, "Yes.");
+    answer(&b, "None.");
+    r.w.read_thread(&b).unwrap();
+    assert!(unread(&a), "answered, never opened");
+    assert!(!unread(&b), "opened since the answer");
+    let n = r.w.threads("").iter().filter(|s| s.unread).count();
+    assert_eq!(n, 1);
+
+    r.w.read_thread(&a).unwrap();
+    assert!(!unread(&a), "opening it reads it");
+    answer(&a, "One more thing.");
+    assert!(unread(&a), "a new agent reply brings it back");
+    r.w.comment(&a, "Thanks", "none", &[], &[]).unwrap();
+    assert!(!unread(&a), "the person's reply reads it");
+
+    // Opened before anyone answered: the answer is still unread.
+    let c = start("And the docs?");
+    r.w.read_thread(&c).unwrap();
+    answer(&c, "Done.");
+    assert!(unread(&c));
+    // Resolved: never counts.
+    r.w.resolve_thread(&c).unwrap();
+    assert!(!unread(&c));
+    assert!(r.w.read_thread("no-such-thread").is_err());
+}
+
 /// Card #631: a thread an agent opened shows as that agent's, waiting on
 /// the person (answered, its words last), never as told to its opener; the
 /// person's reply goes to it, and they resolve it.
@@ -870,6 +925,7 @@ fn a_thread_an_agent_opened_shows_as_its() {
         Some(r.key_a.as_str())
     );
     assert_eq!(s.state, "answered", "waits on the person");
+    assert!(s.unread, "unread until the person opens it (card #719)");
     assert!(s.told.is_empty(), "{:?}", s.told);
     assert_eq!(
         s.last_by.as_ref().map(|a| a.key.as_str()),
@@ -1249,12 +1305,11 @@ fn what_waits_on_the_person_says_so() {
     assert!(summary(&pr.id).wait_pr.is_none());
 }
 
-/// Card #509: an agent's external wait on a PR (#454's "Review and merge
-/// PR #41") is the person's merge: the card carries the PR for Home's
-/// Needs you and counts in the tray, until the PR is heard merged. A wait
-/// on CI stays a wait.
+/// Card #970: an agent's external wait on a PR (#454's "Review and merge
+/// PR #41") stays its agent's, like a wait on CI: no Needs you row asks
+/// the person to merge it and the tray doesn't count it, open or merged.
 #[test]
-fn a_wait_on_a_prs_merge_is_the_persons() {
+fn a_wait_on_a_pr_never_asks_the_person_to_merge() {
     const PR: &str = "https://github.com/a/irori/pull/41";
     let r = Rig::new();
     let co = r.w.core.coord();
@@ -1282,18 +1337,14 @@ fn a_wait_on_a_prs_merge_is_the_persons() {
         .unwrap()
     };
     let ci = wait("release", "CI on the release");
-    assert!(summary(&ci.id).merge_pr.is_none());
+    assert!(summary(&ci.id).gone_wait.is_none());
     assert_eq!(r.w.decide_count(), 0, "a wait on CI is no decision");
 
     let t = wait("part 10", PR);
     let s = summary(&t.id);
-    let m = s.merge_pr.expect("the person's merge");
-    assert_eq!(
-        (m.repo.as_str(), m.number, m.url.as_str()),
-        ("a/irori", 41, PR)
-    );
     assert_eq!((s.open_blockers, s.waiting_on), (0, 1));
-    assert_eq!(r.w.decide_count(), 1);
+    assert!(s.gone_wait.is_none());
+    assert_eq!(r.w.decide_count(), 0, "not the person's merge");
 
     co.record_pr_state(
         &t.id,
@@ -1304,7 +1355,7 @@ fn a_wait_on_a_prs_merge_is_the_persons() {
         },
     )
     .unwrap();
-    assert!(summary(&t.id).merge_pr.is_none(), "merged");
+    assert_eq!(summary(&t.id).waiting_on, 1, "its agent hears the merge");
     assert_eq!(r.w.decide_count(), 0);
 }
 
@@ -1840,8 +1891,8 @@ fn hand_on_a_wait_on_a_gone_agent() {
 
 /// Card #520: a wait no agent will end is a Needs you row (goneWait) and
 /// counts in the tray: #73 waits on kestrel (gone), #75's outside wait
-/// was raised by piranha (gone). A wait on a PR stays #509's merge row,
-/// once. Handed on, it leaves.
+/// was raised by piranha (gone). A gone raiser's wait on a PR is a gone
+/// wait too, never a merge row (card #970). Handed on, it leaves.
 #[test]
 fn a_wait_on_a_gone_agent_is_the_persons() {
     const PR: &str = "https://github.com/a/irori/pull/41";
@@ -1909,7 +1960,8 @@ fn a_wait_on_a_gone_agent_is_the_persons() {
     assert_eq!(g.on, "CI on the release");
     assert_eq!(r.w.decide_count(), 2);
 
-    // A wait on a PR is one merge row, not a gone wait too.
+    // A gone agent's wait on a PR is a gone wait like any outside wait,
+    // never a merge row (card #970).
     let t76 = wait(
         &piranha,
         "part 10",
@@ -1918,9 +1970,8 @@ fn a_wait_on_a_gone_agent_is_the_persons() {
         "Merge PR #41",
     );
     co.leave(&piranha, &t76.id, &piranha).unwrap();
-    let s = summary(&t76.id);
-    assert!(s.merge_pr.is_some());
-    assert!(s.gone_wait.is_none());
+    let g = summary(&t76.id).gone_wait.expect("a gone raiser's PR wait");
+    assert_eq!(g.agent.key, piranha);
     assert_eq!(r.w.decide_count(), 3, "counted once");
 
     // Handed on, it leaves Needs you and the tray.
