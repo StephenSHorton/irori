@@ -1010,6 +1010,16 @@ fn starting_an_agent_on_a_held_card_brings_it_back_first() {
     co.park(&person, &t.id, "not now", coord::Back::Word)
         .unwrap();
     assert_eq!(co.get_task(&t.id).unwrap().state, coord::BLOCKED);
+    // Card #1066: with the switch off the button says so and changes nothing.
+    let e = r.core.start_agent(&t.id, "").unwrap_err();
+    assert!(e.contains("switched off"), "{e}");
+    assert_eq!(co.get_task(&t.id).unwrap().state, coord::BLOCKED);
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
     r.core.start_agent(&t.id, "").unwrap();
     let got = co.get_task(&t.id).unwrap();
     assert!(got.parked().is_none(), "{:?}", got.blockers);
