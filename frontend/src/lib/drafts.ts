@@ -51,3 +51,41 @@ export function useMentionsDraft(
   )
   return [mentions, set]
 }
+
+// CardForm is New card's form as the person left it (card #1071).
+export type CardForm = {
+  title: string
+  objective: string
+  doneWhen: string
+  repoKey: string
+  assignTo: string
+  // The board picked inside the space, or null for the default.
+  picked: string | null
+  files: File[]
+}
+
+// A Talk message's Make a card, kept while Settings is open (card #1071):
+// Settings is a page and takes the conversation with it, so its link
+// keeps the post the card is made from and the form here, and the
+// conversation opens the form again when it's back. One at a time: the
+// form is a dialog. Memory only, as drafts above.
+export type MakingCard<P> = { convId: string; post: P; form: CardForm }
+
+let making: MakingCard<unknown> | null = null
+
+export function keepMakingCard<P>(m: MakingCard<P>) {
+  making = m
+}
+
+// makingCard is the Make a card kept for conversation convId, if any. It
+// stays kept until dropped, so reading it twice (React's strict mode runs
+// state initialisers twice) finds it both times.
+export function makingCard<P>(convId: string): MakingCard<P> | undefined {
+  return making?.convId === convId ? (making as MakingCard<P>) : undefined
+}
+
+// dropMakingCard forgets conversation convId's kept Make a card: the form
+// was closed or the card made.
+export function dropMakingCard(convId: string) {
+  if (making?.convId === convId) making = null
+}

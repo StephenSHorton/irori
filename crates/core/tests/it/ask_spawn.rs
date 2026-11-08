@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::*;
-use irori_core::spawn::{SpawnReq, SpawnSetting, SpawnStarted, Spawner};
+use irori_core::spawn::{DEVICE_FREE, SpawnReq, SpawnSetting, SpawnStarted, Spawner};
 
 const SPAWNED_SESS: &str = "cccccccc-3333-4333-8333-000000000003";
 const REPO_SESS: &str = "dddddddd-4444-4444-8444-000000000004";
@@ -168,6 +168,7 @@ fn a_thread_nobody_takes_gets_a_background_agent_that_answers_it() {
             && brief.contains("What did we ship today?"),
         "{brief}"
     );
+    assert!(brief.contains(DEVICE_FREE), "{brief}");
     assert!(
         !brief.contains("board_status") && !brief.contains("Left off"),
         "a thread's brief, not a card's: {brief}"

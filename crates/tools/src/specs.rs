@@ -20,7 +20,8 @@ pub struct Spec {
     /// marks what it shows delivered, an idempotent write).
     #[serde(rename = "readOnly")]
     pub read_only: bool,
-    /// Who gets it: "claude" (the mod), "grok" (`irori mcp`).
+    /// Who gets it: "claude" (the mod), "grok" (`irori mcp`). An empty list means no client is
+    /// offered it (it still shows when no client is named).
     pub clients: Vec<String>,
 }
 

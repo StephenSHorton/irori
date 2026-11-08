@@ -175,6 +175,34 @@ pub fn pair_dm_id(a: &str, b: &str) -> String {
     format!("{DM_PREFIX}{}", &hex::encode(sum)[..16])
 }
 
+/// What [`assistants_channel_id`] hashes before the space id.
+pub const ASSISTANTS_DOMAIN: &str = "irori.assistants.channel.1";
+/// A space's assistants channel's id starts with this. Ordinary channel ids
+/// are `ch_` and an uppercase ULID, so `oa_` is unambiguous.
+pub const ASSISTANTS_PREFIX: &str = "ch_oa_";
+/// The assistants channel's name and topic (assistants-talk.md §4).
+pub const ASSISTANTS_NAME: &str = "office-assistants";
+pub const ASSISTANTS_TOPIC: &str = "Ask anyone's assistant. It answers from what is on this space.";
+
+/// Space `space`'s assistants channel (assistants-talk.md §4): `ch_oa_` and
+/// the first 16 hex digits of the SHA-256 of [`ASSISTANTS_DOMAIN`] and the
+/// space id. Every member's Core computes the same id, so the fold keeps
+/// one channel however many of them write it.
+pub fn assistants_channel_id(space: &str) -> String {
+    let sum = Sha256::digest(format!("{ASSISTANTS_DOMAIN}|{space}").as_bytes());
+    format!("{ASSISTANTS_PREFIX}{}", &hex::encode(sum)[..16])
+}
+
+/// Whether `id` is space `space`'s assistants channel.
+pub fn is_assistants_channel(id: &str, space: &str) -> bool {
+    !space.is_empty() && id == assistants_channel_id(space)
+}
+
+/// Whether `id` is in the assistants channels' id range, whichever space.
+fn in_assistants_range(id: &str) -> bool {
+    id.starts_with(ASSISTANTS_PREFIX)
+}
+
 /// Whether `conv` names a DM.
 pub fn is_dm(conv: &str) -> bool {
     conv.starts_with(DM_PREFIX)
@@ -920,6 +948,34 @@ impl Talk {
             .ok_or_else(|| Error::raw(ErrorKind::Store, "talk: the channel didn't fold"))
     }
 
+    /// Makes space `space`'s assistants channel as `irori` unless Talk has
+    /// folded it already (archived or not, so an archived one stays so).
+    /// True when it wrote the row. Nobody joins it: it isn't
+    /// [`Self::create_channel_in`].
+    pub fn ensure_assistants_channel(&self, space: &str) -> Result<bool> {
+        let space = space.trim();
+        if space.is_empty() {
+            return Ok(false);
+        }
+        let id = assistants_channel_id(space);
+        if self.channel(&id).is_some() {
+            return Ok(false);
+        }
+        self.write(
+            space,
+            "irori",
+            kinds::TALK_CHANNEL_CREATED,
+            &ChannelCreatedRow {
+                channel_id: id,
+                space_id: space.into(),
+                name: ASSISTANTS_NAME.into(),
+                topic: Some(ASSISTANTS_TOPIC.into()),
+                by: "irori".into(),
+            },
+        )?;
+        Ok(true)
+    }
+
     /// Adds `m` to conversation `conv` (a channel or a DM). Joining twice
     /// is a no-op (false).
     pub fn join(&self, conv: &str, m: &Member, by: &str) -> Result<bool> {
@@ -1222,6 +1278,24 @@ impl Talk {
         text: &str,
         by: &str,
     ) -> Result<Post> {
+        self.write_segment_marked(conv, call_id, seg, start_ms, end_ms, text, by, false)
+    }
+
+    /// [`Talk::write_segment`] with the `agents` mark (card #1047): `true`
+    /// when the speaker's notice said agents hear the huddle, so a person
+    /// DM's agents may read the line (call-agents.md section 10).
+    #[allow(clippy::too_many_arguments)]
+    pub fn write_segment_marked(
+        &self,
+        conv: &str,
+        call_id: &str,
+        seg: i64,
+        start_ms: i64,
+        end_ms: i64,
+        text: &str,
+        by: &str,
+        agents: bool,
+    ) -> Result<Post> {
         let by = need_by(by)?.to_string();
         let (conv, call_id) = (conv.trim().to_string(), call_id.trim().to_string());
         if call_id.is_empty() {
@@ -1247,7 +1321,7 @@ impl Talk {
                 start_ms,
                 end_ms: end_ms.max(start_ms),
                 text,
-                agents: false,
+                agents,
                 by: by.clone(),
                 at: (self.now)(),
             },
@@ -1796,6 +1870,14 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 return false;
             };
             if r.channel_id.is_empty() {
+                return false;
+            }
+            // The fold keeps the first copy, so a member of two spaces
+            // could make S1's assistants channel inside S2. `space_id` is
+            // the log that carried the row, not the row's say-so.
+            if in_assistants_range(&r.channel_id)
+                && !is_assistants_channel(&r.channel_id, &r.space_id)
+            {
                 return false;
             }
             let c = s.channels.entry(r.channel_id.clone()).or_default();
