@@ -594,6 +594,66 @@ fn test_board_shows_blocking_lease() {
     assert_eq!(v.leases.len(), 1, "leases {:?}", v.leases);
 }
 
+/// Heavy slots (device-free plan §2): the base name takes one of two.
+#[test]
+fn test_heavy_slots_through_lease_and_release() {
+    let h = new_harness();
+    let base = "heavy/3dc30c94";
+    let out = h.okj(&call_a(), "lease", json!({"resource": base}));
+    has(&out, &["Leased heavy/3dc30c94/slot-1"]);
+    // A repeat renews the same slot.
+    let out = h.okj(&call_a(), "lease", json!({"resource": base}));
+    has(&out, &["Leased heavy/3dc30c94/slot-1"]);
+    let out = h.okj(&call_b(), "lease", json!({"resource": base}));
+    has(&out, &["Leased heavy/3dc30c94/slot-2"]);
+    // A third taker is refused, with the slots and their holders named.
+    h.failsj(
+        &call_c(),
+        "lease",
+        json!({"resource": base}),
+        &[
+            "heavy/3dc30c94/slot-1 held by alpha",
+            "heavy/3dc30c94/slot-2 held by beta",
+        ],
+    );
+    // Steal, a direct slot name and another device's id are refused.
+    h.failsj(
+        &call_c(),
+        "lease",
+        json!({"resource": base, "steal": true}),
+        &["can't be stolen"],
+    );
+    h.failsj(
+        &call_c(),
+        "lease",
+        json!({"resource": format!("{base}/slot-1")}),
+        &["slot itself", base],
+    );
+    h.failsj(
+        &call_c(),
+        "lease",
+        json!({"resource": "heavy/deadbeef"}),
+        &["This device's is heavy/3dc30c94"],
+    );
+    // Release by base name, then by full slot name.
+    let out = h.okj(&call_a(), "release", json!({"resource": base}));
+    has(&out, &["Released heavy/3dc30c94"]);
+    h.failsj(
+        &call_a(),
+        "release",
+        json!({"resource": base}),
+        &["you hold no slot of heavy/3dc30c94"],
+    );
+    let out = h.okj(&call_c(), "lease", json!({"resource": base}));
+    has(&out, &["Leased heavy/3dc30c94/slot-1"]);
+    let out = h.okj(
+        &call_b(),
+        "release",
+        json!({"resource": "heavy/3dc30c94/slot-2"}),
+    );
+    has(&out, &["Released heavy/3dc30c94/slot-2"]);
+}
+
 /// The cards: steps, blockers with recommended answers, watchers.
 #[test]
 fn test_board_cards() {

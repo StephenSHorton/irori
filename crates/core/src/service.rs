@@ -431,6 +431,10 @@ impl tools::Backend for ToolsView {
             .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
+
+    fn device_id(&self) -> String {
+        self.0.device.id.clone()
+    }
     fn agents(&self) -> Vec<presence::AgentCard> {
         self.0
             .roster
