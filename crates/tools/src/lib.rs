@@ -50,6 +50,7 @@ mod attachments;
 mod avatar;
 mod board;
 mod capturetools;
+mod devicefree;
 mod explore;
 mod format;
 mod later;
@@ -261,6 +262,11 @@ pub trait Backend: Send + Sync {
     fn device_id(&self) -> String {
         String::new()
     }
+    /// This device's free room for the folder `path` (empty: Irori's data
+    /// dir), read now; `None` when this backend can't read it.
+    fn device_free(&self, _path: &str) -> Option<DeviceFree> {
+        None
+    }
     /// This device's roster (presence plus Grok members).
     fn agents(&self) -> Vec<presence::AgentCard>;
     /// Whether this device's session `key` has a live attach stream
@@ -433,6 +439,8 @@ pub(crate) struct Inner {
     pub(crate) board_requests: Mutex<shared::Requests>,
 }
 
+pub use devicefree::DeviceFree;
+
 /// Heavy slots per device (device-free plan §2): advisory, fixed at two.
 pub const HEAVY_SLOTS: usize = 2;
 
@@ -461,7 +469,7 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 63] = [
+    let list: [(&'static str, Handler); 64] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -508,6 +516,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("prs", explore::prs),
         ("lease", board::lease),
         ("leases", board::leases),
+        ("device_free", devicefree::device_free),
         ("release", board::release),
         ("timeline", capturetools::timeline),
         ("why", capturetools::why),
