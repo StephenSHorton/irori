@@ -316,6 +316,18 @@ pub struct SpawnSetting {
     /// [`DEFAULT_EFFORT`].
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub effort: String,
+    /// The model and effort a light card's agent starts with (card #963);
+    /// `""` follows the board's own (see [`SpawnSetting::pick`]). `model`
+    /// and `effort` above are the normal weight's.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub light_model: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub light_effort: String,
+    /// A heavy card's (card #963).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub heavy_model: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub heavy_effort: String,
     /// How many of a card's agents may crash in a row before Irori stops
     /// and asks the person (§2, card #576). 0 is
     /// [`coord::MAX_SPAWN_CRASHES`].
@@ -419,7 +431,18 @@ pub const DEFAULT_MODEL: &str = "sonnet";
 /// The effort they start with when he hasn't picked one.
 pub const DEFAULT_EFFORT: &str = "medium";
 /// The models Settings › Agents offers (Claude Code's `--model` aliases).
-pub const MODELS: &[&str] = &["sonnet", "opus", "haiku"];
+/// Sonnet is the least a card's agent runs on: no Haiku (card #963).
+pub const MODELS: &[&str] = &["sonnet", "opus"];
+/// Models once offered, and what a stored row with one runs on now.
+pub const RETIRED_MODELS: &[(&str, &str)] = &[("haiku", "sonnet")];
+/// A light card's model when the board names none (card #963).
+pub const LIGHT_MODEL: &str = "sonnet";
+/// The most effort a light card gets when the board names none.
+pub const LIGHT_EFFORT: &str = "medium";
+/// A heavy card's model when the board names none.
+pub const HEAVY_MODEL: &str = "opus";
+/// The least effort a heavy card gets when the board names none.
+pub const HEAVY_EFFORT: &str = "high";
 /// The efforts it offers (Claude Code's `--effort` levels).
 pub const EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
@@ -442,6 +465,47 @@ impl SpawnSetting {
         }
     }
 
+    /// The model and effort a card of weight `level` starts with (card
+    /// #963): "light", "normal" or "heavy"; anything else (no weight) is
+    /// normal, the board's own pick. A light or heavy row the board leaves
+    /// empty works by itself: light is Sonnet at no more than medium
+    /// effort, heavy is Opus at no less than high, never less than normal.
+    pub fn pick(&self, level: &str) -> (&str, &str) {
+        let (model, effort) = (self.model(), self.effort());
+        match level {
+            coord::WEIGHT_LIGHT => (
+                pick_or(&self.light_model, LIGHT_MODEL),
+                pick_or(&self.light_effort, least_effort(effort, LIGHT_EFFORT)),
+            ),
+            coord::WEIGHT_HEAVY => (
+                pick_or(&self.heavy_model, HEAVY_MODEL),
+                pick_or(&self.heavy_effort, most_effort(effort, HEAVY_EFFORT)),
+            ),
+            _ => (model, effort),
+        }
+    }
+
+    /// The model and effort card `t` starts with, by its weight.
+    pub fn pick_for(&self, t: &coord::Task) -> (String, String) {
+        let level = t.weight.as_ref().map(|w| w.level.as_str()).unwrap_or("");
+        let (m, e) = self.pick(level);
+        (m.to_string(), e.to_string())
+    }
+
+    /// Raises a retired model (Haiku) to what runs in its place, so an old
+    /// row keeps its other choices (card #963).
+    pub fn raise_retired(&mut self) {
+        for m in [
+            &mut self.model,
+            &mut self.light_model,
+            &mut self.heavy_model,
+        ] {
+            if let Some((_, to)) = RETIRED_MODELS.iter().find(|(old, _)| *old == m.as_str()) {
+                *m = (*to).to_string();
+            }
+        }
+    }
+
     /// Refuses a model or effort Settings › Agents doesn't offer, so a bad
     /// row never reaches `claude`'s command line.
     pub fn check(&self) -> Result<(), String> {
@@ -450,21 +514,50 @@ impl SpawnSetting {
                 return Err(format!("tries are 1 to {MAX_TRIES}, not {n}"));
             }
         }
-        if !self.model.is_empty() && !MODELS.contains(&self.model.as_str()) {
-            return Err(format!(
-                "unknown model {:?}: pick one of {}",
-                self.model,
-                MODELS.join(", ")
-            ));
+        for m in [&self.model, &self.light_model, &self.heavy_model] {
+            if !m.is_empty() && !MODELS.contains(&m.as_str()) {
+                return Err(format!(
+                    "unknown model {m:?}: pick one of {}",
+                    MODELS.join(", ")
+                ));
+            }
         }
-        if !self.effort.is_empty() && !EFFORTS.contains(&self.effort.as_str()) {
-            return Err(format!(
-                "unknown effort {:?}: pick one of {}",
-                self.effort,
-                EFFORTS.join(", ")
-            ));
+        for e in [&self.effort, &self.light_effort, &self.heavy_effort] {
+            if !e.is_empty() && !EFFORTS.contains(&e.as_str()) {
+                return Err(format!(
+                    "unknown effort {e:?}: pick one of {}",
+                    EFFORTS.join(", ")
+                ));
+            }
         }
         Ok(())
+    }
+}
+
+/// `set` when it is chosen, else `or`.
+fn pick_or<'a>(set: &'a str, or: &'a str) -> &'a str {
+    if set.is_empty() { or } else { set }
+}
+
+fn effort_rank(e: &str) -> usize {
+    EFFORTS.iter().position(|x| *x == e).unwrap_or(1)
+}
+
+/// The lesser of two efforts.
+fn least_effort<'a>(a: &'a str, b: &'a str) -> &'a str {
+    if effort_rank(a) <= effort_rank(b) {
+        a
+    } else {
+        b
+    }
+}
+
+/// The greater of two efforts.
+fn most_effort<'a>(a: &'a str, b: &'a str) -> &'a str {
+    if effort_rank(a) >= effort_rank(b) {
+        a
+    } else {
+        b
     }
 }
 
@@ -1479,9 +1572,16 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
             }
         } else if ev.kind == kinds::SPAWN_SET {
             if let Ok(mut r) = serde_json::from_slice::<SpawnSetRow>(&ev.payload) {
+                // A Haiku row runs on Sonnet now and keeps the rest (card
+                // #963).
+                r.s.raise_retired();
                 if r.s.check().is_err() {
                     r.s.model.clear();
                     r.s.effort.clear();
+                    r.s.light_model.clear();
+                    r.s.light_effort.clear();
+                    r.s.heavy_model.clear();
+                    r.s.heavy_effort.clear();
                     r.s.crash_limit = 0;
                     r.s.start_tries = 0;
                 }
@@ -2104,8 +2204,9 @@ impl Services {
             folder: folder.clone().unwrap_or_default(),
             permission_mode: perms.mode.clone(),
             name: name.clone(),
-            model: setting.model().into(),
-            effort: setting.effort().into(),
+            // By the card's weight (card #963); none is normal.
+            model: setting.pick_for(t).0,
+            effort: setting.pick_for(t).1,
             counted: self.start_counts(&self.coord, t),
             ..SpawnAsk::default()
         };
@@ -2371,8 +2472,9 @@ impl Services {
             env,
             permission_mode: perms.mode,
             settings_file,
-            model: setting.model().into(),
-            effort: setting.effort().into(),
+            // By the card's weight (card #963); none is normal.
+            model: setting.pick_for(t).0,
+            effort: setting.pick_for(t).1,
             prompt: format!(
                 "You were started for {}. Read your brief at {} before anything else.",
                 t.short_ref(),

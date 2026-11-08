@@ -266,6 +266,9 @@ export const BoardService = {
   // The person renames a card or thread by hand (card #779).
   Rename: (id: string, title: string) => call(commands.boardRename(id, title)),
   Pin: (id: string, pinned: boolean) => done(commands.boardPin(id, pinned)),
+  // A card's weight (card #963): light, normal or heavy, or "" to clear.
+  SetWeight: (id: string, level: string, reason: string) =>
+    call(commands.boardSetWeight(id, level, reason)),
   // Pause / Resume (card #207): who was told.
   Pause: (id: string, paused: boolean, note: string) =>
     call(commands.boardPause(id, paused, note)),

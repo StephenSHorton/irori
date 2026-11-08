@@ -1,4 +1,5 @@
 import { NotYetButton, WhenLine } from "@/components/cards/order"
+import { WeightButton, WeightLine } from "@/components/cards/weight"
 import { laterOf } from "@/lib/later"
 import { useContext, useState, type FormEvent, type ReactNode } from "react"
 import {
@@ -431,6 +432,7 @@ export function CardPage({
             onOpen={onOpen}
             onBack={onBack}
           />
+          <WeightButton card={detail} />
           <NotYetButton card={detail} />
           {!detail.onBoard && <PauseButton card={detail} />}
           {!detail.onBoard && (
@@ -1225,6 +1227,7 @@ function PageHeader({
         </p>
       )}
       <WhenLine card={card} onOpen={onOpen} />
+      <WeightLine card={card} />
       {card.fromThread && (
         <p className="text-sm text-muted-foreground">
           From the thread{" "}

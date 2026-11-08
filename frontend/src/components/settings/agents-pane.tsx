@@ -98,41 +98,7 @@ export function AgentsPane({ open }: { open: boolean }) {
               />
             </div>
             <SpacesSection open={open} />
-            <section className="grid gap-2">
-              <h3 className="text-sm font-medium text-ink">
-                What a new agent starts with
-              </h3>
-              <p className="text-[12.5px] text-muted-foreground">
-                Every agent Irori starts uses these. One already working keeps
-                what it started with.
-              </p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <ChoiceSelect
-                  label="Model"
-                  showLabel
-                  size="sm"
-                  value={s.model}
-                  choices={s.models.map((m) => ({
-                    value: m,
-                    label: modelLabel(m, s.defaultModel),
-                  }))}
-                  onValueChange={(v) => set({ model: v })}
-                  className="text-[13px]"
-                />
-                <ChoiceSelect
-                  label="Effort"
-                  showLabel
-                  size="sm"
-                  value={s.effort}
-                  choices={s.efforts.map((e) => ({
-                    value: e,
-                    label: effortLabel(e, s.defaultEffort),
-                  }))}
-                  onValueChange={(v) => set({ effort: v })}
-                  className="text-[13px]"
-                />
-              </div>
-            </section>
+            <WeightsSection settings={s} set={set} />
             <NamesThemesSection open={open} />
             <LimitsSection open={open} settings={s} set={set} />
           </div>
@@ -146,6 +112,111 @@ export function AgentsPane({ open }: { open: boolean }) {
       {s && error && <p className="text-[12.5px] text-destructive">{error}</p>}
     </div>
   )
+}
+
+// WeightsSection is what a new agent starts with, by its card's weight
+// (card #963): Light, Normal and Heavy, each a model and effort. Normal is
+// the board's own pick; Light and Heavy follow it until the person picks
+// one (Sonnet at no more than medium, Opus at no less than high).
+function WeightsSection({
+  settings: s,
+  set,
+}: {
+  settings: AgentsSettings
+  set: (c: Omit<AgentsChange, "boardId">) => void
+}) {
+  const rows: {
+    name: string
+    model: string
+    effort: string
+    def: { model: string; effort: string }
+    onModel: (v: string) => void
+    onEffort: (v: string) => void
+  }[] = [
+    {
+      name: "Light",
+      model: s.lightModel,
+      effort: s.lightEffort,
+      def: { model: "", effort: "" },
+      onModel: (v) => set({ lightModel: v }),
+      onEffort: (v) => set({ lightEffort: v }),
+    },
+    {
+      name: "Normal",
+      model: s.model,
+      effort: s.effort,
+      def: { model: s.defaultModel, effort: s.defaultEffort },
+      onModel: (v) => set({ model: v }),
+      onEffort: (v) => set({ effort: v }),
+    },
+    {
+      name: "Heavy",
+      model: s.heavyModel,
+      effort: s.heavyEffort,
+      def: { model: "", effort: "" },
+      onModel: (v) => set({ heavyModel: v }),
+      onEffort: (v) => set({ heavyEffort: v }),
+    },
+  ]
+  return (
+    <section className="grid gap-2">
+      <h3 className="text-sm font-medium text-ink">
+        What a new agent starts with
+      </h3>
+      <p className="text-[12.5px] text-muted-foreground">
+        A card&apos;s weight picks its row; a card with no weight runs as
+        Normal. One already working keeps what it started with.
+      </p>
+      <ul className="grid divide-y divide-border rounded-md border border-border">
+        <li
+          aria-hidden
+          className="hidden px-3 py-1.5 text-xs text-muted-foreground sm:grid sm:grid-cols-[4.5rem_minmax(0,1fr)_minmax(0,1fr)] sm:gap-2"
+        >
+          <span>Weight</span>
+          <span>Model</span>
+          <span>Effort</span>
+        </li>
+        {rows.map((r) => (
+          <li
+            key={r.name}
+            className="grid grid-cols-2 items-center gap-2 px-3 py-2 sm:grid-cols-[4.5rem_minmax(0,1fr)_minmax(0,1fr)]"
+          >
+            <span className="col-span-2 text-[13px] text-ink sm:col-span-1">
+              {r.name}
+            </span>
+            <ChoiceSelect
+              label={`${r.name} model`}
+              size="sm"
+              value={r.model}
+              choices={withValue(s.models, r.model).map((m) => ({
+                value: m,
+                label: modelLabel(m, r.def.model),
+              }))}
+              onValueChange={r.onModel}
+              className="min-w-0 text-[13px]"
+            />
+            <ChoiceSelect
+              label={`${r.name} effort`}
+              size="sm"
+              value={r.effort}
+              choices={withValue(s.efforts, r.effort).map((e) => ({
+                value: e,
+                label: effortLabel(e, r.def.effort),
+              }))}
+              onValueChange={r.onEffort}
+              className="min-w-0 text-[13px]"
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+// withValue keeps a stored value in its list even when the list no longer
+// offers it, so the select still names what is set.
+function withValue(list: string[], v: string): string[] {
+  return !v || list.includes(v) ? list : [...list, v]
 }
 
 // SpacesSection is each shared space's own switch (card #573): off until

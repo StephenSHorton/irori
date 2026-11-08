@@ -62,10 +62,10 @@ fn setting(board_id: &str, on: bool, model: &str) -> SpawnSetting {
 fn another_devices_spawn_setting_leaves_this_ones_alone() {
     let (a, b) = paired();
     // The work computer (A) spawns with opus; the Mac (B) turns its own
-    // spawning off and picks haiku.
+    // spawning off and picks opus.
     a.core.set_spawn_setting(setting("", true, "opus")).unwrap();
     b.core
-        .set_spawn_setting(setting("", false, "haiku"))
+        .set_spawn_setting(setting("", false, "opus"))
         .unwrap();
     synced(&a, &b, kinds::SPAWN_SET, 1);
     let s = a.core.spawn_setting("");
@@ -149,7 +149,7 @@ fn a_device_with_no_setting_starts_from_the_newest_row_of_any_device() {
         "{own:?}"
     );
     b.core
-        .set_spawn_setting(setting("", false, "haiku"))
+        .set_spawn_setting(setting("", false, "opus"))
         .unwrap();
     synced(&a, &b, kinds::SPAWN_SET, 2);
     let s = a.core.spawn_setting("");

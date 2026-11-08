@@ -25,4 +25,5 @@ mod transcribe_e2e;
 mod trust_and_start;
 mod trust_repo;
 mod trust_writers;
+mod weights;
 mod wind_down;

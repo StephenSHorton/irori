@@ -309,8 +309,9 @@ impl Services {
             folder: folder.clone().unwrap_or_default(),
             permission_mode: perms.mode,
             name: name.clone(),
-            model: setting.model().into(),
-            effort: setting.effort().into(),
+            // By the card's weight (card #963); none is normal.
+            model: setting.pick_for(t).0,
+            effort: setting.pick_for(t).1,
             counted: self.start_counts(&log.co, t),
             ..SpawnAsk::default()
         };

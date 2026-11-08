@@ -232,6 +232,10 @@ impl Inner {
         if t.pinned {
             b += "; pinned by the person";
         }
+        // Its weight (card #963): what its agent runs on.
+        if let Some(w) = &t.weight {
+            b += &format!("; {}", weight_text(w, n));
+        }
         let holders: Vec<String> = t
             .holders
             .iter()
@@ -2585,7 +2589,12 @@ const EDIT_ARGS: &[(&str, Ty)] = &[
     ("from", Ty::Str),
     ("after", Ty::Strs),
     ("not_after", Ty::Strs),
+    ("weight", Ty::Struct(WEIGHT_FIELDS)),
 ];
+
+/// board_edit's weight (card #963): light, normal or heavy ("" clears
+/// it), and one line on why.
+const WEIGHT_FIELDS: &[(&str, Ty)] = &[("level", Ty::Str), ("why", Ty::Str)];
 
 /// A list of card refs, blanks dropped.
 fn refs_in(v: Vec<String>) -> Vec<String> {
@@ -2615,11 +2624,17 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         from: trim(a.str("from")).into(),
     };
     let (after, not_after) = (refs_in(a.strs("after")), refs_in(a.strs("not_after")));
+    let weight = a.object("weight").map(|w| {
+        (
+            trim(w.str("level")).to_string(),
+            trim(w.str("why")).to_string(),
+        )
+    });
     let words =
         e.title.is_some() || e.objective.is_some() || e.done_when.is_some() || e.repo.is_some();
-    if !words && after.is_empty() && not_after.is_empty() {
+    if !words && after.is_empty() && not_after.is_empty() && weight.is_none() {
         return err_text(
-            "give title, objective, done_when or repo (what the card is for now), or after or not_after (its order).",
+            "give title, objective, done_when or repo (what the card is for now), after or not_after (its order), or weight.",
         );
     }
     let repo_set = e.repo.is_some();
@@ -2658,6 +2673,23 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         match co.remove_after(&as_[0], &id, &not_after) {
             Ok(nt) => {
                 done.push(format!("it no longer comes after {}", ref_list(&not_after)));
+                t = Some(nt);
+            }
+            Err(e) => return format!("{}{}", map_err(e), so_far(&done)),
+        }
+    }
+    // Card #963: its weight. A weight the person set is theirs: the
+    // refusal says so.
+    if let Some((level, why)) = &weight {
+        match co.set_weight(&as_[0], &id, level, why) {
+            Ok((nt, _)) => {
+                done.push(match &nt.weight {
+                    Some(w) => format!(
+                        "it is {}: Irori starts its next agent on the model the board maps that to",
+                        w.level
+                    ),
+                    None => "its weight is cleared: it runs as normal".into(),
+                });
                 t = Some(nt);
             }
             Err(e) => return format!("{}{}", map_err(e), so_far(&done)),
@@ -2961,4 +2993,19 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     b += &format!("\n{}", s.card_line(&p, None, &n, &s.now()));
     b
+}
+
+/// A card's weight as the board shows it (card #963): "heavy, set by the
+/// person: planning the split".
+pub(crate) fn weight_text(w: &coord::Weight, n: &Names<'_>) -> String {
+    let by = match w.set_by.as_str() {
+        coord::SET_BY_PERSON => "the person".to_string(),
+        coord::SET_BY_ASSISTANT => "Irori's assistant".to_string(),
+        _ => n.who(&w.by),
+    };
+    let mut out = format!("{}, set by {by}", w.level);
+    if !w.reason.is_empty() {
+        out += &format!(": {}", one_line(&w.reason, coord::MAX_WEIGHT_REASON));
+    }
+    out
 }
