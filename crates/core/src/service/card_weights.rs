@@ -37,8 +37,9 @@ pub const HOLD_SECS: i64 = 30;
 /// A card older than this when it reaches the device isn't weighed.
 pub const NEW_FOR_SECS: i64 = 10 * 60;
 
-/// The most of a card's words one turn reads.
-const MAX_REASON: usize = coord::MAX_WEIGHT_REASON;
+/// The longest reason Irori writes, in characters: one line on a card,
+/// however much the model said (coord allows more).
+const MAX_REASON: usize = 140;
 
 // The criteria are part 2's (specs.json's weight text, spawn.rs SPLIT_WORK),
 // spelled out for a cheap model. Measured on Haiku with real cards (card
