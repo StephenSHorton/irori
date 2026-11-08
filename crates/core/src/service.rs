@@ -88,6 +88,7 @@ pub mod spawn_why;
 pub mod storage;
 pub mod sync_out;
 pub mod thread_names;
+pub mod tidy;
 pub use mirror::BoardReviewer;
 pub mod invites;
 mod talk;
@@ -347,6 +348,8 @@ struct Services {
     call_settings: call_settings::CallSettings,
     /// Irori's assistant naming the person's new threads (card #782).
     naming: thread_names::Naming,
+    /// Irori tidying the person's board (card #786).
+    tidying: tidy::Tidying,
     /// The themes new agents' names come from (card #702), shared with
     /// `names`.
     name_themes: Arc<name_themes::NameThemes>,
@@ -1233,6 +1236,7 @@ impl Core {
         spawn::load_spawn(&st, &spawn_state);
         let call_settings = call_settings::CallSettings::load(&st);
         let naming = thread_names::Naming::load(&st);
+        let tidying = tidy::Tidying::load(&st);
         let co = Arc::new(
             Coord::new(
                 st.clone(),
@@ -1310,6 +1314,7 @@ impl Core {
             )
             .map_err(|e| fail(&st, other("coord", e)))?,
         );
+        co.set_tidy(tidying.on());
         let _ = coord_cell.set(co.clone());
         laps.lap("coord");
 
@@ -1587,6 +1592,7 @@ impl Core {
             ),
             call_settings,
             naming,
+            tidying,
             name_themes,
             invites,
         });
@@ -2009,9 +2015,13 @@ impl Core {
                         s.follow_call_settings();
                         s.follow_names_themes();
                         s.follow_names_on();
+                        s.follow_tidy_on();
                     } else if ev.kind == kinds::ASSISTANT_NAMES_SET {
                         // Another device's "Name new threads" (card #782).
                         s.follow_names_on();
+                    } else if ev.kind == kinds::ASSISTANT_TIDY_SET {
+                        // Another device's "Tidy the board" (card #786).
+                        s.follow_tidy_on();
                     } else if ev.kind == kinds::TRANSCRIBE_SET {
                         // Another device's switch (card #656).
                         s.follow_call_settings();
@@ -2310,6 +2320,7 @@ impl Core {
                 let _reg = reg;
                 while let Some(ch) = q.recv() {
                     s2.names_hear(&ch);
+                    s2.tidy_hear(&ch);
                 }
                 s2.names_queue(None);
             });
@@ -2753,6 +2764,16 @@ impl Core {
     /// no tool reaches this.
     pub fn set_names_on(&self, on: bool) -> Result<(), String> {
         self.s.set_names_on(on)
+    }
+
+    /// "Tidy the board" (card #786): on unless the person turned it off.
+    pub fn tidy_on(&self) -> bool {
+        self.s.tidy_on()
+    }
+
+    /// The person turns "Tidy the board" on or off, from the app only.
+    pub fn set_tidy_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_tidy_on(on)
     }
 
     /// The `irori` whose `permission-hook` role each spawned agent's

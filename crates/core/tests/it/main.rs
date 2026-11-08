@@ -5,6 +5,7 @@
 
 mod agent_starts;
 mod agentnames;
+mod assistant_tidy;
 mod ask_spawn;
 mod assistant_names;
 mod attachments;

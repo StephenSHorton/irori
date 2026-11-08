@@ -223,6 +223,7 @@ impl Fold {
             && !t.shared
             && !t.withdrawn
             && t.given.is_none()
+            && !t.spawn_pending()
             && t.open_ask().is_none()
             && t.parked().is_none()
             // A parent with work still open isn't done.

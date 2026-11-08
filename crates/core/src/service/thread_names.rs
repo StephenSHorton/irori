@@ -89,6 +89,10 @@ pub struct NamesSet {
 pub(crate) enum Job {
     Name(String),
     Retitle(String),
+    /// Card #786: the Board-tidying job. Every assistant job goes through
+    /// this one queue and one loop, since the runner returns BUSY rather
+    /// than queueing past its limit.
+    Tidy(String),
 }
 
 /// The naming's state, shared by its two loops.
@@ -327,7 +331,7 @@ impl Services {
     }
 
     /// Queues `job` once, while it waits or runs.
-    fn names_queue_job(&self, job: Job) {
+    pub(crate) fn names_queue_job(&self, job: Job) {
         if !lock(&self.naming.busy).insert(job.clone()) {
             return;
         }
@@ -346,6 +350,7 @@ impl Services {
         }
         let id = match job {
             Job::Name(id) | Job::Retitle(id) => id,
+            Job::Tidy(_) => return false,
         };
         let Some(t) = self.coord.get_task(id) else {
             return false;
@@ -354,6 +359,7 @@ impl Services {
             return false;
         }
         match job {
+            Job::Tidy(_) => false,
             Job::Name(_) => {
                 let age = (self.now)().unix_nano() - t.created_at.unix_nano();
                 t.irori_titled == 0 && age < NEW_FOR_SECS * 1_000_000_000
@@ -390,6 +396,10 @@ impl Services {
             return;
         };
         let (id, ask, was) = match job {
+            Job::Tidy(id) => {
+                logf(format_args!("assistant: {id}: not a naming job"));
+                return;
+            }
             Job::Name(id) => {
                 let Some(t) = self.coord.get_task(id) else {
                     return;
@@ -439,6 +449,7 @@ impl Services {
             }
         };
         let title = match job {
+            Job::Tidy(_) => None,
             Job::Name(_) => clean_title(&reply),
             Job::Retitle(_) => retitle_reply(&reply),
         };
@@ -459,8 +470,10 @@ impl Services {
     pub(crate) fn names_loop(&self, rx: mpsc::Receiver<Job>) {
         while let Ok(job) = rx.recv() {
             // One bad turn never ends the naming for the session.
-            let run =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.names_run(&job)));
+            let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &job {
+                Job::Tidy(id) => self.tidy_run(id),
+                _ => self.names_run(&job),
+            }));
             if run.is_err() {
                 logf(format_args!("assistant: naming {job:?} failed"));
             }
