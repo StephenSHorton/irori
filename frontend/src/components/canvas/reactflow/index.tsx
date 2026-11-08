@@ -94,7 +94,7 @@ function Why({ n, kept }: { n: CardNode; kept: boolean }) {
   if (!lines.length) return null
   return (
     <div
-      className="irori-why pointer-events-none absolute top-full left-0 z-50 mt-2 hidden w-full border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg"
+      className="irori-why pointer-events-none absolute top-full left-0 z-50 mt-2 hidden w-full border border-border bg-background px-3 py-2 text-xs text-foreground shadow-lg"
       role="note"
     >
       <p className="mb-1 font-medium text-muted-foreground">Why it's here</p>
