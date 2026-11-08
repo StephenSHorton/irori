@@ -1501,7 +1501,19 @@ const THREAD_ARGS: &[(&str, Ty)] = &[
     ("conv", Ty::Str),
     ("mention", Ty::Strs),
     ("space", Ty::Str),
+    ("agent", Ty::Str),
+    ("watch", Ty::Bool),
 ];
+
+/// Where talk_thread's `agent` sends the thread (card #1027).
+enum Give {
+    /// Nowhere: the opener holds it (card #631).
+    No,
+    /// To a fresh agent Irori starts for it.
+    New,
+    /// To the named live agent, by its key.
+    To(String),
+}
 
 /// talk_thread (card #631): the agent opens a thread with the person and
 /// holds it. Irori never hands it out or starts another agent for it, even
@@ -1545,6 +1557,42 @@ pub(crate) fn talk_thread(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let text = a.str("text");
     let shared = space != ct::PERSONAL_SPACE
         && b.inbox().threads_mode(&space) != inbox::threads_mode::PRIVATE;
+    // Card #1027: who the thread goes to, checked before anything is made,
+    // so a refusal opens nothing.
+    let watch = a.bool("watch");
+    let agent = trim(a.str("agent"));
+    let give = if agent.is_empty() {
+        Give::No
+    } else if shared {
+        return err_text(
+            "agent is for a thread in Personal or a private space; a thread on a shared space's board has its agents by mention.",
+        );
+    } else if agent.eq_ignore_ascii_case("new") {
+        if let Err(why) = b.thread_agent_check(&c.sender.key) {
+            return err_text(&why);
+        }
+        Give::New
+    } else {
+        let res = s.resolve_mentions(c, "", "", &[agent.to_string()]);
+        match res.mentions.first() {
+            Some(m) if !m.gone && m.key != me(c) => Give::To(m.key.clone()),
+            Some(m) if m.gone => {
+                return err_text(&format!(
+                    "{} is gone: hand the thread to a live agent, or agent=new.",
+                    m.name
+                ));
+            }
+            Some(_) => return err_text("that's you: leave agent out to hold the thread yourself."),
+            None => {
+                let names = s.roster();
+                let line = crate::mention::mention_line(&[], &res.misses, &names);
+                return err_text(&format!(
+                    "no agent {agent} to hand the thread to ({}).",
+                    line.trim()
+                ));
+            }
+        }
+    };
     let (t, out) = if shared {
         match crate::shared::thread_on_board(s, c, &space, text, &a.strs("mention"), &channel) {
             Ok(v) => v,
@@ -1581,6 +1629,45 @@ pub(crate) fn talk_thread(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         "Opened thread {short} (task:{}). You hold it: the person's replies come to you, and no other agent is started for it, even after you end, until they write in it. Answer there with talk_post conv={short}; only the person resolves it.",
         t.id
     );
+    let keeps = if watch {
+        "You watch it: the person's replies reach you too."
+    } else {
+        "You gave it away: pass watch=true next time to keep hearing the replies."
+    };
+    match &give {
+        Give::No => {}
+        Give::New => match b.thread_new_agent(&c.sender.key, &t.id, watch) {
+            Ok(next) => {
+                said = format!(
+                    "Opened thread {short} (task:{}) and gave it to a new agent. {next} It holds the thread and answers there; only the person resolves it. {keeps}",
+                    t.id
+                );
+            }
+            // Refused as agent_start is: the thread stays with its opener.
+            Err(why) => {
+                said += &format!(
+                    " No agent was started: {why}. It stays yours; try again later or mention an agent."
+                );
+            }
+        },
+        Give::To(key) => match b.coord().thread_hand_to(&c.sender.key, &t.id, key, watch) {
+            Ok((_, n)) => {
+                let names = s.roster();
+                let heard = s.told(&s.tell(&c.sender, n), &names);
+                said = format!(
+                    "Opened thread {short} (task:{}) and handed it to {}. It holds the thread and hears the person's replies; only the person resolves it. {keeps}{heard}",
+                    t.id,
+                    names.who(key)
+                );
+            }
+            Err(e) => {
+                said += &format!(
+                    " Handing it to {agent} failed: {}. It stays yours.",
+                    crate::map_err(e)
+                );
+            }
+        },
+    }
     // A pointer in the channel it's about, as the person's thread from a
     // channel post gets one; nobody is woken by it.
     if !channel.is_empty() && (space == ct::PERSONAL_SPACE || shared) {

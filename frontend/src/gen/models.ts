@@ -133,7 +133,6 @@ export type PairStatus = B.PairStatus
 export type Policy = B.Policy
 export type PolicyInput = B.PolicyInput
 export type RefTarget = B.RefTarget
-export type RelayView = B.RelayView
 export type RepoName = B.RepoName
 export type Resolution = B.Resolution
 export type Returned = B.Returned
@@ -233,7 +232,7 @@ export function AgentsPauseView(p: Partial<B.AgentsPauseView> = {}): B.AgentsPau
 
 /** AgentsSettings with Go's zero values for every field left out. */
 export function AgentsSettings(p: Partial<B.AgentsSettings> = {}): B.AgentsSettings {
-  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "lightModel": "", "lightEffort": "", "heavyModel": "", "heavyEffort": "", "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
+  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "lightModel": "", "lightEffort": "", "heavyModel": "", "heavyEffort": "", "assistantModel": "", "assistantEffort": "", "assistantModels": [], "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
 }
 
 /** AgentStartsView with Go's zero values for every field left out. */
@@ -786,11 +785,6 @@ export function RefTarget(p: Partial<B.RefTarget> = {}): B.RefTarget {
   return { "id": "", "short": "", "title": "", "thread": false, "done": false, "state": "", "blocked": false, "ready": false, "progress": CardProgress(), ...p } as B.RefTarget
 }
 
-/** RelayView with Go's zero values for every field left out. */
-export function RelayView(p: Partial<B.RelayView> = {}): B.RelayView {
-  return { "state": "", ...p } as B.RelayView
-}
-
 /** RepoName with Go's zero values for every field left out. */
 export function RepoName(p: Partial<B.RepoName> = {}): B.RepoName {
   return { "repoKey": "", "name": "", ...p } as B.RepoName
@@ -908,7 +902,7 @@ export function SummaryMember(p: Partial<B.SummaryMember> = {}): B.SummaryMember
 
 /** TalkCall with Go's zero values for every field left out. */
 export function TalkCall(p: Partial<B.TalkCall> = {}): B.TalkCall {
-  return { "callId": "", "op": "", "durationMs": 0, "people": [], "transcript": false, ...p } as B.TalkCall
+  return { "callId": "", "op": "", "durationMs": 0, "people": [], "transcript": false, "title": "", ...p } as B.TalkCall
 }
 
 /** TalkConversation with Go's zero values for every field left out. */
@@ -948,7 +942,7 @@ export function TalkReplying(p: Partial<B.TalkReplying> = {}): B.TalkReplying {
 
 /** TalkTranscript with Go's zero values for every field left out. */
 export function TalkTranscript(p: Partial<B.TalkTranscript> = {}): B.TalkTranscript {
-  return { "callId": "", "convId": "", "convName": "", "convKind": "", "startedAtMs": null, "ended": false, "durationMs": 0, "lines": [], ...p } as B.TalkTranscript
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "startedAtMs": null, "ended": false, "durationMs": 0, "title": "", "titleByAssistant": false, "over": false, "lines": [], ...p } as B.TalkTranscript
 }
 
 /** TalkTranscriptLine with Go's zero values for every field left out. */

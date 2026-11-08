@@ -63,6 +63,7 @@ pub mod boards_status;
 mod bridge;
 pub mod call_settings;
 pub(crate) mod calls;
+mod calls_over;
 pub(crate) mod calls_share;
 pub mod card_weights;
 mod deskmerge;
@@ -475,6 +476,12 @@ impl tools::Backend for ToolsView {
     }
     fn agent_end(&self, caller: &str, key: &str) -> Result<String, String> {
         self.0.agent_end(caller, key)
+    }
+    fn thread_agent_check(&self, caller: &str) -> Result<(), String> {
+        self.0.thread_agent_check(caller)
+    }
+    fn thread_new_agent(&self, caller: &str, task_id: &str, watch: bool) -> Result<String, String> {
+        self.0.thread_new_agent(caller, task_id, watch)
     }
     fn agents_pause(&self, caller: &str, on: bool) -> Result<String, String> {
         self.0.agent_set_paused(caller, on)
@@ -1240,6 +1247,11 @@ impl Core {
         let svc_cell: Arc<OnceLock<Weak<Services>>> = Arc::new(OnceLock::new());
         let spawn_state = spawn::SpawnState::default();
         spawn::load_spawn(&st, &spawn_state);
+        ib.set_reviews_unasked(
+            !spawn_state
+                .reviews_off
+                .load(std::sync::atomic::Ordering::SeqCst),
+        );
         let call_settings = call_settings::CallSettings::load(&st);
         let naming = thread_names::Naming::load(&st);
         let weighing = card_weights::Weighing::load(&st);
@@ -3000,6 +3012,17 @@ impl Core {
     /// The person sets it, from the app only: no tool reaches this.
     pub fn set_agent_starts(&self, on: bool, max: i64) -> Result<(), String> {
         self.s.set_agent_starts(on, max)
+    }
+
+    /// "Agents review other people's PRs without asking" (merge-desk
+    /// §12.8): on unless the person turned it off.
+    pub fn reviews_unasked(&self) -> bool {
+        self.s.reviews_unasked()
+    }
+
+    /// The person sets it, from the app only: no tool reaches this.
+    pub fn set_reviews_unasked(&self, on: bool) -> Result<(), String> {
+        self.s.set_reviews_unasked(on)
     }
 
     /// "Transcribe what I say in calls" (card #656): on unless the person

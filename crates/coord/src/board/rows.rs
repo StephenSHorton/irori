@@ -542,6 +542,12 @@ crate::go_struct! {
         pub seen: BTreeMap<String, i64> = "seen" "omit",
         pub was: String = "was" "omit",
         pub handed: bool = "handed" "omit",
+        /// An agent's own thread its opener gave to a fresh agent (card
+        /// #1027): it waits for that agent instead of resting.
+        pub fresh: bool = "fresh" "omit",
+        /// The opener gave the thread away: it no longer hears the
+        /// person's replies. Sticks once written.
+        pub gave: bool = "gave" "omit",
         pub at: GoTime = "at",
     }
 }
