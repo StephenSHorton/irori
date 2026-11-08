@@ -748,6 +748,77 @@ export default function HuddleMock() {
     </div>
   )
 
+  // What the folded panes still show (the person: not a minimal fold).
+  const lastRows = rows.slice(-3)
+  const rosterSummary = (
+    <div className="flex flex-col gap-1.5 p-2.5">
+      {Object.keys(names).map((aid) => (
+        <div key={aid} className="flex items-center gap-2 text-xs">
+          <Dot p={ownerOf(aid)} className="size-5 text-[10px]" />
+          <span className="min-w-0 flex-1 truncate">
+            <span className="font-medium">{ownerOf(aid).name}</span>
+            <span className="text-muted-foreground"> · {nameOf(aid)}</span>
+          </span>
+          {writing.includes(aid) && (
+            <span className="animate-pulse text-[10px] text-primary">
+              writing…
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+  const transcriptSummary = (
+    <div className="flex flex-col gap-1.5 p-2.5">
+      {lastRows.length === 0 && (
+        <p className="text-xs text-muted-foreground">Everyone just joined…</p>
+      )}
+      {lastRows.map((r) => {
+        const who =
+          r.k === "typed"
+            ? personById(YOU)
+            : r.step.type === "pause"
+              ? null
+              : personById(r.step.who)
+        const text =
+          r.k === "typed"
+            ? r.t.text
+            : r.step.type === "pause"
+              ? `${r.step.secs} s of quiet`
+              : fill(r.step.text)
+        return (
+          <p
+            key={r.k === "typed" ? r.t.id : `s${r.i}`}
+            className="line-clamp-2 text-xs leading-snug"
+          >
+            {who && <span className="font-medium">{who.name}: </span>}
+            <span className={who ? "" : "text-muted-foreground italic"}>
+              {text}
+            </span>
+          </p>
+        )
+      })}
+      <form onSubmit={say} className="mt-1 flex gap-1.5">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          disabled={phase !== "live"}
+          placeholder={`Say: “${nameOf("a2")}, who is on the import?”`}
+          aria-label="Say a line"
+          className="h-8 min-w-0 text-xs"
+        />
+        <Button
+          type="submit"
+          size="icon-sm"
+          aria-label="Say"
+          disabled={!draft.trim() || phase !== "live"}
+        >
+          <SendIcon />
+        </Button>
+      </form>
+    </div>
+  )
+
   // ---------- after the call ----------
 
   if (phase === "ended")
@@ -842,6 +913,8 @@ export default function HuddleMock() {
           wide={!narrow}
           at="md:top-[5rem] md:left-3"
           className="md:w-60"
+          foldedClassName="md:w-64"
+          summary={rosterSummary}
         >
           {roster}
         </FloatPane>
@@ -851,6 +924,8 @@ export default function HuddleMock() {
           wide={!narrow}
           at="md:top-[5rem] md:right-3"
           className="md:bottom-3 md:w-[24rem]"
+          foldedClassName="md:w-[20rem]"
+          summary={transcriptSummary}
           flush
         >
           {transcript}
@@ -868,6 +943,8 @@ function FloatPane({
   wide,
   at,
   className,
+  foldedClassName,
+  summary,
   flush,
   children,
 }: {
@@ -876,12 +953,14 @@ function FloatPane({
   wide: boolean
   at: string
   className?: string
+  foldedClassName?: string
+  summary: React.ReactNode
   flush?: boolean
   children: React.ReactNode
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
-  const [folded, setFolded] = useState(false)
+  const [folded, setFolded] = useState(true) // folded to a summary until opened
   function drag(e: React.PointerEvent) {
     const el = ref.current
     const box = el?.parentElement
@@ -911,9 +990,8 @@ function FloatPane({
       className={cn(
         "min-h-0 flex-1 flex-col md:absolute md:z-20 md:flex md:flex-none md:overflow-hidden md:rounded-xl md:border md:border-border md:bg-background/90 md:shadow-2xl md:backdrop-blur",
         wide && !pos && at,
-        wide && folded && "md:!bottom-auto",
         show ? "flex overflow-y-auto" : "hidden",
-        className
+        wide && folded ? foldedClassName : className
       )}
     >
       <div
@@ -923,22 +1001,22 @@ function FloatPane({
         {title}
         <button
           type="button"
-          aria-label={folded ? `Unfold ${title}` : `Fold ${title}`}
+          aria-label={folded ? `Open ${title}` : `Fold ${title}`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => setFolded((f) => !f)}
           className="text-sm leading-none"
         >
-          {folded ? "▾" : "▴"}
+          {folded ? "Open ▾" : "Fold ▴"}
         </button>
       </div>
       <div
         className={cn(
           "min-h-0 flex-1 flex-col",
-          folded && wide ? "hidden" : "flex",
-          flush ? "" : "overflow-y-auto p-3"
+          "flex",
+          flush || (wide && folded) ? "" : "overflow-y-auto p-3"
         )}
       >
-        {children}
+        {wide && folded ? summary : children}
       </div>
     </aside>
   )
