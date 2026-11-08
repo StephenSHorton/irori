@@ -5,6 +5,7 @@ import { MetersStrip } from "@/components/meters/meters-strip"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { PauseAgentsButton } from "@/components/pause-agents-button"
+import { SyncBadge } from "@/components/sync-badge"
 import type { Roster } from "@/lib/irori"
 import type { Section } from "@/lib/nav"
 
@@ -41,7 +42,9 @@ export function AppHeader({
 }) {
   return (
     <header className="sticky top-0 z-20 border-x-0! border-t-0! pt-[var(--safe-top)] pr-[var(--safe-right)] pl-[var(--safe-left)] glass-panel">
-      <div className="@container/header mx-auto flex h-14 max-w-[1920px] items-center gap-2 px-2 sm:gap-3 sm:px-6 md:px-4">
+      <div className="@container/header relative mx-auto flex h-14 max-w-[1920px] items-center gap-2 px-2 sm:gap-3 sm:px-6 md:px-4">
+        {/* Sync badge (card #1089): false in a browser, so nothing shows there. */}
+        <SyncBadge hasMenu={Boolean(onMenu)} />
         {onMenu && (
           <Button
             variant="ghost"

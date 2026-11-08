@@ -34,6 +34,7 @@
 //   ?glass=<style>  a glass style without saving it (frost, clear, ...)
 //   ?meters=open    opens the top bar's hardware meters panel (card #599);
 //   ?gpu=none       the meters on a machine with no GPU (lib/meters.ts)
+//   ?sync=on        shows the header's sync badge (card #1089, lib/sync.ts)
 //   ?usage=none     Claude usage left with no reading yet; ?usage=stale
 //                   one from 40 minutes ago (lib/usage.ts)
 
