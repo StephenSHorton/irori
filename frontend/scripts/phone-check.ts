@@ -112,6 +112,13 @@ const PAGES: Array<[name: string, query: string]> = [
   ["later-card", "?later=1&open=board:task:sample-card-later-90"],
   ["later-order", "?later=1&open=board:task:sample-card-order-82"],
   ["later-hold", "?later=hold&open=board:task:sample-card-1"],
+  // Ask Irori (card #783): the chat open on a sample conversation, a reply
+  // being written, an empty chat, and the button above a call's bar.
+  ["assistant", "?assistant=open"],
+  ["assistant-busy", "?assistant=busy#talk/sample-ch-suzuri"],
+  ["assistant-new", "?assistant=new&open=board:task:sample-card-1"],
+  ["assistant-draft", "?assistant=draft"],
+  ["assistant-call", "?call=live#talk"],
 ]
 
 function findBrowser(): string {
