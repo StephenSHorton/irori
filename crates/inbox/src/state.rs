@@ -726,6 +726,10 @@ pub(crate) struct Inner {
 /// The messaging core. Safe for concurrent use.
 pub struct Inbox {
     pub(crate) inner: Mutex<Inner>,
+    /// Whether the person lets their agents review other people's PRs
+    /// without asking (merge-desk §12.8). On until core says otherwise
+    /// (decision 52). The fence's header reads it per batch.
+    pub(crate) reviews_unasked: std::sync::atomic::AtomicBool,
 }
 
 /// A change stream from [`Inbox::subscribe`]. Dropping it (or
@@ -859,6 +863,7 @@ impl Inbox {
         b.replay()?;
         Ok(Inbox {
             inner: Mutex::new(b),
+            reviews_unasked: std::sync::atomic::AtomicBool::new(true),
         })
     }
 

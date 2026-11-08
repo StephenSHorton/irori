@@ -263,6 +263,7 @@ async fn control_messages_cross_the_call_stream_both_ways() {
             start_ms: 1_762_470_000_000,
             end_ms: 1_762_470_002_400,
             text: format!("line {seq} from {d}"),
+            agents: false,
         })
     };
 
@@ -304,6 +305,7 @@ async fn control_messages_cross_the_call_stream_both_ways() {
         start_ms: 1_762_470_000_000,
         end_ms: 1_762_470_002_400,
         text: long.clone(),
+        agents: false,
     });
     write_control(&mut a_send, &m).await.unwrap();
     let got = tokio::time::timeout(WAIT, read_control(&mut b_recv))
