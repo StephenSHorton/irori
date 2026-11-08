@@ -2817,8 +2817,8 @@ impl Core {
         self.s.away_blur()
     }
 
-    /// The machine woke. Only makes the next focus a return; nobody may
-    /// be there, so it is never one by itself.
+    /// The machine woke: never a return by itself (nobody may be there),
+    /// but the next focus is measured against the threshold.
     pub fn away_woke(&self) {
         self.s.away_woke()
     }

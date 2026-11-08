@@ -4,10 +4,11 @@
 //!
 //! A return is a window focus or show at least [`AWAY_AFTER_SECS`] after
 //! this device last had the person's attention, which is kept in a local
-//! row so a restart counts. A sleep ends attention; waking only makes the
-//! next focus count as a return, never counts as one by itself, since
-//! nobody may be at the machine. Focus flips inside the threshold do
-//! nothing.
+//! row so a restart counts. A sleep ends attention, and a wake means the
+//! window wasn't being looked at, so the next focus is measured against
+//! the threshold even if the window stayed focused through the sleep. A
+//! wake is never a return by itself: nobody may be at the machine. Focus
+//! flips inside the threshold do nothing.
 //!
 //! Core gathers the facts from the Board (private board only): cards
 //! completed, PRs merged, what Irori's jobs did, and a bare count of the
@@ -83,8 +84,6 @@ struct AttentionRow {
 struct Attention {
     last: Option<GoTime>,
     focused: bool,
-    /// The machine woke: the next focus counts as a return.
-    woke: bool,
     /// The last attention row written.
     saved: Option<GoTime>,
 }
@@ -290,11 +289,9 @@ impl Services {
             let mut st = lock(&self.awaying.attention);
             let was = st.last;
             let came_back = !st.focused;
-            let woke = std::mem::take(&mut st.woke);
             st.focused = true;
             st.last = Some(now);
-            let returned =
-                came_back && was.is_some_and(|p| woke || secs(&p, &now) >= AWAY_AFTER_SECS);
+            let returned = came_back && was.is_some_and(|p| secs(&p, &now) >= AWAY_AFTER_SECS);
             // Written before the job is queued: the Focused event a show
             // causes a moment later is already no return.
             self.away_save(&mut st, now, returned);
@@ -325,11 +322,11 @@ impl Services {
     }
 
     /// The machine woke: nobody may be there, so this is no return, but
-    /// the next focus is.
+    /// the window wasn't being looked at, so the next focus is measured
+    /// even if it never lost focus.
     pub(crate) fn away_woke(&self) {
         let mut st = lock(&self.awaying.attention);
         st.focused = false;
-        st.woke = true;
     }
 
     /// While the window stays focused, keep attention current on disk so

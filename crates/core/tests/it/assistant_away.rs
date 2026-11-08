@@ -282,7 +282,7 @@ fn waiting_cards_go_in_only_as_a_count() {
 }
 
 #[test]
-fn a_wake_alone_is_no_return_but_makes_the_next_focus_one() {
+fn a_wake_alone_is_no_return_and_a_short_sleep_says_nothing() {
     let (r, c) = clocked();
     let f = install(&r.core);
     r.core.away_focus();
@@ -294,6 +294,22 @@ fn a_wake_alone_is_no_return_but_makes_the_next_focus_one() {
     settle();
     assert_eq!(f.turns(), 0, "a wake alone says nothing");
     c.advance(10);
+    r.core.away_focus();
+    settle();
+    assert_eq!(f.turns(), 0, "a short sleep is within the threshold");
+}
+
+#[test]
+fn a_long_sleep_with_the_window_focused_is_a_return_on_the_next_focus() {
+    let (r, c) = clocked();
+    let f = install(&r.core);
+    r.core.away_focus();
+    let t = card(&r, "Wrap up", false);
+    complete(&r, &t.id);
+    c.advance(AWAY_AFTER_SECS + 1);
+    r.core.away_woke();
+    settle();
+    assert_eq!(f.turns(), 0, "a wake alone says nothing");
     r.core.away_focus();
     wait_for(60, "the turn", || f.turns() == 1);
 }
