@@ -343,7 +343,7 @@ Tap-to-send matters here because the model holds private reads while writing a q
 
 ## 11. Versions
 
-Nothing needs a gate, and the verifier is unchanged:
+Nothing needs a gate. The verifier accepts and refuses the same rows as today; one folded field is added (`assistantCard` in `fold_member`):
 
 - `agent.card` and `talk.channel.created` are existing kinds.
 - `kind: "assistant"` is a new value of an existing string.
