@@ -188,6 +188,54 @@ fn replies_make_it_look_once_more_and_only_once() {
 }
 
 #[test]
+fn a_thread_the_assistant_posted_keeps_its_title() {
+    let r = Rig::new();
+    let fake = Arc::new(Fake::default());
+    r.core.set_namer(Some(namer(
+        &fake,
+        "Build check",
+        "Build cache misses on Windows\nMOVED",
+    )));
+    let th = r
+        .core
+        .coord()
+        .post_ask(
+            &person(&r),
+            coord::NewAsk {
+                text: "Speed up the Windows build cache".into(),
+                thread: true,
+                assistant: true,
+                ..coord::NewAsk::default()
+            },
+            &r.core.ask_agents(),
+        )
+        .unwrap()
+        .0;
+    // A person's thread beside it is named, so the namer is really running.
+    let own = thread(&r, "can we look at the build");
+    wait_for(10, "the person's thread named", || {
+        title(&r, &own.id).title == "Build check"
+    });
+    settle();
+    assert_eq!(fake.names(), 1, "never asked to name the assistant's");
+    // Two replies are what make Irori look at a thread again.
+    reply(&r, &th.id, "it's slow every time on the PC");
+    reply(&r, &th.id, "I think the cache misses after each pull");
+    settle();
+    let got = title(&r, &th.id);
+    assert_eq!(got.title, th.title);
+    assert_eq!(got.irori_titled, 0);
+    assert!(got.title_was.is_empty(), "no Undo");
+    assert!(!got.title_by_person);
+    assert_eq!(fake.relooks(), 0);
+    let lines = r.core.coord().activity(&th.id).unwrap();
+    assert!(
+        !lines.iter().any(|l| l.what.starts_with("renamed it from")),
+        "no renamed line: {lines:?}"
+    );
+}
+
+#[test]
 fn a_title_that_still_fits_stays_and_is_asked_once() {
     let r = Rig::new();
     let fake = Arc::new(Fake::default());

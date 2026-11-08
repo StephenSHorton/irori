@@ -60,6 +60,7 @@ export function NewCardDialog({
   list,
   from,
   spawned,
+  dashboard = false,
 }: {
   open: boolean
   onClose: () => void
@@ -73,6 +74,9 @@ export function NewCardDialog({
   from?: { title: string; objective: string }
   // Agents Irori started for a card, left out of the picker.
   spawned?: Set<string>
+  // Made from the Dashboard (card #1001), which spans every space: the card
+  // goes to Personal, and the form says so.
+  dashboard?: boolean
 }) {
   const { boards: personal } = usePersonalBoards()
   const [picked, setPicked] = useState<string | null>(null)
@@ -200,6 +204,10 @@ export function NewCardDialog({
                 on &&
                 (list || target.choices.length > 1) &&
                 ` Goes on ${plainLine(on.name)}.`}
+              {!board &&
+                !list &&
+                dashboard &&
+                " From the Dashboard it goes to Personal."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5">
