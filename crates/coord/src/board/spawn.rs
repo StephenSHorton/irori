@@ -1375,9 +1375,14 @@ impl Fold {
     /// person posted on can tell them. A request past its grace isn't
     /// starting: the device it named went away.
     pub(crate) fn waits_for_agent(&self, t: &Task) -> bool {
+        self.spawning_on() && self.would_wait_for_agent(t)
+    }
+
+    /// [`Self::waits_for_agent`] without this device's own spawning switch:
+    /// another computer goes by its own (card #995).
+    pub(crate) fn would_wait_for_agent(&self, t: &Task) -> bool {
         let now = self.stamp();
-        if !self.spawning_on()
-            || !self.persons_card(t)
+        if !self.persons_card(t)
             || t.spawn_request()
                 .is_some_and(|s| s.pending() && !s.stale(&now))
             || t.spawn_crashes >= self.crash_limit()
