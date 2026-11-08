@@ -15,9 +15,8 @@ const RES: &str = "pr/a/b/7";
 
 fn with_card() -> (Side, Side, String) {
     let (a, b, _) = two_people();
-    let t = a
-        .c
-        .create_task(
+    let t =
+        a.c.create_task(
             P1,
             NewTask {
                 title: "PR #7: ship it".into(),
@@ -66,7 +65,10 @@ fn review(login: &str, st: &str, at: gocompat::time::GoTime) -> PrReview {
 
 #[test]
 fn the_pr_resource_is_one_lowercase_name_from_the_url() {
-    assert_eq!(pr_claim_resource("https://github.com/A/B/pull/7").as_deref(), Some(RES));
+    assert_eq!(
+        pr_claim_resource("https://github.com/A/B/pull/7").as_deref(),
+        Some(RES)
+    );
     assert_eq!(pr_claim_resource("https://github.com/a/b/issues/7"), None);
     assert_eq!(pr_claim_resource("a/b#7"), None);
 }
@@ -104,10 +106,9 @@ fn a_synced_claim_is_refused_and_writes_no_refusal_row() {
 #[test]
 fn a_claim_needs_a_pr_card() {
     let (a, _b, _) = with_card();
-    let e = a
-        .c
-        .claim_pr(CARD1, "https://github.com/a/b/pull/8")
-        .unwrap_err();
+    let e =
+        a.c.claim_pr(CARD1, "https://github.com/a/b/pull/8")
+            .unwrap_err();
     assert!(e.is(ErrorKind::NotFound), "{e}");
 }
 
@@ -165,8 +166,11 @@ fn a_review_from_before_the_claim_does_not_end_it() {
     b.clk.add(common::secs(600));
     a.clk.add(common::secs(600));
     b.c.claim_pr(CARD2, PR).unwrap();
-    a.c.record_pr_state(&id, state(PR_OPEN, vec![review("bob", "CHANGES_REQUESTED", old)]))
-        .unwrap();
+    a.c.record_pr_state(
+        &id,
+        state(PR_OPEN, vec![review("bob", "CHANGES_REQUESTED", old)]),
+    )
+    .unwrap();
     sync(&a, &b);
     b.c.claim_duties(&|_| true, &|_| "bob".into());
     assert!(b.c.claim_of(PR).is_some());
@@ -213,13 +217,12 @@ fn a_decline_is_a_comment_with_the_pr_and_no_to() {
     assert!(cm.to.is_empty());
     assert_eq!(cm.task_id, id);
     sync(&a, &b);
-    let seen = a
-        .c
-        .comments(&id)
-        .unwrap()
-        .into_iter()
-        .find(|c| c.id == cm.id)
-        .unwrap();
+    let seen =
+        a.c.comments(&id)
+            .unwrap()
+            .into_iter()
+            .find(|c| c.id == cm.id)
+            .unwrap();
     assert_eq!(seen.declines, PR);
     // It is not a lease row.
     assert!(a.c.claim_of(PR).is_none());

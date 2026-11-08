@@ -49,6 +49,12 @@ fn replay(w: &Wire, run: &Value, core: Option<&FakeCore>, fixes: &mut Vec<Fix>) 
         let tools_list = st["send"]
             .as_str()
             .is_some_and(|s| s.contains(r#""method":"tools/list""#));
+        // The initialize answer carries the instructions, which a blessed
+        // build rewrites too.
+        let tools_list = tools_list
+            || st["send"]
+                .as_str()
+                .is_some_and(|s| s.contains(r#""method":"initialize""#));
         for (li, line) in want.into_iter().enumerate() {
             let got = w.recv();
             if canon(&got) != canon(line) && bless() && tools_list {

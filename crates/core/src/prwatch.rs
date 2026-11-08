@@ -69,7 +69,11 @@ impl PrChecker for GhChecker {
         let Some(gh) = gh_path() else {
             return Err("gh (the GitHub CLI) isn't installed here".into());
         };
-        let v = run_gh(&gh, &["pr", "view", url, "--json", "author"], "gh couldn't read this PR")?;
+        let v = run_gh(
+            &gh,
+            &["pr", "view", url, "--json", "author"],
+            "gh couldn't read this PR",
+        )?;
         match v["author"]["login"].as_str().map(str::trim) {
             Some(l) if !l.is_empty() => Ok(l.to_string()),
             _ => Err("gh answered without the PR's author".into()),

@@ -51,9 +51,7 @@ impl Fold {
                     .and_then(|c| pr_claim_resource(&c.pr))
                     .is_some_and(|r| r == want)
             })
-            .min_by(|a, b| {
-                (a.state == CANCELED, &a.id).cmp(&(b.state == CANCELED, &b.id))
-            })
+            .min_by(|a, b| (a.state == CANCELED, &a.id).cmp(&(b.state == CANCELED, &b.id)))
     }
 
     /// Whether the PR a `pr/` claim is on has ended: its card's `pr.state`
@@ -113,12 +111,7 @@ impl Fold {
 
     /// "Not me": a comment on the PR card from `by`, with the PR's URL in
     /// `declines` and no `to` (a comment with `to` is a release request).
-    pub(crate) fn decline_review(
-        &mut self,
-        by: &str,
-        pr: &str,
-        reason: &str,
-    ) -> Result<Comment> {
+    pub(crate) fn decline_review(&mut self, by: &str, pr: &str, reason: &str) -> Result<Comment> {
         let by = caller(by)?;
         let Some(card) = self.pr_card_for(pr).map(|t| t.id.clone()) else {
             return Err(not_found(format!("no PR card for {pr} on this board")));

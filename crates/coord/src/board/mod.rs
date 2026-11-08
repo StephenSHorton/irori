@@ -107,15 +107,16 @@ pub use notes::{
 };
 pub use owner::{OWNER_ACCEPT, OWNER_DECLINE};
 pub use placed::MAX_PLACE;
+pub use pr_claim::{CLAIM_MAX_AGE, CLAIM_RENEW_WITHIN, CLAIM_TTL, ClaimStep};
 pub use presence::{NOTICE_PRESENCE, PRESENCE_GRACE};
 pub use prstate::{
     DESK_PR_CARD_MARK, NOTICE_PR, PR_CARD_CLOSED, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED,
     PR_OPEN, PR_REVIEW_REQUIRED, PrCheck, PrNews, PrState, desk_pr_card,
 };
-pub use pr_claim::{CLAIM_MAX_AGE, CLAIM_RENEW_WITHIN, CLAIM_TTL, ClaimStep};
 pub use resource::{
-    DESK_PREFIX, PR_CLAIM_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key, is_desk,
-    is_pr_claim, normalize_glob, normalize_resource, overlaps, parse_resource, pr_claim_resource,
+    DESK_PREFIX, PR_CLAIM_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource,
+    check_repo_key, is_desk, is_pr_claim, normalize_glob, normalize_resource, overlaps,
+    parse_resource, pr_claim_resource,
 };
 pub use review::{
     NOTICE_REVIEW, REVIEW_REQUESTED, Review, ReviewRequest, VERDICT_APPROVED, VERDICT_CHANGES,

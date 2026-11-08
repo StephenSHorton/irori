@@ -1033,7 +1033,6 @@ fn a_new_agents_word_differs_from_a_friends_agent_on_a_shared_board() {
     assert!(coord::names::WORDS.contains(&got.as_str()), "{got}");
 }
 
-
 // ---- merge desk §12.3 (card #1078, B3): review_claim --------------------
 
 mod claim {
@@ -1138,7 +1137,12 @@ mod claim {
     }
 
     fn rc(c: &Core, key: &str, action: &str) -> String {
-        call(c, key, "review_claim", serde_json::json!({"pr": PR, "action": action}))
+        call(
+            c,
+            key,
+            "review_claim",
+            serde_json::json!({"pr": PR, "action": action}),
+        )
     }
 
     #[test]
@@ -1155,12 +1159,7 @@ mod claim {
         let again = rc(t.b(), &t.rb.key_b, "claim");
         assert!(again.contains("holds the review claim"), "{again}");
         assert!(again.contains("comment on the PR instead"), "{again}");
-        let refused = t
-            .b()
-            .board_coord(&t.board)
-            .unwrap()
-            .claim_of(PR)
-            .unwrap();
+        let refused = t.b().board_coord(&t.board).unwrap().claim_of(PR).unwrap();
         assert_eq!(refused.holder, held.holder);
         // confirm, then release.
         assert!(rc(t.b(), &t.rb.key_a, "confirm").contains("still hold"));
@@ -1173,7 +1172,10 @@ mod claim {
         let (t, _gh) = world("bob-gh", AUTHOR);
         pr_card(&t);
         let out = rc(t.b(), &t.rb.key_a, "claim");
-        assert!(out.contains(irori_tools_text::OFF), "no card of his here: {out}");
+        assert!(
+            out.contains(irori_tools_text::OFF),
+            "no card of his here: {out}"
+        );
         rc(t.b(), &t.rb.key_a, "release");
         // Bob's own card in the repo.
         t.b()
@@ -1271,6 +1273,10 @@ mod claim {
         let co = t.a().board_coord(&t.board).unwrap();
         assert!(co.claim_of(PR).is_none());
         let cs = co.comments(&id).unwrap();
-        assert!(cs.iter().any(|c| c.declines == PR && c.text.contains("not my area")), "{cs:?}");
+        assert!(
+            cs.iter()
+                .any(|c| c.declines == PR && c.text.contains("not my area")),
+            "{cs:?}"
+        );
     }
 }

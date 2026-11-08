@@ -53,11 +53,14 @@ impl Services {
         if card.repo_key.is_empty() {
             return false;
         }
-        b.coord().list_tasks(&coord::TaskFilter::default()).iter().any(|t| {
-            t.pr_card.is_none()
-                && coord::same_repo_key(&t.repo_key, &card.repo_key)
-                && self.key_person_on(b, &t.created_by) == me
-        })
+        b.coord()
+            .list_tasks(&coord::TaskFilter::default())
+            .iter()
+            .any(|t| {
+                t.pr_card.is_none()
+                    && coord::same_repo_key(&t.repo_key, &card.repo_key)
+                    && self.key_person_on(b, &t.created_by) == me
+            })
     }
 
     /// Whether the person themself signed off a verdict on this PR: a
@@ -89,7 +92,11 @@ impl Services {
             .and_then(|id| lock(&b.maps).cards.get(id).map(|c| c.name.clone()))
             .map(|n| clean_name(&n))
             .unwrap_or_default();
-        if name.is_empty() { "an agent".into() } else { name }
+        if name.is_empty() {
+            "an agent".into()
+        } else {
+            name
+        }
     }
 
     /// This device's part as a claimer on `b` (§12.3): renew each claim
@@ -108,12 +115,19 @@ impl Services {
         let me = self.person_id();
         let login = {
             let own = self.own_github_login();
-            if own.is_empty() { b.verifier.profile_github_login(&me) } else { own }
+            if own.is_empty() {
+                b.verifier.profile_github_login(&me)
+            } else {
+                own
+            }
         };
         let login_of = |_: &str| login.trim().to_string();
         for st in b.coord().claim_duties(&alive, &login_of) {
             if st.what == "verdict" {
-                crate::logf(format_args!("board {}: claim {} ended with a verdict", b.id, st.resource));
+                crate::logf(format_args!(
+                    "board {}: claim {} ended with a verdict",
+                    b.id, st.resource
+                ));
             }
         }
     }
@@ -127,15 +141,19 @@ impl Services {
         reason: &str,
     ) -> Result<ClaimAnswer, String> {
         if coord::pr_claim_resource(pr).is_none() {
-            return Err("give the PR's full URL, like https://github.com/owner/name/pull/7.".into());
+            return Err(
+                "give the PR's full URL, like https://github.com/owner/name/pull/7.".into(),
+            );
         }
         let Some((b, card)) = self.pr_card_here(pr) else {
             return Err("no card for this PR is on a shared space you belong to, so there is nothing to claim. Comment on the PR on GitHub if you have something to say.".into());
         };
-        let key = self
-            .board_key(&b.id, agent)
-            .map_err(|e| e.to_string())?;
-        let url = card.pr_card.as_ref().map(|c| c.pr.clone()).unwrap_or_default();
+        let key = self.board_key(&b.id, agent).map_err(|e| e.to_string())?;
+        let url = card
+            .pr_card
+            .as_ref()
+            .map(|c| c.pr.clone())
+            .unwrap_or_default();
         let ans = |outcome, holder: String, until: String| ClaimAnswer {
             outcome,
             pr: url.clone(),
@@ -151,16 +169,23 @@ impl Services {
                 if is_terminal(&card.state) {
                     return Err("this PR is merged or closed; there is nothing to review.".into());
                 }
-                let author = card.pr_card.as_ref().map(|c| c.author.clone()).unwrap_or_default();
+                let author = card
+                    .pr_card
+                    .as_ref()
+                    .map(|c| c.author.clone())
+                    .unwrap_or_default();
                 let m = b.verifier.membership();
                 let is_author = self.key_person_on(&b, &card.created_by) == me
                     || self.own_github_login().eq_ignore_ascii_case(&author)
-                    || m.members.iter().filter(|p| !p.person_id.is_empty() && m.active(&p.person_id)).any(|p| {
-                        p.person_id == me
-                            && b.verifier
-                                .profile_github_login(&p.person_id)
-                                .eq_ignore_ascii_case(&author)
-                    });
+                    || m.members
+                        .iter()
+                        .filter(|p| !p.person_id.is_empty() && m.active(&p.person_id))
+                        .any(|p| {
+                            p.person_id == me
+                                && b.verifier
+                                    .profile_github_login(&p.person_id)
+                                    .eq_ignore_ascii_case(&author)
+                        });
                 if is_author {
                     return Err("this is your person's own PR; you can't claim its review. You can still comment on it.".into());
                 }
@@ -183,7 +208,11 @@ impl Services {
                 }
                 match b.coord().claim_pr(&key, &url) {
                     Ok(l) => {
-                        let mut a = ans(ClaimOutcome::Claimed, String::new(), l.until.format_rfc3339());
+                        let mut a = ans(
+                            ClaimOutcome::Claimed,
+                            String::new(),
+                            l.until.format_rfc3339(),
+                        );
                         a.go_ahead = self.inbox.reviews_unasked() && self.works_in_repo(&b, &card);
                         Ok(a)
                     }
@@ -194,7 +223,10 @@ impl Services {
                             .unwrap_or_default();
                         Ok(ans(ClaimOutcome::Held, name, until))
                     }
-                    Err(_) => Err("Irori couldn't write the claim to the space's log; try again in a moment.".into()),
+                    Err(_) => Err(
+                        "Irori couldn't write the claim to the space's log; try again in a moment."
+                            .into(),
+                    ),
                 }
             }
             "confirm" => {
@@ -215,8 +247,15 @@ impl Services {
                 Ok(a)
             }
             "release" => {
-                let done = b.coord().release_claim(&key, &url).map_err(|e| e.to_string())?;
-                let o = if done { ClaimOutcome::Released } else { ClaimOutcome::NotHeld };
+                let done = b
+                    .coord()
+                    .release_claim(&key, &url)
+                    .map_err(|e| e.to_string())?;
+                let o = if done {
+                    ClaimOutcome::Released
+                } else {
+                    ClaimOutcome::NotHeld
+                };
                 Ok(ans(o, String::new(), String::new()))
             }
             "decline" => {

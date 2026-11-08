@@ -24,7 +24,14 @@ fn with_url(t: &str, url: &str) -> String {
 }
 
 fn go_ahead_text(a: &ClaimAnswer) -> String {
-    with_url(if a.go_ahead { GO_AHEAD_ON } else { GO_AHEAD_OFF }, &a.pr)
+    with_url(
+        if a.go_ahead {
+            GO_AHEAD_ON
+        } else {
+            GO_AHEAD_OFF
+        },
+        &a.pr,
+    )
 }
 
 /// The answer in words.
@@ -41,7 +48,11 @@ pub fn words(a: &ClaimAnswer) -> String {
         ),
         ClaimOutcome::Held => format!(
             "{} holds the review claim on {pr} (card {card}) until {until}. Don't review it as well: comment on the PR instead.\n{}",
-            if a.holder.is_empty() { "Another agent" } else { &a.holder },
+            if a.holder.is_empty() {
+                "Another agent"
+            } else {
+                &a.holder
+            },
             with_url(TALK, &a.pr)
         ),
         ClaimOutcome::Yours => {
@@ -50,7 +61,8 @@ pub fn words(a: &ClaimAnswer) -> String {
             } else if a.signed_off {
                 "Your person signed off: post the verdict you gave them.".to_string()
             } else {
-                "Your person has not signed off yet: don't post a verdict until this says so.".to_string()
+                "Your person has not signed off yet: don't post a verdict until this says so."
+                    .to_string()
             };
             format!(
                 "You still hold the review claim on {pr} (card {card}) until {until}.\n{verdict}\n{}",
@@ -59,7 +71,9 @@ pub fn words(a: &ClaimAnswer) -> String {
         }
         ClaimOutcome::NotYours => {
             if a.holder.is_empty() {
-                format!("You don't hold a review claim on {pr}. Claim it first, or comment on the PR.")
+                format!(
+                    "You don't hold a review claim on {pr}. Claim it first, or comment on the PR."
+                )
             } else {
                 format!(
                     "You don't hold the review claim on {pr}: {} does. Comment on the PR instead of reviewing it.",
@@ -82,7 +96,9 @@ pub(crate) fn review_claim(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     };
     let (pr, action) = (trim(a.str("pr")), trim(a.str("action")));
     if pr.is_empty() {
-        return err_text("give pr: the pull request's full URL, like https://github.com/owner/name/pull/7.");
+        return err_text(
+            "give pr: the pull request's full URL, like https://github.com/owner/name/pull/7.",
+        );
     }
     if !matches!(action, "claim" | "confirm" | "release" | "decline") {
         return err_text("action is claim, confirm, release or decline.");
