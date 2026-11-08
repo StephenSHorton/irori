@@ -20,9 +20,14 @@ import { FileKindIcon } from "./file-kind-icon"
 // answers, a message's Reply and New card.
 // off (while sending, or a box that takes no files) takes no new files;
 // with why, a paste or drop it refuses says so under the box instead of
-// vanishing.
-export function useFileAttach(off = false, why = "") {
-  const [files, setFiles] = useState<File[]>([])
+// vanishing. start is the files it begins with (a kept draft's, card
+// #1071).
+export function useFileAttach(
+  off = false,
+  why = "",
+  start: readonly File[] = []
+) {
+  const [files, setFiles] = useState<File[]>(() => [...start])
   const [refused, setRefused] = useState<string | null>(null)
   const picker = useRef<HTMLInputElement>(null)
   const add = (list: FileList | File[] | null | undefined) => {
