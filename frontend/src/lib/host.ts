@@ -159,11 +159,12 @@ export const InboxService = {
   SetPaused: (paused: boolean) => done(commands.inboxSetPaused(paused)),
 }
 
-// Wind down all (card #220): every agent saves its place, hands back its
-// cards and stops; Pause all turns on after, if asked.
+// Wind down (cards #220, #787): a switch. All turns it on: agent starts
+// held on every device, and every agent saves its place, hands back its
+// cards and stops. Off turns it off at any time, mid-run too.
 export const WindDownService = {
-  All: (scope: string, pauseAfter: boolean) =>
-    call(commands.windDownAll(scope, pauseAfter)),
+  All: () => call(commands.windDownAll()),
+  Off: () => call(commands.windDownOff()),
   Status: () => call(commands.windDownStatus()),
   Stop: (key: string) => done(commands.windDownStop(key)),
 }

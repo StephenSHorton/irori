@@ -5,8 +5,10 @@ import { MetersStrip } from "@/components/meters/meters-strip"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { PauseAgentsButton } from "@/components/pause-agents-button"
+import { WindDownButton } from "@/components/wind-down-button"
 import type { Roster } from "@/lib/irori"
 import type { Section } from "@/lib/nav"
+import type { WindDown } from "@/lib/wind-down"
 
 // AppHeader is the page header (card #135): the page's title and its own
 // actions. The nav lives in the sidebar. New card on Home and on a board's
@@ -20,6 +22,7 @@ export function AppHeader({
   actions,
   onNewCard,
   onWindDown,
+  windDown,
   section,
   onMenu,
 }: {
@@ -32,8 +35,10 @@ export function AppHeader({
   // The page's own actions, before New card.
   actions?: ReactNode
   onNewCard: () => void
-  // Wind down all (card #220): opens its dialog.
+  // Stop everywhere (card #220): opens its dialog.
   onWindDown?: () => void
+  // Stop everywhere's switch (cards #773, #787), App's one copy.
+  windDown?: WindDown
   // Where the window is; null on a card's page.
   section?: Section | null
   // Opens the nav drawer; its button shows only on a narrow window (card #227).
@@ -76,17 +81,18 @@ export function AppHeader({
           {/* This computer's meters (card #599): desktop only. */}
           <MetersStrip crowded={Boolean(bar)} />
           {actions}
-          {/* Pause agents (card #665): every device, one click each way. */}
-          <PauseAgentsButton />
-          {onWindDown && roster.source !== "sample" && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={onWindDown}
-              title="Ask every agent to save its place, hand back its cards and stop"
-            >
-              Wind down
-            </Button>
+          {/* Stop here (cards #665, #773): this machine, one click each
+              way. While Stop everywhere is on this machine's stop is part
+              of it, so this hides (card #787). */}
+          {!windDown?.status.on && <PauseAgentsButton />}
+          {/* Stop everywhere (cards #773, #787): a switch too. Its off button
+              isn't on the sample roster; its on state shows wherever it is
+              on. */}
+          {windDown && (
+            <WindDownButton
+              windDown={windDown}
+              onOpen={roster.source !== "sample" ? onWindDown : undefined}
+            />
           )}
           {section && (
             <Button

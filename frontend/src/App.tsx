@@ -68,6 +68,9 @@ import { openSettings } from "@/components/settings/settings-menu"
 import { SpawnNotice } from "@/components/home/spawn-notice"
 import { HomeFreshness } from "@/components/common/freshness-line"
 import { WindDownLine } from "@/components/home/wind-down-line"
+import { WakesPausedLine } from "@/components/home/wakes-paused-line"
+import { useWindDown } from "@/lib/wind-down"
+import { stopLabels } from "@/lib/stop-labels"
 import { UpdateBanner } from "@/updater"
 import { useBoardView } from "@/components/canvas/switch"
 import { BoardHeaderBar, BoardPage } from "@/components/boards/board-page"
@@ -296,6 +299,9 @@ export function App() {
   const [newCard, setNewCard] = useState(() => previewFlag("newcard") !== null)
   // Wind down all (card #220): the header's button and the tray's item.
   const [windDown, setWindDown] = useState(false)
+  // Stop everywhere's switch (cards #773, #787; Wind down in the code): one copy
+  // for the header, the dialog, Home's line and the palette.
+  const windDownSwitch = useWindDown()
   // New or join a space (card #689): the space picker's item and the
   // palette's open it; ?boards in the preview starts with it open.
   const [newBoard, setNewBoard] = useState(() => previewFlag("boards") !== null)
@@ -758,16 +764,25 @@ export function App() {
       when: () => !!open,
       run: back,
     },
-    // The header's Wind down (card #220), from the palette (card #228); like
-    // the header's button, not on the sample roster.
-    {
-      id: "agents.wind-down",
-      title: "Wind down all agents",
-      order: 3,
-      keywords: ["stop", "pause", "save", "end", "shut down", "quit"],
-      when: () => roster.source !== "sample",
-      run: () => setWindDown(true),
-    },
+    // The header's Stop everywhere (cards #220, #773; Wind down in the
+    // code), from the palette (card #228); like the header's button, not on
+    // the sample roster. While it is on, it starts everywhere (card #787).
+    windDownSwitch.status.on
+      ? {
+          id: "agents.wind-down",
+          title: stopLabels.everywhere.paletteOff,
+          order: 3,
+          keywords: ["resume", "unpause", "wind down", "off"],
+          run: () => void windDownSwitch.off(),
+        }
+      : {
+          id: "agents.wind-down",
+          title: stopLabels.everywhere.palette,
+          order: 3,
+          keywords: ["pause", "wind down", "save", "end", "shut down", "quit"],
+          when: () => roster.source !== "sample",
+          run: () => setWindDown(true),
+        },
   ])
 
   const agentCards = useMemo(
@@ -882,6 +897,7 @@ export function App() {
                 }
                 onNewCard={() => setNewCard(true)}
                 onWindDown={() => setWindDown(true)}
+                windDown={windDownSwitch}
                 section={open ? null : section}
               />
             )}
@@ -1054,7 +1070,14 @@ export function App() {
                   header={
                     <>
                       <SpawnNotice />
-                      <WindDownLine onOpen={() => setWindDown(true)} />
+                      <WindDownLine
+                        status={windDownSwitch.status}
+                        onOpen={() => setWindDown(true)}
+                      />
+                      <WakesPausedLine
+                        paused={!!inbox.policy?.paused}
+                        onResumed={() => void inbox.reload()}
+                      />
                       <AskBox
                         onThread={startedThread}
                         board={threadsSpace(space)}
@@ -1116,12 +1139,8 @@ export function App() {
           </div>
           {windDown && (
             <WindDownDialog
-              agents={{
-                here: roster.agents.filter(
-                  (a) => a.deviceId === roster.device?.id
-                ).length,
-                all: roster.agents.length,
-              }}
+              agents={roster.agents.length}
+              windDown={windDownSwitch}
               onClose={() => setWindDown(false)}
             />
           )}

@@ -1,5 +1,3 @@
-import { useCallback, useEffect, useState } from "react"
-
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -10,31 +8,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import type { WindDownRow, WindDownStatus } from "@/gen/bindings"
-import { Events, WindDownService } from "@/lib/host"
-import { inWails, plainBlock, plainLine } from "@/lib/irori"
+import { runningSince, useAgentsPause } from "@/lib/agents"
+import { plainBlock, plainLine, useNow } from "@/lib/irori"
 import { nameOr } from "@/lib/names"
-import { errorText, useLatest } from "@/lib/talk"
-import { windDownSample } from "@/lib/wind-down"
-
-// EventWindDown is windDown:changed: a run's status moved.
-export const EventWindDown = "windDown:changed"
-
-const empty: WindDownStatus = {
-  id: "",
-  scope: "this",
-  pauseAfter: true,
-  paused: false,
-  finished: false,
-  rows: [],
-}
-
-const stateText: Record<string, string> = {
-  waiting: "Not reached yet",
-  winding: "Winding down",
-  done: "Wound down",
-  no_answer: "No answer",
-}
+import { stopLabels as L } from "@/lib/stop-labels"
+import { devicesText, type WindDown } from "@/lib/wind-down"
 
 const stateVariant: Record<
   string,
@@ -44,128 +22,112 @@ const stateVariant: Record<
   winding: "warning",
   done: "success",
   no_answer: "destructive",
+  canceled: "secondary",
 }
 
-// WindDownDialog is Wind down all (card #220): every agent of the person's
-// saves its place, hands back its cards, releases its leases and stops.
-// Before a run it asks where (this device or all of them) and whether to
-// turn Pause all on after; during one it lists each agent live, with Stop
-// for one that doesn't answer.
+const when = (ms: number) =>
+  new Date(ms).toLocaleString(undefined, {
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+
+// WindDownDialog is Stop everywhere (cards #220, #773, #787; Wind down in
+// the code), a switch for every agent on every machine. Off, it turns it
+// on: nothing starts anywhere, and every agent writes its hand-off, leaves
+// its card, releases its leases and stops. On, it says since when, with
+// Start everywhere (any time, mid-run too), and lists each agent live,
+// with Stop for one that doesn't answer. When the latest run is this
+// machine's Stop here (scope "device"), it is that run's dialog: titled
+// Stop here, with Start here while it is on, and Stop everywhere still on
+// offer.
+// Its words are in lib/stop-labels.ts.
 export function WindDownDialog({
   agents,
+  windDown,
   onClose,
 }: {
-  // How many agents run here and on every device, for the confirm.
-  agents: { here: number; all: number }
+  // How many agents run on every machine, for the confirm.
+  agents: number
+  // App's one copy of Stop everywhere's switch (lib/wind-down.ts).
+  windDown: WindDown
   onClose: () => void
 }) {
-  const loadStatus = useCallback(
-    async () =>
-      inWails() ? WindDownService.Status() : (windDownSample() ?? empty),
-    []
-  )
-  const live = useLatest<WindDownStatus>(loadStatus, empty)
-  const [started, setStarted] = useState<WindDownStatus | null>(null)
-  const st = live.value.id ? live.value : (started ?? live.value)
-  const [scope, setScope] = useState<"this" | "all">("this")
-  const [pauseAfter, setPauseAfter] = useState(true)
-  const [busy, setBusy] = useState("")
-  const [error, setError] = useState<string | null>(null)
-
-  const reload = live.reload
-  useEffect(() => {
-    void reload()
-    if (!inWails()) return
-    return Events.On(EventWindDown, () => void reload())
-  }, [reload])
-
-  const running = st.id !== "" && !st.finished
-  const start = async () => {
-    setBusy("start")
-    setError(null)
-    try {
-      setStarted(await WindDownService.All(scope, pauseAfter))
-      await reload()
-    } catch (err) {
-      setError(errorText(err))
-    } finally {
-      setBusy("")
-    }
-  }
-  const stop = async (r: WindDownRow) => {
-    setBusy(r.key)
-    setError(null)
-    try {
-      await WindDownService.Stop(r.key)
-    } catch (err) {
-      setError(errorText(err))
-    } finally {
-      setBusy("")
-    }
-  }
-
-  const n = scope === "all" ? agents.all : agents.here
+  const { status: st, busy, error } = windDown
+  // This machine's Stop here, for a scope "device" run (card #773).
+  const here = useAgentsPause()
+  const deviceRun = !st.on && st.id !== "" && st.scope === "device"
+  const hereOn = deviceRun && !!here.pause?.on
+  const running = st.id !== "" && !st.finished && !st.off
+  const sinceMs = st.on ? st.since : hereOn ? (here.pause?.since ?? 0) : 0
+  const now = useNow(30_000).getTime()
+  const ago = sinceMs ? runningSince(sinceMs, Math.max(now, sinceMs)) : ""
   const done = st.rows.filter((r) => r.state === "done").length
+  const shownError = error || (deviceRun ? here.error : "")
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="gap-3 sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Wind down all agents</DialogTitle>
-          <DialogDescription>
-            Each agent finishes the step in hand, pushes its work, posts a
-            hand-off on each card it holds and leaves it, releases its leases
-            and answers you. Nothing is cut: a busy agent stops at its next safe
-            point.
-          </DialogDescription>
+          <DialogTitle>
+            {deviceRun ? L.here.name : L.everywhere.name}
+          </DialogTitle>
+          <DialogDescription>{L.how}</DialogDescription>
         </DialogHeader>
 
-        {(!st.id || st.finished) && (
-          <div className="flex flex-col gap-2 text-sm">
-            <div
-              className="flex flex-wrap items-center gap-1"
-              role="group"
-              aria-label="Which agents"
-            >
-              <Button
-                size="sm"
-                aria-pressed={scope === "this"}
-                variant={scope === "this" ? "default" : "ghost"}
-                onClick={() => setScope("this")}
-              >
-                This device ({agents.here})
-              </Button>
-              <Button
-                size="sm"
-                aria-pressed={scope === "all"}
-                variant={scope === "all" ? "default" : "ghost"}
-                onClick={() => setScope("all")}
-              >
-                All my devices ({agents.all})
-              </Button>
-            </div>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={pauseAfter}
-                onChange={(e) => setPauseAfter(e.target.checked)}
-              />
-              Pause all after, so nothing wakes them until you resume
-              {scope === "all" && (
-                <span className="text-xs text-muted-foreground">
-                  (this device's wakes)
-                </span>
+        {(st.on || hereOn) && (
+          <div
+            role="status"
+            className="flex flex-wrap items-center gap-2 rounded-md border border-warning/50 bg-warning-foreground px-3 py-2 text-sm text-warning"
+          >
+            <span className="min-w-0 flex-1">
+              {sinceMs ? (
+                <>
+                  {L.since(when(sinceMs))}
+                  <span className="opacity-80"> · {ago}</span>
+                </>
+              ) : (
+                L.here.on
               )}
-            </label>
+              {st.on && (
+                <span className="opacity-80"> · {devicesText(st.devices)}</span>
+              )}
+            </span>
+            {st.on ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy === "off"}
+                onClick={() => void windDown.off()}
+                title={L.everywhere.startTitle}
+              >
+                {L.everywhere.start}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={here.busy}
+                onClick={() => here.set(false)}
+                title={L.here.startTitle}
+              >
+                {L.here.start}
+              </Button>
+            )}
           </div>
+        )}
+
+        {!st.on && (
+          <p className="text-sm text-muted-foreground">
+            {L.everywhere.explain}
+          </p>
         )}
 
         {st.id !== "" && (
           <div className="flex flex-col gap-1.5">
             <p className="text-sm text-muted-foreground">
-              {done} of {st.rows.length} wound down
-              {st.finished && st.paused && " · Pause all is on"}
-              {st.finished && !st.pauseAfter && " · Pause all left as it was"}
+              {L.summary(done, st.rows.length)}
+              {st.off && ` · ${L.startedAgain}`}
             </p>
             <ul
               className="flex max-h-[50vh] flex-col gap-1 overflow-y-auto"
@@ -189,17 +151,17 @@ export function WindDownDialog({
                       variant={stateVariant[r.state] ?? "secondary"}
                       className="ml-auto"
                     >
-                      {stateText[r.state] ?? r.state}
+                      {L.rows[r.state] ?? r.state}
                     </Badge>
                     {(r.state === "waiting" || r.state === "winding") && (
                       <Button
                         size="sm"
                         variant="outline"
                         disabled={busy === r.key}
-                        title="Cut its running turn and ask it to wind down now"
-                        onClick={() => void stop(r)}
+                        title={L.stopRowTitle}
+                        onClick={() => void windDown.stop(r.key)}
                       >
-                        Stop
+                        {L.stopRow}
                       </Button>
                     )}
                   </div>
@@ -217,9 +179,9 @@ export function WindDownDialog({
           </div>
         )}
 
-        {error && (
+        {shownError && (
           <p className="text-sm text-destructive" role="alert">
-            {error}
+            {shownError}
           </p>
         )}
 
@@ -227,14 +189,10 @@ export function WindDownDialog({
           <Button variant="ghost" onClick={onClose}>
             {running ? "Hide" : "Close"}
           </Button>
-          {!running && (
-            <Button
-              disabled={busy === "start" || n === 0}
-              onClick={() => void start()}
-            >
-              {st.id
-                ? "Wind down again"
-                : `Wind down ${n} agent${n === 1 ? "" : "s"}`}
+          {/* Off: turns it on; with 0 agents it just holds starts (card #787). */}
+          {!st.on && (
+            <Button disabled={busy === "on"} onClick={() => void windDown.on()}>
+              {L.everywhere.stop(agents)}
             </Button>
           )}
         </DialogFooter>
