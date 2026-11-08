@@ -107,7 +107,7 @@ pub const CLIENT_ASSISTANT: &str = "assistant";
 /// the API refuses any other for its caller, and `GET
 /// /v1/tools?client=assistant` lists exactly these. None of them marks
 /// anything delivered or read (inbox and talk_* are left out for that).
-pub const ASSISTANT_TOOLS: [&str; 14] = [
+pub const ASSISTANT_TOOLS: [&str; 15] = [
     "search",
     "show",
     "board",
@@ -122,6 +122,8 @@ pub const ASSISTANT_TOOLS: [&str; 14] = [
     "leases",
     "waits",
     "events",
+    // Card #1009: what the window is showing (the window sends it with each ask).
+    "screen",
 ];
 
 pub use assistant_writes::{ASSISTANT_WRITE_TOOLS, Grant, Grants, grants_for};
@@ -296,6 +298,11 @@ pub trait Backend: Send + Sync {
         Vec::new()
     }
     fn events(&self, f: &store::Filter) -> Result<Vec<store::Event>, String>;
+    /// What the window last said it shows (card #1009): the plain-text
+    /// snapshot the assistant's `screen` tool returns; empty when none.
+    fn assistant_screen(&self) -> String {
+        String::new()
+    }
     fn inbox(&self) -> &inbox::Inbox;
     fn coord(&self) -> &Arc<coord::Coord>;
     /// Every agent key → the last name it went by, gone agents included
@@ -470,6 +477,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("agents_pause", started::agents_pause),
         ("agents", observe::agents),
         ("events", observe::events),
+        ("screen", observe::screen),
         ("send", messages::send),
         ("reply", messages::reply),
         ("inbox", messages::inbox),

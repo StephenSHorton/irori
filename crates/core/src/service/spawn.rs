@@ -25,7 +25,8 @@ use store::{Filter, Store, kinds};
 
 use super::Services;
 use super::spawn_agents::{
-    AGENT_STARTS_CEILING, AGENT_STARTS_ON, AGENT_STARTS_ROW, AgentAsk, AgentStarts,
+    AGENT_STARTS_CEILING, AGENT_STARTS_ON, AGENT_STARTS_ROW, AgentAsk, AgentStarts, REVIEWS_ON,
+    REVIEWS_ROW,
 };
 use crate::logf;
 
@@ -684,6 +685,21 @@ pub struct SpawnPerms {
     pub fell_back: Option<String>,
 }
 
+/// The canonical URLs of the GitHub PRs `t` links (merge-desk §12.12 B1c),
+/// once each. The PR allow rules bind to these and nothing wider.
+pub(crate) fn linked_pr_urls(t: &Task) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for l in &t.links {
+        if let Some((repo, n)) = coord::pr_link(l) {
+            let u = format!("https://github.com/{repo}/pull/{n}");
+            if !out.contains(&u) {
+                out.push(u);
+            }
+        }
+    }
+    out
+}
+
 /// The permission mode for a spawn on board `board_id` under its setting
 /// (decision 8 (c), card #449): the board's choice and rules, with bypass
 /// refused on a shared board or when the brief quotes anyone but the
@@ -693,6 +709,8 @@ pub(crate) fn spawn_permissions(
     board_id: &str,
     repo_key: &str,
     brief: &Brief,
+    t: &Task,
+    reviews: bool,
 ) -> SpawnPerms {
     use super::spawn_permissions as sp;
     let got = sp::spawn_permissions(
@@ -702,6 +720,8 @@ pub(crate) fn spawn_permissions(
             others_text: brief.others_text,
             merge: set.merge_policy(repo_key),
             lead: true,
+            prs: linked_pr_urls(t),
+            reviews,
         },
     );
     SpawnPerms {
@@ -1497,6 +1517,10 @@ pub(crate) struct SpawnState {
     pub caps: RwLock<HashMap<String, i64>>,
     /// "My agents may start agents on my cards" (card #575).
     pub agent_starts: RwLock<AgentStarts>,
+    /// The person's "Agents review other people's PRs without asking"
+    /// (merge-desk §12.8): `false` only when they turned it off, so no row
+    /// means on.
+    pub reviews_off: std::sync::atomic::AtomicBool,
     /// Pause agents (card #665), by device: no start there while on.
     pub agents_pause: RwLock<HashMap<String, super::spawn_pause::AgentsPause>>,
     /// Cards an agent asked for an agent on, until the request is written.
@@ -1666,6 +1690,7 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
     let mut caps = HashMap::new();
     let mut offers = HashMap::new();
     let mut starts = None;
+    let mut reviews = REVIEWS_ON;
     let mut pause = super::spawn_pause::PauseFold::default();
     for ev in evs {
         if ev.actor != "user" {
@@ -1712,6 +1737,10 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
             if let Some(dev) = super::spawn_pause::paused_device(&r.device) {
                 // Pause agents on a device (card #665).
                 pause.add(dev, &r);
+            } else if r.device == REVIEWS_ROW {
+                // The person's switch for reviews without asking
+                // (merge-desk §12.8): on unless a row says off.
+                reviews = r.on.unwrap_or(REVIEWS_ON);
             } else if r.device == AGENT_STARTS_ROW {
                 starts = Some(AgentStarts {
                     on: r.on.unwrap_or(AGENT_STARTS_ON),
@@ -1750,6 +1779,8 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
     *s.on.write().unwrap_or_else(|e| e.into_inner()) = on;
     *s.caps.write().unwrap_or_else(|e| e.into_inner()) = caps;
     *s.agent_starts.write().unwrap_or_else(|e| e.into_inner()) = starts.unwrap_or_default();
+    s.reviews_off
+        .store(!reviews, std::sync::atomic::Ordering::SeqCst);
     *s.offers.write().unwrap_or_else(|e| e.into_inner()) = offers;
     *s.agents_pause.write().unwrap_or_else(|e| e.into_inner()) = pause.done();
 }
@@ -1944,6 +1975,8 @@ impl Services {
             .unwrap_or_else(|e| e.into_inner());
         let rows = self.store.as_ref();
         load_spawn(rows, &self.spawn);
+        // Another device's row reaches here too: the fence follows it.
+        self.push_reviews();
         self.clean_after_start();
         self.bind_spawns();
         self.take_up_started();
@@ -2314,7 +2347,14 @@ impl Services {
         // A private thread about a shared board (card #454): its agent reads
         // that board's cards, other people's words, so never bypass.
         let about = t.ask.as_ref().map(|a| a.board.as_str()).unwrap_or("");
-        let perms = spawn_permissions(&setting, about, &repo_key, &brief);
+        let perms = spawn_permissions(
+            &setting,
+            about,
+            &repo_key,
+            &brief,
+            &t,
+            self.reviews_unasked(),
+        );
         let ask = SpawnAsk {
             task_id: t.id.clone(),
             device: me.clone(),
@@ -2508,7 +2548,14 @@ impl Services {
         } else {
             log.board_id.as_str()
         };
-        let perms = spawn_permissions(&setting, about, &repo_key, &brief);
+        let perms = spawn_permissions(
+            &setting,
+            about,
+            &repo_key,
+            &brief,
+            &t,
+            self.reviews_unasked(),
+        );
         let logged_name = name.clone();
         let refuse = |r: SpawnRefusal| -> Result<bool, String> {
             // Card #739: every way a request ends here is in the log.
@@ -3712,6 +3759,11 @@ impl Services {
         if !t.holders.is_empty() {
             return Err(format!("{} has an agent on it", t.short_ref()));
         }
+        // The switch is off: no sweep starts an agent, so say so rather
+        // than queue the card and claim one is starting (card #1066).
+        if !self.spawn.setting("").on {
+            return Err(SWITCH_OFF_LINE.into());
+        }
         // His words wait for the brief on the device that hands the card
         // out; another device's request carries them there (card #455).
         if !note.trim().is_empty() && self.coord.hands_out_here(id) {
@@ -3769,6 +3821,10 @@ impl Services {
             .map_err(|e| e.to_string())
     }
 }
+
+/// What "Start an agent with this" says when the board's switch is off
+/// (card #1066): nothing was queued.
+pub const SWITCH_OFF_LINE: &str = "No agent started: Agents is switched off for this board. Turn it on in Settings › Agents and ask again.";
 
 /// What a card says when its agent couldn't start because Claude Code on
 /// `device` doesn't trust `folder` (card #699).
@@ -4335,13 +4391,16 @@ mod tests {
         };
         let set = SpawnSetting::default();
         assert_eq!(
-            spawn_permissions(&set, "", "r", &mine).mode,
+            spawn_permissions(&set, "", "r", &mine, &card(), false).mode,
             "bypassPermissions"
         );
-        assert_eq!(spawn_permissions(&set, "", "r", &mine).settings, None);
+        assert_eq!(
+            spawn_permissions(&set, "", "r", &mine, &card(), false).settings,
+            None
+        );
         for p in [
-            spawn_permissions(&set, "", "r", &theirs),
-            spawn_permissions(&set, "board1", "r", &mine),
+            spawn_permissions(&set, "", "r", &theirs, &card(), false),
+            spawn_permissions(&set, "board1", "r", &mine, &card(), false),
         ] {
             assert_eq!(p.mode, "acceptEdits");
             assert!(p.settings.is_some(), "deny rules go with it");
@@ -4366,7 +4425,7 @@ mod tests {
                 .map(|v| v.as_str().unwrap().to_string())
                 .collect()
         };
-        let p = spawn_permissions(&set, "", "remote:irori", &mine);
+        let p = spawn_permissions(&set, "", "remote:irori", &mine, &card(), false);
         assert_eq!(
             (p.mode.as_str(), p.fell_back.as_deref()),
             ("acceptEdits", None)
@@ -4376,12 +4435,12 @@ mod tests {
         assert!(rules(&p, "deny").contains(&"Bash(git push origin main:*)".to_string()));
         // A straight-to-main repo lets the lead push to main.
         set.merge.insert("remote:irori".into(), MERGE_MAIN.into());
-        let p = spawn_permissions(&set, "", "remote:irori", &mine);
+        let p = spawn_permissions(&set, "", "remote:irori", &mine, &card(), false);
         assert!(!rules(&p, "deny").contains(&"Bash(git push origin main:*)".to_string()));
-        let p = spawn_permissions(&set, "", "remote:other", &mine);
+        let p = spawn_permissions(&set, "", "remote:other", &mine, &card(), false);
         assert!(rules(&p, "deny").contains(&"Bash(git push origin main:*)".to_string()));
         set.permission = PERMISSION_EDITS.into();
-        let p = spawn_permissions(&set, "", "remote:irori", &mine);
+        let p = spawn_permissions(&set, "", "remote:irori", &mine, &card(), false);
         assert!(rules(&p, "allow").is_empty());
     }
 
@@ -4415,5 +4474,28 @@ mod tests {
             device: "pc".into(),
         };
         assert_eq!(r.to_string(), "not trusted: /r on pc");
+    }
+
+    #[test]
+    fn linked_pr_urls_are_canonical_once_and_only_prs() {
+        let mut t = card();
+        t.links = [
+            "https://github.com/o/r/pull/5/files?x=1#y",
+            "https://github.com/o/r/pull/5",
+            "https://example.com/o/r/pull/6",
+            "https://github.com/o/r/issues/7",
+            "docs/a.md",
+        ]
+        .iter()
+        .map(|r| coord::Link {
+            kind: if r.starts_with("http") { "url" } else { "file" }.into(),
+            reference: r.to_string(),
+            ..Default::default()
+        })
+        .collect();
+        assert_eq!(
+            linked_pr_urls(&t),
+            vec!["https://github.com/o/r/pull/5".to_string()]
+        );
     }
 }

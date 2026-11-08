@@ -553,7 +553,7 @@ impl Services {
             None,
             BriefMore::default(),
         );
-        let perms = spawn_permissions(&setting, "", &t.repo_key, &brief);
+        let perms = spawn_permissions(&setting, "", &t.repo_key, &brief, t, self.reviews_unasked());
         // The person's words for its brief go with the request: the device
         // that starts it has no other way to them (card #455).
         let note = self

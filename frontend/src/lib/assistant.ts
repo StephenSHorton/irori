@@ -25,6 +25,7 @@ import {
 } from "./assistant-follow"
 import { cards, threads } from "./cards"
 import { goesByItself, splitGo, type GoTarget } from "./goto"
+import { screenLabel, screenSnapshot, StatusHead } from "./assistant-screen"
 import { AssistantService } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
@@ -54,6 +55,9 @@ export type ChatEntry = {
   update?: string
   act?: Act
   to?: string
+  // The exact text the assistant read off the screen for this reply
+  // (card #1009), shown under it as "Looked at: …".
+  looked?: string
 }
 
 export type Posted = { id: string; short: string; tag?: string }
@@ -65,11 +69,19 @@ export type Reply = {
   status: string
   end: "" | "done" | "error"
   error: string
+  // The screen text it read (card #1009), once it called the screen tool.
+  looked: string
   // What the run changed, a line each (card #987).
   changes?: string[]
 }
 
-export const freshReply: Reply = { text: "", status: "", end: "", error: "" }
+export const freshReply: Reply = {
+  text: "",
+  status: "",
+  end: "",
+  error: "",
+  looked: "",
+}
 
 // The line an error with no words of its own shows.
 export const failedLine = "The assistant couldn't answer just now."
@@ -107,7 +119,12 @@ export function foldEvent(r: Reply, ev: AssistantEvent): Reply {
 export function settled(r: Reply): ChatEntry[] {
   const out: ChatEntry[] = []
   const text = r.text.trim()
-  if (text) out.push({ role: "assistant", text })
+  if (text)
+    out.push(
+      r.looked
+        ? { role: "assistant", text, looked: r.looked }
+        : { role: "assistant", text }
+    )
   for (const line of r.changes ?? [])
     out.push({ role: "assistant", text: line, note: true, changed: true })
   if (r.end === "error")
@@ -173,10 +190,8 @@ export function parseHistory(raw: string | null): ChatEntry[] {
   const out: ChatEntry[] = []
   for (const x of v) {
     if (!x || typeof x !== "object") continue
-    const { role, text, note, changed, posted, update, act, to } = x as Record<
-      string,
-      unknown
-    >
+    const { role, text, note, changed, posted, update, act, to, looked } =
+      x as Record<string, unknown>
     if ((role !== "person" && role !== "assistant") || typeof text !== "string")
       continue
     if (!text.trim()) continue
@@ -203,6 +218,8 @@ export function parseHistory(raw: string | null): ChatEntry[] {
       if (a) e.act = a
     }
     if (role === "person" && typeof to === "string" && to) e.to = to
+    if (role === "assistant" && typeof looked === "string" && looked.trim())
+      e.looked = looked
     out.push(e)
   }
   return capHistory(out)
@@ -477,6 +494,8 @@ export async function ask(text: string): Promise<void> {
     entries: capChat([...s.entries, { role: "person", text: body }]),
     reply: freshReply,
   })
+  // What the window shows, sent along for the screen tool (card #1009).
+  let screen = ""
   const onEvent = (ev: AssistantEvent) => {
     // Card #987: a change made before Stop still happened, so say so.
     if (ev.kind === "changed" && run?.token !== token) {
@@ -484,14 +503,18 @@ export async function ask(text: string): Promise<void> {
       return
     }
     if (run?.token !== token) return
-    const r = foldEvent(assistantState().reply ?? freshReply, ev)
+    let r = foldEvent(assistantState().reply ?? freshReply, ev)
+    // It called the screen tool: keep the exact text it read.
+    if (ev.kind === "tool" && ev.text.startsWith(StatusHead) && screen)
+      r = { ...r, looked: screen }
     if (r.end) finish(r)
     else set({ reply: r })
   }
   try {
+    screen = await screenSnapshot().catch(() => "")
     const id = inWails()
-      ? await AssistantService.Ask(history, body, onEvent)
-      : sampleAsk(body, onEvent)
+      ? await AssistantService.Ask(history, body, screen, onEvent)
+      : sampleAsk(body, onEvent, screen)
     if (stoppedEarly.delete(token)) void stopRun(id)
     else if (run?.token === token) run.id = id
   } catch (err) {
@@ -812,8 +835,19 @@ const sampleWork = (q: string) =>
     )} #8 already covers the release notes, so build on what it has.\n${DraftClose}`
 
 // sampleAnswer picks a canned answer by the question's words.
-export function sampleAnswer(q: string): { tools: string[]; text: string } {
+export function sampleAnswer(
+  q: string,
+  screen = ""
+): { tools: string[]; text: string } {
   const s = q.toLowerCase()
+  // Card #1009: a question about where the person is reads the screen.
+  if (screen && /\b(this|here)\b|looking at|where am i/.test(s)) {
+    const label = screenLabel(screen)
+    return {
+      tools: [`${StatusHead}: ${label}`],
+      text: `You're on ${label}. Nothing there is waiting on you right now.`,
+    }
+  }
   if (
     /^(please|can you|could you)\b|\b(add|fix|build|make|change|rename)\b/.test(
       s
@@ -860,9 +894,13 @@ export function sampleAnswer(q: string): { tools: string[]; text: string } {
 const sampleRuns = new Map<number, ReturnType<typeof setTimeout>[]>()
 let sampleIds = 0
 
-function sampleAsk(q: string, on: (ev: AssistantEvent) => void): number {
+function sampleAsk(
+  q: string,
+  on: (ev: AssistantEvent) => void,
+  screen = ""
+): number {
   const id = ++sampleIds
-  const { tools, text } = sampleAnswer(q)
+  const { tools, text } = sampleAnswer(q, screen)
   const timers: ReturnType<typeof setTimeout>[] = []
   let at = 150
   const after = (ms: number, ev: AssistantEvent) => {

@@ -632,6 +632,9 @@ function previewTranscript(callId: string): TalkTranscript {
     startedAtMs: started,
     ended: true,
     durationMs: 18 * 60_000,
+    title: "",
+    titleByAssistant: false,
+    over: true,
     lines: [
       ...previewSaid,
       { name: "Spencer", text: "Sounds good. I'll be at the PC around two." },

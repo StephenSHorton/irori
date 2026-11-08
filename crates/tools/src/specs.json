@@ -1152,6 +1152,20 @@
     ]
   },
   {
+    "name": "screen",
+    "description": "What the person is looking at in the Irori window right now: the page, what is open on it, and the card or thread in view, as plain text. Read it only when the question depends on where they are (\"this card\", \"what am I looking at\"); never for a plain lookup.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "clients": [
+      "assistant"
+    ]
+  },
+  {
     "name": "wait_cancel",
     "description": "Drop one of your open waits by its id (the waits tool lists them), when you no longer need to be woken for it.",
     "inputSchema": {
