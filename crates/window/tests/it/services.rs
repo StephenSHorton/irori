@@ -1186,6 +1186,17 @@ fn start_agent_with_a_comment() {
         .unwrap();
     co.set_task_state(&r.w.core.user_sender().key, &t.id, "input_required", "")
         .ok();
+    // Card #1066: with the switch off nothing would start, so it says so
+    // and leaves the card as it is.
+    let e = r.w.start_agent(&t.id, "keep the last three").unwrap_err();
+    assert!(e.contains("switched off"), "{e}");
+    assert_eq!(co.get_task(&t.id).unwrap().state, "input_required");
+    r.w.core
+        .set_spawn_setting(irori_core::spawn::SpawnSetting {
+            on: true,
+            ..Default::default()
+        })
+        .unwrap();
     r.w.start_agent(&t.id, "keep the last three").unwrap();
     assert_eq!(co.get_task(&t.id).unwrap().state, coord::SUBMITTED);
 

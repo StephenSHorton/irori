@@ -1910,6 +1910,21 @@ pub async fn agents_starts_set(w: W<'_>, on: bool, max: u32) -> R<AgentStartsVie
     w.agents_starts_set(on, max)
 }
 
+/// "Agents review other people's PRs without asking" (merge-desk §12.8):
+/// on unless the person turned it off.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_reviews(w: W<'_>) -> R<bool> {
+    Ok(w.agents_reviews())
+}
+
+/// The person changes it: the app only, never a tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_reviews_set(w: W<'_>, on: bool) -> R<bool> {
+    w.agents_reviews_set(on)
+}
+
 /// The themes new agents' names come from (card #702), each with its
 /// switch.
 #[tauri::command]
@@ -2459,6 +2474,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             names_theme_set,
             agents_starts,
             agents_starts_set,
+            agents_reviews,
+            agents_reviews_set,
             agents_pause,
             agents_pause_set,
             agents_limits,
