@@ -317,10 +317,7 @@ fn the_assistant_is_never_an_agent_and_never_handed_a_thread() {
     });
     let assistant_key = format!("{me}/{assistant}");
     assert!(
-        !r.core
-            .local_agents()
-            .iter()
-            .any(|c| c.key == assistant_key),
+        !r.core.local_agents().iter().any(|c| c.key == assistant_key),
         "never on the roster"
     );
     assert!(
@@ -328,11 +325,20 @@ fn the_assistant_is_never_an_agent_and_never_handed_a_thread() {
         "never offered work"
     );
     let th = thread(&r, "who takes this?");
-    wait_for(10, "the thread named", || title(&r, &th.id).title == "Named");
+    wait_for(10, "the thread named", || {
+        title(&r, &th.id).title == "Named"
+    });
     let got = title(&r, &th.id);
-    let taker = got.ask.as_ref().map(|a| a.taker.clone()).unwrap_or_default();
+    let taker = got
+        .ask
+        .as_ref()
+        .map(|a| a.taker.clone())
+        .unwrap_or_default();
     assert_ne!(taker, assistant_key, "never handed the thread");
     assert!(!got.holders.contains(&assistant_key));
-    assert!(r.notices_to(&assistant_key).is_empty(), "nothing sent to it");
+    assert!(
+        r.notices_to(&assistant_key).is_empty(),
+        "nothing sent to it"
+    );
     drop(elsewhere);
 }

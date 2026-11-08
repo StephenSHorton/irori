@@ -1425,7 +1425,9 @@ export function sampleUndoTitle(id: string) {
   const was = c.title
   c.title = line.undoTitle
   c.thread = [
-    ...c.thread.map((it) => (it.undoTitle ? { ...it, undoTitle: undefined } : it)),
+    ...c.thread.map((it) =>
+      it.undoTitle ? { ...it, undoTitle: undefined } : it
+    ),
     CardThreadItem({
       id: `${id}-undo-${c.thread.length}`,
       kind: "event",

@@ -27,9 +27,14 @@ fn thread(e: &Env, text: &str) -> Task {
 #[test]
 fn irori_names_an_open_thread_and_it_replays() {
     let e = Env::new();
-    let th = thread(&e, "hey so the login page is broken again on safari i think");
+    let th = thread(
+        &e,
+        "hey so the login page is broken again on safari i think",
+    );
     assert!(e.c.names_here(&th.id), "the device that posted it names it");
-    let got = e.c.rename_as_irori(&th.id, "Login broken on Safari", &th.title).unwrap();
+    let got =
+        e.c.rename_as_irori(&th.id, "Login broken on Safari", &th.title)
+            .unwrap();
     assert_eq!(got.title, "Login broken on Safari");
     assert!(!got.title_by_person, "Irori's name isn't the person's");
     assert_eq!(got.irori_titled, 1);
@@ -56,12 +61,18 @@ fn irori_names_an_open_thread_and_it_replays() {
 fn irori_retitles_and_keeps_the_newest_was() {
     let e = Env::new();
     let th = thread(&e, "can we look at the build");
-    let one = e.c.rename_as_irori(&th.id, "Build check", &th.title).unwrap();
-    let two = e.c.rename_as_irori(&th.id, "Build cache misses on Windows", &one.title).unwrap();
+    let one =
+        e.c.rename_as_irori(&th.id, "Build check", &th.title)
+            .unwrap();
+    let two =
+        e.c.rename_as_irori(&th.id, "Build cache misses on Windows", &one.title)
+            .unwrap();
     assert_eq!(two.irori_titled, 2);
     assert_eq!(two.title_was, "Build check");
     // The same title again writes nothing.
-    let same = e.c.rename_as_irori(&th.id, "Build cache misses on Windows", &two.title).unwrap();
+    let same =
+        e.c.rename_as_irori(&th.id, "Build cache misses on Windows", &two.title)
+            .unwrap();
     assert_eq!(same.irori_titled, 2);
     assert_eq!(e.rows(kinds::TASK_EDITED).len(), 2);
 }
@@ -106,7 +117,9 @@ fn a_rename_meanwhile_wins() {
 fn undo_is_the_persons_rename_and_stays() {
     let e = Env::new();
     let th = thread(&e, "the thing with the lobby");
-    let named = e.c.rename_as_irori(&th.id, "Lobby join", &th.title).unwrap();
+    let named =
+        e.c.rename_as_irori(&th.id, "Lobby join", &th.title)
+            .unwrap();
     // Undo puts back what it was, as the person.
     let back = e.c.rename_task(USER, &th.id, &named.title_was).unwrap();
     assert_eq!(back.title, th.title);
@@ -120,9 +133,8 @@ fn undo_is_the_persons_rename_and_stays() {
 #[test]
 fn irori_names_only_the_persons_threads() {
     let e = Env::new();
-    let t = e
-        .c
-        .create_task(
+    let t =
+        e.c.create_task(
             ALICE,
             NewTask {
                 title: "lobby join".into(),

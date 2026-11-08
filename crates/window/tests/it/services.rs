@@ -1767,10 +1767,18 @@ fn undo_irori_naming_a_thread() {
         .unwrap();
     let d = r.w.card(&th.id).unwrap();
     assert_eq!(d.summary.title, "Login fails on Safari");
-    let undo: Vec<_> = d.thread.iter().filter(|it| !it.undo_title.is_empty()).collect();
+    let undo: Vec<_> = d
+        .thread
+        .iter()
+        .filter(|it| !it.undo_title.is_empty())
+        .collect();
     assert_eq!(undo.len(), 1, "one Undo, on Irori's line");
     assert_eq!(undo[0].who.status, "irori");
-    assert!(undo[0].text.starts_with("Irori renamed it from"), "{}", undo[0].text);
+    assert!(
+        undo[0].text.starts_with("Irori renamed it from"),
+        "{}",
+        undo[0].text
+    );
     assert_eq!(undo[0].undo_title, th.title);
 
     let back = r.w.undo_title(&th.id).unwrap();

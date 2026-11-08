@@ -849,7 +849,11 @@ impl Runner {
 
     /// Runs `job` with `claude` at `bin` to its end and returns the
     /// reply's text (card #782): what a background job asks.
-    pub fn run_once(&self, bin: Result<PathBuf, String>, job: Result<Job, String>) -> Result<String, String> {
+    pub fn run_once(
+        &self,
+        bin: Result<PathBuf, String>,
+        job: Result<Job, String>,
+    ) -> Result<String, String> {
         let text: Arc<Mutex<String>> = Arc::default();
         let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
         let tx = Mutex::new(tx);
@@ -1267,7 +1271,10 @@ mod tests {
         }
         let run = d.path().join("assistant").join(NAMES_DIR);
         assert!(!run.join(MCP_FILE).exists(), "no MCP config, no secret");
-        assert_eq!(std::fs::read_to_string(run.join(SYSTEM_FILE)).unwrap(), "Name it.");
+        assert_eq!(
+            std::fs::read_to_string(run.join(SYSTEM_FILE)).unwrap(),
+            "Name it."
+        );
         // The run is let go once the process has exited.
         for _ in 0..200 {
             if r.running() == 0 {

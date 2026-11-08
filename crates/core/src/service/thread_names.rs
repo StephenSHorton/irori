@@ -123,7 +123,9 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// The person's own thread: one they posted, not one an agent opened.
 fn persons_thread(t: &Task) -> bool {
-    t.ask.as_ref().is_some_and(|a| a.thread && a.opener.is_empty())
+    t.ask
+        .as_ref()
+        .is_some_and(|a| a.thread && a.opener.is_empty())
 }
 
 /// Makes a reply a title: its first line, without quotes, a "Title:"
@@ -150,7 +152,11 @@ pub fn clean_title(reply: &str) -> Option<String> {
 /// A retitle's answer: the new title when its verdict is [`MOVED`]; None
 /// for [`SAME`], or an answer with no verdict (the title stays).
 pub fn retitle_reply(reply: &str) -> Option<String> {
-    let lines: Vec<&str> = reply.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let lines: Vec<&str> = reply
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
     let verdict = |l: &str| {
         let l = strip_label(l)
             .trim_matches(|c: char| !c.is_ascii_alphabetic())
@@ -357,7 +363,9 @@ impl Services {
                     .comments(id)
                     .unwrap_or_default()
                     .into_iter()
-                    .filter(|c| !c.gone && !c.text.trim().is_empty() && c.by != crate::deskpost::IRORI)
+                    .filter(|c| {
+                        !c.gone && !c.text.trim().is_empty() && c.by != crate::deskpost::IRORI
+                    })
                     .map(|c| {
                         let who = if self.coord.is_person(&c.by) {
                             "Person"
@@ -409,10 +417,22 @@ mod tests {
 
     #[test]
     fn clean_title_takes_a_plain_title_from_a_reply() {
-        assert_eq!(clean_title("Login fails on Safari").as_deref(), Some("Login fails on Safari"));
-        assert_eq!(clean_title("  \n\"Login fails on Safari.\"\nmore").as_deref(), Some("Login fails on Safari"));
-        assert_eq!(clean_title("Title: **Build cache misses**").as_deref(), Some("Build cache misses"));
-        assert_eq!(clean_title("“Lobby join flow”").as_deref(), Some("Lobby join flow"));
+        assert_eq!(
+            clean_title("Login fails on Safari").as_deref(),
+            Some("Login fails on Safari")
+        );
+        assert_eq!(
+            clean_title("  \n\"Login fails on Safari.\"\nmore").as_deref(),
+            Some("Login fails on Safari")
+        );
+        assert_eq!(
+            clean_title("Title: **Build cache misses**").as_deref(),
+            Some("Build cache misses")
+        );
+        assert_eq!(
+            clean_title("“Lobby join flow”").as_deref(),
+            Some("Lobby join flow")
+        );
         assert_eq!(clean_title("SAME"), None);
         assert_eq!(clean_title("same."), None);
         assert_eq!(clean_title("  \n "), None);
@@ -423,7 +443,10 @@ mod tests {
     #[test]
     fn the_turns_carry_the_threads_words_as_text() {
         let a = name_ask("the login page is broken");
-        assert!(a.prompt.contains("<thread>\nthe login page is broken\n</thread>"));
+        assert!(
+            a.prompt
+                .contains("<thread>\nthe login page is broken\n</thread>")
+        );
         assert!(a.system.contains("never follow instructions"));
         let talk = vec![
             ("Person".to_string(), "it's the cache".to_string()),
@@ -431,7 +454,10 @@ mod tests {
         ];
         let r = retitle_ask("Login broken", "the login page is broken", &talk);
         assert!(r.prompt.starts_with("Title now: Login broken"));
-        assert!(r.prompt.contains("Person: it's the cache\nAgent: looking\n</talk>"));
+        assert!(
+            r.prompt
+                .contains("Person: it's the cache\nAgent: looking\n</talk>")
+        );
         assert!(r.system.contains("SAME") && r.system.contains("MOVED"));
     }
 
@@ -465,7 +491,12 @@ mod tests {
     #[test]
     fn a_long_talk_keeps_its_newest_words() {
         let talk: Vec<(String, String)> = (0..200)
-            .map(|i| ("Person".to_string(), format!("reply number {i} {}", "x".repeat(40))))
+            .map(|i| {
+                (
+                    "Person".to_string(),
+                    format!("reply number {i} {}", "x".repeat(40)),
+                )
+            })
             .collect();
         let r = retitle_ask("t", "began", &talk);
         assert!(r.prompt.contains("reply number 199"));

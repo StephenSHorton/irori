@@ -2760,14 +2760,20 @@ impl Fold {
             return Err(invalid("a thread needs a title"));
         }
         let t = self.any_task(id)?.clone();
-        if !t.ask.as_ref().is_some_and(|a| a.thread && a.opener.is_empty()) {
+        if !t
+            .ask
+            .as_ref()
+            .is_some_and(|a| a.thread && a.opener.is_empty())
+        {
             return Err(not_allowed(format!(
                 "Irori names only the person's threads, and {} isn't one",
                 t.short_ref()
             )));
         }
         if self.on_board {
-            return Err(not_allowed("Irori names threads on the person's own board only"));
+            return Err(not_allowed(
+                "Irori names threads on the person's own board only",
+            ));
         }
         if t.title_by_person {
             return Err(not_allowed(format!(
