@@ -685,6 +685,21 @@ pub struct SpawnPerms {
     pub fell_back: Option<String>,
 }
 
+/// The canonical URLs of the GitHub PRs `t` links (merge-desk §12.12 B1c),
+/// once each. The PR allow rules bind to these and nothing wider.
+pub(crate) fn linked_pr_urls(t: &Task) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for l in &t.links {
+        if let Some((repo, n)) = coord::pr_link(l) {
+            let u = format!("https://github.com/{repo}/pull/{n}");
+            if !out.contains(&u) {
+                out.push(u);
+            }
+        }
+    }
+    out
+}
+
 /// The permission mode for a spawn on board `board_id` under its setting
 /// (decision 8 (c), card #449): the board's choice and rules, with bypass
 /// refused on a shared board or when the brief quotes anyone but the
@@ -694,6 +709,8 @@ pub(crate) fn spawn_permissions(
     board_id: &str,
     repo_key: &str,
     brief: &Brief,
+    t: &Task,
+    reviews: bool,
 ) -> SpawnPerms {
     use super::spawn_permissions as sp;
     let got = sp::spawn_permissions(
@@ -703,6 +720,8 @@ pub(crate) fn spawn_permissions(
             others_text: brief.others_text,
             merge: set.merge_policy(repo_key),
             lead: true,
+            prs: linked_pr_urls(t),
+            reviews,
         },
     );
     SpawnPerms {
@@ -2328,7 +2347,14 @@ impl Services {
         // A private thread about a shared board (card #454): its agent reads
         // that board's cards, other people's words, so never bypass.
         let about = t.ask.as_ref().map(|a| a.board.as_str()).unwrap_or("");
-        let perms = spawn_permissions(&setting, about, &repo_key, &brief);
+        let perms = spawn_permissions(
+            &setting,
+            about,
+            &repo_key,
+            &brief,
+            &t,
+            self.reviews_unasked(),
+        );
         let ask = SpawnAsk {
             task_id: t.id.clone(),
             device: me.clone(),
@@ -2522,7 +2548,14 @@ impl Services {
         } else {
             log.board_id.as_str()
         };
-        let perms = spawn_permissions(&setting, about, &repo_key, &brief);
+        let perms = spawn_permissions(
+            &setting,
+            about,
+            &repo_key,
+            &brief,
+            &t,
+            self.reviews_unasked(),
+        );
         let logged_name = name.clone();
         let refuse = |r: SpawnRefusal| -> Result<bool, String> {
             // Card #739: every way a request ends here is in the log.
@@ -4358,13 +4391,16 @@ mod tests {
         };
         let set = SpawnSetting::default();
         assert_eq!(
-            spawn_permissions(&set, "", "r", &mine).mode,
+            spawn_permissions(&set, "", "r", &mine, &card(), false).mode,
             "bypassPermissions"
         );
-        assert_eq!(spawn_permissions(&set, "", "r", &mine).settings, None);
+        assert_eq!(
+            spawn_permissions(&set, "", "r", &mine, &card(), false).settings,
+            None
+        );
         for p in [
-            spawn_permissions(&set, "", "r", &theirs),
-            spawn_permissions(&set, "board1", "r", &mine),
+            spawn_permissions(&set, "", "r", &theirs, &card(), false),
+            spawn_permissions(&set, "board1", "r", &mine, &card(), false),
         ] {
             assert_eq!(p.mode, "acceptEdits");
             assert!(p.settings.is_some(), "deny rules go with it");
@@ -4389,7 +4425,7 @@ mod tests {
                 .map(|v| v.as_str().unwrap().to_string())
                 .collect()
         };
-        let p = spawn_permissions(&set, "", "remote:irori", &mine);
+        let p = spawn_permissions(&set, "", "remote:irori", &mine, &card(), false);
         assert_eq!(
             (p.mode.as_str(), p.fell_back.as_deref()),
             ("acceptEdits", None)
@@ -4399,12 +4435,12 @@ mod tests {
         assert!(rules(&p, "deny").contains(&"Bash(git push origin main:*)".to_string()));
         // A straight-to-main repo lets the lead push to main.
         set.merge.insert("remote:irori".into(), MERGE_MAIN.into());
-        let p = spawn_permissions(&set, "", "remote:irori", &mine);
+        let p = spawn_permissions(&set, "", "remote:irori", &mine, &card(), false);
         assert!(!rules(&p, "deny").contains(&"Bash(git push origin main:*)".to_string()));
-        let p = spawn_permissions(&set, "", "remote:other", &mine);
+        let p = spawn_permissions(&set, "", "remote:other", &mine, &card(), false);
         assert!(rules(&p, "deny").contains(&"Bash(git push origin main:*)".to_string()));
         set.permission = PERMISSION_EDITS.into();
-        let p = spawn_permissions(&set, "", "remote:irori", &mine);
+        let p = spawn_permissions(&set, "", "remote:irori", &mine, &card(), false);
         assert!(rules(&p, "allow").is_empty());
     }
 
@@ -4438,5 +4474,28 @@ mod tests {
             device: "pc".into(),
         };
         assert_eq!(r.to_string(), "not trusted: /r on pc");
+    }
+
+    #[test]
+    fn linked_pr_urls_are_canonical_once_and_only_prs() {
+        let mut t = card();
+        t.links = [
+            "https://github.com/o/r/pull/5/files?x=1#y",
+            "https://github.com/o/r/pull/5",
+            "https://example.com/o/r/pull/6",
+            "https://github.com/o/r/issues/7",
+            "docs/a.md",
+        ]
+        .iter()
+        .map(|r| coord::Link {
+            kind: if r.starts_with("http") { "url" } else { "file" }.into(),
+            reference: r.to_string(),
+            ..Default::default()
+        })
+        .collect();
+        assert_eq!(
+            linked_pr_urls(&t),
+            vec!["https://github.com/o/r/pull/5".to_string()]
+        );
     }
 }

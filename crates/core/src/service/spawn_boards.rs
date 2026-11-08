@@ -301,7 +301,14 @@ impl Services {
             BriefMore::default(),
         );
         let setting = self.spawn_setting(&b.id);
-        let perms = spawn_permissions(&setting, &b.id, &repo_key, &brief);
+        let perms = spawn_permissions(
+            &setting,
+            &b.id,
+            &repo_key,
+            &brief,
+            t,
+            self.reviews_unasked(),
+        );
         let ask = SpawnAsk {
             task_id: t.id.clone(),
             device: me,
