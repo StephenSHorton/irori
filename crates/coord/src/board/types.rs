@@ -640,6 +640,11 @@ pub struct Task {
     /// lands, so the name stays theirs until they change it again.
     #[serde(skip_serializing_if = "omit")]
     pub title_by_person: bool,
+    /// What a PR card is for (merge desk §12.2), set only from a person's
+    /// creation row and never changed by later rows. Read it with
+    /// [`pr_card`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr_card: Option<PrCard>,
     /// How many times Irori's assistant named it (card #782): it names a
     /// new thread once and retitles it at most once more.
     #[serde(skip_serializing_if = "omit")]
@@ -961,12 +966,33 @@ pub struct NewTask {
     /// The person named it by hand (card #779), on the card it comes
     /// from: a share keeps their name theirs. Only a person's row counts.
     pub title_by_person: bool,
+    /// Makes it a PR card (merge desk §12.2). Only a person can: an agent's
+    /// is refused.
+    pub pr_card: Option<PrCard>,
     /// Its weight from the start (card #964): light, normal or heavy, or
     /// empty for none (normal). Written with the card, so it is weighed
     /// before Irori hands it out.
     pub weight: String,
     /// One line on why it has that weight; an agent must give one.
     pub weight_reason: String,
+}
+
+/// What fixes a PR card (merge desk §12.2): the PR it is for and the PR
+/// author's GitHub login, from its creation row. The repo is the card's
+/// `repo_key`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrCard {
+    /// The PR's URL, as the card links it and `pr.state` names it.
+    pub pr: String,
+    pub author: String,
+}
+
+/// Whether `t` is a PR card: its creation row was a person row of its
+/// creator and carried the PR. A card an agent makes never is, whatever
+/// its text, and no later edit or link changes it.
+pub fn pr_card(t: &Task) -> bool {
+    t.pr_card.is_some()
 }
 
 /// Narrows `list_tasks`; zero values mean any.
