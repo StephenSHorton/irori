@@ -536,6 +536,14 @@ pub struct Task {
     /// lands, so the name stays theirs until they change it again.
     #[serde(skip_serializing_if = "omit")]
     pub title_by_person: bool,
+    /// How many times Irori's assistant named it (card #782): it names a
+    /// new thread once and retitles it at most once more.
+    #[serde(skip_serializing_if = "omit")]
+    pub irori_titled: i64,
+    /// The title it had before Irori's newest rename (card #782): what
+    /// Undo puts back. Empty when Irori never renamed it.
+    #[serde(skip_serializing_if = "omit")]
+    pub title_was: String,
     pub objective: String,
     #[serde(skip_serializing_if = "omit")]
     pub done_criteria: String,

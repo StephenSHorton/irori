@@ -1749,3 +1749,55 @@ fn rename_by_hand() {
             .title_by_person
     );
 }
+
+/// Card #782: Irori names the person's thread. Its line on the thread
+/// carries Undo, and Undo gives the old name back as the person's own:
+/// the line loses its Undo, and Irori can't rename it again.
+#[test]
+fn undo_irori_naming_a_thread() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let (th, _) = co
+        .post_ask(
+            &r.w.core.user_sender().key,
+            coord::NewAsk {
+                text: "hey so the login page is broken again on safari".into(),
+                thread: true,
+                ..Default::default()
+            },
+            &[],
+        )
+        .unwrap();
+    co.rename_as_irori(&th.id, "Login fails on Safari", &th.title)
+        .unwrap();
+    let d = r.w.card(&th.id).unwrap();
+    assert_eq!(d.summary.title, "Login fails on Safari");
+    let undo: Vec<_> = d
+        .thread
+        .iter()
+        .filter(|it| !it.undo_title.is_empty())
+        .collect();
+    assert_eq!(undo.len(), 1, "one Undo, on Irori's line");
+    assert_eq!(undo[0].who.status, "irori");
+    assert!(
+        undo[0].text.starts_with("Irori renamed it from"),
+        "{}",
+        undo[0].text
+    );
+    assert_eq!(undo[0].undo_title, th.title);
+
+    let back = r.w.undo_title(&th.id).unwrap();
+    assert_eq!(back.title, th.title);
+    assert!(back.title_by_person);
+    let d = r.w.card(&th.id).unwrap();
+    assert!(d.thread.iter().all(|it| it.undo_title.is_empty()));
+    assert!(r.w.undo_title(&th.id).is_err(), "nothing left to undo");
+    assert!(
+        co.rename_as_irori(&th.id, "Login fails on Safari", &th.title)
+            .is_err()
+    );
+    // The switch reads and turns off.
+    assert!(r.w.assistant_names());
+    r.w.assistant_names_set(false).unwrap();
+    assert!(!r.w.assistant_names());
+}

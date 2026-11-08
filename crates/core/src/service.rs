@@ -87,6 +87,7 @@ pub mod spawn_waiting;
 pub mod spawn_why;
 pub mod storage;
 pub mod sync_out;
+pub mod thread_names;
 pub use mirror::BoardReviewer;
 pub mod invites;
 mod talk;
@@ -344,6 +345,8 @@ struct Services {
     calls: calls::Calls,
     /// "Transcribe what I say in calls" (card #656).
     call_settings: call_settings::CallSettings,
+    /// Irori's assistant naming the person's new threads (card #782).
+    naming: thread_names::Naming,
     /// The themes new agents' names come from (card #702), shared with
     /// `names`.
     name_themes: Arc<name_themes::NameThemes>,
@@ -1229,6 +1232,7 @@ impl Core {
         let spawn_state = spawn::SpawnState::default();
         spawn::load_spawn(&st, &spawn_state);
         let call_settings = call_settings::CallSettings::load(&st);
+        let naming = thread_names::Naming::load(&st);
         let co = Arc::new(
             Coord::new(
                 st.clone(),
@@ -1582,6 +1586,7 @@ impl Core {
                 opts.call_transcriber.clone(),
             ),
             call_settings,
+            naming,
             name_themes,
             invites,
         });
@@ -2003,6 +2008,10 @@ impl Core {
                         s.hub.publish(CoreEvent::Talk);
                         s.follow_call_settings();
                         s.follow_names_themes();
+                        s.follow_names_on();
+                    } else if ev.kind == kinds::ASSISTANT_NAMES_SET {
+                        // Another device's "Name new threads" (card #782).
+                        s.follow_names_on();
                     } else if ev.kind == kinds::TRANSCRIBE_SET {
                         // Another device's switch (card #656).
                         s.follow_call_settings();
@@ -2286,6 +2295,26 @@ impl Core {
                     s2.settle_notifications();
                 }
             });
+        }
+        {
+            // Irori's assistant names the person's new threads (card
+            // #782): one loop hears the Board, another runs the turns one
+            // at a time, so a slow turn never holds the Board's feed.
+            let q = s.coord.subscribe();
+            let reg = self.on_stop(&q, |q| q.close());
+            s.names_seen_all();
+            let (tx, rx) = std::sync::mpsc::channel();
+            s.names_queue(Some(tx));
+            let s2 = s.clone();
+            self.spawn("assistant-names", move || {
+                let _reg = reg;
+                while let Some(ch) = q.recv() {
+                    s2.names_hear(&ch);
+                }
+                s2.names_queue(None);
+            });
+            let s3 = s.clone();
+            self.spawn("assistant-names-run", move || s3.names_loop(rx));
         }
         {
             let sub = Arc::new(s.capture.subscribe());
@@ -2706,6 +2735,24 @@ impl Core {
     pub fn set_spawner(&self, s: Option<spawn::Spawner>) {
         self.s.set_spawner(s);
         self.s.asks_kick.kick();
+    }
+
+    /// Gives the Core the desktop app's assistant turn (card #782): one
+    /// `claude -p` on Haiku that names the person's new threads. A
+    /// headless Core, or the phone, has none and names nothing.
+    pub fn set_namer(&self, n: Option<thread_names::Namer>) {
+        self.s.set_namer(n);
+    }
+
+    /// "Name new threads" (card #782): on unless the person turned it off.
+    pub fn names_on(&self) -> bool {
+        self.s.names_on()
+    }
+
+    /// The person turns "Name new threads" on or off, from the app only:
+    /// no tool reaches this.
+    pub fn set_names_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_names_on(on)
     }
 
     /// The `irori` whose `permission-hook` role each spawned agent's

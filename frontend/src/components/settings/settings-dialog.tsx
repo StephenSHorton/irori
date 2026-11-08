@@ -38,6 +38,7 @@ import { useCallPart } from "@/components/talk/huddle"
 import { loadTranscribe, setTranscribe } from "@/lib/call"
 import { inWails } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
+import { AssistantService } from "@/lib/host"
 
 export type SettingsSection =
   | "notifications"
@@ -94,7 +95,7 @@ export const settingsSections: {
     id: "app",
     label: "App",
     icon: InfoIcon,
-    hint: "Starting Irori, voice input, huddle transcripts, updates and the version.",
+    hint: "Starting Irori, voice input, huddle transcripts, thread names, updates and the version.",
   },
 ]
 
@@ -369,6 +370,7 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
       </Loading>
       <VoiceNote open={open} />
       <TranscribeSwitch open={open} />
+      <NamesSwitch open={open} />
       <div
         className="grid gap-1 border-t border-border pt-3"
         data-setting="app.updates"
@@ -446,6 +448,67 @@ function TranscribeSwitch({ open }: { open: boolean }) {
           <Toggle
             label={transcribeLabel}
             hint={transcribeHint}
+            checked={on}
+            onChange={(v) => void set(v)}
+          />
+        )}
+      </Loading>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+const namesLabel = "Name new threads"
+const namesHint =
+  "Irori gives a thread you post a short title, and may retitle it once as the talk moves on. Undo is on the thread; a name you give is never changed."
+
+// NamesSwitch is "Name new threads" (#782): Irori's assistant naming the
+// person's threads, on unless they turn it off, on all their devices.
+function NamesSwitch({ open }: { open: boolean }) {
+  const [on, setOn] = useState(true)
+  const [read, setRead] = useState(!inWails())
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AssistantService.Names()
+      .then((v) => {
+        if (!live) return
+        setOn(v)
+        setRead(true)
+      })
+      .catch((err: unknown) => {
+        if (!live) return
+        setError(errorText(err))
+        setRead(true)
+      })
+    return () => {
+      live = false
+    }
+  }, [open])
+  const set = async (v: boolean) => {
+    setError("")
+    setOn(v)
+    if (!inWails()) return
+    try {
+      await AssistantService.NamesSet(v)
+    } catch (err) {
+      setError(errorText(err))
+      setOn(await AssistantService.Names().catch(() => !v))
+    }
+  }
+  return (
+    <div
+      className="grid gap-1 border-t border-border pt-3"
+      data-setting="app.names"
+    >
+      <Loading loading={!read} label="Loading thread names">
+        {!read ? (
+          <ToggleShape label={namesLabel} hint={namesHint} />
+        ) : (
+          <Toggle
+            label={namesLabel}
+            hint={namesHint}
             checked={on}
             onChange={(v) => void set(v)}
           />

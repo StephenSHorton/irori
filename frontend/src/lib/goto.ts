@@ -114,6 +114,7 @@ export const settingSpots: SettingSpot[] = [
     section: "app",
     label: "Transcribe what I say in calls",
   },
+  { key: "app.names", section: "app", label: "Name new threads" },
   { key: "app.updates", section: "app", label: "Updates" },
 ]
 

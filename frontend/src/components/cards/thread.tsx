@@ -280,6 +280,38 @@ function PonderWord() {
   return <span aria-hidden>{ponderWord(still ? 0 : tick)}</span>
 }
 
+// UndoTitle is the Undo on Irori's name for the person's thread (card
+// #782): one click gives the title it had back, as the person's own.
+function UndoTitle({ cardId, title }: { cardId: string; title: string }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <>
+      {" "}
+      <button
+        type="button"
+        className="cursor-pointer rounded-sm font-medium text-ink-2 underline decoration-muted-foreground/40 underline-offset-2 outline-none hover:text-ink focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60"
+        title={`Give it back its name: “${title}”`}
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true)
+          setError(null)
+          try {
+            await cards.undoTitle(cardId)
+          } catch (e) {
+            setError(errorText(e))
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        Undo
+      </button>
+      {error && <span className="ml-1.5 text-destructive">{error}</span>}
+    </>
+  )
+}
+
 function ThreadRow({
   cardId,
   item,
@@ -373,6 +405,9 @@ function ThreadRow({
               <RichLine text={item.text} />
             )}
             {item.device && <DeviceTag device={item.device} />}
+            {cardId && item.undoTitle && (
+              <UndoTitle cardId={cardId} title={item.undoTitle} />
+            )}
           </span>
         </span>
       </div>

@@ -362,7 +362,11 @@ function AskButton({
           />
         }
       >
-        <MessageCircleIcon className="size-5.5" aria-hidden />
+        {/* Filled and white, as the person asked on #782. */}
+        <MessageCircleIcon
+          className="size-5.5 fill-white text-white"
+          aria-hidden
+        />
         {unread && (
           <span
             aria-hidden

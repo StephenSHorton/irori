@@ -124,7 +124,7 @@ const SINCE_GO: [&str; 29] = [
 /// history, card #377; spawned agents, card #446; the sides a device
 /// runs, card #494; spawning across the person's devices, card #455; a
 /// hidden DM space's marker, card #538; the names themes, card #702).
-const SINCE_GO_REFUSED: [&str; 27] = [
+const SINCE_GO_REFUSED: [&str; 28] = [
     kinds::AGENT_OFFER,
     kinds::SPAWN_HOST,
     kinds::SPAWN_END_REQUESTED,
@@ -155,6 +155,8 @@ const SINCE_GO_REFUSED: [&str; 27] = [
     kinds::TRANSCRIBE_SET,
     // Which themes new agents' names come from (card #702).
     kinds::NAMES_THEMES,
+    // "Name new threads" (card #782).
+    kinds::ASSISTANT_NAMES_SET,
 ];
 
 /// Device-local kinds added after the Go port: the last hello this device
