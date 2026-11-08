@@ -2197,5 +2197,48 @@
       "claude",
       "grok"
     ]
+  },
+  {
+    "name": "assistant_close",
+    "description": "Close a card or resolve a thread, as the person. Only when the person's own newest message clearly tells you to, and only the card or thread they named; anything else is refused. Give the ref exactly as they wrote it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "The card or thread the person named, as they wrote it: #12 or tag#12."
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": []
+  },
+  {
+    "name": "assistant_tick",
+    "description": "Tick one step of a card, as the person. Only when the person's own newest message clearly tells you to, and only the step and card they named; anything else is refused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "The card the person named, as they wrote it: #12 or tag#12."
+        },
+        "step_id": {
+          "type": "string",
+          "description": "The step as the person named it: s2, or 2 for the second one listed."
+        }
+      },
+      "required": [
+        "task_id",
+        "step_id"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": []
   }
 ]

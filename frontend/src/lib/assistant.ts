@@ -49,6 +49,8 @@ export type ChatEntry = {
   role: "person" | "assistant"
   text: string
   note?: boolean
+  // Card #987: a note saying what the chat changed for the person.
+  changed?: boolean
   posted?: Posted
   update?: string
   act?: Act
@@ -69,6 +71,8 @@ export type Reply = {
   error: string
   // The screen text it read (card #1009), once it called the screen tool.
   looked: string
+  // What the run changed, a line each (card #987).
+  changes?: string[]
 }
 
 export const freshReply: Reply = {
@@ -92,6 +96,10 @@ export function foldEvent(r: Reply, ev: AssistantEvent): Reply {
       return ev.text ? { ...r, text: r.text + ev.text } : r
     case "tool":
       return { ...r, status: ev.text.trim() }
+    case "changed":
+      return ev.text.trim()
+        ? { ...r, changes: [...(r.changes ?? []), ev.text.trim()] }
+        : r
     case "done":
       return { ...r, status: "", end: "done" }
     case "error":
@@ -117,6 +125,8 @@ export function settled(r: Reply): ChatEntry[] {
         ? { role: "assistant", text, looked: r.looked }
         : { role: "assistant", text }
     )
+  for (const line of r.changes ?? [])
+    out.push({ role: "assistant", text: line, note: true, changed: true })
   if (r.end === "error")
     out.push({ role: "assistant", text: r.error || failedLine, note: true })
   return out
@@ -180,7 +190,7 @@ export function parseHistory(raw: string | null): ChatEntry[] {
   const out: ChatEntry[] = []
   for (const x of v) {
     if (!x || typeof x !== "object") continue
-    const { role, text, note, posted, update, act, to, looked } = x as Record<
+    const { role, text, note, changed, posted, update, act, to, looked } = x as Record<
       string,
       unknown
     >
@@ -189,6 +199,7 @@ export function parseHistory(raw: string | null): ChatEntry[] {
     if (!text.trim()) continue
     const e: ChatEntry =
       note === true ? { role, text, note: true } : { role, text }
+    if (note === true && changed === true) e.changed = true
     const p = posted as Record<string, unknown> | null | undefined
     if (
       role === "assistant" &&
@@ -452,6 +463,19 @@ export function addNote(text: string) {
   })
 }
 
+// addChanged says what a run stopped early had already changed.
+function addChanged(line: string) {
+  const text = line.trim()
+  if (!text) return
+  const s = assistantState()
+  set({
+    entries: capHistory([
+      ...s.entries,
+      { role: "assistant", text, note: true, changed: true },
+    ]),
+  })
+}
+
 // The chat's way to go somewhere (components/assistant/assistant-chat.tsx
 // registers it while it is mounted).
 let goHandler: ((t: GoTarget) => void) | null = null
@@ -475,6 +499,11 @@ export async function ask(text: string): Promise<void> {
   // What the window shows, sent along for the screen tool (card #1009).
   let screen = ""
   const onEvent = (ev: AssistantEvent) => {
+    // Card #987: a change made before Stop still happened, so say so.
+    if (ev.kind === "changed" && run?.token !== token) {
+      addChanged(ev.text)
+      return
+    }
     if (run?.token !== token) return
     let r = foldEvent(assistantState().reply ?? freshReply, ev)
     // It called the screen tool: keep the exact text it read.

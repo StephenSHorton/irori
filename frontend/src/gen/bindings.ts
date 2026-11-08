@@ -873,7 +873,7 @@ export type AskRepo = {
  *  `done` (text empty) or `error` (one plain sentence for the person).
  */
 export type AssistantEvent = {
-	/**  `"delta"`, `"tool"`, `"done"` or `"error"`. */
+	/**  `"delta"`, `"tool"`, `"changed"`, `"done"` or `"error"`. */
 	kind: string,
 	text: string,
 };

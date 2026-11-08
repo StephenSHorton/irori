@@ -320,12 +320,15 @@ struct Services {
     secrets: Mutex<Vec<String>>,
     token: String,
     /// The window assistant's per-run secret (card #783): the API reads a
-    /// call carrying it as the person, through the read-only tools only.
+    /// call carrying it as the person, through its read tools, and its
+    /// two writes only per grant (card #987).
     /// Only in memory and in the assistant's own 0600 MCP config.
     assistant: String,
     /// What the window last said it shows (card #1009), for the
     /// assistant's `screen` tool. In memory only; the newest ask wins.
     assistant_screen: Mutex<String>,
+    /// What the person's message lets the assistant change (card #987).
+    assistant_grants: tools::Grants,
     reviver: Arc<Mutex<Option<ReviveFn>>>,
     /// Spawned agents (card #446): the window's spawner, the boards'
     /// switches and the devices' caps.
@@ -1582,6 +1585,7 @@ impl Core {
             token: token.clone(),
             assistant: assistant.clone(),
             assistant_screen: Mutex::new(String::new()),
+            assistant_grants: Default::default(),
             reviver,
             spawn: spawn_state,
             hub: Hub::new(),
@@ -2451,7 +2455,8 @@ impl Core {
 
     /// The window assistant's secret for this run (card #783): sent as
     /// `X-Irori-Assistant`, it reads as the person through
-    /// `tools::ASSISTANT_TOOLS` only. A secret: never log it.
+    /// `tools::ASSISTANT_TOOLS` (writes per grant, card #987). A secret:
+    /// never log it.
     pub fn assistant_secret(&self) -> &str {
         &self.s.assistant
     }
@@ -2466,6 +2471,12 @@ impl Core {
             .assistant_screen
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = t;
+    }
+
+    /// What the person's message lets the window assistant change, for
+    /// the run going now (card #987).
+    pub fn assistant_grants(&self) -> &tools::Grants {
+        &self.s.assistant_grants
     }
 
     /// Where the window assistant runs (card #783): its `claude -p` cwd,

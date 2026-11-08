@@ -45,6 +45,7 @@
 //!   attach or member secret resolved to.
 
 mod args;
+pub mod assistant_writes;
 mod attachments;
 mod avatar;
 mod board;
@@ -100,7 +101,8 @@ pub const CLIENT_GROK: &str = "grok";
 /// may call only [`ASSISTANT_TOOLS`].
 pub const CLIENT_ASSISTANT: &str = "assistant";
 
-/// The tools the window's assistant may call (card #783), all read-only:
+/// The tools the window's assistant may read with (card #783), all
+/// read-only (its two writes are [`ASSISTANT_WRITE_TOOLS`], card #987):
 /// the API refuses any other for its caller, and `GET
 /// /v1/tools?client=assistant` lists exactly these. None of them marks
 /// anything delivered or read (inbox and talk_* are left out for that).
@@ -122,6 +124,8 @@ pub const ASSISTANT_TOOLS: [&str; 15] = [
     // Card #1009: what the window is showing (the window sends it with each ask).
     "screen",
 ];
+
+pub use assistant_writes::{ASSISTANT_WRITE_TOOLS, Grant, Grants, grants_for};
 
 /// Who is calling, established by the transport (attach secret or member
 /// secret), never by the arguments.
@@ -422,7 +426,7 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 61] = [
+    let list: [(&'static str, Handler); 63] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -451,6 +455,8 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("board_move", board::board_move),
         ("board_assign", board::board_assign),
         ("board_status", board::board_status),
+        ("assistant_close", assistant_writes::assistant_close),
+        ("assistant_tick", assistant_writes::assistant_tick),
         ("board_link", board::board_link),
         ("board_edit", board::board_edit),
         ("board_later", later::board_later),
@@ -542,13 +548,17 @@ impl Set {
                 .inner
                 .specs
                 .iter()
-                .filter(|sp| ASSISTANT_TOOLS.contains(&sp.name.as_str()))
+                .filter(|sp| {
+                    ASSISTANT_TOOLS.contains(&sp.name.as_str())
+                        || ASSISTANT_WRITE_TOOLS.contains(&sp.name.as_str())
+                })
                 .cloned()
                 .collect();
         }
         self.inner
             .specs
             .iter()
+            .filter(|sp| !ASSISTANT_WRITE_TOOLS.contains(&sp.name.as_str()))
             .filter(|sp| client.is_empty() || sp.clients.iter().any(|c| c == client))
             .cloned()
             .collect()

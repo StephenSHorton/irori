@@ -255,6 +255,7 @@ pub struct Fold {
     pub(crate) now: NowFn,
     pub(crate) grace: Duration,
     pub(crate) holder_grace: Duration,
+    pub(crate) ask_room_hold: Duration,
     pub(crate) owner_fn: KeyFn,
     pub(crate) revoked: Option<KeyFn>,
     /// See [`super::Options::busy_elsewhere`].
@@ -489,6 +490,11 @@ impl Fold {
                 super::HOLDER_GRACE
             } else {
                 o.holder_grace
+            },
+            ask_room_hold: if o.ask_room_hold.is_zero() {
+                super::ASK_ROOM_HOLD
+            } else {
+                o.ask_room_hold
             },
             owner_fn,
             revoked: o.revoked,
