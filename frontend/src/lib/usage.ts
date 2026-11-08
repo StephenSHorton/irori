@@ -3,7 +3,8 @@
 // host reads it from a reply's rate limits and sends usage:changed; the
 // window asks once with usage_limits. Components import from here, never
 // from src/gen or host.ts. In a plain browser a sample reading shows
-// (?usage=none: no reading yet, ?usage=stale: one from 40 minutes ago).
+// (?usage=none: no reading yet, ?usage=stale: one from 40 minutes ago,
+// ?usage=20: both windows with 20% left, to see the bars' colors).
 
 import { useSyncExternalStore } from "react"
 
@@ -118,9 +119,52 @@ export function staleLine(observedAtMs: number, now: number): string | null {
   return `as of ${day}${clock(observedAtMs)}`
 }
 
+// Usage color (card #772): a bar is the theme color while plenty is left,
+// turns toward amber as it runs low, then toward red near none. The stops
+// are % left: at or above CALM it is all primary, at AMBER all warning, at 0
+// all destructive; between two stops the color is mixed in oklch from the
+// theme's own tokens, so it holds in every theme, light and dark.
+export const USAGE_CALM = 50
+export const USAGE_AMBER = 20
+// USAGE_LOW: at or under this % left the header strip's reading is tinted.
+export const USAGE_LOW = 25
+
+// mix is CSS for `a` with `pct`% of `b` mixed in (in oklch), or just the
+// end token when pct is 0 or 100.
+function mix(a: string, b: string, pct: number): string {
+  const p = Math.round(pct)
+  if (p <= 0) return `var(${a})`
+  if (p >= 100) return `var(${b})`
+  return `color-mix(in oklch, var(${a}), var(${b}) ${p}%)`
+}
+
+// usageColor is a CSS color for a reading with `left`% left.
+export function usageColor(left: number): string {
+  const l = Math.min(Math.max(left, 0), 100)
+  if (l >= USAGE_CALM) return "var(--primary)"
+  if (l >= USAGE_AMBER)
+    return mix(
+      "--primary",
+      "--warning",
+      ((USAGE_CALM - l) / (USAGE_CALM - USAGE_AMBER)) * 100
+    )
+  return mix(
+    "--warning",
+    "--destructive",
+    ((USAGE_AMBER - l) / USAGE_AMBER) * 100
+  )
+}
+
+// usageTextColor is the header strip's tint for a reading with `left`% left:
+// none (the strip's own muted text) until it is low, then the bar's color.
+export function usageTextColor(left: number): string | null {
+  return left <= USAGE_LOW ? usageColor(left) : null
+}
+
 // StripLine is the top bar's reading of what is left: text is "62% · 39%
 // left" (5-hour, then weekly), title spells it out.
-export type StripLine = { text: string; title: string }
+// color tints it by the lowest window shown, null while plenty is left.
+export type StripLine = { text: string; title: string; color: string | null }
 
 // stripLine is the top bar's Claude reading, or null with no reading. With
 // no 5-hour or weekly window (a gateway's spend limit only) it shows the
@@ -129,14 +173,19 @@ export function stripLine(u: UsageLimits, now: number): StripLine | null {
   if (!hasUsage(u)) return null
   let shown = u.windows.filter((w) => ORDER.includes(w.kind))
   shown = shown.length ? sortWindows(shown) : sortWindows(u.windows).slice(0, 1)
-  const pcts = shown.map((w) => `${percentLeft(w, now)}%`)
+  const lefts = shown.map((w) => percentLeft(w, now))
+  const pcts = lefts.map((l) => `${l}%`)
   const title = shown
     .map((w, i) => {
       const label = windowLabel(w.kind)
       return `${i ? label.toLowerCase() : label} ${pcts[i]} left`
     })
     .join(", ")
-  return { text: `${pcts.join(" · ")} left`, title }
+  return {
+    text: `${pcts.join(" · ")} left`,
+    title,
+    color: usageTextColor(Math.min(...lefts)),
+  }
 }
 
 // asLimits reads the host's answer: no answer is no reading.
@@ -151,15 +200,20 @@ export function sampleUsage(
 ): UsageLimits {
   if (kind === "none") return NO_USAGE
   const observed = kind === "stale" ? now - 40 * MIN : now - 2 * MIN
+  const left = kind != null && /^\d+$/.test(kind) ? Number(kind) : null
   return {
     observedAtMs: observed,
     windows: [
       {
         kind: "five_hour",
-        percentUsed: 38,
+        percentUsed: left == null ? 38 : 100 - left,
         resetsAtMs: now + 2 * HOUR + 10 * MIN,
       },
-      { kind: "seven_day", percentUsed: 61, resetsAtMs: now + 3 * 24 * HOUR },
+      {
+        kind: "seven_day",
+        percentUsed: left == null ? 61 : 100 - left,
+        resetsAtMs: now + 3 * 24 * HOUR,
+      },
     ],
   }
 }
