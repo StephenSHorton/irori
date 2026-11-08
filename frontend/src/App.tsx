@@ -53,6 +53,7 @@ import {
   useDoneCards,
   useIdleReport,
   useAllThreads,
+  wasStarted,
   withLive,
 } from "@/lib/cards"
 import { useBoards, usePersonalBoards } from "@/lib/boards"
@@ -580,7 +581,7 @@ export function App() {
   // as a card's page instead.
   const openThread = useCallback(
     (id: string) => {
-      if (!allThreads.some((t) => t.id === id)) {
+      if (!allThreads.some((t) => t.id === id) && !wasStarted(id)) {
         openCard(id)
         return
       }
@@ -1010,6 +1011,9 @@ export function App() {
                       now={now}
                       onBack={back}
                       onOpen={openCard}
+                      // A thread opened from the Board has its bar too
+                      // (card #780): one view of it, here and in Talk.
+                      thread={allThreads.find((t) => t.id === open)}
                     />
                   </FocusComment.Provider>
                 </Scroll>

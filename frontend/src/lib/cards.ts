@@ -39,7 +39,7 @@ import {
   type AgentRef,
   type CardActivity,
   type CardBlocker,
-  type CardDetail,
+  CardDetail,
   type CardHolder,
   type CardOption,
   type CardPR,
@@ -54,7 +54,7 @@ import {
   type Link,
   type Mention,
   type NewCardInput,
-  type Step,
+  Step,
   ThreadCard,
 } from "./models"
 import {
@@ -67,7 +67,13 @@ import {
 } from "./irori"
 import { safeHref } from "./rich"
 import { EventInboxChanged, useLatest } from "./talk"
-import { NoteItem, sampleAgents, sampleCards, sampleYou } from "./sample-cards"
+import {
+  NoteItem,
+  sampleAgents,
+  sampleCards,
+  sampleHolder,
+  sampleYou,
+} from "./sample-cards"
 import { nameOr, unknownAgent } from "./names"
 import { pending, type Pending } from "./pending"
 import { spawnLine, type SpawnLine, type SpawnState } from "./spawn-line"
@@ -320,18 +326,23 @@ const sampleThreadBoard = new Map<string, string>()
 // #391) once it differs from on.
 const sampleThreadAgentsNow = new Map<string, boolean>()
 
-// sampleThread is one of the sample's threads.
+// sampleThread is one of the sample's threads: an ask card (ask.thread
+// in the app), so a thread opens in the ask card view (card #780).
+// extra makes one real-looking: an agent on it, its steps.
 function sampleThread(
   id: string,
   short: string,
   text: string,
   at: string,
   thread: CardThreadItem[],
-  state: string
+  state: string,
+  extra: Partial<CardDetail> = {}
 ): CardDetail {
   sampleThreadIds.add(id)
   sampleThreadState.set(id, state)
-  return {
+  const working = extra.working ?? []
+  const taker = working[0] ?? null
+  return CardDetail({
     id,
     short,
     shortWas: "",
@@ -339,28 +350,67 @@ function sampleThread(
     goal: text,
     doneWhen: "",
     note: "",
-    state: TaskState.Submitted,
+    state: state === "resolved" ? TaskState.Completed : TaskState.Submitted,
     repoKey: "",
-    scope: "",
-    scopeLabel: "",
+    scope: "mine",
+    scopeLabel: "My devices",
     steps: [],
     blockers: [],
     prs: [],
     links: [],
     comments: [],
-    working: [],
     watching: [],
     progress: { done: 0, total: 0 },
     openBlockers: 0,
     waiting: 0,
     blockerQuestion: "",
     recent: [],
-    thread,
     threadEarlier: 0,
     historyTrimmed: false,
     updatedAt: at,
-    ask: null,
-  } as unknown as CardDetail
+    talking: [],
+    ...extra,
+    working,
+    holder: sampleHolder(working),
+    thread,
+    ask: CardAsk({
+      state:
+        state === "resolved"
+          ? AskState.Closed
+          : taker
+            ? AskState.Taken
+            : state === "handed"
+              ? AskState.Handed
+              : AskState.Open,
+      told: 3,
+      owner: "Macbook Pro (this one)",
+      wake: true,
+      taker,
+      outcome: null,
+      outcomeRef: "",
+    }),
+  })
+}
+
+// sampleThreadAsk closes or reopens a sample thread's ask with it, as
+// Resolve and Reopen do in coord (card #780): the card view follows.
+function sampleThreadAsk(id: string, closed: boolean) {
+  sample = sampleState().map((c) =>
+    c.id !== id || !c.ask
+      ? c
+      : {
+          ...c,
+          state: closed ? TaskState.Completed : TaskState.Submitted,
+          ask: CardAsk({
+            ...c.ask,
+            state: closed
+              ? AskState.Closed
+              : c.ask.taker
+                ? AskState.Taken
+                : AskState.Open,
+          }),
+        }
+  )
 }
 
 // sampleThreadSeed is the preview's threads: one sample-heron answered,
@@ -376,6 +426,20 @@ function sampleThreadSeed(now: Date): CardDetail[] {
       ago(120),
       [
         CardThreadItem({
+          id: "sample-thread-1-asked",
+          kind: "event",
+          at: ago(120),
+          who: sampleYou,
+          text: "You asked the room",
+        }),
+        CardThreadItem({
+          id: "sample-thread-1-took",
+          kind: "event",
+          at: ago(100),
+          who: sampleAgents.heron,
+          text: "sample-heron took it",
+        }),
+        CardThreadItem({
           id: "sample-thread-1-a",
           kind: "comment",
           at: ago(60),
@@ -390,9 +454,33 @@ function sampleThreadSeed(now: Date): CardDetail[] {
           at: ago(30),
           who: sampleAgents.heron,
           text: "The build log is at builds/release/mac-universal/2026-11-01T18-37-38Z/irori-desktop-aarch64-apple-darwin-signed-notarized-stapled.log and the failing key was RELEASE_NOTES_EXPORT_PIPELINE_STAGE_THREE_MISSING_ARTIFACT_MANIFEST.",
+          attachments: [
+            {
+              sha256: "7".repeat(64),
+              name: "release-notes-draft.png",
+              size: 41870,
+              mime: "image/png",
+              device: sampleYou.deviceId ?? "",
+            },
+          ],
         }),
       ],
-      "answered"
+      "answered",
+      // An agent on it, with its steps (card #780): the ask view's
+      // Progress and Who's on it have something to show.
+      {
+        working: [sampleAgents.heron],
+        steps: [
+          Step({ id: "s1", text: "Check #3's blocker", done: true }),
+          Step({
+            id: "s2",
+            text: "Finish the release notes (#8)",
+            doing: true,
+          }),
+          Step({ id: "s3", text: "Post the build log" }),
+        ],
+        progress: { done: 1, total: 3 },
+      }
     ),
     // Answered and opened since (card #719): not in Talk's count, no dot.
     sampleThread(
@@ -657,6 +745,7 @@ export const threads = {
   async resolve(id: string): Promise<void> {
     if (inWails()) return BoardService.ResolveThread(id)
     sampleThreadState.set(id, "resolved")
+    sampleThreadAsk(id, true)
     sampleChanged()
   },
 
@@ -665,6 +754,7 @@ export const threads = {
   async reopen(id: string): Promise<void> {
     if (inWails()) return BoardService.ReopenThread(id)
     sampleThreadState.set(id, "answered")
+    sampleThreadAsk(id, false)
     sampleChanged()
   },
 }
@@ -839,6 +929,12 @@ function rememberStarted(boardId: string, row: ThreadSummary) {
   for (const fn of startedListeners) fn()
 }
 
+// wasStarted says StartThread made id in this window (card #780): it is a
+// thread even before a list read has it.
+export function wasStarted(id: string): boolean {
+  return startedThreads.some((s) => s.row.id === id)
+}
+
 function onStarted(fn: () => void): () => void {
   startedListeners.add(fn)
   return () => startedListeners.delete(fn)
@@ -863,17 +959,18 @@ export function startedRow(res: TaskResult): ThreadSummary {
 
 // withStarted is rows, a read of boardId's threads begun at seq asOf, with
 // the threads started since on top, newest first.
+// A null boardId is every board's (ThreadsAll, card #780).
 export function withStarted(
   rows: ThreadSummary[],
   asOf: number,
-  boardId: string,
+  boardId: string | null,
   started: StartedThread[]
 ): ThreadSummary[] {
   const fresh = started
     .filter(
       (s) =>
         s.seq > asOf &&
-        s.boardId === boardId &&
+        (boardId === null || s.boardId === boardId) &&
         !rows.some((r) => r.id === s.row.id)
     )
     .map((s) => s.row)
@@ -913,9 +1010,24 @@ export function useAllThreads(): {
   loading: boolean
   error: string | null
 } {
-  const load = useCallback(() => threads.listAll(), [])
-  const { value, loading, error, reload } = useLatest<ThreadSummary[]>(load, [])
+  const load = useCallback(async () => {
+    const asOf = startedSeq
+    return { rows: await threads.listAll(), asOf }
+  }, [])
+  const { value, loading, error, reload } = useLatest(
+    load,
+    { rows: [] as ThreadSummary[], asOf: startedSeq },
+    "threads-all"
+  )
   useFresh(reload, error, true)
+  // A thread just started on any board is in it at once (card #780): a
+  // board's Threads panel and its ask box open it in Talk, which finds it
+  // here, before the next read has it.
+  const started = useSyncExternalStore(onStarted, () => startedThreads)
+  const list = useMemo(
+    () => withStarted(value.rows, value.asOf, null, started),
+    [value, started]
+  )
   // A thread's read marker is a Talk read cursor (card #719): reading one
   // here or on another of the person's devices fires talk:changed
   // (conversations.ts's EventTalkChanged), not board:changed.
@@ -923,7 +1035,7 @@ export function useAllThreads(): {
     if (!inWails()) return
     return Events.On("talk:changed", () => void reload())
   }, [reload])
-  return { threads: value, loading, error }
+  return { threads: list, loading, error }
 }
 
 function sampleChanged() {
