@@ -31,20 +31,44 @@ fn card(id: &str, cwd: &std::path::Path) -> OpenSpec {
     }
 }
 
+/// One test's shells at a time, so a test can tell its own bootstrap
+/// folders from another's: they are named by pid, not by Terms.
+static SERIAL: Mutex<()> = parking_lot::const_mutex(());
+
+/// The bootstrap folders rsz-term made for this process's shells
+/// (rsz-zdot-<pid>-<n>, rsz-bash-<pid>-<n>) that are still in the temp dir.
+fn bootstrap_dirs() -> Vec<String> {
+    let pid = std::process::id();
+    let mine = [format!("rsz-zdot-{pid}-"), format!("rsz-bash-{pid}-")];
+    std::fs::read_dir(std::env::temp_dir())
+        .map(|d| {
+            d.filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| mine.iter().any(|m| n.starts_with(m)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// A test's terminals and their folder. On drop, even when the test
-/// fails, it closes every shell and waits for them to leave the folder:
-/// Windows can't delete a folder in use, and TempDir's own drop would give
-/// up at once and leave it in %TEMP% (card #556).
+/// fails, it closes every shell and waits for them to be gone: Windows
+/// can't delete a folder in use, and TempDir's own drop would give up at
+/// once and leave it in %TEMP% (card #556); and a shell removes its
+/// bootstrap folder only as it exits, so a test binary that ends first
+/// leaves rsz-zdot-* in the temp dir (card #960).
 struct Scratch {
     terms: Terms,
     dir: tempfile::TempDir,
+    _serial: parking_lot::MutexGuard<'static, ()>,
 }
 
 impl Scratch {
     fn new() -> Scratch {
+        let serial = SERIAL.lock();
         Scratch {
             terms: Terms::new(),
             dir: tempfile::tempdir().unwrap(),
+            _serial: serial,
         }
     }
 }
@@ -52,12 +76,17 @@ impl Scratch {
 impl Drop for Scratch {
     fn drop(&mut self) {
         self.terms.close_all();
-        // No assert: a panic here, during a failed test's unwind, aborts.
+        let settled = self.terms.settle(Duration::from_secs(20));
         let t = Instant::now();
         while std::fs::remove_dir_all(self.dir.path()).is_err()
             && t.elapsed() < Duration::from_secs(20)
         {
             std::thread::sleep(Duration::from_millis(50));
+        }
+        // A panic here, during a failed test's unwind, aborts.
+        if !std::thread::panicking() {
+            assert!(settled, "the closed shells never exited");
+            assert_eq!(bootstrap_dirs(), Vec::<String>::new(), "shell bootstrap folders left in temp");
         }
     }
 }
