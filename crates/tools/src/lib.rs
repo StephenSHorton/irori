@@ -250,6 +250,11 @@ pub trait BoardViewer: Send + Sync {
 
 /// What the tools act on (Go `Backend`); the Core provides it.
 pub trait Backend: Send + Sync {
+    /// This device's id (`deviceId` in `irori.json`); empty when the backend
+    /// has none, which turns heavy slots off.
+    fn device_id(&self) -> String {
+        String::new()
+    }
     /// This device's roster (presence plus Grok members).
     fn agents(&self) -> Vec<presence::AgentCard>;
     /// Whether this device's session `key` has a live attach stream
@@ -400,6 +405,21 @@ pub(crate) struct Inner {
     pub(crate) notify_state: Mutex<notify::NotifyState>,
     /// Board requests waiting on the person, by ask id.
     pub(crate) board_requests: Mutex<shared::Requests>,
+}
+
+/// Heavy slots per device (device-free plan §2): advisory, fixed at two.
+pub const HEAVY_SLOTS: usize = 2;
+
+/// The name of this device's heavy family, `heavy/<first 8 hex of the
+/// device id>`; `None` when the id is unknown.
+pub fn heavy_family(device_id: &str) -> Option<String> {
+    let id: String = device_id
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .take(8)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    (id.len() == 8).then(|| format!("heavy/{id}"))
 }
 
 /// The read-only tools that read as the caller.
