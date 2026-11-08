@@ -184,6 +184,9 @@ pub struct Window {
     meters: meters::History,
     /// The corner chat's headless runs (card #783).
     assistant: assistant::Runner,
+    /// The turns that name the person's threads (card #782): their own
+    /// runner, so they never take the chat's.
+    names: assistant::Runner,
 }
 
 impl Window {
@@ -205,6 +208,7 @@ impl Window {
             voice: voice::VoiceSlot::default(),
             meters: meters::History::default(),
             assistant: assistant::Runner::new(),
+            names: assistant::Runner::new(),
         }
     }
 

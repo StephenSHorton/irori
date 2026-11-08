@@ -789,6 +789,9 @@ pub const THREAD_COMMENT: &str = "comment";
 pub const THREAD_MESSAGE: &str = "message";
 pub const THREAD_EVENT: &str = "event";
 
+/// Irori itself, as the author of a thread's line.
+const IRORI: &str = "irori";
+
 /// One entry of a card's thread.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -867,6 +870,11 @@ pub struct CardThreadItem {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[specta(optional)]
     pub made: bool,
+    /// Irori's newest rename of the person's thread, while its name is
+    /// still Irori's (card #782): the title Undo puts back.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub undo_title: String,
 }
 
 /// What Modify can do with the person's comment (card #105).
@@ -2995,6 +3003,16 @@ fn build_thread(
             .push(it);
     }
     all.sort_by(|a, b| a.0.cmp(&b.0));
+    // Undo on Irori's newest rename, while the name is still its own
+    // (card #782).
+    if !t.title_was.is_empty() && !t.title_by_person && t.irori_titled > 0 {
+        let renamed = format!("{} renamed it from", p.ref_(IRORI).name);
+        if let Some((_, it)) = all.iter_mut().rev().find(|(_, it)| {
+            it.kind == THREAD_EVENT && it.who.status == IRORI && it.text.starts_with(&renamed)
+        }) {
+            it.undo_title = t.title_was.clone();
+        }
+    }
     let mut agent_later = false;
     for (_, it) in all.iter_mut().rev() {
         if it.kind == THREAD_EVENT {

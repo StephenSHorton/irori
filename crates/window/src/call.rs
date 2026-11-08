@@ -271,6 +271,17 @@ impl Window {
         self.core.set_call_transcribe(on)
     }
 
+    /// "Name new threads" (card #782): on unless the person turned it
+    /// off.
+    pub fn assistant_names(&self) -> bool {
+        self.core.names_on()
+    }
+
+    /// Turns "Name new threads" on or off on all the person's devices.
+    pub fn assistant_names_set(&self, on: bool) -> Result<(), String> {
+        self.core.set_names_on(on)
+    }
+
     /// What this device can share: displays, then windows.
     pub fn share_sources(&self) -> Result<Vec<ShareSourceView>, String> {
         Ok(self

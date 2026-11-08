@@ -32,6 +32,8 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use irori_core::thread_names::NameAsk;
+
 use crate::roster::{find_claude, hide_console};
 
 /// One turn of the chat so far.
@@ -345,6 +347,9 @@ pub struct Job {
     /// Code's default dir and sign-in).
     pub claude_config_dir: Option<PathBuf>,
     pub timeout: Duration,
+    /// Irori's read tools through `irori mcp` (the chat); `false` gives
+    /// the turn no tools at all (naming a thread, card #782).
+    pub tools: bool,
 }
 
 impl Job {
@@ -364,9 +369,34 @@ impl Job {
             model: MODEL.into(),
             claude_config_dir: dev_claude_config_dir(),
             timeout: TIMEOUT,
+            tools: true,
+        })
+    }
+
+    /// The turn that names a thread (card #782): no tools, its own folder
+    /// under the assistant's (so presence leaves it off the roster too,
+    /// and a chat run's files are never swapped under it).
+    pub fn namer(core: &irori_core::Core, ask: &NameAsk) -> Result<Job, String> {
+        let abs = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
+        Ok(Job {
+            dir: abs(core.assistant_dir().join(NAMES_DIR)),
+            data_dir: abs(core.data_dir().to_path_buf()),
+            secret: String::new(),
+            exe: PathBuf::new(),
+            system: ask.system.clone(),
+            prompt: ask.prompt.clone(),
+            model: MODEL.into(),
+            claude_config_dir: dev_claude_config_dir(),
+            timeout: NAMES_TIMEOUT,
+            tools: false,
         })
     }
 }
+
+/// The naming turns' folder under the assistant's (card #782).
+pub const NAMES_DIR: &str = "names";
+/// How long a naming turn may take.
+pub const NAMES_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Debug builds only: `IRORI_ASSISTANT_CLAUDE_CONFIG_DIR`, so a scratch
 /// build with an empty `CLAUDE_CONFIG_DIR` can still sign in. `default`
@@ -443,6 +473,37 @@ pub fn args(dir: &Path, model: &str) -> Vec<String> {
     .collect()
 }
 
+/// `claude`'s arguments for `job`: [`args`] for the chat; with no tools,
+/// no MCP server at all and nothing allowed.
+pub fn job_args(job: &Job) -> Vec<String> {
+    if job.tools {
+        return args(&job.dir, &job.model);
+    }
+    let sys = job.dir.join(SYSTEM_FILE).to_string_lossy().into_owned();
+    [
+        "-p",
+        "--model",
+        &job.model,
+        "--no-session-persistence",
+        "--setting-sources",
+        "project",
+        "--strict-mcp-config",
+        "--tools",
+        "",
+        "--permission-mode",
+        "dontAsk",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
+        "--append-system-prompt-file",
+        &sys,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
 /// Writes `data` to `path` readable by this user only (it may hold a
 /// secret), replacing it whole.
 fn write_private(path: &Path, data: &str) -> std::io::Result<()> {
@@ -480,9 +541,11 @@ pub fn prepare(job: &Job) -> Result<(), String> {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&job.dir, std::fs::Permissions::from_mode(0o700));
     }
-    let mcp = job.dir.join(MCP_FILE);
-    write_private(&mcp, &mcp_config(&job.exe, &job.data_dir, &job.secret))
-        .map_err(|e| format!("write {}: {e}", mcp.display()))?;
+    if job.tools {
+        let mcp = job.dir.join(MCP_FILE);
+        write_private(&mcp, &mcp_config(&job.exe, &job.data_dir, &job.secret))
+            .map_err(|e| format!("write {}: {e}", mcp.display()))?;
+    }
     let sys = job.dir.join(SYSTEM_FILE);
     write_private(&sys, &job.system).map_err(|e| format!("write {}: {e}", sys.display()))?;
     Ok(())
@@ -491,7 +554,7 @@ pub fn prepare(job: &Job) -> Result<(), String> {
 /// The command for `job` with `claude` at `bin`.
 pub fn command(bin: &Path, job: &Job) -> Command {
     let mut cmd = Command::new(bin);
-    cmd.args(args(&job.dir, &job.model))
+    cmd.args(job_args(job))
         .current_dir(&job.dir)
         .env_remove("CLAUDE_CODE_PLUGIN_DIRS")
         .env_remove("CLAUDECODE")
@@ -784,6 +847,42 @@ impl Runner {
         }
     }
 
+    /// Runs `job` with `claude` at `bin` to its end and returns the
+    /// reply's text (card #782): what a background job asks.
+    pub fn run_once(&self, bin: Result<PathBuf, String>, job: Result<Job, String>) -> Result<String, String> {
+        let text: Arc<Mutex<String>> = Arc::default();
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        let tx = Mutex::new(tx);
+        let got = text.clone();
+        self.start_with(
+            bin,
+            job,
+            Box::new(move |e: AssistantEvent| {
+                match e.kind.as_str() {
+                    "delta" => got
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push_str(&e.text),
+                    "done" => {
+                        let _ = tx.lock().unwrap_or_else(|e| e.into_inner()).send(Ok(()));
+                    }
+                    "error" => {
+                        let _ = tx
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .send(Err(e.text.clone()));
+                    }
+                    _ => {}
+                }
+                true
+            }),
+        );
+        rx.recv().map_err(|_| STOPPED.to_string())??;
+        Ok(std::mem::take(
+            &mut *text.lock().unwrap_or_else(|e| e.into_inner()),
+        ))
+    }
+
     /// How many runs are going.
     pub fn running(&self) -> usize {
         self.runs.lock().unwrap_or_else(|e| e.into_inner()).len()
@@ -807,6 +906,14 @@ impl crate::Window {
     /// Ends the assistant's runs as the app quits.
     pub fn assistant_shutdown(&self) {
         self.assistant.shutdown();
+        self.names.shutdown();
+    }
+
+    /// One turn that names a thread (card #782), on its own runner so it
+    /// never takes the chat's turns; the Core's namer.
+    pub fn name_thread(&self, ask: &NameAsk) -> Result<String, String> {
+        self.names
+            .run_once(find_claude(), Job::namer(&self.core, ask))
     }
 }
 
@@ -999,6 +1106,7 @@ mod tests {
             model: MODEL.into(),
             claude_config_dir: None,
             timeout,
+            tools: true,
         }
     }
 
@@ -1078,5 +1186,105 @@ mod tests {
         let (sink, got) = collect();
         Runner::new().start_with(Ok(bin), Ok(job(d.path(), TIMEOUT)), sink);
         assert_eq!(wait_end(&got), vec![AssistantEvent::error(SIGNED_OUT)]);
+    }
+
+    /// A fake `claude` on any platform that keeps its arguments in
+    /// `argv.txt` and prints the fixture file `out.txt` (never the real one).
+    fn fake_any(dir: &Path, out: &str, fail: bool) -> PathBuf {
+        let fixture = dir.join("out.txt");
+        std::fs::write(&fixture, out).unwrap();
+        let log = dir.join("argv.txt");
+        #[cfg(windows)]
+        {
+            let p = dir.join("claude.cmd");
+            let tail = if fail {
+                "echo Not logged in 1>&2\r\nexit /b 1\r\n".to_string()
+            } else {
+                format!("type \"{}\"\r\n", fixture.display())
+            };
+            std::fs::write(
+                &p,
+                format!("@echo off\r\n(echo %*) > \"{}\"\r\n{tail}", log.display()),
+            )
+            .unwrap();
+            p
+        }
+        #[cfg(not(windows))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let p = dir.join("claude");
+            let tail = if fail {
+                "echo 'Not logged in' >&2\nexit 1\n".to_string()
+            } else {
+                format!("cat '{}'\n", fixture.display())
+            };
+            std::fs::write(
+                &p,
+                format!(
+                    "#!/bin/sh\ncat >/dev/null\necho \"$@\" > '{}'\n{tail}",
+                    log.display()
+                ),
+            )
+            .unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        }
+    }
+
+    fn names_job(dir: &Path) -> Job {
+        Job {
+            dir: dir.join("assistant").join(NAMES_DIR),
+            data_dir: dir.to_path_buf(),
+            secret: String::new(),
+            exe: PathBuf::new(),
+            system: "Name it.".into(),
+            prompt: "Name this thread.".into(),
+            model: MODEL.into(),
+            claude_config_dir: None,
+            timeout: NAMES_TIMEOUT,
+            tools: false,
+        }
+    }
+
+    #[test]
+    fn a_naming_turn_has_no_tools_and_returns_its_reply() {
+        let d = tempfile::tempdir().unwrap();
+        let bin = fake_any(d.path(), &format!("{DELTA_B}\n{SUCCESS}\n"), false);
+        let r = Runner::new();
+        let got = r.run_once(Ok(bin), Ok(names_job(d.path()))).unwrap();
+        assert_eq!(got, "Two cards are blocked: #12");
+        let argv = std::fs::read_to_string(d.path().join("argv.txt")).unwrap();
+        for want in [
+            "--model haiku",
+            "--no-session-persistence",
+            "--strict-mcp-config",
+            "--permission-mode dontAsk",
+        ] {
+            assert!(argv.contains(want), "{want} in {argv}");
+        }
+        for not in [" --mcp-config", "--allowedTools"] {
+            assert!(!argv.contains(not), "no {not} in {argv}");
+        }
+        let run = d.path().join("assistant").join(NAMES_DIR);
+        assert!(!run.join(MCP_FILE).exists(), "no MCP config, no secret");
+        assert_eq!(std::fs::read_to_string(run.join(SYSTEM_FILE)).unwrap(), "Name it.");
+        // The run is let go once the process has exited.
+        for _ in 0..200 {
+            if r.running() == 0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        assert_eq!(r.running(), 0);
+    }
+
+    #[test]
+    fn a_naming_turn_that_fails_says_why() {
+        let d = tempfile::tempdir().unwrap();
+        let bin = fake_any(d.path(), "", true);
+        let got = Runner::new().run_once(Ok(bin), Ok(names_job(d.path())));
+        assert_eq!(got, Err(SIGNED_OUT.to_string()));
+        let none = Runner::new().run_once(Err("no".into()), Ok(names_job(d.path())));
+        assert_eq!(none, Err(NO_CLAUDE.to_string()));
     }
 }

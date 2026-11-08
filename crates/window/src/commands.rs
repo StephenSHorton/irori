@@ -611,6 +611,13 @@ pub async fn board_move(w: W<'_>, id: String, board: String) -> R<Typed<coord::T
     w.move_card(&id, &board).map(Typed::new)
 }
 
+/// The person undoes Irori's name for their thread (card #782).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_undo_title(w: W<'_>, id: String) -> R<Typed<coord::Task, ts::Task>> {
+    w.undo_title(&id).map(Typed::new)
+}
+
 /// The person renames a card or thread by hand (card #779).
 #[tauri::command]
 #[specta::specta]
@@ -1723,6 +1730,20 @@ pub async fn call_dismiss(w: W<'_>, call_id: String) -> R<()> {
     .await
 }
 
+/// "Name new threads" (#782): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_names(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_names())).await
+}
+
+/// Turns "Name new threads" on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_names_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_names_set(on)).await
+}
+
 /// "Transcribe what I say in calls" (#656): on unless turned off.
 #[tauri::command]
 #[specta::specta]
@@ -2197,6 +2218,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_delete,
             board_move,
             board_rename,
+            board_undo_title,
             board_pin,
             board_pause,
             board_not_yet,
@@ -2337,6 +2359,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             call_dismiss,
             call_transcribe,
             call_transcribe_set,
+            assistant_names,
+            assistant_names_set,
             talk_call_transcript,
             share_sources,
             share_start,

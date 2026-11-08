@@ -101,6 +101,8 @@ export const commands = {
 	boardMove: (id: string, board: string) => __TAURI_INVOKE<Task>("board_move", { id, board }),
 	/**  The person renames a card or thread by hand (card #779). */
 	boardRename: (id: string, title: string) => __TAURI_INVOKE<Task>("board_rename", { id, title }),
+	/**  The person undoes Irori's name for their thread (card #782). */
+	boardUndoTitle: (id: string) => __TAURI_INVOKE<Task>("board_undo_title", { id }),
 	boardPin: (id: string, pinned: boolean) => __TAURI_INVOKE<null>("board_pin", { id, pinned }),
 	/**
 	 *  Pause on a card (card #207): its holders are stopped and their tools
@@ -345,6 +347,10 @@ export const commands = {
 	 *  devices.
 	 */
 	callTranscribeSet: (on: boolean) => __TAURI_INVOKE<null>("call_transcribe_set", { on }),
+	/**  "Name new threads" (#782): on unless turned off. */
+	assistantNames: () => __TAURI_INVOKE<boolean>("assistant_names"),
+	/**  Turns "Name new threads" on or off, on all the person's devices. */
+	assistantNamesSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_names_set", { on }),
 	/**  A huddle's transcript (#656): every line, named. */
 	talkCallTranscript: (callId: string) => __TAURI_INVOKE<TalkTranscript>("talk_call_transcript", { callId }),
 	/**  What this device can share: displays, then windows. */
@@ -1749,6 +1755,11 @@ export type CardThreadItem = {
 	 *  #155): the Threads panel keeps it among the answers.
 	 */
 	made?: boolean,
+	/**
+	 *  Irori's newest rename of the person's thread, while its name is
+	 *  still Irori's (card #782): the title Undo puts back.
+	 */
+	undoTitle?: string,
 };
 
 /**
