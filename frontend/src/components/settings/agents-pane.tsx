@@ -229,8 +229,8 @@ function HistorySection({ open }: { open: boolean }) {
     <section className="grid gap-2" data-setting="agents.history">
       <h3 className="text-sm font-medium text-ink">How cards ended</h3>
       <p className="text-[12.5px] text-muted-foreground">
-        Each agent&apos;s done check you answered, by what it ran on. A crash
-        or a card you send back starts its next agent one weight higher.
+        Each agent&apos;s done check you answered, by what it ran on. A crash or
+        a card you send back starts its next agent one weight higher.
       </p>
       {rows.length === 0 ? (
         <p className="text-[12.5px] text-muted-foreground">
