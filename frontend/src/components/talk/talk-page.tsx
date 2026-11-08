@@ -317,7 +317,8 @@ export function TalkPage({
     <nav
       aria-label="Talk"
       className={cn(
-        "flex min-h-0 shrink-0 flex-col gap-1 overflow-y-auto py-3 mac:overscroll-none",
+        // The list's end clears Ask Irori's button (pb-20, card #783).
+        "flex min-h-0 shrink-0 flex-col gap-1 overflow-y-auto pt-3 pb-20 mac:overscroll-none",
         narrow ? "w-full px-1" : "w-[260px] border-r border-border px-2"
       )}
     >

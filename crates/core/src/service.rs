@@ -312,6 +312,10 @@ struct Services {
     scrubber: Arc<scrub::Scrubber>,
     secrets: Mutex<Vec<String>>,
     token: String,
+    /// The window assistant's per-run secret (card #783): the API reads a
+    /// call carrying it as the person, through the read-only tools only.
+    /// Only in memory and in the assistant's own 0600 MCP config.
+    assistant: String,
     reviver: Arc<Mutex<Option<ReviveFn>>>,
     /// Spawned agents (card #446): the window's spawner, the boards'
     /// switches and the devices' caps.
@@ -754,6 +758,31 @@ impl capture::Blobs for Blobs {
 }
 
 /// sys::fswatch as presence's file events (Go passes `fswatch.Watch`).
+/// The window assistant's run dir under data dir `dir` (card #783).
+pub fn assistant_dir(dir: &Path) -> PathBuf {
+    dir.join(ASSISTANT_DIR)
+}
+
+/// The folders presence leaves off the roster for the assistant: its run
+/// dir as named and, off Windows, as resolved (Claude Code records the
+/// real path: `/var` is `/private/var` on the Mac).
+fn assistant_skip(dir: &Path) -> Vec<String> {
+    let d = assistant_dir(dir);
+    let mut v = vec![d.to_string_lossy().into_owned()];
+    if !cfg!(windows)
+        && let Ok(real) = std::fs::canonicalize(dir)
+    {
+        let r = real.join(ASSISTANT_DIR).to_string_lossy().into_owned();
+        if r != v[0] {
+            v.push(r);
+        }
+    }
+    v
+}
+
+/// The window assistant's run dir's name in the data dir (card #783).
+pub const ASSISTANT_DIR: &str = "assistant";
+
 fn fs_watch(root: &Path, recursive: bool) -> Result<presence::FsSource, presence::WatchError> {
     let cancel = Cancel::new();
     let w = sys::fswatch::watch(&cancel, &root.to_string_lossy(), recursive, Duration::ZERO)
@@ -968,6 +997,9 @@ impl Core {
                 Arc::new(move |c: &presence::AgentCard| a.status(c))
             }),
             watch: Some(Arc::new(fs_watch)),
+            // Card #783: the window assistant's headless `claude -p` writes
+            // a session file too; it is no agent.
+            skip_cwd: assistant_skip(&dir),
             ..Default::default()
         };
         if let Some(edit) = &opts.presence {
@@ -1463,6 +1495,7 @@ impl Core {
         }
 
         let token = lockfile::new_token().map_err(|e| fail(&st, other("", e)))?;
+        let assistant = lockfile::new_token().map_err(|e| fail(&st, other("", e)))?;
         let s = Arc::new(Services {
             data_dir: dir,
             version: opts.version.clone(),
@@ -1505,6 +1538,7 @@ impl Core {
             scrubber,
             secrets: Mutex::new(Vec::new()),
             token: token.clone(),
+            assistant: assistant.clone(),
             reviver,
             spawn: spawn_state,
             hub: Hub::new(),
@@ -1583,6 +1617,7 @@ impl Core {
                 .set_notify(Some(Arc::new(move || h.kick())));
         }
         s.add_secret(&token);
+        s.add_secret(&assistant);
         laps.lap("services");
 
         let tools = tools::Set::new(Arc::new(ToolsView(s.clone())), Some(s.now.clone()));
@@ -2298,6 +2333,19 @@ impl Core {
     /// The API's bearer token. A secret: never log it.
     pub fn token(&self) -> &str {
         &self.s.token
+    }
+
+    /// The window assistant's secret for this run (card #783): sent as
+    /// `X-Irori-Assistant`, it reads as the person through
+    /// `tools::ASSISTANT_TOOLS` only. A secret: never log it.
+    pub fn assistant_secret(&self) -> &str {
+        &self.s.assistant
+    }
+
+    /// Where the window assistant runs (card #783): its `claude -p` cwd,
+    /// which presence leaves off the roster.
+    pub fn assistant_dir(&self) -> PathBuf {
+        assistant_dir(&self.s.data_dir)
     }
 
     /// Gives capture's scrubber one more exact value to redact, kept for the

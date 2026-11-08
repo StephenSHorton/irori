@@ -95,6 +95,31 @@ pub const MAX_RESULT: usize = 8 << 10;
 pub const CLIENT_CLAUDE: &str = "claude";
 /// The client kind of `irori mcp` (`irori_<name>`).
 pub const CLIENT_GROK: &str = "grok";
+/// The window's assistant (card #783): `irori mcp` run by a headless
+/// `claude -p` for the corner chat, reading as the person. It lists and
+/// may call only [`ASSISTANT_TOOLS`].
+pub const CLIENT_ASSISTANT: &str = "assistant";
+
+/// The tools the window's assistant may call (card #783), all read-only:
+/// the API refuses any other for its caller, and `GET
+/// /v1/tools?client=assistant` lists exactly these. None of them marks
+/// anything delivered or read (inbox and talk_* are left out for that).
+pub const ASSISTANT_TOOLS: [&str; 14] = [
+    "search",
+    "show",
+    "board",
+    "overview",
+    "agents",
+    "agents_started",
+    "commits",
+    "prs",
+    "notes_search",
+    "timeline",
+    "why",
+    "leases",
+    "waits",
+    "events",
+];
 
 /// Who is calling, established by the transport (attach secret or member
 /// secret), never by the arguments.
@@ -496,8 +521,17 @@ impl Set {
     }
 
     /// The tools for a client kind (`"claude"` or `"grok"`); `""` lists
-    /// every tool.
+    /// every tool, and [`CLIENT_ASSISTANT`] lists [`ASSISTANT_TOOLS`].
     pub fn specs(&self, client: &str) -> Vec<Spec> {
+        if client == CLIENT_ASSISTANT {
+            return self
+                .inner
+                .specs
+                .iter()
+                .filter(|sp| ASSISTANT_TOOLS.contains(&sp.name.as_str()))
+                .cloned()
+                .collect();
+        }
         self.inner
             .specs
             .iter()

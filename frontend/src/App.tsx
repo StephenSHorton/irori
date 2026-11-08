@@ -14,6 +14,7 @@ import { CardPage } from "@/components/cards/card-detail"
 import { HeldDialog, type HeldTab } from "@/components/cards/held-dialog"
 import { NewCardDialog } from "@/components/cards/new-card-dialog"
 import { PhoneTabs, phoneTab } from "@/components/phone-tabs"
+import { AssistantChat } from "@/components/assistant/assistant-chat"
 import { useNarrow } from "@/lib/media"
 import { cn } from "@/lib/utils"
 import { WindDownDialog } from "@/components/wind-down-dialog"
@@ -426,11 +427,14 @@ export function App() {
       if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return
       if (
         document.querySelector(
-          '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]'
+          // Ask Irori's panel is non-modal (card #783): it takes its own
+          // Esc, and Esc elsewhere still goes Back.
+          '[role="dialog"]:not([data-assistant-panel]),[role="alertdialog"],[role="menu"],[role="listbox"]'
         )
       )
         return
       const t = e.target instanceof HTMLElement ? e.target : null
+      if (t?.closest("[data-assistant-panel]")) return
       // A terminal's Esc is the program's (vim, less, PSReadLine): it
       // stays in the terminal (card #369).
       if (t?.closest(".rsz-view")) return
@@ -1180,6 +1184,8 @@ export function App() {
               onClose={() => setMessage("")}
             />
           )}
+          {/* Ask Irori (card #783): on every page, portalled to <body>. */}
+          <AssistantChat narrow={narrow} at={where} />
         </div>
       </LiveRoster.Provider>
     </AgentCards.Provider>
@@ -1228,10 +1234,11 @@ function IdleLine({ text }: { text: string }) {
 export default App
 
 // Scroll is a page that isn't the Board (a card, Boards, a shared board):
-// it scrolls by itself under the header (card #170).
+// it scrolls by itself under the header (card #170). Its end clears Ask
+// Irori's button in the corner (pb-20, card #783).
 function Scroll({ children }: { children: ReactNode }) {
   return (
-    <div className="-mx-1 grid min-h-0 flex-1 content-start gap-3.5 overflow-y-auto px-1 pb-10 mac:overscroll-none">
+    <div className="-mx-1 grid min-h-0 flex-1 content-start gap-3.5 overflow-y-auto px-1 pb-20 mac:overscroll-none">
       {children}
     </div>
   )

@@ -355,6 +355,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         // Free the speech model before exit (#240: Metal
                         // asserts otherwise).
                         window.voice_shutdown();
+                        // Card #783: the corner chat's headless runs end.
+                        window.assistant_shutdown();
                         h.core.set_reviver(None);
                         h.core.set_spawner(None);
                         h.close()

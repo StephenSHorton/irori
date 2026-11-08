@@ -260,6 +260,36 @@ impl Drop for Subscription {
     }
 }
 
+/// A path as [`skipped_cwd`] compares it: cleaned, and on Windows with
+/// `/` for `\\` and lower case.
+fn cwd_form(p: &str) -> String {
+    let p = if cfg!(windows) {
+        p.replace('\\', "/").to_lowercase()
+    } else {
+        p.to_string()
+    };
+    let p = p.trim_end_matches('/');
+    if p.is_empty() {
+        "/".into()
+    } else {
+        p.to_string()
+    }
+}
+
+/// Whether `cwd` is one of `skip` or inside one (card #783).
+pub(crate) fn skipped_cwd(skip: &[String], cwd: &str) -> bool {
+    if cwd.is_empty() || skip.is_empty() {
+        return false;
+    }
+    let c = cwd_form(&gocompat::filepath::clean(cwd));
+    skip.iter().filter(|d| !d.is_empty()).any(|d| {
+        let d = cwd_form(&gocompat::filepath::clean(d));
+        c == d
+            || c.strip_prefix(d.as_str())
+                .is_some_and(|r| r.starts_with('/'))
+    })
+}
+
 /// Go `names.Fold`.
 fn fold(name: &str) -> String {
     gocompat::text::to_lower_str(name.trim_matches(gocompat::text::is_space))
@@ -316,6 +346,9 @@ impl Inner {
                 },
             };
             if !(self.live)(s.pid, s.proc_start) {
+                continue;
+            }
+            if skipped_cwd(&self.opts.skip_cwd, &s.cwd) {
                 continue;
             }
             files.insert(name, s.clone());

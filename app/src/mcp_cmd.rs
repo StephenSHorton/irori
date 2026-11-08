@@ -42,11 +42,20 @@ fn log_line(msg: &str) {
     eprintln!("level=WARN msg={}", gocompat::quote::quote(msg));
 }
 
+/// The window assistant's secret (card #783): set only by the window's
+/// assistant runner, in the MCP config it writes for its `claude -p`.
+const ASSISTANT_SECRET_ENV: &str = "IRORI_ASSISTANT_SECRET";
+
+fn assistant_secret() -> String {
+    std::env::var(ASSISTANT_SECRET_ENV).unwrap_or_default()
+}
+
 /// Reads the lockfile and probes the Core it names.
 fn dial() -> Result<Arc<dyn Core>, String> {
     let dir = crate::datadir::process_data_dir()?;
     let lf = irori_core::lockfile::read(&dir).map_err(|e| e.to_string())?;
-    let c = HttpCore::new(&mcp::loopback_url(lf.port), &lf.token);
+    let c =
+        HttpCore::new(&mcp::loopback_url(lf.port), &lf.token).with_assistant(&assistant_secret());
     match c.health() {
         Ok((true, dev)) if lf.device_id.is_empty() || dev == lf.device_id => Ok(Arc::new(c)),
         Ok(_) => Err(format!(
@@ -69,6 +78,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
         version: crate::commands::version().to_string(),
         log: Some(Arc::new(log_line)),
         getenv: Some(Arc::new(|k: &str| std::env::var(k).unwrap_or_default())),
+        // Card #783: the window assistant reads as the person, never joins.
+        assistant: !assistant_secret().is_empty(),
         ..Options::default()
     });
     let stdin = std::io::stdin();

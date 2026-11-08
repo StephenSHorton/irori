@@ -26,7 +26,12 @@ export function SearchBox({
       if (e.metaKey || e.ctrlKey || e.altKey) return
       const t = e.target instanceof HTMLElement ? e.target : null
       if (t?.closest("input,textarea,select,[contenteditable]")) return
-      if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return
+      if (
+        document.querySelector(
+          '[role="dialog"]:not([data-assistant-panel]),[role="alertdialog"]'
+        )
+      )
+        return
       e.preventDefault()
       box.current?.focus()
       box.current?.select()
