@@ -142,7 +142,7 @@ impl Window {
     /// The shared graceful stop (card #787): a wind-down to each of
     /// `agents`, as the run that replaces any earlier one. Wind down sends
     /// it to every device's agents, Pause agents to this device's.
-    fn start_run(&self, scope: &str, agents: Vec<irori_core::AgentCard>) {
+    fn start_run(&self, scope: &str, agents: Vec<coord::roster::AgentCard>) {
         let me = self.core.user_sender();
         let ib = self.core.inbox();
         // An agent already winding down (Pause here, then Pause all) keeps

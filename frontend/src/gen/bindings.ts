@@ -123,8 +123,9 @@ export const commands = {
 	 */
 	agentStop: (key: string, text: string) => __TAURI_INVOKE<null>("agent_stop", { key, text }),
 	/**
-	 *  Wind down on (cards #220, #787): holds agent starts on every device and
-	 *  asks every agent to save its place, hand back its cards and stop.
+	 *  Wind down on (cards #220, #787): holds agent starts on every one of the
+	 *  person's devices and asks every agent to save its place, hand back its
+	 *  cards and stop.
 	 */
 	windDownAll: () => __TAURI_INVOKE<WindDownStatus>("wind_down_all"),
 	/**
@@ -3227,7 +3228,7 @@ export type WindDownStatus = {
 	 */
 	on: boolean,
 	/**  When it went on, in ms since the epoch (0 when off). */
-	since: number,
+	since: number | null,
 	/**  The devices Wind down holds, by name. */
 	devices: string[],
 	id: string,
