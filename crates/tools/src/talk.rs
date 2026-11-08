@@ -61,6 +61,11 @@ pub struct ConvMember {
     /// Whose agent it is, when it is another member's ("Spencer"); ""
     /// for the person's own agents.
     pub owner: String,
+    /// Its owner's Office Assistant (kind `assistant` and the owner's
+    /// profile points at it). `name` is then the label, "Juno · Addam's
+    /// assistant"; `assistant_name` is the chosen name, "" for the default.
+    pub assistant: bool,
+    pub assistant_name: String,
 }
 
 /// One conversation in a reader's list.
@@ -180,6 +185,8 @@ struct Book {
     cards: HashMap<String, String>,
     /// Other members' agents, by board card id: name, owner, status.
     board: HashMap<String, (String, String, String)>,
+    /// Verified assistants, by board card id: the chosen name.
+    assistants: HashMap<String, String>,
     known: BTreeMap<String, String>,
 }
 
@@ -218,18 +225,28 @@ pub fn board_agent_name(name: &str, owner: &str) -> String {
 
 impl Book {
     fn new(b: &dyn Backend) -> Book {
+        let agents = b.board_agents();
         Book {
             cards: b
                 .agents()
                 .into_iter()
                 .map(|a| (a.key.clone(), a.name))
                 .collect(),
-            board: b
-                .board_agents()
-                .into_iter()
+            board: agents
+                .iter()
                 .filter_map(|a| {
                     let id = board_card(&a.card.key)?.to_string();
-                    Some((id, (a.card.name, a.person, a.card.status)))
+                    Some((
+                        id,
+                        (a.card.name.clone(), a.person.clone(), a.card.status.clone()),
+                    ))
+                })
+                .collect(),
+            assistants: agents
+                .iter()
+                .filter_map(|a| {
+                    let id = board_card(&a.card.key)?.to_string();
+                    Some((id, a.assistant.clone()?))
                 })
                 .collect(),
             known: b.known_names(),
@@ -258,6 +275,11 @@ impl Book {
         }
         if let Some(id) = board_card(key) {
             let last = || self.known(&format!("{}{id}", store::kinds::AGENT_ACTOR_PREFIX));
+            if let (Some(chosen), Some((_, owner, _))) =
+                (self.assistants.get(id), self.board.get(id))
+            {
+                return coord::assistant_name::label(owner, chosen);
+            }
             if let Some((n, owner, _)) = self.board.get(id) {
                 let n = if n.trim().is_empty() {
                     last().unwrap_or_default()
@@ -276,12 +298,15 @@ impl Book {
             .and_then(|id| self.board.get(id))
             .map(|(_, o, s)| (s.clone(), o.clone()))
             .unwrap_or_default();
+        let chosen = board_card(&m.key).and_then(|id| self.assistants.get(id));
         ConvMember {
             kind: m.kind.clone(),
             key: m.key.clone(),
             name: self.name(&m.key),
             status,
             owner,
+            assistant: chosen.is_some(),
+            assistant_name: chosen.cloned().unwrap_or_default(),
         }
     }
 }
