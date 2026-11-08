@@ -669,15 +669,17 @@ impl Fold {
     }
 
     /// Whether this device names the person's thread t (card #782): the
-    /// ask's owner when it can run Claude, else the computer standing in
-    /// for it (a thread posted on the phone). One device, so it isn't
-    /// named twice.
+    /// ask's owner (with no namer, as on the phone, it names nothing),
+    /// else the computer standing in for an owner that can't run Claude
+    /// (a thread posted on the phone). One device, so it isn't named
+    /// twice. Whether the owner starts agents now doesn't matter: naming
+    /// isn't an agent.
     pub(crate) fn names_out(&self, t: &Task) -> bool {
         let Some(a) = t.ask.as_ref() else {
             return false;
         };
         if a.owner == self.dev {
-            return self.can_run(&self.dev);
+            return true;
         }
         !a.owner.is_empty()
             && !self.can_run(&a.owner)

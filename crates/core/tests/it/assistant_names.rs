@@ -72,17 +72,11 @@ fn thread(r: &Rig, text: &str) -> coord::Task {
         .0
 }
 
+/// The person's reply, as the window writes it.
 fn reply(r: &Rig, id: &str, text: &str) {
     r.core
         .coord()
-        .comment_on(
-            &person(r),
-            id,
-            coord::CommentInput {
-                text: text.into(),
-                ..coord::CommentInput::default()
-            },
-        )
+        .person_comment_files(&person(r), id, text, false, &[], Vec::new(), None)
         .unwrap();
 }
 
@@ -161,7 +155,7 @@ fn replies_make_it_look_once_more_and_only_once() {
     r.core.set_namer(Some(namer(
         &fake,
         "Build check",
-        "Build cache misses on Windows",
+        "Build cache misses on Windows\nMOVED",
     )));
     let th = thread(&r, "can we look at the build");
     wait_for(10, "the thread named", || {
@@ -198,7 +192,7 @@ fn a_title_that_still_fits_stays_and_is_asked_once() {
     let r = Rig::new();
     let fake = Arc::new(Fake::default());
     r.core
-        .set_namer(Some(namer(&fake, "Build check", "SAME")));
+        .set_namer(Some(namer(&fake, "Build check", "Build check speed\nSAME")));
     let th = thread(&r, "can we look at the build");
     wait_for(10, "the thread named", || {
         title(&r, &th.id).title == "Build check"
@@ -218,7 +212,7 @@ fn undo_gives_the_old_name_back_and_it_stays_the_persons() {
     let r = Rig::new();
     let fake = Arc::new(Fake::default());
     r.core
-        .set_namer(Some(namer(&fake, "Lobby join", "Lobby rework")));
+        .set_namer(Some(namer(&fake, "Lobby join", "Lobby rework\nMOVED")));
     let th = thread(&r, "the thing with the lobby");
     wait_for(10, "the thread named", || {
         title(&r, &th.id).title == "Lobby join"
