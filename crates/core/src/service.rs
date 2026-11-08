@@ -320,7 +320,8 @@ struct Services {
     secrets: Mutex<Vec<String>>,
     token: String,
     /// The window assistant's per-run secret (card #783): the API reads a
-    /// call carrying it as the person, through the read-only tools only.
+    /// call carrying it as the person, through its read tools, and its
+    /// two writes only per grant (card #987).
     /// Only in memory and in the assistant's own 0600 MCP config.
     assistant: String,
     /// What the person's message lets the assistant change (card #987).
@@ -2440,7 +2441,8 @@ impl Core {
 
     /// The window assistant's secret for this run (card #783): sent as
     /// `X-Irori-Assistant`, it reads as the person through
-    /// `tools::ASSISTANT_TOOLS` only. A secret: never log it.
+    /// `tools::ASSISTANT_TOOLS` (writes per grant, card #987). A secret:
+    /// never log it.
     pub fn assistant_secret(&self) -> &str {
         &self.s.assistant
     }

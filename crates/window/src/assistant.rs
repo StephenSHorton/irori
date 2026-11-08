@@ -1,8 +1,10 @@
 //! The window's assistant (card #783): the small chat in the corner. Each
 //! question is one headless `claude -p` turn on Haiku, through the
-//! person's own Claude Code sign-in, with only Irori's read tools: `irori
-//! mcp` started with the Core's assistant secret, which the API reads as
-//! the person through `tools::ASSISTANT_TOOLS` only.
+//! person's own Claude Code sign-in, with only Irori's read tools and the
+//! two writes the person's own message can allow (card #987): `irori mcp`
+//! started with the Core's assistant secret, which the API reads as the
+//! person through `tools::ASSISTANT_TOOLS` and, per grant,
+//! `tools::ASSISTANT_WRITE_TOOLS` only.
 //!
 //! It is no agent: it runs in `<data dir>/assistant`, which presence leaves
 //! off the roster (so it never counts toward limits or gets cards), with
@@ -421,7 +423,7 @@ pub struct Job {
     /// Code's default dir and sign-in).
     pub claude_config_dir: Option<PathBuf>,
     pub timeout: Duration,
-    /// Irori's read tools through `irori mcp` (the chat); `false` gives
+    /// Irori's assistant tools through `irori mcp` (the chat); `false` gives
     /// the turn no tools at all (naming a thread, card #782).
     pub tools: bool,
 }
@@ -523,7 +525,7 @@ pub const MCP_FILE: &str = "mcp.json";
 /// The system prompt's file name in the run dir.
 pub const SYSTEM_FILE: &str = "system.md";
 
-/// The MCP config: `irori mcp` as the person's read-only assistant.
+/// The MCP config: `irori mcp` as the person's assistant.
 pub fn mcp_config(exe: &Path, data_dir: &Path, secret: &str) -> String {
     serde_json::json!({
         "mcpServers": {
@@ -1007,11 +1009,12 @@ impl crate::Window {
             .map(|t| t.text.as_str())
             .collect();
         let core = self.core.clone();
-        core.assistant_grants()
+        let run = core
+            .assistant_grants()
             .begin(tools::grants_for(text, &typed));
         let sink: Sink = Box::new(move |e| {
             if e.ends() {
-                for line in core.assistant_grants().end() {
+                for line in core.assistant_grants().end(run) {
                     sink(AssistantEvent::changed(&line));
                 }
             }

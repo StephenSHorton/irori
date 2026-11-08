@@ -1,6 +1,6 @@
 //! The window assistant's caller (card #783): `X-Irori-Assistant` with
 //! this run's secret reads as the person through `tools::ASSISTANT_TOOLS`
-//! only, and nothing else.
+//! and writes only what the person's own message allowed (card #987).
 
 use crate::common;
 
@@ -27,7 +27,7 @@ fn call(rig: &common::Rig, headers: &[(&str, &str)], name: &str, args: Value) ->
 }
 
 #[test]
-fn assistant_reads_as_the_person_and_only_reads() {
+fn assistant_reads_as_the_person_and_runs_nothing_unlisted() {
     let rig = common::Rig::new();
     let secret = rig.core.assistant_secret().to_string();
     assert_eq!(secret.len(), 64);
@@ -108,7 +108,7 @@ fn assistant_reads_as_the_person_and_only_reads() {
 }
 
 #[test]
-fn assistant_tool_list_is_exactly_the_read_list() {
+fn assistant_tool_list_is_exactly_its_read_and_write_lists() {
     let rig = common::Rig::new();
     let out = rig
         .rt
@@ -181,7 +181,7 @@ fn a_write_needs_the_persons_own_message_for_that_card() {
     // Text the model read names another card, and an assistant turn too:
     // only what the person typed counts, so the planted card is refused.
     let planted_text = format!("close {p}");
-    rig.core.assistant_grants().begin(tools::grants_for(
+    let run = rig.core.assistant_grants().begin(tools::grants_for(
         &format!("close {a} and tick s1 on {a}"),
         &[],
     ));
@@ -233,7 +233,7 @@ fn a_write_needs_the_persons_own_message_for_that_card() {
     assert_eq!(code, 403, "spent");
 
     // Each change is a line for the chat, and the grants end with the run.
-    let lines = rig.core.assistant_grants().end();
+    let lines = rig.core.assistant_grants().end(run);
     assert_eq!(lines.len(), 2, "{lines:?}");
     assert!(lines[0].contains(&a) && lines[1].contains(&a), "{lines:?}");
 

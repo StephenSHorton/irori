@@ -36,6 +36,7 @@ pub enum Grant {
 
 #[derive(Default)]
 struct State {
+    run: u64,
     open: Vec<Grant>,
     changed: Vec<String>,
 }
@@ -53,11 +54,13 @@ impl Grants {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// A new run starts with these grants and no changes.
-    pub fn begin(&self, grants: Vec<Grant>) {
+    /// A new run starts with these grants; the number is what ends it.
+    /// What a run stopped a moment ago changed stays to be said.
+    pub fn begin(&self, grants: Vec<Grant>) -> u64 {
         let mut s = self.lock();
+        s.run += 1;
         s.open = grants;
-        s.changed.clear();
+        s.run
     }
 
     /// Spends the grant for this write; `false` when there is none.
@@ -86,10 +89,13 @@ impl Grants {
         self.lock().changed.push(line.to_string());
     }
 
-    /// The run is over: no grant outlives it. Returns what it changed.
-    pub fn end(&self) -> Vec<String> {
+    /// Run `run` is over: no grant outlives it, though a stopped run ending
+    /// late leaves the next run's alone. Returns what has changed.
+    pub fn end(&self, run: u64) -> Vec<String> {
         let mut s = self.lock();
-        s.open.clear();
+        if s.run == run {
+            s.open.clear();
+        }
         std::mem::take(&mut s.changed)
     }
 }
@@ -649,7 +655,7 @@ mod tests {
     #[test]
     fn a_grant_is_spent_once_and_ends_with_the_run() {
         let g = Grants::default();
-        g.begin(vec![close("#5"), tick("#6", "s2")]);
+        let run = g.begin(vec![close("#5"), tick("#6", "s2")]);
         assert!(!g.take(TOOL_CLOSE, "#7", ""));
         assert!(!g.take(TOOL_CLOSE, "#6", ""));
         assert!(!g.take(TOOL_TICK, "#6", "s3"));
@@ -657,7 +663,14 @@ mod tests {
         assert!(g.take(TOOL_CLOSE, "5", ""));
         assert!(!g.take(TOOL_CLOSE, "#5", ""));
         g.changed("Closed #5.");
-        assert_eq!(g.end(), vec!["Closed #5.".to_string()]);
+        assert_eq!(g.end(run), vec!["Closed #5.".to_string()]);
         assert!(!g.take(TOOL_TICK, "#6", "s2"));
+
+        // A stopped run ending late doesn't take the next run's grant.
+        let old = g.begin(vec![close("#1")]);
+        let new = g.begin(vec![close("#2")]);
+        assert_eq!(g.end(old), Vec::<String>::new());
+        assert!(g.take(TOOL_CLOSE, "#2", ""));
+        g.end(new);
     }
 }

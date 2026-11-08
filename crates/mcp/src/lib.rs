@@ -124,7 +124,7 @@ pub struct Options {
     /// Reads the session-id environment variables; `None` reads none.
     pub getenv: Option<GetenvFn>,
     /// The window assistant (card #783): lists `client=assistant`
-    /// ([`tools::ASSISTANT_TOOLS`]), has no irori_join and no member
+    /// ([`tools::ASSISTANT_TOOLS`] and its writes), has no irori_join and no member
     /// stream, and calls as the person through the dialed Core's
     /// assistant secret ([`HttpCore::with_assistant`]).
     pub assistant: bool,
