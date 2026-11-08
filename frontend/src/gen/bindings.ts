@@ -3060,6 +3060,8 @@ export type TalkCall = {
 	 *  talk_call_transcript reads.
 	 */
 	transcript: boolean,
+	/**  The huddle's title (card #1043); empty when it has none. */
+	title: string,
 };
 
 /**  One conversation in Talk's list. */
@@ -3193,6 +3195,15 @@ export type TalkTranscript = {
 	ended: boolean,
 	/**  How long it ran, once ended; 0 before. */
 	durationMs: number,
+	/**  The huddle's title (card #1043); empty when it has none. */
+	title: string,
+	/**  Whether an assistant proposed the title, not a person. */
+	titleByAssistant: boolean,
+	/**
+	 *  The huddle is over as this device can tell (card #1043): an end
+	 *  mark, or a crash that left the call quiet. False when unsure.
+	 */
+	over: boolean,
 	/**  What was said, oldest first. */
 	lines: TalkTranscriptLine[],
 };

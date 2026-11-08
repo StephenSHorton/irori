@@ -685,6 +685,19 @@ impl IrohNet {
         }
     }
 
+    /// Whether this device's own network is up (card #1043): its home relay
+    /// is connected, or the endpoint has an address of its own to be
+    /// reached at. Says nothing of any other device.
+    pub fn link_up(&self) -> bool {
+        if self.home_relays().iter().any(|(_, up)| *up) {
+            return true;
+        }
+        self.inner
+            .ep
+            .get()
+            .is_some_and(|ep| ep.addr().ip_addrs().next().is_some())
+    }
+
     /// Close every room (`shutting down`) and the endpoint.
     /// The guest windows open on this device's relay (the home server's
     /// relay admits their tokens).
