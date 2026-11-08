@@ -611,6 +611,19 @@ pub async fn board_move(w: W<'_>, id: String, board: String) -> R<Typed<coord::T
     w.move_card(&id, &board).map(Typed::new)
 }
 
+/// The person weighs a card (card #963): light, normal or heavy with an
+/// optional line on why, or "" to clear it.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_set_weight(
+    w: W<'_>,
+    id: String,
+    level: String,
+    reason: String,
+) -> R<Typed<coord::Task, ts::Task>> {
+    w.set_weight(&id, &level, &reason).map(Typed::new)
+}
+
 /// The person renames a card or thread by hand (card #779).
 #[tauri::command]
 #[specta::specta]
@@ -2202,6 +2215,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_move,
             board_rename,
             board_pin,
+            board_set_weight,
             board_pause,
             board_not_yet,
             board_start_now,

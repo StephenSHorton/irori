@@ -150,6 +150,12 @@ kinds! {
     /// The person paused a card (card #207): its holders are stopped and
     /// their tools refused until Resume. The private log only.
     TASK_PAUSED = "task.paused" => Replicated, Refuses;
+    /// A card's weight (card #963): `{taskId, level: light|normal|heavy|""
+    /// (cleared), reason, by, at}`. Irori starts the card's agent on the
+    /// model and effort Settings › Agents maps the weight to. Who set it
+    /// comes from the row's writer; a weight the person set is changed only
+    /// by a person. Boards accept it: their cards start agents too.
+    TASK_WEIGHT = "task.weight" => Replicated, Accepts;
     /// A shared card's owner changing hands (card #432):
     /// `{taskId, op: offer|request|accept|decline, person, blockerId?, by, at}`.
     /// `person` is who would own it. Shared boards only.

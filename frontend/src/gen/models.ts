@@ -64,6 +64,7 @@ export type CardSummary = B.CardSummary
 export type CardThreadItem = B.CardThreadItem
 export type CardWait = B.CardWait
 export type CardWaitOn = B.CardWaitOn
+export type CardWeight = B.CardWeight
 export type CardWhere = B.CardWhere
 export type Change = B.Change
 export type ChangeKind = B.ChangeKind
@@ -188,6 +189,7 @@ export type VoiceDownload = B.VoiceDownload
 export type VoiceEvent = B.VoiceEvent
 export type VoiceStatus = B.VoiceStatus
 export type WaitPr = B.WaitPr
+export type Weight = B.Weight
 export type WindDownRow = B.WindDownRow
 export type WindDownStatus = B.WindDownStatus
 
@@ -228,7 +230,7 @@ export function AgentsPauseView(p: Partial<B.AgentsPauseView> = {}): B.AgentsPau
 
 /** AgentsSettings with Go's zero values for every field left out. */
 export function AgentsSettings(p: Partial<B.AgentsSettings> = {}): B.AgentsSettings {
-  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
+  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "lightModel": "", "lightEffort": "", "heavyModel": "", "heavyEffort": "", "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
 }
 
 /** AgentStartsView with Go's zero values for every field left out. */
@@ -479,6 +481,11 @@ export function CardWait(p: Partial<B.CardWait> = {}): B.CardWait {
 /** CardWaitOn with Go's zero values for every field left out. */
 export function CardWaitOn(p: Partial<B.CardWaitOn> = {}): B.CardWaitOn {
   return { "kind": "", "label": "", ...p } as B.CardWaitOn
+}
+
+/** CardWeight with Go's zero values for every field left out. */
+export function CardWeight(p: Partial<B.CardWeight> = {}): B.CardWeight {
+  return { "level": "", "setBy": "", "byName": "", "model": "", "effort": "", "at": "", ...p } as B.CardWeight
 }
 
 /** CardWhere with Go's zero values for every field left out. */
@@ -1024,6 +1031,11 @@ export function VoiceStatus(p: Partial<B.VoiceStatus> = {}): B.VoiceStatus {
 /** WaitPr with Go's zero values for every field left out. */
 export function WaitPr(p: Partial<B.WaitPr> = {}): B.WaitPr {
   return { "repo": "", "number": 0, "url": "", ...p } as B.WaitPr
+}
+
+/** Weight with Go's zero values for every field left out. */
+export function Weight(p: Partial<B.Weight> = {}): B.Weight {
+  return { "level": "", "setBy": "", "by": "", "at": "", ...p } as B.Weight
 }
 
 /** WindDownRow with Go's zero values for every field left out. */

@@ -19,3 +19,4 @@ mod shared;
 mod sides;
 mod talk;
 mod waits;
+mod weight;
