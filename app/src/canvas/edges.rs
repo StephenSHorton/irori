@@ -2,8 +2,12 @@
 //! toEdges, drawn the way React Flow draws them): which side of a node
 //! each kind of line leaves and enters by, a step line with rounded
 //! corners for subtasks and holders, a curve for the rest, dashes, and an
-//! arrowhead at the end. Rune's strokes have no dash pattern, so dashes are
-//! cut here by length.
+//! arrowhead at the end. Dashes are cut here by length: Rune's own
+//! `Shape::dashed` (fork card-674-gaps d0ffeb2) can stall forever on a
+//! curved or stepped line (dash::pieces stops advancing on f32 rounding:
+//! about 1 in 25 random polylines in a fuzz test, and one such line
+//! freezes the window), so the native version (e865e49c, with main's flowing talk and holder lines on
+//! `El::dash_flow`) waits for that fix.
 
 use rune::{Color, LineCap, Shape};
 
