@@ -71,10 +71,10 @@ mod dm_spaces;
 pub mod freshness;
 mod liveness;
 mod mirror;
-mod prcard;
 pub mod name_themes;
 pub mod notes;
 mod notifications;
+mod prcard;
 pub mod space_move;
 pub mod spaces;
 pub mod spawn;
@@ -4799,6 +4799,16 @@ impl Services {
             let Some(p) = snap.prs.iter().find(|p| p.number == *n) else {
                 continue;
             };
+            // A shared PR card (merge desk §12.2) is nobody's to post on from
+            // here: its board takes no Irori comment from another member's
+            // device, and nobody holds it to hear one.
+            if home
+                .get(&m.task_id)
+                .and_then(|c| c.get_task(&m.task_id))
+                .is_some_and(|t| coord::pr_card(&t))
+            {
+                continue;
+            }
             let co = home
                 .get(&m.task_id)
                 .cloned()

@@ -57,14 +57,21 @@ impl Services {
         let me = self.person_actor();
         let found = self.pr_cards_found(&boards);
         let mut facts: Option<Vec<SpaceFacts>> = None;
-        for p in snap.prs.iter().filter(|p| p.author.eq_ignore_ascii_case(&own)) {
+        for p in snap
+            .prs
+            .iter()
+            .filter(|p| p.author.eq_ignore_ascii_case(&own))
+        {
             let cards: Vec<&Found> = found
                 .iter()
                 .filter(|f| f.task.pr_card.as_ref().is_some_and(|k| k.pr == p.url))
                 .collect();
             // The lowest id stands on every device; the author's device
             // cancels the others it made (§12.2).
-            let stands = cards.iter().min_by(|a, b| a.task.id.cmp(&b.task.id)).copied();
+            let stands = cards
+                .iter()
+                .min_by(|a, b| a.task.id.cmp(&b.task.id))
+                .copied();
             if let Some(keep) = stands {
                 self.cancel_duplicates(&me, keep, &cards);
                 self.desk_watch.set_note(repo_key, p.number, None);
@@ -245,7 +252,9 @@ impl Services {
                     }
                 }
                 if let Some(a) = act {
-                    self.desk_watch.activity_read(id, &p.url, updated);
+                    self.desk_watch.activity_read(id, &p.url, updated, a);
+                }
+                if let Some(a) = self.desk_watch.activity_last(id, &p.url) {
                     self.relay_comments(f, p, &a, verdicts);
                 }
             }
@@ -289,15 +298,7 @@ impl Services {
             .collect();
         let said: Vec<&str> = said.iter().map(String::as_str).collect();
         let own = self.own_github_login();
-        for post in prcard::relay(
-            p.number,
-            &p.url,
-            a,
-            &members,
-            &own,
-            f.task.created_at,
-            &said,
-        ) {
+        for post in prcard::relay(p.number, &p.url, a, &members, &own, p.created_at, &said) {
             self.desk_post(&co, &m.task_id, p.number, &post.text, true, Vec::new());
         }
     }

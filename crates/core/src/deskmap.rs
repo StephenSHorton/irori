@@ -117,10 +117,13 @@ pub fn map_pr(pr: &PrRef, tasks: &[Task], author: &str) -> Mapping {
     //    is the one their agent hears.
     let linked = || tasks.iter().filter(|t| links_pr(t, pr));
     let plain = |t: &&Task| !coord::pr_card(t);
-    if let Some(m) = found(Rule::Linked, newest(linked().filter(|t| open(t) && plain(t))))
-        .or_else(|| found(Rule::Linked, newest(linked().filter(|t| open(t)))))
-        .or_else(|| found(Rule::Linked, newest(linked().filter(plain))))
-        .or_else(|| found(Rule::Linked, newest(linked())))
+    if let Some(m) = found(
+        Rule::Linked,
+        newest(linked().filter(|t| open(t) && plain(t))),
+    )
+    .or_else(|| found(Rule::Linked, newest(linked().filter(|t| open(t)))))
+    .or_else(|| found(Rule::Linked, newest(linked().filter(plain))))
+    .or_else(|| found(Rule::Linked, newest(linked())))
     {
         return m;
     }

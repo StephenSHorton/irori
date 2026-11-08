@@ -44,6 +44,7 @@ mod notifications;
 mod offline;
 mod pair;
 mod personal_boards;
+mod pr_cards;
 mod prefetch;
 mod prwatch;
 mod reviews_setting;

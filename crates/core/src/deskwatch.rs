@@ -357,7 +357,7 @@ pub(crate) struct DeskWatch {
     /// The `updatedAt` each PR card's activity was last read at, by
     /// `card\0pr` (card #1077): GitHub moves it on every comment and review,
     /// so an unchanged one needs no `gh pr view`.
-    activity_at: Mutex<HashMap<String, i64>>,
+    activity_at: Mutex<HashMap<String, (i64, crate::prcard::Activity)>>,
     /// Why a PR has no review card yet, by `repo\0number` (card #1077).
     notes: Mutex<HashMap<String, String>>,
 }
@@ -456,13 +456,27 @@ impl DeskWatch {
     /// the `updatedAt` it was last read at (card #1077).
     pub(crate) fn activity_due(&self, card: &str, pr: &str, updated_ms: i64) -> bool {
         let m = self.activity_at.lock().unwrap_or_else(|e| e.into_inner());
-        m.get(&format!("{card}\0{pr}")) != Some(&updated_ms)
+        m.get(&format!("{card}\0{pr}")).map(|k| k.0) != Some(updated_ms)
     }
 
     /// PR card `card`'s activity was read at `updated_ms`.
-    pub(crate) fn activity_read(&self, card: &str, pr: &str, updated_ms: i64) {
+    pub(crate) fn activity_read(
+        &self,
+        card: &str,
+        pr: &str,
+        updated_ms: i64,
+        a: crate::prcard::Activity,
+    ) {
         let mut m = self.activity_at.lock().unwrap_or_else(|e| e.into_inner());
-        m.insert(format!("{card}\0{pr}"), updated_ms);
+        m.insert(format!("{card}\0{pr}"), (updated_ms, a));
+    }
+
+    /// What PR card `card`'s activity read last said. The relay goes by it
+    /// at every poll, so a member whose login was learned after the read
+    /// still has their words told.
+    pub(crate) fn activity_last(&self, card: &str, pr: &str) -> Option<crate::prcard::Activity> {
+        let m = self.activity_at.lock().unwrap_or_else(|e| e.into_inner());
+        m.get(&format!("{card}\0{pr}")).map(|k| k.1.clone())
     }
 
     /// Why PR `number` of `repo_key` has no review card yet, or clears it

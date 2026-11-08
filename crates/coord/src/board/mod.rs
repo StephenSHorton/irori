@@ -111,7 +111,6 @@ pub use prstate::{
     DESK_PR_CARD_MARK, NOTICE_PR, PR_CARD_CLOSED, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED,
     PR_OPEN, PR_REVIEW_REQUIRED, PrCheck, PrNews, PrState, desk_pr_card,
 };
-pub use rows::PrReview;
 pub use resource::{
     DESK_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key, is_desk,
     normalize_glob, normalize_resource, overlaps, parse_resource,
@@ -119,6 +118,7 @@ pub use resource::{
 pub use review::{
     NOTICE_REVIEW, REVIEW_REQUESTED, Review, ReviewRequest, VERDICT_APPROVED, VERDICT_CHANGES,
 };
+pub use rows::PrReview;
 pub use runs::RunTally;
 pub use short::{parse_ref, parse_short, short_suffix};
 pub use threads::{
