@@ -93,11 +93,13 @@ fn nsis_template_keeps_the_go_contract() {
     ] {
         assert!(nsi.contains(want), "irori.nsi lost: {want}");
     }
-    // The Tauri identifier whose WebView2 folder the uninstaller removes.
-    let conf = repo_file("app/tauri.conf.json");
-    assert!(conf.contains(r#""identifier": "com.stephenshorton.irori""#));
+    // The Tauri identifier whose WebView2 folder the uninstaller removes
+    // (an install that ran a Tauri build has one): the app's bundle id,
+    // which the Rune build keeps, and the binary is still `irori`.
+    assert_eq!(update::macapp::BUNDLE_ID, "com.stephenshorton.irori");
     assert!(nsi.contains(r#"!define TAURI_IDENTIFIER "com.stephenshorton.irori""#));
-    assert!(conf.contains(r#""mainBinaryName": "irori""#));
+    let app = repo_file("app/Cargo.toml");
+    assert!(app.contains("[[bin]]\nname = \"irori\""));
 }
 
 #[test]
