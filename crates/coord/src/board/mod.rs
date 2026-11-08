@@ -1131,6 +1131,11 @@ impl Coord {
     ) -> Result<(Task, bool)> {
         self.lock().set_weight(by, id, level, reason)
     }
+    /// Irori's office assistant weighs a card (card #965). See
+    /// [`Fold::weigh_as_irori`].
+    pub fn weigh_as_irori(&self, id: &str, level: &str, reason: &str) -> Result<Task> {
+        self.lock().weigh_as_irori(id, level, reason)
+    }
     /// The cards the person paused (card #207).
     pub fn paused_ids(&self) -> std::collections::HashSet<String> {
         self.lock().paused_ids()

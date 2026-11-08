@@ -1478,6 +1478,24 @@ export function sampleUndoTitle(id: string) {
   sampleChanged()
 }
 
+// sampleUndoWeight is BoardService.UndoWeight on the sample (card #965):
+// what Irori replaced comes back as the person's, and the line loses its
+// Undo.
+export function sampleUndoWeight(id: string) {
+  const c = sampleCard(id)
+  const line = [...c.thread].reverse().find((it) => it.undoWeight)
+  if (!line?.undoWeight) throw new Error("Irori's weight is already gone")
+  sampleSetWeight(
+    id,
+    line.undoWeight === "no weight" ? "" : line.undoWeight,
+    ""
+  )
+  c.thread = c.thread.map((it) =>
+    it.undoWeight ? { ...it, undoWeight: undefined } : it
+  )
+  sampleChanged()
+}
+
 // sampleCancel is BoardService.Close as canceled on the sample, with its
 // note (card #690: a closed board's open cards).
 export function sampleCancel(id: string, note: string) {
@@ -2377,6 +2395,16 @@ export const cards = {
       return
     }
     sampleUndoTitle(id)
+  },
+
+  // undoWeight is the person's Undo on Irori's weighing of a card (card
+  // #965): what it replaced comes back as theirs, and Irori leaves it.
+  async undoWeight(id: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.UndoWeight(id)
+      return
+    }
+    sampleUndoWeight(id)
   },
 
   // move puts a card on another board in its space (card #563), with its

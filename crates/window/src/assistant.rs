@@ -184,6 +184,7 @@ is done
 - app.login: Launch at login
 - app.transcribe: Transcribe what I say in calls
 - app.names: Name new threads: Irori titling the threads you post
+- app.weighs: Weigh new cards: Irori setting each new card light, normal or heavy
 - app.updates: updates and Keep this device up to date";
 
 /// A go line's start (card #784): the chat takes the person where it
@@ -450,7 +451,21 @@ impl Job {
             tools: false,
         })
     }
+
+    /// The turn that weighs a card (card #965): a naming turn in its own
+    /// folder, so neither swaps the other's system prompt.
+    pub fn weigher(core: &irori_core::Core, ask: &NameAsk) -> Result<Job, String> {
+        let mut job = Job::namer(core, ask)?;
+        job.dir = job.dir.with_file_name(WEIGHS_DIR);
+        job.timeout = WEIGHS_TIMEOUT;
+        Ok(job)
+    }
 }
+
+/// The weighing turns' folder under the assistant's (card #965).
+pub const WEIGHS_DIR: &str = "weighs";
+/// How long a weighing turn may take: a held card starts by then anyway.
+pub const WEIGHS_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The naming turns' folder under the assistant's (card #782).
 pub const NAMES_DIR: &str = "names";
@@ -970,6 +985,7 @@ impl crate::Window {
     pub fn assistant_shutdown(&self) {
         self.assistant.shutdown();
         self.names.shutdown();
+        self.weighs.shutdown();
     }
 
     /// One turn that names a thread (card #782), on its own runner so it
@@ -977,6 +993,13 @@ impl crate::Window {
     pub fn name_thread(&self, ask: &NameAsk) -> Result<String, String> {
         self.names
             .run_once(find_claude(), Job::namer(&self.core, ask))
+    }
+
+    /// One turn that weighs a card (card #965), on its own runner so it
+    /// and naming never take each other's slots; the Core's weigher.
+    pub fn weigh_card(&self, ask: &NameAsk) -> Result<String, String> {
+        self.weighs
+            .run_once(find_claude(), Job::weigher(&self.core, ask))
     }
 }
 

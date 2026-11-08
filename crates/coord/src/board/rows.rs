@@ -455,6 +455,10 @@ crate::go_struct! {
         pub reason: String = "reason" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
+        /// On Irori's own row (card #965): the weight it replaced, for the
+        /// person's Undo. In the row, as rows can fold out of order.
+        pub was_level: String = "wasLevel" "omit",
+        pub was_reason: String = "wasReason" "omit",
     }
 }
 

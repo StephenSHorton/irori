@@ -267,6 +267,8 @@ export const BoardService = {
   Rename: (id: string, title: string) => call(commands.boardRename(id, title)),
   // Undo on Irori's name for the person's thread (card #782).
   UndoTitle: (id: string) => call(commands.boardUndoTitle(id)),
+  // Undo on Irori's weighing of a card (card #965).
+  UndoWeight: (id: string) => call(commands.boardUndoWeight(id)),
   Pin: (id: string, pinned: boolean) => done(commands.boardPin(id, pinned)),
   // A card's weight (card #963): light, normal or heavy, or "" to clear.
   SetWeight: (id: string, level: string, reason: string) =>
@@ -700,4 +702,7 @@ export const AssistantService = {
   // "Name new threads" (card #782): on unless the person turned it off.
   Names: () => call(commands.assistantNames()),
   NamesSet: (on: boolean) => done(commands.assistantNamesSet(on)),
+  // "Weigh new cards" (card #965): on unless the person turned it off.
+  Weighs: () => call(commands.assistantWeighs()),
+  WeighsSet: (on: boolean) => done(commands.assistantWeighsSet(on)),
 }

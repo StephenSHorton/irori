@@ -1952,6 +1952,15 @@ impl Services {
             if self.limit_holds(&self.coord, &t).is_some() {
                 continue;
             }
+            // A new card waits, briefly, for Irori to weigh it (card #965),
+            // so its agent starts on the model its work needs.
+            if self.weigh_holds(&t) {
+                continue;
+            }
+            // The weight may have landed since this sweep's list was read,
+            // and the model comes from the card. After the hold's check:
+            // the weight is written before the hold lets go.
+            let t = self.coord.get_task(&t.id).unwrap_or(t);
             // Which of the person's devices starts it (card #455, decision
             // 7 (a)); None waits for the machine it needs or for the retry.
             let Some(dev) = self.spawn_device(&t) else {
@@ -3849,6 +3858,8 @@ mod tests {
 
         let mut t = card();
         t.weight = Some(coord::Weight {
+            was_level: String::new(),
+            was_reason: String::new(),
             level: "heavy".into(),
             reason: "plan the ``` split".into(),
             set_by: coord::SET_BY_AGENT.into(),

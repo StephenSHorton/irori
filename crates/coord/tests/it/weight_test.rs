@@ -136,6 +136,7 @@ fn weight_row(dev: &str, seq: i64, at: u64, actor: &str, by: &str, level: &str) 
         reason: "why".into(),
         by: by.into(),
         at: fixed_now(),
+        ..TaskWeightRow::default()
     })
     .unwrap();
     event(dev, seq, at, actor, kinds::TASK_WEIGHT, raw)

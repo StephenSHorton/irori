@@ -484,6 +484,12 @@ pub struct Weight {
     /// Their key.
     pub by: String,
     pub at: GoTime,
+    /// What Irori's office assistant replaced (card #965), for Undo: ""
+    /// when the card had no weight.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub was_level: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub was_reason: String,
 }
 
 pub const WEIGHT_LIGHT: &str = "light";
@@ -499,6 +505,11 @@ impl Weight {
     /// Whether a person set it: then only a person changes it.
     pub fn by_person(&self) -> bool {
         self.set_by == SET_BY_PERSON
+    }
+
+    /// Whether Irori's office assistant set it: the person may Undo it.
+    pub fn by_assistant(&self) -> bool {
+        self.set_by == SET_BY_ASSISTANT
     }
 }
 
