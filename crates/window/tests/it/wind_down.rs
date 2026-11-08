@@ -211,7 +211,9 @@ fn unpause_all_keeps_a_paused_devices_wind_downs() {
         .iter()
         .map(|x| x.delivery_id.clone())
         .collect();
-    r.w.wind_down_all().unwrap();
+    let st = r.w.wind_down_all().unwrap();
+    let again: Vec<String> = st.rows.iter().map(|x| x.delivery_id.clone()).collect();
+    assert_eq!(again, ids, "no second wind-down to an agent winding down");
     r.w.wind_down_off().unwrap();
     assert!(r.w.core.agents_pause().on, "this device's own Pause stays");
     for id in &ids {

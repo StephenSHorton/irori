@@ -145,6 +145,13 @@ impl Window {
     fn start_run(&self, scope: &str, agents: Vec<irori_core::AgentCard>) {
         let me = self.core.user_sender();
         let ib = self.core.inbox();
+        // An agent already winding down (Pause here, then Pause all) keeps
+        // its wind-down: the row follows it, no second one is sent.
+        let open: std::collections::HashMap<String, ::inbox::Delivery> = ib
+            .open_wind_downs()
+            .into_iter()
+            .map(|d| (d.to.clone(), d))
+            .collect();
         let mut run = Run {
             st: WindDownStatus {
                 id: format!(
@@ -168,6 +175,12 @@ impl Window {
                 state: row::WAITING.into(),
                 ..WindDownRow::default()
             };
+            if let Some(d) = open.get(&to) {
+                r.delivery_id = d.id.clone();
+                r.state = row_state(&d.state, &d.note).into();
+                run.st.rows.push(r);
+                continue;
+            }
             let o = ::inbox::SendOptions {
                 mode: ::inbox::mode::WAKE.into(),
                 reason: ::inbox::REASON_WIND_DOWN.into(),

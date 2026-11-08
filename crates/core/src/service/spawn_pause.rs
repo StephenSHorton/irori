@@ -173,9 +173,9 @@ impl Services {
         if let Some(dev) = by.strip_prefix(WIND_DOWN_BY_PREFIX) {
             let name = self.named_device(dev);
             return if name.is_empty() {
-                "Wind down".into()
+                "Stop everywhere".into()
             } else {
-                format!("Wind down on {name}")
+                format!("Stop everywhere on {name}")
             };
         }
         if let Some(dev) = by.strip_prefix("user:") {

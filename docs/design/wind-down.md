@@ -1,8 +1,14 @@
-# Wind down: design
+# Stop here / Stop everywhere (was Wind down): design
 
 *2026-11-01, card #220, from Stephen's #219: "ending the day or switching accounts means winding every agent down by hand." Builds on Stop and Pause (#207, `docs/design/stop-pause.md`) on main @ 98226e4. A switch since card #787 (2026-11-07, from #773: "Wind down is meant to be used when someone literally wants everyone to stop working … it should work the same way where it's a toggle").*
 
-**Wind down** is an on/off switch, like Pause agents (#665), in the app header, the tray, the dialog and the command palette. On asks every agent of the person's, on every one of their devices, to save its place, hand back its cards and stop, and stops Irori starting agents on all of those devices from that moment. There is no Wind down for one device (Stephen on #773: "'winding down' one machine, there is no action for that"): stopping one machine is Pause agents on it, and its cards then start on other devices with room. Off, at any time, cancels what hasn't reached an agent yet and lets work start again.
+**Update, card #787 (Stephen on #773):** what was Wind down is now two switches that stop work the same way and differ only in reach. "Wind down" and "Pause agents" are gone as names in the app:
+
+- **Stop here** (this machine; off: **Start here**) is Pause agents (#665) made graceful. From the app it holds agent starts on this machine *and* winds its agents down: each writes its hand-off and leaves its card, and the cards go back in the pool, where the person's other machines with free slots start agents on them. The `agents_pause` tool still only holds starts.
+- **Stop everywhere** (every machine; off: **Start everywhere**) does the same on every machine at once, and nothing starts anywhere until it is turned off. Stephen: "When I hit wind down I expect all agents across my devices to pause and wind down"; there is no scope choice.
+- The old **Pause all** switch ("Pause wakes on <machine>", which held agents' messages) is removed from the app (#787 b2): Stop everywhere is the only "stop all". The inbox policy stays in the code.
+
+The code keeps its names (`wind_down*`, `spawn_pause`, `WindDownStatus`). Below, "Wind down" means Stop everywhere and "Pause agents" means Stop here, unless noted.
 
 ## 1. The message
 
@@ -37,9 +43,11 @@ A wind-down is a person's message with reason `wind_down` (`inbox::REASON_WIND_D
 2. Every pause with a `winddown:` `by` lifts, on every device: one switch for the person. A pause the person (or an agent) set stays.
 3. Lifting kicks the sweep: the cards the agents left start in queue order.
 
-**Pause all after is gone** (it was on by default): Pause agents on every device covers "nothing starts", and Pause all (this device's wakes only) stays its own switch.
+**Pause all after is gone** (it was on by default): Pause agents on every device covers "nothing starts", and the old Pause all switch has left the app (above).
 
 ## 3. A run
+
+Stop here's graceful stop is the same run (`Window::pause_here`, scope `device`): turning it on sends a wind-down to each of this machine's agents; off closes the ones not reached yet. Off of Stop everywhere closes the wind-downs not reached yet only for machines no pause still holds, so a machine stopped on its own keeps its graceful stop. An agent already winding down is not sent a second one; its row follows the first.
 
 `wind_down_all` returns the run: an id, per agent its key, name, device and delivery. It is kept in memory (one at a time; a new On replaces it).
 
@@ -68,9 +76,11 @@ The window re-reads the run on every inbox change, and the switch every 5 s (it 
 
 ## 4. The window
 
-- **Header:** off, a Wind down button that opens the dialog. On, the button is pressed, "Wound down · 12 min", naming the devices it holds; clicking it turns Wind down off. The separate Pause agents button hides while Wind down is on (its pause is Wind down's).
-- **Tray:** a check item. Off: "Wind down all agents…" opens the window on the dialog (the confirm stays in the window). On: checked; clicking it turns Wind down off.
-- **Palette:** "Wind down all agents", or "Turn Wind down off" while it is on.
+All the switches' words live in one place (`frontend/src/lib/stop-labels.ts`, and the tray's in `tray_text.rs`).
+
+- **Header:** "Stop here" (Pause agents for this machine; on: "Stopped here · 12 min", click to Start here) and "Stop everywhere" (off: opens the dialog; on: "Stopped everywhere · 12 min", naming the machines it holds; click to Start everywhere). Stop here hides while Stop everywhere is on.
+- **Tray:** a check item. Off: "Stop everywhere…" opens the window on the dialog. On: checked; clicking it starts everywhere. The old "Pause wakes on <machine>" item is gone.
+- **Palette:** "Stop everywhere", or "Start everywhere" while it is on.
 - **The dialog:** off, how many agents it reaches and what On does (no scope choice); on, which devices it holds since when, a Turn off button (mid-run too), the live list with Stop per row and a summary ("4 of 5 wound down").
 
 ## 5. Tests
