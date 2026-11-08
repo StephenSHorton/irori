@@ -1,9 +1,12 @@
 //! The canvas's lines as Rune shapes (the React app's reactflow/index.tsx
 //! toEdges, drawn the way React Flow draws them): which side of a node
 //! each kind of line leaves and enters by, a step line with rounded
-//! corners for subtasks and holders, a curve for the rest, dashes (Rune's
-//! own dashed strokes), and an arrowhead at the end. A flowing line (React
-//! Flow's `animated` edge) marches its dashes with `El::dash_flow`.
+//! corners for subtasks and holders, a curve for the rest, dashes, and an
+//! arrowhead at the end. Dashes are cut here by length: Rune's own
+//! `Shape::dashed` (fork card-674-gaps d0ffeb2) never returns on most
+//! curved or stepped lines (dash::pieces stalls on f32 rounding), so the
+//! native version (e865e49c, with main's flowing talk and holder lines on
+//! `El::dash_flow`) waits for that fix.
 
 use rune::{Color, LineCap, Shape};
 
@@ -82,26 +85,6 @@ pub fn look(k: EdgeKind) -> Look {
         width: if k == EdgeKind::Talk { 2.0 } else { 1.5 },
         arrow: k != EdgeKind::Talk,
         step: matches!(k, EdgeKind::Subtask | EdgeKind::Holder),
-    }
-}
-
-/// How fast a flowing line's dashes march, in points a second toward its
-/// end: React Flow's `dashdraw` slides `stroke-dashoffset` 10 in 0.5 s.
-pub const FLOW_SPEED: f32 = 20.0;
-
-/// Whether a line flows (main's toEdges, card #587): a talk line always,
-/// a holder line while its agent works. `still` is Reduce Motion, under
-/// which nothing flows.
-pub fn flows(k: EdgeKind, source_working: bool, still: bool) -> bool {
-    !still && (k == EdgeKind::Talk || (k == EdgeKind::Holder && source_working))
-}
-
-/// A line's look while it flows: React Flow dashes an animated line 5 on,
-/// 5 off unless its own style names a pattern (talk's 6 4 wins).
-pub fn flowing(lk: Look) -> Look {
-    Look {
-        dash: lk.dash.or(Some((5.0, 5.0))),
-        ..lk
     }
 }
 
@@ -235,6 +218,45 @@ pub fn route(k: EdgeKind, from: (Point, Size), to: (Point, Size)) -> Vec<[f32; 2
     }
 }
 
+/// The polyline cut into dashes `on` long with `off` between.
+pub fn dashes(pts: &[[f32; 2]], on: f32, off: f32) -> Vec<Vec<[f32; 2]>> {
+    let mut out: Vec<Vec<[f32; 2]>> = Vec::new();
+    let mut cur: Vec<[f32; 2]> = Vec::new();
+    let (mut drawing, mut left) = (true, on);
+    for w in pts.windows(2) {
+        let (mut a, b) = (w[0], w[1]);
+        let mut len = dist(a, b);
+        while len > 0.0 {
+            let step = left.min(len);
+            let next = [
+                a[0] + (b[0] - a[0]) * step / len,
+                a[1] + (b[1] - a[1]) * step / len,
+            ];
+            if drawing {
+                if cur.is_empty() {
+                    cur.push(a);
+                }
+                cur.push(next);
+            }
+            left -= step;
+            len -= step;
+            a = next;
+            if left <= 1e-4 {
+                if drawing && cur.len() > 1 {
+                    out.push(std::mem::take(&mut cur));
+                }
+                cur.clear();
+                drawing = !drawing;
+                left = if drawing { on } else { off };
+            }
+        }
+    }
+    if drawing && cur.len() > 1 {
+        out.push(cur);
+    }
+    out
+}
+
 /// A filled arrowhead at the end of `pts`, pointing along its last piece.
 fn arrow(pts: &[[f32; 2]], size: f32) -> Option<Vec<[f32; 2]>> {
     let t = *pts.last()?;
@@ -280,14 +302,14 @@ pub fn shape(
             ];
         }
     }
-    // Dashes end square, as SVG's do by default; a solid line keeps
-    // Rune's round caps and joints.
-    sh = match lk.dash {
-        Some((on, off)) => sh
-            .stroke_with(body, false, width, LineCap::Butt, c)
-            .dashed(on, off),
-        None => sh.stroke(body, width, c),
-    };
+    match lk.dash {
+        Some((on, off)) => {
+            for d in dashes(&body, on, off) {
+                sh = sh.stroke_with(d, false, width, LineCap::Butt, c);
+            }
+        }
+        None => sh = sh.stroke(body, width, c),
+    }
     if lk.arrow
         && let Some(head) = arrow(&pts, 9.0)
     {
@@ -303,6 +325,17 @@ mod tests {
 
     fn p(x: f32, y: f32) -> Point {
         Point { x, y }
+    }
+
+    #[test]
+    fn dashes_cut_a_line_by_length() {
+        let d = dashes(&[[0.0, 0.0], [20.0, 0.0]], 4.0, 4.0);
+        assert_eq!(d.len(), 3);
+        assert_eq!(d[0], vec![[0.0, 0.0], [4.0, 0.0]]);
+        assert_eq!(d[1], vec![[8.0, 0.0], [12.0, 0.0]]);
+        // Round a corner: one dash bends with it.
+        let d = dashes(&[[0.0, 0.0], [2.0, 0.0], [2.0, 6.0]], 4.0, 2.0);
+        assert_eq!(d[0], vec![[0.0, 0.0], [2.0, 0.0], [2.0, 2.0]]);
     }
 
     #[test]
@@ -335,19 +368,5 @@ mod tests {
         assert_eq!(pts.len(), 25);
         assert!(!look(EdgeKind::Talk).arrow);
         assert!(look(EdgeKind::Blocker).dash.is_some());
-    }
-
-    #[test]
-    fn talk_lines_and_working_holders_flow_unless_motion_is_reduced() {
-        assert!(flows(EdgeKind::Talk, false, false));
-        assert!(flows(EdgeKind::Holder, true, false));
-        assert!(!flows(EdgeKind::Holder, false, false));
-        assert!(!flows(EdgeKind::Subtask, true, false));
-        assert!(!flows(EdgeKind::Blocker, true, false));
-        assert!(!flows(EdgeKind::Talk, true, true));
-        assert!(!flows(EdgeKind::Holder, true, true));
-        // A flowing holder is dashed 5 5; talk keeps its own 6 4.
-        assert_eq!(flowing(look(EdgeKind::Holder)).dash, Some((5.0, 5.0)));
-        assert_eq!(flowing(look(EdgeKind::Talk)).dash, Some((6.0, 4.0)));
     }
 }

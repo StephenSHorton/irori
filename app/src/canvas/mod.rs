@@ -42,7 +42,6 @@ use rune::{
 };
 use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant};
 
-use crate::logic::agent_status::Tone as StatusTone;
 use crate::logic::cards::open_ask;
 use crate::ui::theme::status;
 use crate::ui::{Event, Frame, Route, State};
@@ -778,24 +777,14 @@ fn route_of(map: &Map, e: &Edge) -> Option<Vec<[f32; 2]>> {
 
 /// One line. A holder line inside its agent's hub (the box says it) and a
 /// watcher line wait for a hover, so the map isn't a web; with a node
-/// hovered, its lines show full strength and the rest fade a little. A
-/// talk line, and a holder line while its agent works, flows (its dashes
-/// march), except under Reduce Motion.
+/// hovered, its lines show full strength and the rest fade a little.
 fn edge_el(s: &State, f: &Frame, map: &Map, e: &Edge, b: Rect, lit: bool) -> Option<El> {
     let hidden = e.kind == EdgeKind::Watcher || e.in_hub;
     if hidden && !lit {
         return None;
     }
     let pts = route_of(map, e)?;
-    let working = matches!(
-        map.graph.node(&e.source),
-        Some(Node::Agent(a)) if matches!(a.tone, StatusTone::Working | StatusTone::Job)
-    );
-    let flows = edges::flows(e.kind, working, f.cx.is_reduced_motion());
-    let mut lk = edges::look(e.kind);
-    if flows {
-        lk = edges::flowing(lk);
-    }
+    let lk = edges::look(e.kind);
     let color = match e.kind {
         EdgeKind::Subtask | EdgeKind::Watcher => f.k.c.text_muted,
         EdgeKind::Blocker => status::failed(),
@@ -810,12 +799,9 @@ fn edge_el(s: &State, f: &Frame, map: &Map, e: &Edge, b: Rect, lit: bool) -> Opt
     // Lines can reach outside the map's rect a little (a step's elbow).
     let pad = 40.0;
     let origin = [b.x - pad, b.y - pad];
-    let mut line = canvas(edges::shape(&pts, lk, color, opacity, lk.width, origin));
-    if flows {
-        line = line.dash_flow(edges::FLOW_SPEED);
-    }
     Some(
-        line.key(format!("canvas/e/{}", e.id))
+        canvas(edges::shape(&pts, lk, color, opacity, lk.width, origin))
+            .key(format!("canvas/e/{}", e.id))
             .pin(Some(origin[0]), Some(origin[1]), None, None)
             .size(b.w + 2.0 * pad, b.h + 2.0 * pad),
     )
