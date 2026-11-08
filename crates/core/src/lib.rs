@@ -55,6 +55,7 @@ pub mod meshview;
 pub mod namer;
 pub mod notice;
 pub mod offline;
+pub mod prcard;
 pub mod prefetch;
 pub mod prwatch;
 mod publicrelays;
@@ -77,6 +78,10 @@ pub use crate::service::calls::{
 pub use crate::service::calls_share::{ShareNow, ShareSink, ShareSource};
 pub use crate::service::card_weights;
 pub use crate::service::freshness::{LogFreshness, PERSONAL as PERSONAL_LOG};
+pub use crate::service::huddle_packet;
+pub use crate::service::huddle_session::{
+    self as huddle_session, HuddleRunner, HuddleSeed, Look, LookError,
+};
 pub use crate::service::invites::{InviteStatus, InviteWatchFn};
 pub use crate::service::space_move::{MOVED_FIELD, MoveOpts, SpaceMove};
 pub use crate::service::spaces::{

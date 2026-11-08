@@ -139,6 +139,8 @@ describe("Resolved threads sit at the bottom of Threads (card #687)", () => {
     const was = globalThis.window
     globalThis.window = { location: { search: "" } } as Window &
       typeof globalThis
+    // TalkPage itself can't be server-rendered: its useSyncExternalStore hooks
+    // (cards.ts) have no server snapshot. Render the sections.
     try {
       return renderToStaticMarkup(
         createElement(ThreadsSection, {

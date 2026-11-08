@@ -111,10 +111,19 @@ pub fn map_pr(pr: &PrRef, tasks: &[Task], author: &str) -> Mapping {
             author: author.into(),
         })
     };
-    // 1. A card that links the PR: an open one first.
+    // 1. A card that links the PR: an open one first, and a shared PR card
+    //    (merge desk §12.2) only when no other card links it: nobody holds
+    //    it, so a post there would wake no one, while an author's own card
+    //    is the one their agent hears.
     let linked = || tasks.iter().filter(|t| links_pr(t, pr));
-    if let Some(m) = found(Rule::Linked, newest(linked().filter(|t| open(t))))
-        .or_else(|| found(Rule::Linked, newest(linked())))
+    let plain = |t: &&Task| !coord::pr_card(t);
+    if let Some(m) = found(
+        Rule::Linked,
+        newest(linked().filter(|t| open(t) && plain(t))),
+    )
+    .or_else(|| found(Rule::Linked, newest(linked().filter(|t| open(t)))))
+    .or_else(|| found(Rule::Linked, newest(linked().filter(plain))))
+    .or_else(|| found(Rule::Linked, newest(linked())))
     {
         return m;
     }
@@ -299,6 +308,9 @@ pub struct DeskAuthor {
     pub card_ref: String,
     /// The agent behind it: the ledger's author, else the card's holder.
     pub agent: String,
+    /// Why the PR has no review card in a shared space yet, "" when
+    /// nothing is waiting (merge desk §12.2, card #1077).
+    pub review_note: String,
 }
 
 /// What says a repo is one of the person's (card #625): the person or a

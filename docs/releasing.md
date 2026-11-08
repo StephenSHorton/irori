@@ -66,8 +66,16 @@ compiler. When they are not on PATH, point the build at them:
    git fetch origin --tags
    git worktree add --detach ../irori-rel-0.6.0 v0.6.0
    cd ../irori-rel-0.6.0
-   scripts/release-mac.sh 0.6.0 --publish
+   env -u CARGO_TARGET_DIR scripts/release-mac.sh 0.6.0 --publish
    ```
+
+   Run `xcrun notarytool history --keychain-profile irori-notary` first:
+   if it fails, the build is signed but not notarized, with only a
+   warning. The script reruns `scripts/check.sh` unless `IRORI_SKIP_CHECKS=1`
+   (as `-SkipChecks` does on the PC). `env -u CARGO_TARGET_DIR` matters when
+   Irori pinned that variable to your card's worktree: the script honours
+   it, so a cold release build would land there instead of in the release
+   worktree's own `target/` (see spawned-agents.md §8, Build output).
 
    It builds `irori` for `aarch64-apple-darwin` (deployment target 12.0),
    assembles and signs `Irori.app` (`app/macos/package.sh`), runs the Go

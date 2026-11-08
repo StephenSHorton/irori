@@ -2046,6 +2046,11 @@ export type DeskAuthorView = {
 	cardRef: string,
 	/**  The agent behind it; "" none. */
 	agent: string,
+	/**
+	 *  Why the PR has no review card in a shared space yet (card #1077);
+	 *  "" when nothing waits.
+	 */
+	reviewNote: string,
 };
 
 /**  How polling stands, on the device that polls. */
@@ -2084,6 +2089,11 @@ export type DeskSettings = {
 	pollDevice?: string,
 	trusted?: string[],
 	perPrOk?: boolean,
+	/**
+	 *  Other people's agents don't review this repo's PRs (card #1077):
+	 *  off, it behaves like a solo repo. On (false here) when unset.
+	 */
+	reviewsOff?: boolean,
 	by?: string,
 	at?: string,
 };
