@@ -176,6 +176,9 @@ pub struct BoardAgent {
     /// The member's avatar on their member.profile, "" for none (card
     /// #393).
     pub person_avatar: String,
+    /// The card is its owner's Office Assistant: kind `assistant` and the
+    /// owner's profile points at it (card 3 of assistants talk).
+    pub assistant: bool,
 }
 
 /// Another person on a shared board ([`super::Core::board_people`]).
@@ -240,6 +243,9 @@ pub(crate) struct CardMaps {
     pub keys: HashMap<String, String>,
     /// cardId -> agentKey.
     pub by_id: HashMap<String, String>,
+    /// cardId -> the HLC of the row `cards` holds, so an older row never
+    /// replaces a newer one (assistants talk, card 3).
+    pub card_hlc: HashMap<String, store::Timestamp>,
 }
 
 impl CardMaps {
@@ -294,18 +300,73 @@ impl BoardLog {
         m.add_key(&r.card_id, &r.agent_key);
     }
 
+    /// Folds one `agent.card` row. Only a row written by a device of the
+    /// card's owner counts, and the newest of those by HLC wins: another
+    /// member can write a row for a card id with their own `personId`
+    /// (the verifier accepts it), but it can't change the card's name,
+    /// kind or person here. The owner is the verifier's `card_person`,
+    /// never the row's `personId` (assistants talk §3, card 3).
     fn fold_card(&self, ev: &Event) {
+        let mut m = lock(&self.maps);
+        let CardMaps {
+            cards, card_hlc, ..
+        } = &mut *m;
+        self.fold_card_into(cards, card_hlc, ev);
+    }
+
+    fn fold_card_into(
+        &self,
+        cards: &mut HashMap<String, BoardCard>,
+        hlcs: &mut HashMap<String, store::Timestamp>,
+        ev: &Event,
+    ) {
         let Ok(p) = serde_json::from_slice::<BoardCard>(&ev.payload) else {
             return;
         };
         if p.card_id.is_empty() {
             return;
         }
-        let p = BoardCard {
-            device_id: ev.device_id.clone(),
-            ..p
-        };
-        lock(&self.maps).cards.insert(p.card_id.clone(), p);
+        // No verified owner yet (the card's first row isn't bound to a
+        // certified device): the row stands as it always did, and the map
+        // is refolded when an owner is known. With an owner, only that
+        // person's devices may write the card.
+        let owner = self.verifier.card_person(&p.card_id);
+        if let Some(o) = &owner
+            && self.verifier.person_of(&ev.device_id).as_deref() != Some(o.as_str())
+        {
+            return;
+        }
+        if hlcs.get(&p.card_id).is_some_and(|h| *h > ev.hlc) {
+            return;
+        }
+        hlcs.insert(p.card_id.clone(), ev.hlc);
+        cards.insert(
+            p.card_id.clone(),
+            BoardCard {
+                device_id: ev.device_id.clone(),
+                person_id: owner.unwrap_or(p.person_id.clone()),
+                ..p
+            },
+        );
+    }
+
+    /// Folds every `agent.card` row again. `card_person` can change after a
+    /// row was read (a person's first device certifies late), so the card
+    /// map is rebuilt from the log whenever a member row lands.
+    fn refold_cards(&self) -> Result<()> {
+        let (mut cards, mut hlcs) = (HashMap::new(), HashMap::new());
+        each_row(
+            &self.store,
+            Filter {
+                kinds: vec![kinds::AGENT_CARD.into()],
+                ..Default::default()
+            },
+            |ev| self.fold_card_into(&mut cards, &mut hlcs, ev),
+        )?;
+        let mut m = lock(&self.maps);
+        m.cards = cards;
+        m.card_hlc = hlcs;
+        Ok(())
     }
 
     /// Folds the log's agent cards and the person's board_cards for it: the
@@ -1672,6 +1733,9 @@ impl Services {
             }
         } else if ev.kind == kinds::AGENT_CARD {
             b.fold_card(ev);
+        } else if ev.kind.starts_with("member.") {
+            // A device certified or cut: whose card a row is can change.
+            let _ = b.refold_cards();
         }
         if self.board_leaving(b) {
             // A space the person left: its channels stay out of Talk.
@@ -1977,6 +2041,8 @@ impl Services {
                 logf(format_args!("board {}: assistant card: {e}", b.id));
             }
         }
+        // Questions that came while this wasn't the assistant's computer.
+        self.assistant_home_moved();
     }
 
     /// Rewrites the agent.card of each of this device's agents on every
@@ -2695,6 +2761,13 @@ impl super::Core {
         r
     }
 
+    /// What an agent's @name may name on board `board_id` (card #186, and
+    /// assistants talk card 3): the other members and their agents, an
+    /// Office Assistant under each of its names.
+    pub fn board_mentionables(&self, board_id: &str) -> Vec<coord::roster::AgentCard> {
+        self.s.board_mentionables(board_id)
+    }
+
     /// Every agent card on the boards this device holds, keyed as the
     /// boards write them (agent:<cardId>), with the person it belongs to
     /// (card #146): the window names another member's agents from it, so a
@@ -2725,13 +2798,30 @@ impl super::Core {
             };
             for a in roster_of(&self.s, &b) {
                 let person_id = person_of.get(&a.key).cloned().unwrap_or_default();
+                let assistant = a.agent == coord::roster::ASSISTANT_KIND
+                    && a.key.strip_prefix(AGENT_ACTOR_PREFIX)
+                        == Some(b.verifier.profile_assistant_card(&person_id).as_str());
+                let name = if assistant {
+                    let owner = b
+                        .verifier
+                        .profile(&person_id)
+                        .or_else(|| people.get(&person_id).cloned())
+                        .unwrap_or_default();
+                    coord::assistant_name::label(
+                        &owner,
+                        &b.verifier.profile_assistant_name(&person_id),
+                    )
+                } else {
+                    a.name
+                };
                 out.push(BoardAgent {
+                    assistant,
                     person: people.get(&person_id).cloned().unwrap_or_default(),
                     person_color: b.verifier.profile_color(&person_id),
                     avatar: checked_face(face_of.get(&a.key).map(String::as_str).unwrap_or("")),
                     person_avatar: b.verifier.profile_avatar(&person_id),
                     key: a.key,
-                    name: a.name,
+                    name,
                     status: a.status,
                     board_id: b.id.clone(),
                     person_id,

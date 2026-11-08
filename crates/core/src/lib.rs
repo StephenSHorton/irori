@@ -55,6 +55,7 @@ pub mod meshview;
 pub mod namer;
 pub mod notice;
 pub mod offline;
+pub mod prcard;
 pub mod prefetch;
 pub mod prwatch;
 mod publicrelays;
@@ -66,6 +67,7 @@ pub mod usage;
 
 pub use crate::members::Member;
 pub use crate::meshnode::BoardParts;
+pub use crate::service::assistant_answers;
 pub use crate::service::boards::{
     BOARDS_DIR, BoardAgent, BoardIdentity, BoardInfo, BoardMember, BoardSummary,
     Error as BoardError, SPACES_DIR, SharePreview, SharedCopy, SubtaskPreview, SummaryMember,

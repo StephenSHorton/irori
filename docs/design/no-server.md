@@ -98,6 +98,8 @@ Carrying meaning in old rows suits these two changes, but it isn't a rule to kee
 
 It only helps from the release that ships it, so it can't serve moves and deletes on its own. It also stops new kinds starving other writers (§2).
 
+What needs a gate, then: an extra optional field on a kind devices already know needs none, because decoders drop fields they don't know (§3.1). A new `task.*` or `space.*` kind is written to a shared space only once every member device is at `tolerant >= 1`: gate it on `board_rows_not_ready` (`BOARD_ROWS_TOLERANT`), not on `space_not_ready`, which is the older gate for the space's own rows. A new `talk.*` or `call.*` kind needs level 2, below.
+
 Built on #579: `kinds::board_tolerated`, `BoardRules::check_pulled`, and the hello's `tolerant`, level `TOLERANT_PROTOCOL`. `no_tolerated_family_kind_becomes_refused` pins the rule that a stored kind never becomes `Refuses`.
 
 **`tolerant` 2 (#652), ahead of calls (#571).** The families are `kinds::TOLERATED_FAMILIES`. Level 2 adds `talk.*` and `call.*`: content, not membership, so skipping one fails safe. The pin test lists `talk.read` as the one refused kind of the new families; every Irori that writes it already names it. A device stores an unknown `call.*` row only from level 2, so calls write `call.*` rows to a space only when `Core::space_tolerance` is ready: every other member device's latest word (§5) says `tolerant >= 2` (`CALLS_TOLERANT`). Unlike the space gate, a device nobody has heard counts against it, because calls have a fallback (a `talk.post` marker or a file, `docs/research/08-voice-calls/irori-fit.md` §2). Ship it a release or more before calls.

@@ -118,6 +118,7 @@ pub use resource::{
 pub use review::{
     NOTICE_REVIEW, REVIEW_REQUESTED, Review, ReviewRequest, VERDICT_APPROVED, VERDICT_CHANGES,
 };
+pub use rows::PrReview;
 pub use runs::RunTally;
 pub use short::{parse_ref, parse_short, short_suffix};
 pub use threads::{

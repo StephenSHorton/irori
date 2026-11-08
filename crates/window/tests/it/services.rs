@@ -1811,3 +1811,58 @@ fn undo_irori_naming_a_thread() {
     r.w.assistant_names_set(false).unwrap();
     assert!(!r.w.assistant_names());
 }
+
+// Card #999: the chat's own files show in the window through its index,
+// are never offered to the mesh, and no file merely in the store does.
+#[test]
+fn the_chats_files_show_but_the_store_alone_does_not_lend() {
+    use base64::Engine as _;
+    let r = Rig::new();
+    let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR-chat";
+    let up = |name: &str, body: &[u8]| irori_window::board::UploadFile {
+        name: name.into(),
+        data: base64::engine::general_purpose::STANDARD.encode(body),
+    };
+    let got =
+        r.w.assistant_attach(&[up("shot.png", png), up("report.docx", b"PK\x03\x04rest")])
+            .unwrap();
+    assert_eq!(got.len(), 2);
+    assert!(got[0].can_read);
+    assert!(!got[1].can_read, "a docx is never read");
+    assert_eq!(got[0].name, "shot.png");
+    assert_eq!(got[0].device, r.w.core.device_id());
+
+    let info = r.w.attachment_info(&got[0].sha256).unwrap();
+    assert_eq!(info.name, "shot.png");
+    assert!(info.here);
+    r.w.attachment_fetch(&got[0].sha256).unwrap();
+    let resp = r.w.serve_attachment(&irori_window::attachments::Request {
+        method: "GET".into(),
+        path: format!("{}{}", irori_window::attachments::ROUTE, got[0].sha256),
+        ..Default::default()
+    });
+    assert_eq!(resp.status, 200);
+    assert_eq!(resp.get("Content-Type"), Some("image/png"));
+    assert_eq!(resp.body, png);
+
+    // Nothing was offered.
+    let rows = r.w.core.store().list(&store::Filter {
+        kinds: vec![store::kinds::ATTACH_OFFERED.into()],
+        ..store::Filter::default()
+    });
+    let offered = rows
+        .unwrap()
+        .iter()
+        .any(|e| String::from_utf8_lossy(&e.payload).contains(&got[0].sha256));
+    assert!(!offered, "a chat file is not offered");
+
+    // A file merely in the store is not the chat's to show.
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path().join("other.txt");
+    std::fs::write(&p, b"someone else's").unwrap();
+    let other = r.w.core.files().put_file(&p.to_string_lossy()).unwrap();
+    assert_eq!(
+        r.w.attachment_info(&other.sha256).unwrap_err(),
+        irori_window::attachments::NO_ATTACHMENT
+    );
+}

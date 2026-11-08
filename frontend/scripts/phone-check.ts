@@ -132,6 +132,8 @@ const PAGES: Array<[name: string, query: string]> = [
   ["assistant-draft", "?assistant=draft"],
   ["assistant-follow", "?assistant=follow"],
   ["assistant-go", "?assistant=go"],
+  // Card #999: files in the chat, in the narrow bubbles.
+  ["assistant-files", "?assistant=files"],
   ["assistant-call", "?call=live#talk"],
 ]
 

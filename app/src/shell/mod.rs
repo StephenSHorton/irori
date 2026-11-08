@@ -543,6 +543,15 @@ fn start_core(
                 None => Err("Irori is closing".into()),
             },
         )));
+        // And answers other people's questions to the person's Office
+        // Assistant (assistants talk, card 4), on a runner of its own.
+        let w = Arc::downgrade(&window);
+        core.set_answerer(Some(Arc::new(
+            move |a: &irori_core::thread_names::NameAsk| match w.upgrade() {
+                Some(w) => w.answer_question(a),
+                None => Err("Irori is closing".into()),
+            },
+        )));
         // And holds a huddle's assistant session (card #1046): one
         // `claude -p` per huddle, kept up between looks.
         core.set_huddle_runner(Some(window.huddle_runner()));
@@ -716,7 +725,13 @@ fn main_window(app: &AppHandle, startup: bool) -> tauri::Result<()> {
     #[cfg(desktop)]
     let b = {
         let (w, h) = shot::window_size().unwrap_or((1100.0, 720.0));
-        b.inner_size(w, h).center().visible(!startup)
+        // Tauri's handler takes a file dropped from the OS for its own
+        // events and the page's drop never fires; the boxes that take
+        // files read the page's (#999).
+        b.inner_size(w, h)
+            .center()
+            .visible(!startup)
+            .disable_drag_drop_handler()
     };
     #[cfg(mobile)]
     let _ = startup;

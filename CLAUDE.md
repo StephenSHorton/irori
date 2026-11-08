@@ -6,8 +6,18 @@ that has the details; read that rather than guessing.
 
 ## Checks
 
-- `sh scripts/check.sh` is the check before every merge or push (there is no
-  CI). What it runs: [docs/architecture.md](docs/architecture.md) §7.1.
+- `sh scripts/check.sh` is the full check (there is no CI). What it runs:
+  [docs/architecture.md](docs/architecture.md) §7.1. Where it runs depends on
+  the machine:
+  - **Mac:** run it before every merge or push.
+  - **PC (Windows): never for a card's merge.** It takes the whole machine,
+    and the person works on the PC. Before merging, run only the checks for
+    what you changed: `cargo test -p irori-<crate>` (plus `cargo clippy -p
+    irori-<crate>`) for each crate you touched, and the frontend's tests,
+    typecheck and lint for a frontend change. For a full check, ask a Mac
+    agent to run check.sh on your branch. check.sh runs on the PC only once,
+    when many cards have merged and a release is being prepared
+    ([docs/releasing.md](docs/releasing.md) step 1).
 - Other agents run check.sh on the same machine. Stop your own run with
   `sh scripts/check-stop.sh` from your worktree: it stops that run's whole
   tree and gives its check slot back. Never `pkill -f check.sh` (or any

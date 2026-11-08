@@ -192,6 +192,10 @@ pub struct Window {
     names: assistant::Runner,
     weighs: assistant::Runner,
     rewrites: assistant::Runner,
+    /// The turns that answer other people's questions to the person's
+    /// assistant (assistants talk, card 4): their own runner, so a peer
+    /// never takes a slot from the person's chat.
+    answers: assistant::Runner,
     /// The held huddle sessions (card #1046), apart from the chat's runs.
     huddles: Arc<assistant::HeldRunner>,
 }
@@ -219,6 +223,7 @@ impl Window {
             names: assistant::Runner::new(),
             weighs: assistant::Runner::new(),
             rewrites: assistant::Runner::new(),
+            answers: assistant::Runner::new(),
             huddles,
         }
     }
