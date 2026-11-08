@@ -123,12 +123,20 @@ pub fn permission_prompt(
         .w_full()
         .min_w(0.0)
         .gap(6.0);
+    // The tool in medium weight, as React's <span className="font-medium">.
+    let line = prompt_line(&name, &tool, open, !p.input.is_empty());
+    let lead = format!("{name} is stopped on a permission prompt to use ");
+    let spans = if open && !tool.is_empty() && line.starts_with(&lead) {
+        vec![rune::Span::new(lead.len(), lead.len() + tool.len()).weight(500.0)]
+    } else {
+        Vec::new()
+    };
     c = c.child(
-        text(prompt_line(&name, &tool, open, !p.input.is_empty()))
+        rune::rich(line, spans)
             .font(k.ty.ui)
             .color(k.c.text_base)
             .w_full()
-            .wrap(),
+            .wrap_anywhere(),
     );
     if !p.input.is_empty() {
         c = c.child(
@@ -136,6 +144,9 @@ pub fn permission_prompt(
                 .key(format!("{key}/perm-{}/input", b.id))
                 .w_full()
                 .min_w(0.0)
+                // React's max-h-24 / max-h-48 with overflow-auto.
+                .max_h(if compact { 96.0 } else { 192.0 })
+                .min_h(0.0)
                 .px(8.0)
                 .py(6.0)
                 .radius(k.radius.md)
@@ -146,13 +157,15 @@ pub fn permission_prompt(
                 } else {
                     format!("The {tool} input waiting")
                 })
+                .scroll(rune::ScrollSpec {
+                    stick_bottom: false,
+                })
                 .child(
                     text(p.input.clone())
                         .font(k.ty.mono)
                         .color(k.c.text_base)
                         .w_full()
                         .wrap_anywhere()
-                        .max_lines(if compact { 6 } else { 12 })
                         .selectable(true),
                 ),
         );
@@ -247,15 +260,18 @@ pub fn permission_prompt(
         && !p.rule.is_empty()
         && picks.iter().any(|(a, _)| *a == ALWAYS_ALLOW)
     {
+        // The rule in mono, as React's <code>.
+        let rule = plain_line(&p.rule);
+        let head = "Always allow also adds ";
         c = c.child(
-            text(format!(
-                "Always allow also adds {} to the board's allow list (Settings › Agents).",
-                plain_line(&p.rule)
-            ))
+            rune::rich(
+                format!("{head}{rule} to the board's allow list (Settings › Agents)."),
+                vec![rune::Span::new(head.len(), head.len() + rule.len()).mono()],
+            )
             .font(k.ty.text_xsmall)
             .color(k.c.text_muted)
             .w_full()
-            .wrap(),
+            .wrap_anywhere(),
         );
     }
     Some(c)

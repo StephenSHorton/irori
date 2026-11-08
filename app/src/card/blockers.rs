@@ -52,8 +52,6 @@ pub struct BlockerUi {
     pub error: Option<String>,
     pub told: Option<SentLine>,
     pub missed: String,
-    /// A permission prompt's pick, as it says what happens (card #682).
-    pub said: String,
 }
 
 /// An answer's start, quoted on one line (card #265).
