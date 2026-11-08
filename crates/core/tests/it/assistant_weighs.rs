@@ -104,13 +104,11 @@ impl Setup {
         let (asked_tx, asked_rx) = mpsc::channel();
         let (go_tx, go_rx) = mpsc::channel::<()>();
         let (asked_tx, go_rx) = (Mutex::new(asked_tx), Mutex::new(go_rx));
-        self.r
-            .core
-            .set_weigher(Some(Arc::new(move |_: &NameAsk| {
-                let _ = asked_tx.lock().unwrap().send(());
-                let _ = go_rx.lock().unwrap().recv_timeout(Duration::from_secs(60));
-                Ok(reply.to_string())
-            })));
+        self.r.core.set_weigher(Some(Arc::new(move |_: &NameAsk| {
+            let _ = asked_tx.lock().unwrap().send(());
+            let _ = go_rx.lock().unwrap().recv_timeout(Duration::from_secs(60));
+            Ok(reply.to_string())
+        })));
         (asked_rx, go_tx)
     }
 
@@ -188,7 +186,7 @@ impl Setup {
 #[test]
 fn a_new_card_gets_a_weight_and_reason_as_irori() {
     let s = Setup::new();
-    s.weigher("heavy\nDeciding how to split the import.");
+    s.weigher("Deciding how to split the import.\nheavy");
     assert!(s.r.core.weighs_on(), "on unless the person turns it off");
     let t = s.card("Plan the import");
     wait_for(10, "the card weighed", || s.weight(&t.id).is_some());
@@ -212,7 +210,7 @@ fn a_new_card_gets_a_weight_and_reason_as_irori() {
 #[test]
 fn its_agent_waits_for_the_weight_then_starts_on_it() {
     let s = Setup::new();
-    let (asked, go) = s.slow_weigher("heavy\nA design call.");
+    let (asked, go) = s.slow_weigher("A design call.\nheavy");
     s.install_spawner();
     let t = s.card("Design the sync");
     asked.recv_timeout(Duration::from_secs(30)).unwrap();
@@ -246,7 +244,7 @@ fn an_answer_that_is_no_weight_lets_the_card_run() {
 #[test]
 fn a_slow_turn_never_holds_the_card_past_the_limit() {
     let s = Setup::new();
-    let (asked, _go) = s.slow_weigher("heavy\nToo late.");
+    let (asked, _go) = s.slow_weigher("Too late.\nheavy");
     s.install_spawner();
     let _t = s.card("Fix the login");
     asked.recv_timeout(Duration::from_secs(30)).unwrap();
@@ -259,7 +257,7 @@ fn a_slow_turn_never_holds_the_card_past_the_limit() {
 #[test]
 fn turned_off_it_neither_weighs_nor_holds_and_a_held_card_goes() {
     let s = Setup::new();
-    let (asked, _go) = s.slow_weigher("heavy\nA design call.");
+    let (asked, _go) = s.slow_weigher("A design call.\nheavy");
     s.install_spawner();
     let held = s.card("Design the sync");
     asked.recv_timeout(Duration::from_secs(30)).unwrap();
@@ -270,7 +268,7 @@ fn turned_off_it_neither_weighs_nor_holds_and_a_held_card_goes() {
     let _ = held;
 
     let s = Setup::new();
-    s.weigher("heavy\nA design call.");
+    s.weigher("A design call.\nheavy");
     s.r.core.set_weighs_on(false).unwrap();
     s.install_spawner();
     let t = s.card("Design the sync");
@@ -290,7 +288,7 @@ fn no_weigher_means_no_hold() {
 #[test]
 fn a_weight_the_person_set_is_left_alone() {
     let s = Setup::new();
-    s.weigher("heavy\nA design call.");
+    s.weigher("A design call.\nheavy");
     let t = s.make(
         &s.person,
         NewTask {
@@ -309,7 +307,7 @@ fn a_weight_the_person_set_is_left_alone() {
 #[test]
 fn a_weight_the_person_sets_during_the_turn_wins() {
     let s = Setup::new();
-    let (asked, go) = s.slow_weigher("heavy\nA design call.");
+    let (asked, go) = s.slow_weigher("A design call.\nheavy");
     let t = s.card("Design the sync");
     asked.recv_timeout(Duration::from_secs(30)).unwrap();
     let co = s.r.core.coord();
@@ -317,14 +315,21 @@ fn a_weight_the_person_sets_during_the_turn_wins() {
     go.send(()).unwrap();
     std::thread::sleep(Duration::from_millis(800));
     let w = s.weight(&t.id).unwrap();
-    assert_eq!((w.level.as_str(), w.set_by.as_str()), ("light", coord::SET_BY_PERSON));
-    assert!(s.lines(&t.id).iter().all(|(_, w)| !w.starts_with("weighed it")));
+    assert_eq!(
+        (w.level.as_str(), w.set_by.as_str()),
+        ("light", coord::SET_BY_PERSON)
+    );
+    assert!(
+        s.lines(&t.id)
+            .iter()
+            .all(|(_, w)| !w.starts_with("weighed it"))
+    );
 }
 
 #[test]
 fn it_may_change_an_agents_hint_and_says_why() {
     let s = Setup::new();
-    s.weigher("heavy\nThe cause is unknown, so this needs real digging.");
+    s.weigher("The cause is unknown, so this needs real digging.\nheavy");
     let t = s.make(
         &s.r.key_a,
         NewTask {
@@ -341,7 +346,11 @@ fn it_may_change_an_agents_hint_and_says_why() {
     let w = s.weight(&t.id).unwrap();
     assert_eq!((w.level.as_str(), w.was_level.as_str()), ("heavy", "light"));
     assert_eq!(w.was_reason, "looks small");
-    assert!(s.asked.lock().unwrap()[0].prompt.contains("<hint>looks small</hint>"));
+    assert!(
+        s.asked.lock().unwrap()[0]
+            .prompt
+            .contains("<hint>looks small</hint>")
+    );
     assert!(
         s.lines(&t.id).iter().any(|(_, what)| what
             == "changed the weight from light to heavy: The cause is unknown, so this needs real digging."),
@@ -353,7 +362,7 @@ fn it_may_change_an_agents_hint_and_says_why() {
 #[test]
 fn undo_clears_it_and_irori_does_not_weigh_it_again() {
     let s = Setup::new();
-    s.weigher("heavy\nA design call.");
+    s.weigher("A design call.\nheavy");
     let t = s.card("Design the sync");
     wait_for(10, "the card weighed", || s.weight(&t.id).is_some());
     // What the window's Undo writes.
@@ -376,21 +385,20 @@ fn undo_clears_it_and_irori_does_not_weigh_it_again() {
 #[test]
 fn a_thread_is_not_weighed() {
     let s = Setup::new();
-    s.weigher("heavy\nA design call.");
-    let (t, _) = s
-        .r
-        .core
-        .coord()
-        .post_ask(
-            &s.person,
-            coord::NewAsk {
-                text: "the login page is broken".into(),
-                thread: true,
-                ..coord::NewAsk::default()
-            },
-            &s.r.core.ask_agents(),
-        )
-        .unwrap();
+    s.weigher("A design call.\nheavy");
+    let (t, _) =
+        s.r.core
+            .coord()
+            .post_ask(
+                &s.person,
+                coord::NewAsk {
+                    text: "the login page is broken".into(),
+                    thread: true,
+                    ..coord::NewAsk::default()
+                },
+                &s.r.core.ask_agents(),
+            )
+            .unwrap();
     std::thread::sleep(Duration::from_millis(800));
     assert_eq!(s.weight(&t.id), None);
     assert!(s.asked.lock().unwrap().is_empty());
