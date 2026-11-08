@@ -1451,6 +1451,7 @@ impl Fold {
                 overlaps: self.overlaps_of(t, &now),
                 stranded: self.stranded_in(t, &rs),
                 gone_waits: self.gone_waits_in(t, &rs),
+                notice_hold: self.ask_notice_hold(t),
                 ..Card::default()
             };
             if let Some(last) = self.by_task.get(&t.id).and_then(|ids| ids.last()) {

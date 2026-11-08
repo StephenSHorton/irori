@@ -1019,6 +1019,10 @@ pub struct Card {
     /// Of those, the waits only Needs you shows (card #520): on a gone
     /// agent, or outside waits (not a PR's merge) a gone agent raised.
     pub gone_waits: Vec<super::stranded::Stranded>,
+    /// How much longer the "Nobody took" notice holds off for this ask
+    /// because a computer is taking it (card #995). Not part of the Go
+    /// shape: only the watcher reads it.
+    pub notice_hold: Option<std::time::Duration>,
 }
 
 impl Serialize for Card {

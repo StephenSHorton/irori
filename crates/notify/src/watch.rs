@@ -55,6 +55,11 @@ use crate::{
 /// start of the next: the pace of the window's own Board pump.
 pub const BOARD_EVERY: Duration = Duration::from_millis(250);
 
+/// How often a held "Nobody took" notice is looked at again (card #995).
+/// Which computers have room is no board change, so nothing else says the
+/// room has gone.
+const HOLD_RECHECK: Duration = Duration::from_secs(1);
+
 /// The inbox Watch follows and acts through.
 pub trait InboxFeed: InboxSource + Send + Sync {
     /// The change queue (Go `Subscribe`); dropping or closing it ends it.
@@ -268,6 +273,7 @@ async fn run(
         asks: HashSet::new(),
         unclaimed: HashMap::new(),
         returned: HashMap::new(),
+        recheck: None,
         s,
     };
 
@@ -315,6 +321,7 @@ async fn run(
                 c = recv(iq.as_deref()), if iq.is_some() => Ev::Inbox(c),
                 c = recv(cq.as_deref()), if cq.is_some() => Ev::Board(c),
                 _ = tokio::time::sleep_until(due.unwrap_or(last)), if due.is_some() => Ev::BoardDue,
+                _ = tokio::time::sleep_until(w.recheck.unwrap_or(last)), if w.recheck.is_some() => Ev::BoardDue,
                 c = recv(aq.as_deref()), if aq.is_some() => Ev::Ask(c),
                 Some(p) = prx.recv() => Ev::Press(p),
             }
@@ -465,6 +472,9 @@ struct State {
     unclaimed: HashMap<String, Opening>,
     /// Cards that came back to the person, by the row that returned them.
     returned: HashMap<String, String>,
+    /// When to read the Board again for a notice on hold (card #995). Its
+    /// own timer: `due` being set makes the loop ignore board changes.
+    recheck: Option<Instant>,
 }
 
 /// The Board half of the watcher, also usable without the loop (tests).
@@ -590,8 +600,10 @@ impl State {
             std::mem::take(&mut self.unclaimed),
             std::mem::take(&mut self.returned),
         );
-        self.ctx()
+        let hold = self
+            .ctx()
             .board(&v, post, &mut needs, &mut unclaimed, &mut returned);
+        self.recheck = hold.map(|left| Instant::now() + left.min(HOLD_RECHECK));
         self.needs = needs;
         self.unclaimed = unclaimed;
         self.returned = returned;
@@ -703,7 +715,8 @@ impl Ctx<'_> {
     }
 
     /// Reconciles the Needs you lane with the cards: a task that entered it
-    /// gets a card (when post), one that left has its card cleared.
+    /// gets a card (when post), one that left has its card cleared. Returns
+    /// how soon a notice on hold runs out, if one is.
     fn board(
         &self,
         v: &BoardView,
@@ -711,7 +724,7 @@ impl Ctx<'_> {
         needs: &mut HashSet<String>,
         unclaimed: &mut HashMap<String, Opening>,
         returned: &mut HashMap<String, String>,
-    ) {
+    ) -> Option<Duration> {
         // A card's key is its id, plus its done check while that is all it
         // waits on (card #140): new proof, or the last other question
         // closing, changes the key and posts the card again in place.
@@ -743,10 +756,13 @@ impl Ctx<'_> {
                 self.n.clear(&needs_id(id));
             }
         }
-        if self.room.is_some() {
-            self.unclaimed_asks(v, post, unclaimed);
-        }
+        let hold = if self.room.is_some() {
+            self.unclaimed_asks(v, post, unclaimed)
+        } else {
+            None
+        };
         self.returned_cards(v, post, returned);
+        hold
     }
 
     /// The open lanes these cards watch. Not yet cards (card #570, the
@@ -848,26 +864,40 @@ impl Ctx<'_> {
     }
 
     /// A card for each open ask nobody took, cleared once it is taken or
-    /// closed.
-    fn unclaimed_asks(&self, v: &BoardView, post: bool, unclaimed: &mut HashMap<String, Opening>) {
+    /// closed. Not yet while a computer is taking it (card #995); returns
+    /// how soon the first such hold runs out.
+    fn unclaimed_asks(
+        &self,
+        v: &BoardView,
+        post: bool,
+        unclaimed: &mut HashMap<String, Opening>,
+    ) -> Option<Duration> {
         let mut now = HashSet::new();
+        let mut hold: Option<Duration> = None;
         for c in Self::lanes(v) {
             let Some(a) = &c.task.ask else { continue };
             // Irori is starting its agent (card #470): nobody to wake.
             if !a.is_open() || !a.unclaimed || !a.taker.is_empty() || c.task.spawn_pending() {
                 continue;
             }
-            now.insert(c.task.id.clone());
             let o = Opening {
                 since: a.since,
                 reason: a.reason.clone(),
             };
+            // A card already up stays: a computer freeing up later doesn't
+            // take it down only to post it again.
             if let Some(was) = unclaimed.get(&c.task.id)
                 && was.since.equal(&o.since)
                 && was.reason == o.reason
             {
+                now.insert(c.task.id.clone());
                 continue;
             }
+            if let Some(left) = c.notice_hold {
+                hold = Some(hold.map_or(left, |h| h.min(left)));
+                continue;
+            }
+            now.insert(c.task.id.clone());
             unclaimed.insert(c.task.id.clone(), o);
             if post {
                 self.n.post(self.unclaimed_note(&c.task));
@@ -882,6 +912,7 @@ impl Ctx<'_> {
             unclaimed.remove(&id);
             self.n.clear(&unclaimed_id(&id));
         }
+        hold
     }
 
     fn unclaimed_note(&self, t: &Task) -> Note {

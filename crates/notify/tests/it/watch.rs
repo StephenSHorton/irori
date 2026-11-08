@@ -4,14 +4,14 @@
 
 use crate::common;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::time::{Duration, Instant, SystemTime};
 
 use common::*;
 use coord::roster::{AgentCard as CoordCard, Agents};
-use coord::{BoardView, Card, Coord, NewAsk, NewTask, Returned, Task};
+use coord::{AgentDevices, BoardView, Card, Coord, NewAsk, NewTask, Returned, Task};
 use gocompat::time::GoTime;
 use inbox::{Address, Inbox, Policy, Sender, addr, policy_mode, st};
 use notify::watch::BoardCards;
@@ -1001,6 +1001,156 @@ fn watch_unclaimed_ask() {
     r.co.ask_claim(KEY_A, &ask.id, Duration::from_secs(1))
         .unwrap();
     r.fake.wait_gone(&id);
+}
+
+/// dev1 is full and dev2 has room, or `full` says otherwise (card #995).
+fn room_rig(full: &[&str], hold: Duration) -> (Rig, Arc<RwLock<AgentDevices>>) {
+    let devs = Arc::new(RwLock::new(AgentDevices {
+        homes: vec!["dev1".into(), "dev2".into()],
+        moves: HashSet::from(["dev1".to_string(), "dev2".to_string()]),
+        full: full.iter().map(|d| d.to_string()).collect(),
+        ..AgentDevices::default()
+    }));
+    let d = devs.clone();
+    let r = rig_with(
+        None,
+        coord::Options {
+            spawning: Some(Arc::new(|| true)),
+            agent_devices: Some(Arc::new(move || d.read().unwrap().clone())),
+            ask_room_hold: hold,
+            ..Default::default()
+        },
+    );
+    (r, devs)
+}
+
+fn post_thread(r: &Rig) -> Task {
+    r.co.post_ask(
+        USER,
+        NewAsk {
+            text: "anyone?".into(),
+            ..NewAsk::default()
+        },
+        &[],
+    )
+    .unwrap()
+    .0
+}
+
+/// A row dev2 wrote, arriving here on its own, as sync brings it.
+fn from_dev2<P: serde::Serialize>(r: &Rig, seq: i64, kind: &str, row: &P) {
+    let ev = store::Event {
+        device_id: "dev2".into(),
+        seq,
+        hlc: hlc::Clock::new().now(),
+        actor: "irori:sweeper".into(),
+        kind: kind.into(),
+        payload: gocompat::json::marshal(row).unwrap(),
+        sig: Vec::new(),
+    };
+    r.st.insert(&ev).unwrap();
+    r.co.handle(&ev).unwrap();
+}
+
+fn now() -> GoTime {
+    GoTime::from_system(SystemTime::now()).utc()
+}
+
+/// Card #995: owner full, another computer with room: no card through the
+/// move, the request, the bind and the taken row, each arriving alone.
+#[test]
+fn watch_unclaimed_ask_quiet_while_a_computer_takes_it() {
+    const KEY: &str = "dev2/cccccccc-3333-4333-8333-333333333333";
+    let (r, _devs) = room_rig(&["dev1"], Duration::from_secs(60));
+    let ask = post_thread(&r);
+    let id = ask.id.clone();
+    assert!(r.co.get_task(&id).unwrap().ask.unwrap().unclaimed);
+    r.fake.no_post(QUIET);
+
+    // Moved: the owner has room, so nothing says "full" any more, and no
+    // request is written yet.
+    let moved = coord::rows::AskMovedRow {
+        task_id: id.clone(),
+        owner: "dev2".into(),
+        moves: 1,
+        at: now(),
+    };
+    from_dev2(&r, 1, store::kinds::ASK_MOVED, &moved);
+    assert_eq!(r.co.get_task(&id).unwrap().ask.unwrap().owner, "dev2");
+    r.fake.no_post(QUIET);
+
+    let request = coord::rows::TaskSpawnRow {
+        task_id: id.clone(),
+        generation: 1,
+        op: coord::SPAWN_REQUESTED.into(),
+        device: "dev2".into(),
+        permission_mode: "default".into(),
+        by: "irori:sweeper".into(),
+        at: now(),
+        ..Default::default()
+    };
+    from_dev2(&r, 2, store::kinds::TASK_SPAWN, &request);
+    r.fake.no_post(QUIET);
+
+    // Bound, and the row that says it took the ask is still on its way.
+    let bound = coord::rows::TaskSpawnedRow {
+        task_id: id.clone(),
+        key: KEY.into(),
+        generation: 1,
+        device: "dev2".into(),
+        by: "irori:sweeper".into(),
+        at: now(),
+        ..Default::default()
+    };
+    from_dev2(&r, 3, store::kinds::TASK_SPAWNED, &bound);
+    let got = r.co.get_task(&id).unwrap();
+    assert!(!got.spawn_pending() && got.ask.unwrap().taker.is_empty());
+    r.fake.no_post(QUIET);
+
+    let taken = coord::rows::TakeStateRow {
+        task_id: id.clone(),
+        taker: KEY.into(),
+        reason: coord::TAKE_TAKEN.into(),
+        told: 1,
+        heard: vec![KEY.into()],
+        since: now(),
+        ..Default::default()
+    };
+    from_dev2(&r, 4, store::kinds::TAKE_STATE, &taken);
+    assert_eq!(r.co.get_task(&id).unwrap().ask.unwrap().taker, KEY);
+    r.fake.no_post(QUIET);
+}
+
+/// Card #995: every computer full: the card comes as it always did.
+#[test]
+fn watch_unclaimed_ask_every_computer_full() {
+    let (r, _devs) = room_rig(&["dev1", "dev2"], Duration::from_secs(60));
+    let ask = post_thread(&r);
+    r.fake.wait_post(&unclaimed_id(&ask.id));
+}
+
+/// Card #995: a computer looked free and never took it: the card comes when
+/// the hold runs out, once.
+#[test]
+fn watch_unclaimed_ask_held_but_never_taken() {
+    let (r, _devs) = room_rig(&["dev1"], Duration::from_millis(1500));
+    let ask = post_thread(&r);
+    let id = unclaimed_id(&ask.id);
+    r.fake.no_post(QUIET);
+    r.fake.wait_post(&id);
+    assert!(r.fake.card(&id).title.contains("Nobody took"));
+    r.fake.no_post(QUIET);
+}
+
+/// Card #995: the room going away is no board change, and the card still
+/// comes long before the hold would run out.
+#[test]
+fn watch_unclaimed_ask_room_goes_away() {
+    let (r, devs) = room_rig(&["dev1"], Duration::from_secs(60));
+    let ask = post_thread(&r);
+    r.fake.no_post(QUIET);
+    devs.write().unwrap().full.insert("dev2".into());
+    r.fake.wait_post(&unclaimed_id(&ask.id));
 }
 
 #[test]
