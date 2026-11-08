@@ -12,7 +12,7 @@ import type { AgentStartsView } from "@/lib/agents"
 export const AGENT_STARTS_TITLE = "My agents may start agents on my cards"
 
 export const AGENT_STARTS_HINT =
-  "Lets an agent start, list and end agents on your cards, by the same rules as your Start. Whatever those agents go on to start counts too. Agents can't change this."
+  "Across all your computers. Lets an agent start, list and end agents on your cards. It can't move a card that waits on someone, pass a crash stop, or say yes to a card given to you. Whatever those agents go on to start counts too. Agents can't change this."
 
 export function AgentStartsControls({
   starts: s,

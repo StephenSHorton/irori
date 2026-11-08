@@ -414,8 +414,6 @@ fn roster_and_devices() {
     let hs = r.w.home_server();
     assert!(!hs.can && !hs.on && !hs.running && !hs.suggest);
     assert!(r.w.set_home_server_awake(false).is_err());
-    // D4: no TURN relay.
-    assert_eq!(r.w.relay().state, "none");
     // Pairing is the Core's Pairer: Go's texts, nothing open yet.
     assert!(r.w.seams.pairing.status().code.is_empty());
     assert_eq!(

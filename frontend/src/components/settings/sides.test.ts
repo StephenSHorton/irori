@@ -22,7 +22,7 @@ describe("card #494: sides", () => {
   })
   test("a pin names its sides and where new cards go", () => {
     expect(sidesLine(["Work"])).toBe(
-      "This device runs Work, and cards with no side. New cards typed here go on Work. Every device still shows every card."
+      "This device runs Work, and cards with no side. New cards typed here go on Work. Cards in shared spaces have no side. Every device still shows every card."
     )
     expect(sidesLine(["Personal", "Garden", "Work"])).toContain(
       "runs Personal, Garden and Work"

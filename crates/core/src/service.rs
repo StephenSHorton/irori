@@ -492,6 +492,12 @@ impl tools::Backend for ToolsView {
     fn agent_end(&self, caller: &str, key: &str) -> Result<String, String> {
         self.0.agent_end(caller, key)
     }
+    fn thread_agent_check(&self, caller: &str) -> Result<(), String> {
+        self.0.thread_agent_check(caller)
+    }
+    fn thread_new_agent(&self, caller: &str, task_id: &str, watch: bool) -> Result<String, String> {
+        self.0.thread_new_agent(caller, task_id, watch)
+    }
     fn agents_pause(&self, caller: &str, on: bool) -> Result<String, String> {
         self.0.agent_set_paused(caller, on)
     }
@@ -2500,10 +2506,16 @@ impl Core {
     /// checked, merged into the kept reading and saved. Every reading taken
     /// is `usage:changed`, so the window's "as of" moves too; one with no
     /// window left after the checks changes nothing and is no event. `Err`
-    /// is why the reading was refused.
-    pub fn record_usage_limits(&self, input: &[crate::usage::RateLimit]) -> Result<(), String> {
+    /// is why the reading was refused. `account` is the Claude account the
+    /// session is signed in as, when the mod could tell (card #1040): a
+    /// different one replaces the kept windows.
+    pub fn record_usage_limits(
+        &self,
+        input: &[crate::usage::RateLimit],
+        account: Option<&str>,
+    ) -> Result<(), String> {
         let now = (self.s.now)().unix_milli_value();
-        if self.s.usage.record(input, now)? {
+        if self.s.usage.record(input, account, now)? {
             self.s.hub.publish(CoreEvent::Usage);
         }
         Ok(())
