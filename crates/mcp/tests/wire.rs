@@ -49,6 +49,12 @@ fn replay(w: &Wire, run: &Value, core: Option<&FakeCore>, fixes: &mut Vec<Fix>) 
         let tools_list = st["send"]
             .as_str()
             .is_some_and(|s| s.contains(r#""method":"tools/list""#));
+        // The initialize answer carries the instructions, which a blessed
+        // build rewrites too.
+        let tools_list = tools_list
+            || st["send"]
+                .as_str()
+                .is_some_and(|s| s.contains(r#""method":"initialize""#));
         for (li, line) in want.into_iter().enumerate() {
             let got = w.recv();
             if canon(&got) != canon(line) && bless() && tools_list {
@@ -220,7 +226,7 @@ fn join_stream_push_and_dedupe() {
 fn not_running_then_old_core_fallback() {
     let w = Wire::start(quick(None));
     w.init();
-    assert_eq!(w.srv.registered().len(), 61);
+    assert_eq!(w.srv.registered().len(), 62);
     let (out, err) = w.call(1, "irori_board", "{}", None);
     assert_eq!((out.as_str(), err), (mcp::NOT_RUNNING_TEXT, false));
     // A v0.1 Core with no tool list: the built-in copy.

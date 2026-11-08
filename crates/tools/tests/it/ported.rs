@@ -447,6 +447,7 @@ fn test_specs() {
         "leases",
         "device_free",
         "release",
+        "review_claim",
         "timeline",
         "why",
         "commits",

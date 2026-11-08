@@ -2,7 +2,7 @@
 //! exported by tools/goldens/export.sh from inbox_golden_test.go, run in
 //! I:internal/inbox at the port base).
 //!
-//! - fence.json: fence() and batch() byte for byte;
+//! - fence.json: fence(, true) and batch(, true) byte for byte;
 //! - scenarios.json, replay: Go's rows folded by a Rust inbox give Go's
 //!   List/Open/HeldHistory/Policy JSON byte for byte;
 //! - scenarios.json, live: the same scripts run on a Rust inbox write the
@@ -99,6 +99,7 @@ fn fence_matches_go() {
             c["reminder"].as_bool().unwrap(),
             &msgs,
             &strs(&c["overflow"]),
+            true,
         );
         assert_eq!(got, s(&c["prompt"]), "{}", s(&c["name"]));
     }
@@ -120,7 +121,7 @@ fn fence_matches_go() {
                 ..Delivery::default()
             })
             .collect();
-        let (full, overflow, prompt) = batch("[irori-wake:wake_01B]", false, &msgs);
+        let (full, overflow, prompt) = batch("[irori-wake:wake_01B]", false, &msgs, true);
         assert_eq!(
             full.len() as u64,
             b["full"].as_u64().unwrap(),

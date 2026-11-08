@@ -54,6 +54,7 @@ mod own_review_test;
 mod parts_test;
 mod placed_test;
 mod pr_card_test;
+mod pr_claim_test;
 mod pr_wait_test;
 mod presence_test;
 mod prstate_test;
