@@ -1301,10 +1301,12 @@ impl Services {
         let mut made: Vec<(String, Task)> = Vec::new();
         for f in &p.subtasks {
             let from = self.coord.get_task(&f.task_id).unwrap_or_default();
-            match b
-                .coord()
-                .create_task(&actor, new_card(f, &from, &shared.id))
-            {
+            let card = coord::NewTask {
+                // A subtask the person named keeps that too (card #779).
+                title_by_person: from.title_by_person && f.title == from.title,
+                ..new_card(f, &from, &shared.id)
+            };
+            match b.coord().create_task(&actor, card) {
                 Ok(k) => {
                     self.boards
                         .inner

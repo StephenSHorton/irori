@@ -2742,7 +2742,7 @@ impl Fold {
     pub(crate) fn check_person_title(&self, by: &str, t: &Task, title: &str) -> Result<()> {
         if t.title_by_person && !self.is_person(by) && !title.is_empty() && title != t.title {
             return Err(not_allowed(format!(
-                "the person named {} “{}” themselves: leave its title out (an agent doesn't rename it); they can rename it on its page",
+                "the person named {} “{}” themselves: leave its title out, or give it as it is (an agent doesn't rename it); they can rename it on its page",
                 t.short_ref(),
                 t.title
             )));

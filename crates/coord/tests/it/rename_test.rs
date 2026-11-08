@@ -185,6 +185,7 @@ fn an_agents_rename_from_another_device_doesnt_land_either() {
     );
     let got = e.c.get_task(&t.id).unwrap();
     assert_eq!(got.title, "Join the lobby", "the name stays");
+    assert_eq!(got.objective, "from afar", "the rest of the row lands");
     let replay = e.reopen().get_task(&t.id).unwrap();
     assert_eq!(replay.title, "Join the lobby");
     assert_eq!(replay.objective, got.objective, "both folds agree");
