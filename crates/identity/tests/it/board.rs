@@ -957,3 +957,62 @@ fn a_profile_with_no_github_login_serializes_as_before() {
     assert_eq!(v["githubLogin"], "you");
     assert_eq!(p.body().person_id, "p");
 }
+
+/// Assistants talk, card 2: member.profile carries the pointer at the
+/// person's Office Assistant card. It folds like the GitHub login, not like
+/// the colour: a profile written without it (an older build of the person's
+/// own, or a rename that forgot it) never clears it, and a later pointer
+/// replaces it. It is outside personSig and omitted when empty.
+#[test]
+fn board_profile_keeps_the_newest_assistant_card() {
+    let mut f = BFold::new();
+    let s = f.person("stephen", "pc");
+    let root = f.cert(&s, 1, "pc", "pc");
+    f.feed(&[&root]);
+    assert_eq!(f.v.profile_assistant_card(&s.pid), "", "no profile yet");
+
+    let mut with = signed_profile(&s, "Stephen", "");
+    with.assistant_card = " card-1 ".into();
+    let p = f.row("pc", "irori", kinds::MEMBER_PROFILE, &with);
+    f.feed(&[&p]);
+    assert_eq!(f.v.profile_assistant_card(&s.pid), "card-1");
+
+    // A rename written without it keeps the pointer; the name counts.
+    let p = f.row(
+        "pc",
+        "irori",
+        kinds::MEMBER_PROFILE,
+        &signed_profile(&s, "Steve", ""),
+    );
+    f.feed(&[&p]);
+    assert_eq!(f.v.profile(&s.pid).as_deref(), Some("Steve"));
+    assert_eq!(f.v.profile_assistant_card(&s.pid), "card-1");
+
+    // An old-shape row, written before the field.
+    let old = signed_profile(&s, "Old build", "");
+    let raw = serde_json::json!({
+        "personId": old.person_id,
+        "name": old.name,
+        "personEpoch": 1,
+        "personSig": old.person_sig,
+    });
+    let p = f.row("pc", "irori", kinds::MEMBER_PROFILE, &raw);
+    f.feed(&[&p]);
+    assert_eq!(f.v.profile(&s.pid).as_deref(), Some("Old build"));
+    assert_eq!(f.v.profile_assistant_card(&s.pid), "card-1");
+
+    // A newer pointer wins.
+    let mut newer = signed_profile(&s, "Stephen", "");
+    newer.assistant_card = "card-2".into();
+    let p = f.row("pc", "irori", kinds::MEMBER_PROFILE, &newer);
+    f.feed(&[&p]);
+    assert_eq!(f.v.profile_assistant_card(&s.pid), "card-2");
+
+    // Outside personSig, and omitted when empty.
+    assert_eq!(newer.body().person_id, s.pid);
+    let v: serde_json::Value = serde_json::from_slice(&to_json(&newer)).unwrap();
+    assert_eq!(v["assistantCard"], "card-2");
+    let v: serde_json::Value =
+        serde_json::from_slice(&to_json(&signed_profile(&s, "x", ""))).unwrap();
+    assert!(v.get("assistantCard").is_none(), "{v}");
+}

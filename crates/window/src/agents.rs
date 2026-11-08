@@ -97,6 +97,11 @@ pub struct AgentsSettings {
     /// A heavy card's: the board's pick, or Opus at no less than high.
     pub heavy_model: String,
     pub heavy_effort: String,
+    /// The office assistant's chat model and effort (card #1014), and the
+    /// models it offers (the efforts are `efforts`).
+    pub assistant_model: String,
+    pub assistant_effort: String,
+    pub assistant_models: Vec<String>,
     /// The idle limit in minutes (card #456, sa-6): how long a spawned
     /// agent waits on an unanswered question before it hands off and goes.
     pub idle_mins: u32,
@@ -192,6 +197,12 @@ pub struct AgentsChange {
     pub heavy_model: Option<String>,
     #[serde(default)]
     pub heavy_effort: Option<String>,
+    /// The office assistant's model and effort (card #1014); the default
+    /// stores nothing.
+    #[serde(default)]
+    pub assistant_model: Option<String>,
+    #[serde(default)]
+    pub assistant_effort: Option<String>,
     #[serde(default)]
     pub idle_mins: Option<u32>,
     #[serde(default)]
@@ -231,6 +242,12 @@ pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
         light_effort: light_effort.into(),
         heavy_model: heavy_model.into(),
         heavy_effort: heavy_effort.into(),
+        assistant_model: s.assistant_model().into(),
+        assistant_effort: s.assistant_effort().into(),
+        assistant_models: spawn::ASSISTANT_MODELS
+            .iter()
+            .map(|m| (*m).into())
+            .collect(),
         idle_mins: (s.idle_limit().as_secs() / 60) as u32,
         idle_choices: IDLE_CHOICES.to_vec(),
         crash_limit: or_default(s.crash_limit, i64::from(coord::MAX_SPAWN_CRASHES)),
@@ -277,6 +294,14 @@ pub(crate) fn apply(mut s: SpawnSetting, c: AgentsChange) -> SpawnSetting {
         let by_itself = if model { m } else { e };
         let v = if v == by_itself { String::new() } else { v };
         *weight_field(&mut s, level, model) = v;
+    }
+    // Stored as "" at the default, so a later default change reaches it.
+    let unless = |v: String, def: &str| if v == def { String::new() } else { v };
+    if let Some(m) = c.assistant_model {
+        s.assistant_model = unless(m, spawn::ASSISTANT_MODEL);
+    }
+    if let Some(e) = c.assistant_effort {
+        s.assistant_effort = unless(e, spawn::ASSISTANT_EFFORT);
     }
     if let Some(m) = c.idle_mins {
         // The default is stored as 0, so a later default change reaches it.
@@ -445,16 +470,11 @@ impl Window {
     /// started; the tokens come from the transcript, so only for an agent on
     /// this device. What isn't known is left empty.
     pub fn agent_usage(&self, key: &str) -> AgentUsage {
-        let co = self.core.coord();
-        let req = co.spawned(key).and_then(|sp| {
-            co.get_task(&sp.task_id).and_then(|t| {
-                t.spawns
-                    .iter()
-                    .find(|s| s.key == key)
-                    .or_else(|| t.spawn_request())
-                    .cloned()
-            })
-        });
+        let req = self
+            .core
+            .coord()
+            .spawned(key)
+            .and_then(|sp| self.spawned_card(key, &sp).1);
         let mut out = AgentUsage {
             model: req.as_ref().map(|r| r.model.clone()).unwrap_or_default(),
             effort: req.as_ref().map(|r| r.effort.clone()).unwrap_or_default(),
@@ -478,8 +498,42 @@ impl Window {
         out
     }
 
+    /// The card spawned agent `key` was started for, and the request that
+    /// started it. A shared space's card lives in that space's log; the mark
+    /// `sp` in the person's own log only names it (card #455), and the space
+    /// binds the request to agent:<cardId>, not to the session, so it is
+    /// found by its part there (card #1070).
+    fn spawned_card(
+        &self,
+        key: &str,
+        sp: &coord::Spawned,
+    ) -> (Option<coord::Task>, Option<coord::Spawn>) {
+        let t = if sp.board.is_empty() {
+            self.core.coord().get_task(&sp.task_id)
+        } else {
+            self.core
+                .board_coord(&sp.board)
+                .ok()
+                .and_then(|b| b.get_task(&sp.task_id))
+        };
+        let req = t.as_ref().and_then(|t| {
+            t.spawns
+                .iter()
+                .find(|s| s.key == key)
+                .or_else(|| {
+                    t.spawns
+                        .iter()
+                        .find(|s| s.step == sp.step && s.subtask == sp.subtask)
+                })
+                .or_else(|| t.spawn_request())
+                .cloned()
+        });
+        (t, req)
+    }
+
     /// Every agent Irori started that is still running, and every card an
-    /// agent is starting for, newest first (card #448).
+    /// agent is starting for, newest first (card #448). A shared space's
+    /// card shows as a Personal one does (card #1070).
     pub fn agents_running(&self) -> Vec<RunningAgent> {
         let p = self.people();
         let co = self.core.coord();
@@ -493,14 +547,8 @@ impl Window {
             let Some(sp) = co.spawned(&a.key) else {
                 continue;
             };
-            let t = co.get_task(&sp.task_id);
-            let req = t.as_ref().and_then(|t| {
-                t.spawns
-                    .iter()
-                    .find(|s| s.key == a.key)
-                    .or_else(|| t.spawn_request())
-                    .cloned()
-            });
+            // A space it can't read now still lists the agent, without its card.
+            let (t, req) = self.spawned_card(&a.key, &sp);
             let dev = if a.device_id.is_empty() {
                 sp.device.clone()
             } else {
@@ -525,28 +573,44 @@ impl Window {
                 started_at: sp.at.unix_milli_value(),
             });
         }
-        for t in co.list_tasks(&coord::TaskFilter {
+        // The person's own log, then each shared space they see, where only
+        // their own cards count: another member's start isn't theirs.
+        let mut logs = vec![(co.clone(), false)];
+        for b in self.core.board_list() {
+            if b.ready
+                && let Ok(bco) = self.core.board_coord(&b.board_id)
+            {
+                logs.push((bco, true));
+            }
+        }
+        let open = coord::TaskFilter {
             open: true,
             ..coord::TaskFilter::default()
-        }) {
-            let Some(r) = t.spawn_request().filter(|r| r.pending()) else {
-                continue;
-            };
-            if cards.contains(&t.id) {
-                continue;
+        };
+        for (lco, shared) in &logs {
+            for t in lco.list_tasks(&open) {
+                if *shared && !lco.mine_to_serve(&t) {
+                    continue;
+                }
+                let Some(r) = t.spawn_request().filter(|r| r.pending()) else {
+                    continue;
+                };
+                if !cards.insert(t.id.clone()) {
+                    continue;
+                }
+                out.push(RunningAgent {
+                    status: "starting".into(),
+                    card_id: t.id.clone(),
+                    card_short: t.short_ref(),
+                    card_title: t.title.clone(),
+                    device: p.where_(&r.device),
+                    here: r.device == me,
+                    model: r.model.clone(),
+                    effort: r.effort.clone(),
+                    started_at: r.at.unix_milli_value(),
+                    ..RunningAgent::default()
+                });
             }
-            out.push(RunningAgent {
-                status: "starting".into(),
-                card_id: t.id.clone(),
-                card_short: t.short_ref(),
-                card_title: t.title.clone(),
-                device: p.where_(&r.device),
-                here: r.device == me,
-                model: r.model.clone(),
-                effort: r.effort.clone(),
-                started_at: r.at.unix_milli_value(),
-                ..RunningAgent::default()
-            });
         }
         out.sort_by_key(|r| std::cmp::Reverse(r.started_at));
         out
@@ -567,6 +631,18 @@ impl Window {
     pub fn agents_starts_set(&self, on: bool, max: u32) -> Result<AgentStartsView, String> {
         self.core.set_agent_starts(on, i64::from(max))?;
         Ok(self.agents_starts())
+    }
+
+    /// "Agents review other people's PRs without asking" (merge-desk
+    /// §12.8): on unless the person turned it off.
+    pub fn agents_reviews(&self) -> bool {
+        self.core.reviews_unasked()
+    }
+
+    /// The person changes it: the app only, never a tool.
+    pub fn agents_reviews_set(&self, on: bool) -> Result<bool, String> {
+        self.core.set_reviews_unasked(on)?;
+        Ok(self.agents_reviews())
     }
 
     /// Pause agents, as the top nav shows it (card #665).

@@ -514,6 +514,14 @@ pub struct Ask {
     /// handed or started for it until its person writes in it.
     #[serde(skip_serializing_if = "omit")]
     pub opener: String,
+    /// The opener gave this thread to a fresh agent Irori starts for it
+    /// (card #1027): it doesn't rest, and is handed to nobody else.
+    #[serde(skip_serializing_if = "omit")]
+    pub fresh: bool,
+    /// The opener gave the thread away (card #1027): the person's replies
+    /// no longer go to it unless it watches.
+    #[serde(skip_serializing_if = "omit")]
+    pub gave: bool,
     /// The Office Assistant posted this thread for the person (card #991):
     /// Irori doesn't name it. Still the person's in every other way.
     #[serde(skip_serializing_if = "omit")]
@@ -632,6 +640,11 @@ pub struct Task {
     /// lands, so the name stays theirs until they change it again.
     #[serde(skip_serializing_if = "omit")]
     pub title_by_person: bool,
+    /// What a PR card is for (merge desk §12.2), set only from a person's
+    /// creation row and never changed by later rows. Read it with
+    /// [`pr_card`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr_card: Option<PrCard>,
     /// How many times Irori's assistant named it (card #782): it names a
     /// new thread once and retitles it at most once more.
     #[serde(skip_serializing_if = "omit")]
@@ -664,6 +677,12 @@ pub struct Task {
     /// The last say on "OK to start an agent on this?", since it was given.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub given_said: Option<GivenSaid>,
+    /// An agent that had read another person's text made or changed this
+    /// card (card #1075), on the private log. Sticky. Its spawn counts as
+    /// quoting others, and waits on the person's "OK to start an agent on
+    /// this?".
+    #[serde(skip_serializing_if = "omit")]
+    pub others: bool,
     /// Agents that own an open step and don't hold the card: they hear it
     /// like a holder until their steps are done (card #86). Derived.
     #[serde(skip_serializing_if = "omit")]
@@ -953,12 +972,33 @@ pub struct NewTask {
     /// The person named it by hand (card #779), on the card it comes
     /// from: a share keeps their name theirs. Only a person's row counts.
     pub title_by_person: bool,
+    /// Makes it a PR card (merge desk §12.2). Only a person can: an agent's
+    /// is refused.
+    pub pr_card: Option<PrCard>,
     /// Its weight from the start (card #964): light, normal or heavy, or
     /// empty for none (normal). Written with the card, so it is weighed
     /// before Irori hands it out.
     pub weight: String,
     /// One line on why it has that weight; an agent must give one.
     pub weight_reason: String,
+}
+
+/// What fixes a PR card (merge desk §12.2): the PR it is for and the PR
+/// author's GitHub login, from its creation row. The repo is the card's
+/// `repo_key`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrCard {
+    /// The PR's URL, as the card links it and `pr.state` names it.
+    pub pr: String,
+    pub author: String,
+}
+
+/// Whether `t` is a PR card: its creation row was a person row of its
+/// creator and carried the PR. A card an agent makes never is, whatever
+/// its text, and no later edit or link changes it.
+pub fn pr_card(t: &Task) -> bool {
+    t.pr_card.is_some()
 }
 
 /// Narrows `list_tasks`; zero values mean any.

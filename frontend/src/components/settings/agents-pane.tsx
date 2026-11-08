@@ -40,6 +40,7 @@ import {
   sentBackRate,
   shortModel,
   runningSince,
+  useAgentReviews,
   useAgentStarts,
   useRunHistory,
   useAgents,
@@ -83,6 +84,7 @@ export function AgentsPane({ open }: { open: boolean }) {
           <div className="grid gap-5">
             <WhenSection open={open} settings={s} set={set} />
             <WeightsSection settings={s} set={set} />
+            <AssistantSection settings={s} set={set} />
           </div>
         ) : (
           <AgentsShape />
@@ -310,6 +312,51 @@ function WeightsSection({
   )
 }
 
+// AssistantSection is the model and effort of the office assistant's chat
+// (card #1014): Sonnet at low until picked. Only the chat: thread names,
+// weighing and Rewrite stay on Haiku. The next question uses the change.
+function AssistantSection({
+  settings: s,
+  set,
+}: {
+  settings: AgentsSettings
+  set: (c: Omit<AgentsChange, "boardId">) => void
+}) {
+  return (
+    <section className="grid gap-2" data-setting="agents.assistant">
+      <h3 className="text-sm font-medium text-ink">Office assistant</h3>
+      <p className="text-[12.5px] text-muted-foreground">
+        What the assistant chat answers with. A change applies to your next
+        question.
+      </p>
+      <div className="grid grid-cols-2 gap-2 rounded-md border border-border px-3 py-2">
+        <ChoiceSelect
+          label="Assistant model"
+          size="sm"
+          value={s.assistantModel}
+          choices={withValue(s.assistantModels, s.assistantModel).map((m) => ({
+            value: m,
+            label: modelLabel(m, "sonnet"),
+          }))}
+          onValueChange={(v) => set({ assistantModel: v })}
+          className="min-w-0 text-[13px]"
+        />
+        <ChoiceSelect
+          label="Assistant effort"
+          size="sm"
+          value={s.assistantEffort}
+          choices={withValue(s.efforts, s.assistantEffort).map((e) => ({
+            value: e,
+            label: effortLabel(e, "low"),
+          }))}
+          onValueChange={(v) => set({ assistantEffort: v })}
+          className="min-w-0 text-[13px]"
+        />
+      </div>
+    </section>
+  )
+}
+
 // HistorySection is how cards ended by weight and model (card #966), so the
 // mapping above rests on what happened: each row counts the attempts you
 // answered, Done or Not done.
@@ -473,6 +520,7 @@ function LimitsSection({
           </p>
         )}
         <AgentStartsRow open={open} />
+        <AgentReviewsRow open={open} />
         {error && l && (
           <p className="text-[12.5px] text-destructive">{error}</p>
         )}
@@ -558,6 +606,41 @@ function AgentStartsRow({ open }: { open: boolean }) {
         }
       >
         <AgentStartsControls starts={s} set={set} />
+      </LimitRow>
+    </ul>
+  )
+}
+
+// AgentReviewsRow is "Agents review other people's PRs without asking"
+// (merge-desk §12.8). On when unset; off makes each review ask the person.
+// It governs approving and requesting changes: comments stay allowed.
+function AgentReviewsRow({ open }: { open: boolean }) {
+  const { on, error, set } = useAgentReviews(open)
+  const id = useId()
+  if (on === null) return null
+  return (
+    <ul
+      className="grid divide-y divide-border rounded-md border border-border"
+      data-setting="agents.reviews"
+    >
+      <LimitRow
+        title="Agents review other people's PRs without asking"
+        hint={
+          <>
+            Across all your computers. Lets an agent approve or request changes
+            on a pull request in a repo you work in, under your GitHub login.
+            Comments are always allowed. Off, each review asks you first. Agents
+            can't change this.
+            {error && <span className="text-destructive"> {error}</span>}
+          </>
+        }
+      >
+        <Switch
+          id={id}
+          aria-label="Agents review other people's PRs without asking"
+          checked={on}
+          onCheckedChange={(v) => void set(v)}
+        />
       </LimitRow>
     </ul>
   )

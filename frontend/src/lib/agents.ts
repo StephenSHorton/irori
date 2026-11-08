@@ -54,6 +54,9 @@ export function sampleAgents(): AgentsSettings {
     lightEffort: "medium",
     heavyModel: "opus",
     heavyEffort: "high",
+    assistantModel: "sonnet",
+    assistantEffort: "low",
+    assistantModels: ["sonnet", "opus", "haiku"],
     idleMins: 30,
     idleChoices: [10, 30, 60, 120, 240],
     crashLimit: 2,
@@ -333,6 +336,36 @@ export function useAgentStarts(open: boolean) {
   return { starts: s, error, set }
 }
 
+// useAgentReviews is "Agents review other people's PRs without asking"
+// (merge-desk §12.8): on until the person turns it off, on all their
+// devices.
+export function useAgentReviews(open: boolean) {
+  const [on, setOn] = useState<boolean | null>(inWails() ? null : true)
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AgentsService.Reviews().then(
+      (v) => live && (setOn(v), setError("")),
+      (e: Error) => live && setError(e.message)
+    )
+    return () => {
+      live = false
+    }
+  }, [open])
+  const set = (v: boolean): Promise<void> => {
+    if (!inWails()) {
+      setOn(v)
+      return Promise.resolve()
+    }
+    return AgentsService.SetReviews(v).then(
+      (r) => (setOn(r), setError("")),
+      (e: Error) => setError(e.message)
+    )
+  }
+  return { on, error, set }
+}
+
 // The preview's settings by board; a space's switch starts off, as it does
 // in the app.
 const sampleSaved = new Map<string, AgentsSettings>()
@@ -391,6 +424,8 @@ export function useAgents(open: boolean, boardId = "") {
         lightEffort: c.lightEffort ?? null,
         heavyModel: c.heavyModel ?? null,
         heavyEffort: c.heavyEffort ?? null,
+        assistantModel: c.assistantModel ?? null,
+        assistantEffort: c.assistantEffort ?? null,
         idleMins: c.idleMins ?? null,
         crashLimit: c.crashLimit ?? null,
         startTries: c.startTries ?? null,
@@ -407,6 +442,8 @@ export function useAgents(open: boolean, boardId = "") {
           lightEffort: c.lightEffort ?? x.lightEffort,
           heavyModel: c.heavyModel ?? x.heavyModel,
           heavyEffort: c.heavyEffort ?? x.heavyEffort,
+          assistantModel: c.assistantModel ?? x.assistantModel,
+          assistantEffort: c.assistantEffort ?? x.assistantEffort,
           idleMins: c.idleMins ?? x.idleMins,
           crashLimit: c.crashLimit ?? x.crashLimit,
           startTries: c.startTries ?? x.startTries,
@@ -524,8 +561,8 @@ const sampleLogs = [
 ].join("\n")
 
 // sampleRunning is the preview's Running agents list: two working, one
-// running a job between turns (card #489), one on another device, one
-// starting.
+// running a job between turns (card #489), one on a shared space's card
+// (card #1070), one on another device, one starting.
 function sampleRunning(): RunningAgent[] {
   const now = Date.now()
   const row = (p: Partial<RunningAgent>): RunningAgent => ({
@@ -577,6 +614,16 @@ function sampleRunning(): RunningAgent[] {
       cardShort: "#63",
       cardTitle: "Migrate the sample store",
       startedAt: now - 30 * 60_000,
+    }),
+    row({
+      key: "sample-device/sample01-synthetic-session",
+      name: "sample-otter",
+      cardId: "sample-board-1",
+      cardShort: "mlg#1",
+      cardTitle: "Lobby sync for the boat race",
+      model: "opus",
+      effort: "high",
+      startedAt: now - 35 * 60_000,
     }),
     row({
       key: "pc/wren",

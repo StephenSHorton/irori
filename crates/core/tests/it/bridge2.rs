@@ -1027,3 +1027,55 @@ fn a_new_agents_word_differs_from_a_friends_agent_on_a_shared_board() {
     assert_ne!(got, "kestrel", "Bob's agent has it");
     assert!(coord::names::WORDS.contains(&got.as_str()), "{got}");
 }
+
+/// Card #1075 (§12.12 B8): another person's ask reaches Bob's agent; once
+/// the agent has it, every card it makes on Bob's private log is marked,
+/// and a card by his other agent, which never heard it, is not.
+#[test]
+fn a_card_made_after_another_persons_words_is_marked() {
+    let t = two_people();
+    let (b1, b2) = (
+        t.b().board_key(&t.board, &t.rb.key_a).unwrap(),
+        t.b().board_key(&t.board, &t.rb.key_b).unwrap(),
+    );
+    t.sync();
+    wait_cards(t.a(), &t.board, &[&b1, &b2]);
+    let co = t.a().board_coord(&t.board).unwrap();
+    co.post_ask(
+        &Two::person(t.a()),
+        coord::NewAsk {
+            text: "Who can look at the flaky sync test?".into(),
+            wake: true,
+            ..coord::NewAsk::default()
+        },
+        &[idle(&b1)],
+    )
+    .unwrap();
+    t.sync();
+    wait_bridged(t.b(), &t.rb.key_a, 1);
+    let nt = |title: &str| coord::NewTask {
+        title: title.into(),
+        ..coord::NewTask::default()
+    };
+    let ib = t.b().inbox();
+    assert!(!ib.saw_others(&t.rb.key_a), "not read yet");
+    let w = ib
+        .next_wake(&t.rb.key_a, inbox::path::MOD)
+        .unwrap()
+        .expect("the ask wakes alpha");
+    ib.mark_delivered(&t.rb.key_a, &w.token).unwrap();
+    assert!(ib.saw_others(&t.rb.key_a), "delivered: alpha read it");
+    assert!(!ib.saw_others(&t.rb.key_b));
+    let after = t
+        .b()
+        .coord()
+        .create_task(&t.rb.key_a, nt("Look at the sync test"))
+        .unwrap();
+    let other = t
+        .b()
+        .coord()
+        .create_task(&t.rb.key_b, nt("Something else"))
+        .unwrap();
+    assert!(t.b().coord().get_task(&after.id).unwrap().others);
+    assert!(!t.b().coord().get_task(&other.id).unwrap().others);
+}

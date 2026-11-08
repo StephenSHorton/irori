@@ -168,6 +168,15 @@ pub struct TranscriptLine {
     /// Unix ms.
     pub end_ms: i64,
     pub text: String,
+    /// The speaker's notice lets agents read this line (call-agents.md
+    /// section 10). Sent `false` until the notice that sets it ships; an
+    /// older sender's frame reads as `false`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub agents: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// What a peer tells the others about itself in a call.
@@ -847,6 +856,7 @@ mod tests {
             start_ms: 1_762_470_000_000,
             end_ms: 1_762_470_002_400,
             text: "hi".into(),
+            agents: false,
         });
         let j = serde_json::to_value(&m).unwrap();
         assert_eq!(
@@ -877,6 +887,7 @@ mod tests {
                 start_ms: 0,
                 end_ms: 1,
                 text,
+                agents: false,
             })
         };
         // Multi-byte chars and escapes, well over the limit.

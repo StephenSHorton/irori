@@ -106,7 +106,7 @@ pub const CLIENT_ASSISTANT: &str = "assistant";
 /// the API refuses any other for its caller, and `GET
 /// /v1/tools?client=assistant` lists exactly these. None of them marks
 /// anything delivered or read (inbox and talk_* are left out for that).
-pub const ASSISTANT_TOOLS: [&str; 14] = [
+pub const ASSISTANT_TOOLS: [&str; 15] = [
     "search",
     "show",
     "board",
@@ -121,6 +121,8 @@ pub const ASSISTANT_TOOLS: [&str; 14] = [
     "leases",
     "waits",
     "events",
+    // Card #1009: what the window is showing (the window sends it with each ask).
+    "screen",
 ];
 
 pub use assistant_writes::{ASSISTANT_WRITE_TOOLS, Grant, Grants, grants_for};
@@ -290,6 +292,11 @@ pub trait Backend: Send + Sync {
         Vec::new()
     }
     fn events(&self, f: &store::Filter) -> Result<Vec<store::Event>, String>;
+    /// What the window last said it shows (card #1009): the plain-text
+    /// snapshot the assistant's `screen` tool returns; empty when none.
+    fn assistant_screen(&self) -> String {
+        String::new()
+    }
     fn inbox(&self) -> &inbox::Inbox;
     fn coord(&self) -> &Arc<coord::Coord>;
     /// Every agent key → the last name it went by, gone agents included
@@ -317,6 +324,21 @@ pub trait Backend: Send + Sync {
     /// Asks for an agent on card `task_id` for agent `caller` (card #575):
     /// what happens next, or why not.
     fn agent_start(&self, _caller: &str, _task_id: &str) -> Result<String, String> {
+        Err("agents can't start agents here".into())
+    }
+    /// What `agent_start` would refuse before anything is made, for a
+    /// thread `caller` is about to open for a fresh agent (card #1027).
+    fn thread_agent_check(&self, _caller: &str) -> Result<(), String> {
+        Err("agents can't start agents here".into())
+    }
+    /// Gives thread `task_id` that `caller` opened to a fresh agent, gated
+    /// as `agent_start` is (card #1027): what happens next, or why not.
+    fn thread_new_agent(
+        &self,
+        _caller: &str,
+        _task_id: &str,
+        _watch: bool,
+    ) -> Result<String, String> {
         Err("agents can't start agents here".into())
     }
     /// Ends agent `key` for agent `caller`, with its hand-off: the card it
@@ -439,7 +461,7 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 62] = [
+    let list: [(&'static str, Handler); 63] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -447,6 +469,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("agents_pause", started::agents_pause),
         ("agents", observe::agents),
         ("events", observe::events),
+        ("screen", observe::screen),
         ("send", messages::send),
         ("reply", messages::reply),
         ("inbox", messages::inbox),

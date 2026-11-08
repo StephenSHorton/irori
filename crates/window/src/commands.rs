@@ -26,7 +26,7 @@ use crate::boards::{BoardSettings, BoardSummary, SharePreview, SpaceBoard};
 use crate::call::CallView;
 use crate::cards::{CardDetail, CardMessage, CardSummary, DonePage, IdleReport};
 use crate::desk::{DeskSettings, DeskView};
-use crate::devices::{DeviceView, HomeServerView, PairStatus, RelayView};
+use crate::devices::{DeviceView, HomeServerView, PairStatus};
 use crate::events::{CaptureChange, Empty};
 use crate::inbox::{InboxCounts, SendResult};
 use crate::invites::InviteStatus;
@@ -1490,18 +1490,6 @@ pub async fn devices_set_public_relays(w: W<'_>, on: bool) -> R<HomeServerView> 
     blocking(&w, move |w| w.set_public_relays(on)).await
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn devices_relay(w: W<'_>) -> R<RelayView> {
-    Ok(w.relay())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn devices_set_relay(w: W<'_>, credential_url: String) -> R<RelayView> {
-    w.set_relay(&credential_url)
-}
-
 // ---- SettingsService -------------------------------------------------------------
 
 #[tauri::command]
@@ -1920,6 +1908,21 @@ pub async fn agents_pause_set(w: W<'_>, on: bool) -> R<AgentsPauseView> {
 #[specta::specta]
 pub async fn agents_starts_set(w: W<'_>, on: bool, max: u32) -> R<AgentStartsView> {
     w.agents_starts_set(on, max)
+}
+
+/// "Agents review other people's PRs without asking" (merge-desk §12.8):
+/// on unless the person turned it off.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_reviews(w: W<'_>) -> R<bool> {
+    Ok(w.agents_reviews())
+}
+
+/// The person changes it: the app only, never a tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_reviews_set(w: W<'_>, on: bool) -> R<bool> {
+    w.agents_reviews_set(on)
 }
 
 /// The themes new agents' names come from (card #702), each with its
@@ -2388,8 +2391,6 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             devices_set_home_server,
             devices_set_home_server_awake,
             devices_set_public_relays,
-            devices_relay,
-            devices_set_relay,
             settings_get_notifications,
             settings_set_notifications,
             settings_test_notification,
@@ -2473,6 +2474,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             names_theme_set,
             agents_starts,
             agents_starts_set,
+            agents_reviews,
+            agents_reviews_set,
             agents_pause,
             agents_pause_set,
             agents_limits,
@@ -2512,7 +2515,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
 
 // ---- The assistant (card #783) ----------------------------------------------
 
-/// Asks the corner chat's assistant `text` after `history`. Returns the
+/// Asks the corner chat's assistant `text` after `history`; `screen` is the
+/// window's plain-text snapshot of what is shown (card #1009; "" sends
+/// none). Returns the
 /// run's id at once; its events come on `on`, ending with one `done` or
 /// `error` (a failure to start included).
 #[tauri::command]
@@ -2521,13 +2526,19 @@ pub async fn assistant_ask(
     w: W<'_>,
     history: Vec<AssistantTurn>,
     text: String,
+    screen: String,
     on: tauri::ipc::Channel<AssistantEvent>,
 ) -> R<u32> {
     if text.trim().is_empty() {
         return Err("ask something first".into());
     }
     blocking(&w, move |w| {
-        Ok(w.assistant_ask(&history, &text, Box::new(move |e| on.send(e).is_ok())))
+        Ok(w.assistant_ask(
+            &history,
+            &text,
+            &screen,
+            Box::new(move |e| on.send(e).is_ok()),
+        ))
     })
     .await
 }

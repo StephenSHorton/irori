@@ -1443,13 +1443,14 @@ pub(crate) fn gate_refusal(waiting: &[String]) -> Option<String> {
 
 /// The Talk kinds a space's log carries (read cursors never do): the
 /// talk.* rows, and a huddle's transcript lines (card #656).
-const SPACE_TALK_KINDS: [&str; 6] = [
+const SPACE_TALK_KINDS: [&str; 7] = [
     kinds::TALK_CHANNEL_CREATED,
     kinds::TALK_CHANNEL_EDITED,
     kinds::TALK_MEMBER,
     kinds::TALK_POST,
     kinds::TALK_CARD,
     kinds::CALL_SEGMENT,
+    kinds::CALL_TITLE,
 ];
 
 /// Why a space won't take a `call.segment` row yet (card #656): a device in
@@ -1512,9 +1513,10 @@ impl Services {
             return None;
         }
         let mut v: serde_json::Value = serde_json::from_slice(&ev.payload).ok()?;
-        // A huddle's line is its speaker's own device's (card #656): a
-        // person, signing as themselves.
-        if ev.kind == kinds::CALL_SEGMENT
+        // A huddle's line is its speaker's own device's (card #656), and a
+        // title is a person's (card #1043): a person, signing as
+        // themselves.
+        if matches!(ev.kind.as_str(), kinds::CALL_SEGMENT | kinds::CALL_TITLE)
             && (!ev.actor.starts_with(kinds::PERSON_ACTOR_PREFIX)
                 || v.get("by").and_then(|b| b.as_str()) != Some(ev.actor.as_str()))
         {
@@ -1578,7 +1580,7 @@ impl Services {
             return Err("only the person writes in a DM with a person".into());
         }
         match kind {
-            kinds::TALK_POST | kinds::CALL_SEGMENT => {}
+            kinds::TALK_POST | kinds::CALL_SEGMENT | kinds::CALL_TITLE => {}
             kinds::TALK_MEMBER => {
                 if payload.get("op").and_then(|o| o.as_str()) != Some(coord::talk::JOIN) {
                     return Err("a DM with a person has no leave row".into());
@@ -1627,8 +1629,9 @@ impl Services {
         {
             return Err(why);
         }
-        // A device too old for call.* rows would stall on a line (#652).
-        if kind == kinds::CALL_SEGMENT
+        // A device too old for call.* rows would stall on a line (#652), or
+        // on a title (#1043).
+        if kind.starts_with("call.")
             && !self
                 .space_tolerance(space_id)
                 .map_err(|e| e.to_string())?

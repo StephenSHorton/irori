@@ -300,8 +300,6 @@ export const commands = {
 	devicesSetHomeServer: (on: boolean, outside: boolean, publicAddr: string) => __TAURI_INVOKE<HomeServerView>("devices_set_home_server", { on, outside, publicAddr }),
 	devicesSetHomeServerAwake: (on: boolean) => __TAURI_INVOKE<HomeServerView>("devices_set_home_server_awake", { on }),
 	devicesSetPublicRelays: (on: boolean) => __TAURI_INVOKE<HomeServerView>("devices_set_public_relays", { on }),
-	devicesRelay: () => __TAURI_INVOKE<RelayView>("devices_relay"),
-	devicesSetRelay: (credentialUrl: string) => __TAURI_INVOKE<RelayView>("devices_set_relay", { credentialUrl }),
 	settingsGetNotifications: () => __TAURI_INVOKE<NotifyOptions>("settings_get_notifications"),
 	settingsSetNotifications: (o: NotifyOptions) => __TAURI_INVOKE<NotifyOptions>("settings_set_notifications", { o }),
 	settingsTestNotification: () => __TAURI_INVOKE<null>("settings_test_notification"),
@@ -474,6 +472,13 @@ export const commands = {
 	agentsStarts: () => __TAURI_INVOKE<AgentStartsView>("agents_starts"),
 	/**  The person changes it: the app only, never a tool. */
 	agentsStartsSet: (on: boolean, max: number) => __TAURI_INVOKE<AgentStartsView>("agents_starts_set", { on, max }),
+	/**
+	 *  "Agents review other people's PRs without asking" (merge-desk §12.8):
+	 *  on unless the person turned it off.
+	 */
+	agentsReviews: () => __TAURI_INVOKE<boolean>("agents_reviews"),
+	/**  The person changes it: the app only, never a tool. */
+	agentsReviewsSet: (on: boolean) => __TAURI_INVOKE<boolean>("agents_reviews_set", { on }),
 	/**  Pause agents (card #665): whether this device starts no agents now. */
 	agentsPause: () => __TAURI_INVOKE<AgentsPauseView>("agents_pause"),
 	/**
@@ -527,11 +532,13 @@ export const commands = {
 	 */
 	usageLimits: () => __TAURI_INVOKE<UsageLimits>("usage_limits"),
 	/**
-	 *  Asks the corner chat's assistant `text` after `history`. Returns the
+	 *  Asks the corner chat's assistant `text` after `history`; `screen` is the
+	 *  window's plain-text snapshot of what is shown (card #1009; "" sends
+	 *  none). Returns the
 	 *  run's id at once; its events come on `on`, ending with one `done` or
 	 *  `error` (a failure to start included).
 	 */
-	assistantAsk: (history: AssistantTurn[], text: string, on: Channel<AssistantEvent>) => __TAURI_INVOKE<number>("assistant_ask", { history, text, on }),
+	assistantAsk: (history: AssistantTurn[], text: string, screen: string, on: Channel<AssistantEvent>) => __TAURI_INVOKE<number>("assistant_ask", { history, text, screen, on }),
 	/**
 	 *  Stops assistant run `id`: its channel gets error "Stopped." or nothing
 	 *  more. An unknown or finished id is fine.
@@ -726,6 +733,12 @@ export type AgentsChange = {
 	lightEffort?: string | null,
 	heavyModel?: string | null,
 	heavyEffort?: string | null,
+	/**
+	 *  The office assistant's model and effort (card #1014); the default
+	 *  stores nothing.
+	 */
+	assistantModel?: string | null,
+	assistantEffort?: string | null,
 	idleMins?: number | null,
 	crashLimit?: number | null,
 	startTries?: number | null,
@@ -799,6 +812,13 @@ export type AgentsSettings = {
 	/**  A heavy card's: the board's pick, or Opus at no less than high. */
 	heavyModel: string,
 	heavyEffort: string,
+	/**
+	 *  The office assistant's chat model and effort (card #1014), and the
+	 *  models it offers (the efforts are `efforts`).
+	 */
+	assistantModel: string,
+	assistantEffort: string,
+	assistantModels: string[],
 	/**
 	 *  The idle limit in minutes (card #456, sa-6): how long a spawned
 	 *  agent waits on an unanswered question before it hands off and goes.
@@ -2715,13 +2735,6 @@ export type RefTarget = {
 	progress: CardProgress,
 };
 
-/**  The advanced relay line (D4: no iroh meaning, always "none"). */
-export type RelayView = {
-	credentialUrl?: string,
-	state: string,
-	detail?: string,
-};
-
 /**
  *  A repo this device has a checkout of, by its short name (card #488):
  *  what a held message to a repo names instead of its key.
@@ -3047,6 +3060,8 @@ export type TalkCall = {
 	 *  talk_call_transcript reads.
 	 */
 	transcript: boolean,
+	/**  The huddle's title (card #1043); empty when it has none. */
+	title: string,
 };
 
 /**  One conversation in Talk's list. */
@@ -3185,6 +3200,15 @@ export type TalkTranscript = {
 	ended: boolean,
 	/**  How long it ran, once ended; 0 before. */
 	durationMs: number,
+	/**  The huddle's title (card #1043); empty when it has none. */
+	title: string,
+	/**  Whether an assistant proposed the title, not a person. */
+	titleByAssistant: boolean,
+	/**
+	 *  The huddle is over as this device can tell (card #1043): an end
+	 *  mark, or a crash that left the call quiet. False when unsure.
+	 */
+	over: boolean,
 	/**  What was said, oldest first. */
 	lines: TalkTranscriptLine[],
 };
