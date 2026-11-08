@@ -110,6 +110,7 @@ const PAGES: Array<[name: string, query: string]> = [
   ["assistant", "?assistant=open"],
   ["assistant-busy", "?assistant=busy#talk/sample-ch-suzuri"],
   ["assistant-new", "?assistant=new&open=board:task:sample-card-1"],
+  ["assistant-draft", "?assistant=draft"],
   ["assistant-call", "?call=live#talk"],
 ]
 

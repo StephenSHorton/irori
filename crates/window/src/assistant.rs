@@ -115,9 +115,25 @@ with no jargon, ids or hashes. **Bold** is fine; no headings, tables or code blo
 (tag#123 for a space's board) so the person can click them. If nothing matches, say so plainly and \
 suggest what to try.
 
-You only read: you cannot change cards, start agents or post anything. If the person asks for work \
-to be done, say that the way to get work done is to post it as a thread from the ask box, and offer \
-to find related cards. Irori's settings are not readable yet: say so if asked.";
+You only read: you cannot change cards, start agents or post anything yourself. When the person asks \
+for work to be done (to build, fix, change or look into something), look up any cards it touches, say in \
+one short sentence what you drafted, then end your reply with a draft thread for them to post, between \
+these two lines exactly:
+
+<<thread>>
+The thread, written as the person would post it to their agents: what they want and why, in a few \
+plain sentences, naming related cards as #123.
+<</thread>>
+
+The chat shows the draft with a Post thread button; nothing is posted until the person taps it. Write \
+at most one draft per reply, and never one for a plain question. Irori's settings are not readable yet: \
+say so if asked.";
+
+/// The lines a reply's drafted thread goes between (card #783); the chat
+/// shows it with a Post thread button (frontend/src/lib/assistant.ts,
+/// splitDraft).
+pub const DRAFT_OPEN: &str = "<<thread>>";
+pub const DRAFT_CLOSE: &str = "<</thread>>";
 
 // ---- the prompt -------------------------------------------------------------
 
@@ -754,6 +770,14 @@ mod tests {
     const TOOL_SEARCH: &str = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Let me look."},{"type":"tool_use","id":"t1","name":"mcp__irori__irori_search","input":{"query":"renaming  the\nboard"}}]}}"#;
     const TOOL_START: &str = r#"{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","name":"mcp__irori__irori_search","input":{}}}}"#;
     const SUCCESS: &str = r#"{"type":"result","subtype":"success","is_error":false,"result":"Two cards are blocked: #12"}"#;
+
+    // The chat finds a drafted thread by these exact lines (card #783).
+    #[test]
+    fn system_prompt_names_the_draft_lines() {
+        assert!(SYSTEM.contains(&format!("\n{DRAFT_OPEN}\n")));
+        assert!(SYSTEM.contains(&format!("\n{DRAFT_CLOSE}\n")));
+        assert!(!SYSTEM.contains("ask box"));
+    }
 
     #[test]
     fn text_deltas_tool_status_and_done() {

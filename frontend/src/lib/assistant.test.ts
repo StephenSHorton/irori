@@ -13,6 +13,9 @@ import {
   sampleAnswer,
   serializeHistory,
   settled,
+  splitDraft,
+  DraftClose,
+  DraftOpen,
   type AssistantEvent,
   type ChatEntry,
   type Reply,
@@ -186,5 +189,84 @@ describe("Ask Irori keeps clear of the bars (card #783)", () => {
     const hidden = { left: 0, right: 0, top: 0, bottom: 0 }
     const below = { left: 0, right: 390, top: 900, bottom: 950 }
     expect(liftOver([leftPane, hidden, below], vh, col)).toBe(0)
+  })
+})
+
+describe("Ask Irori's drafted thread (card #783)", () => {
+  const draft = (body: string) => `${DraftOpen}\n${body}\n${DraftClose}`
+  test("a reply with no draft is left as it is", () => {
+    expect(splitDraft("Two cards wait on you.")).toEqual({
+      text: "Two cards wait on you.",
+      draft: "",
+      partial: false,
+    })
+  })
+  test("a whole draft comes out of the text", () => {
+    const s = splitDraft(
+      `Drafted it, naming #8.\n\n${draft("Add a changelog page. #8 has the notes.")}`
+    )
+    expect(s).toEqual({
+      text: "Drafted it, naming #8.",
+      draft: "Add a changelog page. #8 has the notes.",
+      partial: false,
+    })
+  })
+  test("words after the draft stay in the text", () => {
+    const s = splitDraft(
+      `Here it is.\n${draft("Fix the lobby.")}\nTap Post thread.`
+    )
+    expect(s.text).toBe("Here it is.\n\nTap Post thread.")
+    expect(s.draft).toBe("Fix the lobby.")
+  })
+  test("a draft being written is partial, and half a marker never shows", () => {
+    expect(splitDraft("Drafting.\n<<thr")).toEqual({
+      text: "Drafting.",
+      draft: "",
+      partial: false,
+    })
+    expect(splitDraft(`Drafting.\n${DraftOpen}\nFix the lob`)).toEqual({
+      text: "Drafting.",
+      draft: "Fix the lob",
+      partial: true,
+    })
+    expect(splitDraft(`${DraftOpen}\nFix the lobby.\n<</thr`)).toEqual({
+      text: "",
+      draft: "Fix the lobby.",
+      partial: true,
+    })
+  })
+  test("the history keeps the reply whole, draft and all", () => {
+    const text = `Drafted it.\n${draft("Fix the lobby.")}`
+    const entries: ChatEntry[] = [
+      { role: "person", text: "Can you fix the lobby?" },
+      { role: "assistant", text, posted: { id: "task:1", short: "9" } },
+    ]
+    expect(historyFor(entries)[1]).toEqual({ role: "assistant", text })
+  })
+  test("a posted draft's thread is kept across reloads, a bad one dropped", () => {
+    const saved = serializeHistory([
+      {
+        role: "assistant",
+        text: draft("A"),
+        posted: { id: "task:1", short: "9" },
+      },
+      { role: "assistant", text: draft("B") },
+    ])
+    const back = parseHistory(saved)
+    expect(back[0].posted).toEqual({ id: "task:1", short: "9" })
+    expect(back[1].posted).toBeUndefined()
+    const bad = parseHistory(
+      JSON.stringify([
+        { role: "assistant", text: "x", posted: { id: 3 } },
+        { role: "person", text: "y", posted: { id: "task:2", short: "" } },
+      ])
+    )
+    expect(bad.map((e) => e.posted)).toEqual([undefined, undefined])
+  })
+  test("the stand-in drafts a thread when asked for work, not for a question", () => {
+    const work = splitDraft(sampleAnswer("Can you add a changelog page?").text)
+    expect(work.draft).toContain("Add a changelog page.")
+    expect(work.partial).toBe(false)
+    expect(splitDraft(sampleAnswer("What's blocked?").text).draft).toBe("")
   })
 })

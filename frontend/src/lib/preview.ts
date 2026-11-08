@@ -45,7 +45,8 @@
 //   ?term           a card page's Terminal section with one blank stand-in
 //                   shell and its height handle (lib/term.ts, card #730)
 //   ?assistant=open Ask Irori (card #783) open on a sample chat; busy with a
-//                   reply being written, new on an empty chat (lib/assistant.ts)
+//                   reply being written, new on an empty chat, draft with a
+//                   drafted thread and its Post thread button (lib/assistant.ts)
 
 import { inWails } from "./irori"
 

@@ -11,6 +11,7 @@
 // preview) a stand-in streams a canned answer that cites sample cards.
 
 import type { AssistantEvent, AssistantTurn } from "../gen/bindings"
+import { threads } from "./cards"
 import { AssistantService } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
@@ -19,11 +20,16 @@ export type { AssistantEvent, AssistantTurn }
 
 // ChatEntry is one message in the chat. A note is a plain line of the
 // chat's own (an error, "Stopped."): shown, kept, never sent as history.
+// posted is the thread an assistant message's draft became, once the
+// person tapped Post thread (so it is never posted twice).
 export type ChatEntry = {
   role: "person" | "assistant"
   text: string
   note?: boolean
+  posted?: Posted
 }
+
+export type Posted = { id: string; short: string }
 
 // Reply is the answer being written: its text so far, what it is looking
 // at now (the "tool" status line), and how it ended.
@@ -103,11 +109,23 @@ export function parseHistory(raw: string | null): ChatEntry[] {
   const out: ChatEntry[] = []
   for (const x of v) {
     if (!x || typeof x !== "object") continue
-    const { role, text, note } = x as Record<string, unknown>
+    const { role, text, note, posted } = x as Record<string, unknown>
     if ((role !== "person" && role !== "assistant") || typeof text !== "string")
       continue
     if (!text.trim()) continue
-    out.push(note === true ? { role, text, note: true } : { role, text })
+    const e: ChatEntry =
+      note === true ? { role, text, note: true } : { role, text }
+    const p = posted as Record<string, unknown> | null | undefined
+    if (
+      role === "assistant" &&
+      p &&
+      typeof p === "object" &&
+      typeof p.id === "string" &&
+      p.id &&
+      typeof p.short === "string"
+    )
+      e.posted = { id: p.id, short: p.short }
+    out.push(e)
   }
   return capHistory(out)
 }
@@ -170,6 +188,24 @@ function initial(): AssistantState {
     }
   if (flag === "new")
     return { open: true, entries: [], reply: null, unread: false }
+  if (flag === "draft")
+    return {
+      open: true,
+      entries: [
+        sampleHistory[2],
+        sampleHistory[3],
+        {
+          role: "person",
+          text: "Can you add a changelog page to the release notes?",
+        },
+        {
+          role: "assistant",
+          text: sampleWork("Add a changelog page to the release notes"),
+        },
+      ],
+      reply: null,
+      unread: false,
+    }
   return { open: false, entries: loadHistory(), reply: null, unread: false }
 }
 
@@ -279,6 +315,83 @@ function errorLine(err: unknown): string {
   return line ? line : failedLine
 }
 
+// ---- drafted threads -----------------------------------------------------------
+
+// Asked for work, the assistant ends its reply with a thread for the
+// person to post, between these lines (crates/window/src/assistant.rs,
+// DRAFT_OPEN and DRAFT_CLOSE). The chat shows it with a Post thread
+// button; the assistant itself never posts.
+export const DraftOpen = "<<thread>>"
+export const DraftClose = "<</thread>>"
+
+export type Split = {
+  // The reply without the draft.
+  text: string
+  // The drafted thread, "" when there is none.
+  draft: string
+  // The draft is still being written (its closing line hasn't come).
+  partial: boolean
+}
+
+// cutMarkerTail drops a marker's first characters from the end of text
+// being written ("…<<thr"), so they never flash in the chat.
+function cutMarkerTail(s: string, marker: string): string {
+  for (let n = Math.min(marker.length - 1, s.length); n > 0; n--)
+    if (s.endsWith(marker.slice(0, n))) return s.slice(0, s.length - n)
+  return s
+}
+
+// splitDraft takes a reply's drafted thread out of its text. The history
+// keeps the reply whole; the chat splits it as it shows it.
+export function splitDraft(raw: string): Split {
+  const at = raw.indexOf(DraftOpen)
+  if (at < 0)
+    return {
+      text: cutMarkerTail(raw, DraftOpen).trim(),
+      draft: "",
+      partial: false,
+    }
+  const before = raw.slice(0, at).trim()
+  const rest = raw.slice(at + DraftOpen.length)
+  const end = rest.indexOf(DraftClose)
+  if (end < 0)
+    return {
+      text: before,
+      draft: cutMarkerTail(rest, DraftClose).trim(),
+      partial: true,
+    }
+  const after = rest.slice(end + DraftClose.length).trim()
+  return {
+    text: after ? `${before}\n\n${after}`.trim() : before,
+    draft: rest.slice(0, end).trim(),
+    partial: false,
+  }
+}
+
+// postDraft posts the draft of the chat's message at index as a thread,
+// as the ask box does (lib/cards' threads.start: the room's thread, its
+// #refs telling the agents on those cards). It notes the thread on the
+// message and returns it. Posted already: that thread again.
+export async function postDraft(index: number): Promise<Posted> {
+  const entry = assistantState().entries[index]
+  if (!entry || entry.role !== "assistant" || entry.note)
+    throw new Error("That message is no longer in the chat.")
+  if (entry.posted) return entry.posted
+  const { draft, partial } = splitDraft(entry.text)
+  if (!draft || partial) throw new Error("That message has no thread to post.")
+  const res = await threads.start(draft)
+  const posted: Posted = { id: res.task.id, short: res.task.short ?? "" }
+  // The chat may have moved on while it posted: find the message again.
+  const now = assistantState().entries
+  const i = now[index] === entry ? index : now.indexOf(entry)
+  if (i >= 0) {
+    const entries = [...now]
+    entries[i] = { ...entry, posted }
+    set({ entries })
+  }
+  return posted
+}
+
 // ---- reply text ----------------------------------------------------------------
 
 // Replies are Markdown-light: short paragraphs, "- " lists and **bold**
@@ -317,9 +430,27 @@ const sampleHistory: ChatEntry[] = [
   },
 ]
 
+// sampleWork is the stand-in's answer to a request for work: a line and
+// a drafted thread.
+const sampleWork = (q: string) =>
+  `I found #8, which is close: drafted a thread that names it.\n\n${DraftOpen}\n${q
+    .trim()
+    .replace(/^(please|can you|could you)\s+/i, "")
+    .replace(/^./, (c) => c.toUpperCase())
+    .replace(
+      /[?.!]*$/,
+      "."
+    )} #8 already covers the release notes, so build on what it has.\n${DraftClose}`
+
 // sampleAnswer picks a canned answer by the question's words.
 export function sampleAnswer(q: string): { tools: string[]; text: string } {
   const s = q.toLowerCase()
+  if (
+    /^(please|can you|could you)\b|\b(add|fix|build|make|change|rename)\b/.test(
+      s
+    )
+  )
+    return { tools: [`Searching for “${q.trim()}”`], text: sampleWork(q) }
   if (/agent|doing|working|busy/.test(s))
     return {
       tools: ["Reading the agents", "Reading the Board"],

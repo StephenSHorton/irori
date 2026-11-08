@@ -15,6 +15,7 @@ import {
 import { createPortal } from "react-dom"
 import {
   ArrowUpIcon,
+  CheckIcon,
   Loader2Icon,
   MessageCircleIcon,
   SquareIcon,
@@ -38,16 +39,20 @@ import {
   assistantState,
   liftOver,
   newChat,
+  postDraft,
   replyText,
   setAssistantOpen,
+  splitDraft,
   stopAsking,
   subscribeAssistant,
   suggestions,
   type Box,
   type ChatEntry,
+  type Posted,
   type Reply,
 } from "@/lib/assistant"
 import { composing } from "@/lib/mentions"
+import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
 // Ask Irori (card #783): a round button in the bottom-right corner of every
@@ -126,6 +131,12 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
           onAsk={(t) => void ask(t)}
           onStop={stopAsking}
           onNew={newChat}
+          onPost={async (i) => {
+            const p = await postDraft(i)
+            // As the ask box does, the new thread opens (on a phone the
+            // panel gets out of the way).
+            cards?.onOpenThread(p.id)
+          }}
           onClose={() => close(true)}
           style={
             narrow
@@ -301,6 +312,7 @@ export function AssistantPanel({
   onAsk,
   onStop,
   onNew,
+  onPost,
   onClose,
   style,
 }: {
@@ -311,6 +323,8 @@ export function AssistantPanel({
   onAsk: (text: string) => void
   onStop: () => void
   onNew: () => void
+  // onPost posts the drafted thread of the message at that index.
+  onPost: (index: number) => Promise<void>
   onClose: () => void
   style?: CSSProperties
 }) {
@@ -359,7 +373,7 @@ export function AssistantPanel({
         <div className="grid min-w-0 flex-1 gap-0.5">
           <h2 className="text-sm leading-tight font-semibold">Ask Irori</h2>
           <p className="text-[12px] leading-snug text-muted-foreground">
-            Ask about your cards, threads and agents
+            Ask about your cards, threads and agents, or for work
           </p>
         </div>
         <IconTip label="New chat">
@@ -400,7 +414,7 @@ export function AssistantPanel({
         ) : (
           <div className="flex flex-col gap-4">
             {entries.map((e, i) => (
-              <Entry key={i} entry={e} />
+              <Entry key={i} entry={e} onPost={() => onPost(i)} />
             ))}
             {reply && <Answering reply={reply} />}
           </div>
@@ -484,7 +498,8 @@ function Starters({ onPick }: { onPick: (q: string) => void }) {
     <div className="flex h-full flex-col justify-end gap-3 pb-1">
       <p className="text-[13px] text-muted-foreground">
         It looks through your boards, cards, threads and agents and answers in
-        plain words. It only reads: it never changes anything. Try:
+        plain words. Ask it for work and it drafts a thread for you to post; it
+        changes nothing by itself. Try:
       </p>
       <div className="flex flex-col items-start gap-1.5">
         {suggestions.map((q) => (
@@ -504,7 +519,13 @@ function Starters({ onPick }: { onPick: (q: string) => void }) {
   )
 }
 
-function Entry({ entry }: { entry: ChatEntry }) {
+function Entry({
+  entry,
+  onPost,
+}: {
+  entry: ChatEntry
+  onPost: () => Promise<void>
+}) {
   if (entry.role === "person")
     return (
       <Message align="end">
@@ -521,33 +542,121 @@ function Entry({ entry }: { entry: ChatEntry }) {
         {entry.text}
       </p>
     )
+  const { text, draft } = splitDraft(entry.text)
   return (
     <Message>
-      <MessageContent className="text-[13.5px] leading-relaxed">
-        <RichText bold text={replyText(entry.text)} />
+      <MessageContent className="gap-2 text-[13.5px] leading-relaxed">
+        {text && <RichText bold text={replyText(text)} />}
+        {draft && (
+          <DraftThread draft={draft} posted={entry.posted} onPost={onPost} />
+        )}
       </MessageContent>
     </Message>
   )
 }
 
+// DraftThread is a thread the assistant drafted when asked for work: the
+// text the thread will carry and a Post thread button. One tap posts it
+// as the ask box does; once posted it says which thread it became.
+function DraftThread({
+  draft,
+  posted,
+  onPost,
+}: {
+  draft: string
+  posted?: Posted
+  onPost?: () => Promise<void>
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const cards = useContext(AgentCards)
+  const post = async () => {
+    if (busy || posted || !onPost) return
+    setBusy(true)
+    setError("")
+    try {
+      await onPost()
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div
+      className="grid gap-2 rounded-lg border border-border bg-background/60 p-2.5"
+      data-assistant-draft=""
+    >
+      <p className="text-[11.5px] font-medium tracking-wide text-muted-foreground uppercase">
+        Draft thread
+      </p>
+      <div className="text-[13px]">
+        <RichText text={draft} />
+      </div>
+      {posted ? (
+        <p className="flex flex-wrap items-center gap-1.5 text-[12.5px] text-muted-foreground">
+          <CheckIcon className="size-3.5 text-success" aria-hidden />
+          Posted{posted.short ? ` as #${posted.short}` : ""}.
+          {cards && (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-[12.5px]"
+              onClick={() => (cards.onOpenThread ?? cards.onOpen)(posted.id)}
+            >
+              Open it
+            </Button>
+          )}
+        </p>
+      ) : onPost ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy}
+            onClick={() => void post()}
+          >
+            {busy && (
+              <Loader2Icon
+                className="animate-spin motion-reduce:animate-none"
+                aria-hidden
+              />
+            )}
+            Post thread
+          </Button>
+          {error && (
+            <span className="text-[12px] text-destructive" role="alert">
+              {error}
+            </span>
+          )}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 // Answering is the reply being written: what it looks at now, then the
-// words so far.
+// words so far, and a thread it is drafting (posted only once it's done).
 function Answering({ reply }: { reply: Reply }) {
+  const { text, draft, partial } = splitDraft(reply.text)
+  const status = reply.status || (partial ? "Drafting a thread" : "")
   return (
     <Message>
       <MessageContent className="gap-1.5 text-[13.5px] leading-relaxed">
-        {(reply.status || !reply.text) && (
+        {(status || !text) && (
           <p className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
             <Loader2Icon
               className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
               aria-hidden
             />
             <span className="truncate">
-              {reply.status ? `${reply.status}…` : "Thinking…"}
+              {status ? `${status}…` : "Thinking…"}
             </span>
           </p>
         )}
-        {reply.text && <RichText bold text={replyText(reply.text)} />}
+        {text && <RichText bold text={replyText(text)} />}
+        {draft && <DraftThread draft={draft} />}
       </MessageContent>
     </Message>
   )
