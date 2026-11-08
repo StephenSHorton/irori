@@ -4,6 +4,7 @@ import { laterOf } from "@/lib/later"
 import { useContext, useState, type FormEvent, type ReactNode } from "react"
 import {
   ArrowLeftIcon,
+  ChevronDownIcon,
   ExternalLinkIcon,
   PauseIcon,
   PinIcon,
@@ -26,7 +27,13 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Switch } from "@/components/ui/switch"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   agentBusy,
   namesLine,
@@ -1755,10 +1762,10 @@ const name = displayName
 
 // CommentBox is the comment box under a card's thread: the person's
 // comment goes to the agents on the card (BoardService.Comment), and the
-// line under it says who heard. Wake is on by default: a comment from the
-// app is asked now.
+// line under it says who heard. "Answer when ready" is the default: a comment
+// from the app is asked now (card #1042's picker).
 // reply makes it a thread's reply box (card #116): a reply always wakes
-// the agents in the thread, so the Wake switch steps aside.
+// the agents in the thread, so the picker steps aside.
 // Files go with it (card #124): the clip, a drop or a pasted screenshot,
 // and whoever hears the comment gets them. A shared board's card takes
 // none (noFiles): its rows may name only files offered on the board.
@@ -1774,7 +1781,7 @@ export function CommentBox({
   const [text, setText] = useDraft(`${cardId}/comment`)
   const [mentions, setMentions] = useMentionsDraft(`${cardId}/comment`)
   const [missed, setMissed] = useMissed()
-  const [wake, setWake] = useState(true)
+  const [how, setHow] = useState<SendHow>("ready")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [heard, setHeard] = useState<{ line: string; error?: string } | null>(
@@ -1782,9 +1789,9 @@ export function CommentBox({
   )
   const attach = useFileAttach(busy || noFiles, noFiles ? SharedNoFiles : "")
 
-  // stop (card #207): the holders' running turns are cut and this is
-  // their next prompt.
-  const submit = async (e: FormEvent | null, stop = false) => {
+  // how (card #1042): "interrupt" is card #207's stop, the holders' running
+  // turns cut and this their next prompt; "note" files it without waking.
+  const submit = async (e: FormEvent | null) => {
     e?.preventDefault()
     if (busy) return
     if (!text.trim()) {
@@ -1797,7 +1804,7 @@ export function CommentBox({
       const res = await cards.comment(
         cardId,
         text,
-        stop ? "stop" : wake || reply,
+        reply ? true : how === "interrupt" ? "stop" : how === "ready",
         mentions,
         attach.files
       )
@@ -1809,6 +1816,7 @@ export function CommentBox({
       setText("")
       setMentions([])
       attach.clear()
+      setHow("ready")
     } catch (err) {
       setError(errorText(err))
     } finally {
@@ -1858,19 +1866,7 @@ export function CommentBox({
         className="flex flex-wrap gap-2"
       />
       <div className="flex items-center justify-between gap-3">
-        {reply ? (
-          <span />
-        ) : (
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Switch
-              size="sm"
-              checked={wake}
-              disabled={busy}
-              onCheckedChange={(v) => setWake(v)}
-            />
-            Wake now
-          </label>
-        )}
+        <span />
         <span className="flex items-center gap-1">
           {noFiles ? (
             <FilesOff why={SharedNoFiles} />
@@ -1880,19 +1876,19 @@ export function CommentBox({
               <AttachButton attach={attach} disabled={busy} />
             </>
           )}
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            title="Cut the agents' running turns: they read this first and answer you before anything else"
-            onClick={() => void submit(null, true)}
-          >
-            Stop and read
-          </Button>
-          <Button type="submit" size="sm" disabled={busy}>
-            {busy ? "Sending…" : reply ? "Reply" : "Comment"}
-          </Button>
+          <span className="flex items-center">
+            <Button
+              type="submit"
+              size="sm"
+              disabled={busy}
+              className={reply ? undefined : "rounded-r-none"}
+            >
+              {busy ? "Sending…" : "Send"}
+            </Button>
+            {!reply && (
+              <SendPicker how={how} onChange={setHow} disabled={busy} />
+            )}
+          </span>
         </span>
       </div>
       {heard &&
@@ -1906,6 +1902,68 @@ export function CommentBox({
       {missed && <p className="text-xs text-destructive">{missed}</p>}
       {error && <p className="text-xs text-destructive">{error}</p>}
     </form>
+  )
+}
+
+type SendHow = "ready" | "interrupt" | "note"
+
+const SendHows: { key: SendHow; label: string; why: string }[] = [
+  {
+    key: "ready",
+    label: "Answer when ready",
+    why: "Starts the agent if it is idle; a busy one reads it at its next step",
+  },
+  {
+    key: "interrupt",
+    label: "Interrupt",
+    why: "Cuts the running turn; the agent reads this now",
+  },
+  {
+    key: "note",
+    label: "Just a note",
+    why: "Files it on the card without starting the agent",
+  },
+]
+
+// SendPicker is the small picker beside Send (card #1042): how this
+// comment reaches the agents. It resets to "Answer when ready" after a send.
+function SendPicker({
+  how,
+  onChange,
+  disabled,
+}: {
+  how: SendHow
+  onChange: (h: SendHow) => void
+  disabled?: boolean
+}) {
+  const now = SendHows.find((h) => h.key === how) ?? SendHows[0]
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        disabled={disabled}
+        aria-label={`How it is sent: ${now.label}`}
+        title={now.why}
+        className="box-border inline-flex h-8 items-center gap-1 rounded-r-lg border border-l-0 border-border bg-transparent px-2 text-xs font-medium whitespace-nowrap text-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset disabled:opacity-50 aria-expanded:bg-accent"
+      >
+        {now.label}
+        <ChevronDownIcon className="size-3.5" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuRadioGroup
+          value={how}
+          onValueChange={(v) => onChange(v as SendHow)}
+        >
+          {SendHows.map((h) => (
+            <DropdownMenuRadioItem key={h.key} value={h.key}>
+              <span className="grid gap-0.5">
+                <span>{h.label}</span>
+                <span className="text-xs text-muted-foreground">{h.why}</span>
+              </span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

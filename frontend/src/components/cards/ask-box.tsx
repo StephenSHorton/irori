@@ -146,7 +146,7 @@ export function AskBox({
         : " An idle agent with Offer it cards on picks it up, or Irori starts one when spawning is on."
       setLine({
         text: !now
-          ? "Sent. Agents answer now was off: no agent was woken or handed it."
+          ? "Sent as Just a note: no agent was woken or handed it."
           : handed && n <= 1
             ? "Sent. An agent with Offer it cards on has it."
             : n === 0
