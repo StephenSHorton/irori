@@ -8,6 +8,7 @@ use specta::Type;
 
 use crate::Window;
 use crate::board::UploadFile;
+use crate::threads::ThreadFrom;
 use crate::ts;
 
 /// One side of a conversation.
@@ -482,7 +483,17 @@ impl Window {
         if !space.is_empty() && !private {
             self.core.space_gate(space)?;
         }
-        let r = self.start_thread_in(text, &[], &[], space, None, conv)?;
+        let r = self.start_thread_in(
+            text,
+            &[],
+            &[],
+            space,
+            None,
+            ThreadFrom {
+                channel: conv,
+                assistant: false,
+            },
+        )?;
         if !private {
             let pointer = r.task.short_ref();
             self.talk_post(conv, &pointer, &[], false, Some(post_id.to_string()), &[])?;

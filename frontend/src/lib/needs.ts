@@ -22,6 +22,7 @@ import {
   type CardRef,
   type CardSummary,
   type GoneWait,
+  type ThreadSummary,
 } from "./cards"
 import { parseTime, plainLine } from "./irori"
 import { HoldReason, State, type Delivery } from "./talk"
@@ -396,6 +397,8 @@ export type Need =
   | { kind: "noAgent"; id: string; at: number; card: CardSummary }
   | { kind: "trust"; id: string; at: number; card: CardSummary }
   | { kind: "held"; id: string; at: number; delivery: Delivery }
+  // Card #1001: a thread waiting on the person, from any space.
+  | { kind: "thread"; id: string; at: number; thread: ThreadSummary }
   | { kind: "heldQuiet"; id: string; at: number; deliveries: Delivery[] }
   // Card #481: cards that wait on each other, once for the whole loop,
   // and cards whose waits end at a card nobody is on, once per card.
@@ -461,8 +464,19 @@ const time = (s: string | undefined) => parseTime(s ?? "")?.getTime() ?? 0
 // design b1), not a row here. held is the Held list: only the holds that
 // ask the person (asksPerson) are rows; the rest are one heldQuiet line,
 // always last (card #488).
-export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
+export function needsOf(
+  cards: CardSummary[],
+  held: Delivery[],
+  threads: ThreadSummary[] = []
+): Need[] {
   const out: Need[] = []
+  // Card #1001: the Dashboard spans every space, so a thread waiting on the
+  // person (an agent replied since they last looked, or no computer can
+  // start its agent: as Talk counts it) is a row here from any of them.
+  for (const t of threads) {
+    if (t.state === "resolved" || !(t.unread || t.noAgent)) continue
+    out.push({ kind: "thread", id: t.id, at: time(t.updatedAt), thread: t })
+  }
   for (const c of cards) {
     if (!needsYou(c)) continue
     const check = !!c.ready && c.openBlockers <= 1

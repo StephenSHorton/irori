@@ -514,6 +514,10 @@ pub struct Ask {
     /// handed or started for it until its person writes in it.
     #[serde(skip_serializing_if = "omit")]
     pub opener: String,
+    /// The Office Assistant posted this thread for the person (card #991):
+    /// Irori doesn't name it. Still the person's in every other way.
+    #[serde(skip_serializing_if = "omit")]
+    pub assistant: bool,
 }
 
 impl Ask {
@@ -1358,6 +1362,8 @@ pub struct NewAsk {
     /// card #454). On a space's log, one of that space's channels (card
     /// #558).
     pub channel: String,
+    /// A thread the Office Assistant posted for the person (card #991).
+    pub assistant: bool,
 }
 
 /// ask_claim's answer.
