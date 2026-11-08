@@ -197,7 +197,10 @@ impl State {
 
     pub fn back(&mut self) {
         self.nav.back();
-        let ev = Event { name: "app:route-changed".into(), payload: serde_json::Value::Null };
+        let ev = Event {
+            name: "app:route-changed".into(),
+            payload: serde_json::Value::Null,
+        };
         dispatch(self, &ev);
     }
 

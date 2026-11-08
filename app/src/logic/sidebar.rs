@@ -16,7 +16,10 @@ pub fn board_decides(c: &CardSummary) -> bool {
 
 /// The pinned spaces the picked space shows, in pin order.
 pub fn pinned_spaces<'a>(boards: &'a [BoardSummary], space: &str) -> Vec<&'a BoardSummary> {
-    let mut v: Vec<_> = boards_in_space(boards, space).into_iter().filter(|b| b.pinned).collect();
+    let mut v: Vec<_> = boards_in_space(boards, space)
+        .into_iter()
+        .filter(|b| b.pinned)
+        .collect();
     v.sort_by(|a, b| a.pin_rank.total_cmp(&b.pin_rank));
     v
 }
@@ -42,7 +45,11 @@ pub fn space_pin(b: &BoardSummary) -> Pin {
     let tag = plain_line(&b.tag);
     Pin {
         mark: tag.chars().take(2).collect(),
-        label: if name.is_empty() { "(unnamed)".into() } else { name.clone() },
+        label: if name.is_empty() {
+            "(unnamed)".into()
+        } else {
+            name.clone()
+        },
         tip: format!("{name} ({tag}#)"),
     }
 }
@@ -82,7 +89,10 @@ mod tests {
             ..Default::default()
         };
         let boards = vec![b("x", true, 2.0), b("y", false, 0.0), b("z", true, 1.0)];
-        let ids: Vec<_> = pinned_spaces(&boards, ALL_SPACES).iter().map(|b| b.board_id.as_str()).collect();
+        let ids: Vec<_> = pinned_spaces(&boards, ALL_SPACES)
+            .iter()
+            .map(|b| b.board_id.as_str())
+            .collect();
         assert_eq!(ids, ["z", "x"]);
         assert_eq!(pinned_spaces(&boards, "x").len(), 1);
         assert!(pinned_spaces(&boards, PERSONAL).is_empty());
@@ -100,15 +110,31 @@ mod tests {
 
     #[test]
     fn pin_marks() {
-        let b = BoardSummary { name: "Dent\u{200b}Charter".into(), tag: "dent".into(), ..Default::default() };
+        let b = BoardSummary {
+            name: "Dent\u{200b}Charter".into(),
+            tag: "dent".into(),
+            ..Default::default()
+        };
         assert_eq!(
             space_pin(&b),
-            Pin { mark: "de".into(), label: "Dent Charter".into(), tip: "Dent Charter (dent#)".into() }
+            Pin {
+                mark: "de".into(),
+                label: "Dent Charter".into(),
+                tip: "Dent Charter (dent#)".into()
+            }
         );
         assert_eq!(space_pin(&BoardSummary::default()).label, "(unnamed)");
-        let c = CardSummary { tag: "mlg".into(), short: "12".into(), title: "Fix it".into(), ..Default::default() };
+        let c = CardSummary {
+            tag: "mlg".into(),
+            short: "12".into(),
+            title: "Fix it".into(),
+            ..Default::default()
+        };
         assert_eq!(card_pin(&c).mark, "mlg#12");
-        let c = CardSummary { short: "7".into(), ..Default::default() };
+        let c = CardSummary {
+            short: "7".into(),
+            ..Default::default()
+        };
         assert_eq!(card_pin(&c).mark, "#7");
     }
 }

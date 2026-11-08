@@ -246,7 +246,7 @@ pub fn load(s: &mut State, sha: &str, again: bool) {
     s.spawn(
         move |w| fetch(w, &id),
         move |s, l| {
-        s.text.files.insert(sha, l);
+            s.text.files.insert(sha, l);
         },
     );
 }
@@ -281,7 +281,12 @@ pub fn attachment_list(s: &State, f: &mut Frame, key: &str, files: &[File], comp
         out = out.child(r);
     }
     if !chips.is_empty() {
-        let mut r = row().key(format!("{key}/files")).w_full().min_w(0.0).gap(8.0).flex_wrap();
+        let mut r = row()
+            .key(format!("{key}/files"))
+            .w_full()
+            .min_w(0.0)
+            .gap(8.0)
+            .flex_wrap();
         for x in chips {
             r = r.child(file_chip(s, f, &format!("{key}/file-{}", x.sha256), x).shrink());
         }
@@ -348,9 +353,9 @@ fn thumbnail(s: &State, f: &mut Frame, key: &str, file: &File) -> El {
                     } else {
                         "Couldn't load it".into()
                     })
-                        .font(k.ty.small)
-                        .color(k.c.text_muted)
-                        .max_lines(2),
+                    .font(k.ty.small)
+                    .color(k.c.text_muted)
+                    .max_lines(2),
                 )
                 .child(
                     Button::new("Retry")
@@ -450,15 +455,15 @@ pub fn file_actions(s: &State, f: &mut Frame, key: &str, file: &File, compact: b
         .center_y()
         .min_w(0.0)
         .child(
-        Button::new("Save")
-            .variant(ButtonVariant::Ghost)
-            .control_size(size)
-            .icon(&icons::DOWNLOAD)
-            .disabled(busy.is_some())
-            .help("Save to Downloads")
-            .on_press(move |s: &mut State| run(s, &save, "save"))
-            .build(k),
-    );
+            Button::new("Save")
+                .variant(ButtonVariant::Ghost)
+                .control_size(size)
+                .icon(&icons::DOWNLOAD)
+                .disabled(busy.is_some())
+                .help("Save to Downloads")
+                .on_press(move |s: &mut State| run(s, &save, "save"))
+                .build(k),
+        );
     if can_open(file) {
         let open = file.sha256.clone();
         r = r.child(

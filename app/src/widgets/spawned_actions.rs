@@ -244,7 +244,10 @@ pub fn logs_dialog(s: &State, f: &mut Frame) {
         };
         // The agent's screen as text (card #741): it keeps its columns,
         // so it scrolls sideways rather than wrapping.
-        text(t).font(k.ty.mono).color(k.c.text_base).selectable(true)
+        text(t)
+            .font(k.ty.mono)
+            .color(k.c.text_base)
+            .selectable(true)
     };
     let who = l.who.clone();
     rune_kit::Dialog::new("widgets-logs", format!("Logs · {}", display_name(&l.who)))
@@ -275,17 +278,17 @@ pub fn logs_dialog(s: &State, f: &mut Frame) {
                         .child(body),
                 )
                 .child(
-            row()
-                .key("widgets-logs-foot")
-                .w_full()
-                .child(rune::el().grow(1.0))
-                .child(
-                        Button::new("Refresh")
-                            .variant(ButtonVariant::Outline)
-                            .control_size(ControlSize::Small)
-                            .on_press(move |s: &mut State| open_logs(s, who.clone()))
-                            .build(k),
-                    ),
+                    row()
+                        .key("widgets-logs-foot")
+                        .w_full()
+                        .child(rune::el().grow(1.0))
+                        .child(
+                            Button::new("Refresh")
+                                .variant(ButtonVariant::Outline)
+                                .control_size(ControlSize::Small)
+                                .on_press(move |s: &mut State| open_logs(s, who.clone()))
+                                .build(k),
+                        ),
                 ),
         )
         .build(k, f.layer);
