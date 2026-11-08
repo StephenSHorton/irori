@@ -243,8 +243,11 @@ export function ConversationView({
     setAsking({
       action: "join",
       callId,
-      convKind: conv.kind,
+      // A Personal channel reads as one (card #1047).
+      convKind:
+        conv.kind !== "channel" ? "dm" : conv.spaceId ? "channel" : "personal",
       convName: plainLine(conv.name),
+      convId: conv.convId,
       run: () => joinHuddle(callId),
     })
   // The transcript open beside the posts (#656); the preview's
@@ -327,6 +330,7 @@ export function ConversationView({
   }
   // Who the start sheet says gets told.
   const startWhere: StartWhere = {
+    convId: conv.convId,
     label: conv.kind === "channel" ? `#${plainLine(conv.name)}` : personName,
     kind:
       conv.kind !== "channel" ? "dm" : conv.spaceId ? "channel" : "personal",

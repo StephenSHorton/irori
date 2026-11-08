@@ -1705,7 +1705,8 @@ impl Services {
             start_ms,
             end_ms,
             text: text.clone(),
-            agents: false,
+            // The notice says agents hear the huddle (card #1047).
+            agents: true,
         };
         let ctls = self.call_ctls(call_id);
         for c in ctls {
@@ -1726,7 +1727,7 @@ impl Services {
             return;
         }
         if script.rows {
-            match self.talk.write_segment(
+            match self.talk.write_segment_marked(
                 conv,
                 call_id,
                 seq as i64,
@@ -1734,6 +1735,7 @@ impl Services {
                 end_ms,
                 &text,
                 &self.user_sender().key,
+                true,
             ) {
                 Ok(_) => {
                     self.hub.publish(CoreEvent::Talk);
@@ -2227,6 +2229,18 @@ impl Core {
     /// that are online. Blocks while the devices open. Returns the call id.
     pub fn call_start(&self, conv: &str) -> Result<String, String> {
         self.s.call_start(conv)
+    }
+
+    /// Whether a huddle in `conv` reaches agents live (card #1047): false for
+    /// a channel of a space where some device isn't known to take `call.*`
+    /// rows yet, whose lines reach the channel only at the end.
+    pub fn call_agents_ready(&self, conv: &str) -> bool {
+        let space = self
+            .talk()
+            .channel(conv)
+            .map(|c| c.space_id)
+            .unwrap_or_default();
+        space.is_empty() || self.s.space_tolerance(&space).is_ok_and(|t| t.ready())
     }
 
     /// Joins a call this device was rung for or sees live.

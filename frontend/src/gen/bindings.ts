@@ -357,6 +357,11 @@ export const commands = {
 	 *  devices.
 	 */
 	callTranscribeSet: (on: boolean) => __TAURI_INVOKE<null>("call_transcribe_set", { on }),
+	/**
+	 *  Whether a huddle in this conversation reaches agents live: false in a
+	 *  space some device of which is too old, for the start notice.
+	 */
+	callAgentsReady: (convId: string) => __TAURI_INVOKE<boolean>("call_agents_ready", { convId }),
 	/**  "Name new threads" (#782): on unless turned off. */
 	assistantNames: () => __TAURI_INVOKE<boolean>("assistant_names"),
 	/**  Turns "Name new threads" on or off, on all the person's devices. */
@@ -1102,7 +1107,7 @@ export type CallMineView = {
 	convId: string,
 	/**  The channel's name, or the DM's other person. */
 	convName: string,
-	/**  `channel` or `dm`. */
+	/**  `channel`, `personal` (a Personal channel) or `dm`. */
 	convKind: string,
 	/**  When this device joined, Unix ms. */
 	joinedAtMs: number,
@@ -1166,7 +1171,7 @@ export type CallRingView = {
 	callId: string,
 	convId: string,
 	convName: string,
-	/**  `channel` or `dm`. */
+	/**  `channel`, `personal` (a Personal channel) or `dm`. */
 	convKind: string,
 	/**  Who started it. */
 	by: string,
@@ -3102,6 +3107,11 @@ export type TalkConversation = {
 	 */
 	spaceId?: string,
 	/**
+	 *  The space's #office-assistants channel (assistants-talk.md §4): the
+	 *  list puts it first. Absent otherwise.
+	 */
+	pinned?: boolean,
+	/**
 	 *  A DM with another person that hasn't reached them yet (card #538):
 	 *  `them` ("Waiting for Bob's Irori") or `update` ("Bob's Irori needs
 	 *  updating"). Absent otherwise. `name` is who they are.
@@ -3222,8 +3232,13 @@ export type TalkTranscript = {
 	convId: string,
 	/**  The channel's name, or the DM's other person. */
 	convName: string,
-	/**  `channel` or `dm`. */
+	/**  `channel`, `personal` (a Personal channel) or `dm`. */
 	convKind: string,
+	/**
+	 *  Some line was said under the notice that lets agents read it (card
+	 *  #1047): a person DM's agents read only those lines.
+	 */
+	agents: boolean,
 	/**  When it started, Unix ms; null when its start post isn't here. */
 	startedAtMs: number | null,
 	ended: boolean,

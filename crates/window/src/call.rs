@@ -44,7 +44,7 @@ pub struct CallMineView {
     pub conv_id: String,
     /// The channel's name, or the DM's other person.
     pub conv_name: String,
-    /// `channel` or `dm`.
+    /// `channel`, `personal` (a Personal channel) or `dm`.
     pub conv_kind: String,
     /// When this device joined, Unix ms.
     pub joined_at_ms: i64,
@@ -177,7 +177,7 @@ pub struct CallRingView {
     pub call_id: String,
     pub conv_id: String,
     pub conv_name: String,
-    /// `channel` or `dm`.
+    /// `channel`, `personal` (a Personal channel) or `dm`.
     pub conv_kind: String,
     /// Who started it.
     pub by: String,
@@ -263,6 +263,13 @@ impl Window {
     /// turned it off.
     pub fn call_transcribe(&self) -> bool {
         self.core.call_transcribe()
+    }
+
+    /// Whether a huddle in `conv` reaches agents live (card #1047): false in
+    /// a space some device of which is too old for huddle rows, where the
+    /// start notice says agents and the canvas are off.
+    pub fn call_agents_ready(&self, conv: &str) -> bool {
+        self.core.call_agents_ready(conv)
     }
 
     /// Turns "Transcribe what I say in calls" on or off on all the
@@ -375,8 +382,15 @@ impl<'a> Names<'a> {
                 continue;
             }
             if coord::talk::is_channel(conv) {
-                let name = talk.channel(conv).map(|c| c.name).unwrap_or_default();
-                convs.insert(conv.to_string(), ("channel".into(), name));
+                let ch = talk.channel(conv);
+                // A Personal channel lives in no space (card #1047).
+                let kind = if ch.as_ref().is_some_and(|c| c.space_id.is_empty()) {
+                    "personal"
+                } else {
+                    "channel"
+                };
+                let name = ch.map(|c| c.name).unwrap_or_default();
+                convs.insert(conv.to_string(), (kind.into(), name));
             } else if let Some(k) = talk.pair_other(conv) {
                 if !keys.contains(&k) {
                     keys.push(k.clone());

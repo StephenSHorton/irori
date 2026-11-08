@@ -363,6 +363,7 @@ describe("a huddle names people, never keys (#654)", () => {
             convId: spencersKey,
             convName: `person:${card}`,
             convKind,
+            agents: false,
             startedAtMs: Date.now() - 60_000,
             ended: true,
             durationMs: 18 * 60_000,
@@ -503,7 +504,7 @@ describe("a huddle names people, never keys (#654)", () => {
     // The transcript notice (#656): "Checking…" until the device says.
     expect(sheet).toContain("Checking…")
     expect(startNotice(start, true, true)).toContain(
-      "This huddle is transcribed. What you say is written down in #suzuri"
+      "Agents hear this huddle. What you say is written down as you speak, for #suzuri"
     )
     expect(
       startNotice({ label: "Spencer", kind: "dm" }, true, false)

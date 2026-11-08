@@ -48,6 +48,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import {
+  agentsReady,
   canTranscribeHere,
   clockText,
   convLabel,
@@ -307,6 +308,8 @@ export type StartWhere = {
   // channel (in a space), personal (a Personal channel: your own devices)
   // or dm.
   kind: "channel" | "personal" | "dm"
+  // The conversation, to ask whether agents are live in its space.
+  convId?: string
 }
 
 // toldText is who a huddle's start reaches: the devices it rings, as the
@@ -340,7 +343,8 @@ export function StartSheet({
 }) {
   const transcribeOn = useCallPart((s) => s.transcribeOn)
   const canTranscribe = useCanTranscribe(true)
-  const notice = startNotice(start, transcribeOn, canTranscribe)
+  const agentsOff = useAgentsOff(true, start.convId)
+  const notice = startNotice(start, transcribeOn, canTranscribe, agentsOff)
   // The mic's name, asked once when the sheet opens (null until it
   // answers; "" when it can't say).
   const [mic, setMic] = useState<string | null>(null)
@@ -987,7 +991,9 @@ export function RingBanner({
   onDismiss: () => void
 }) {
   const where =
-    ring.convKind === "channel" ? `in ${convLabel(ring)}` : "with you"
+    ring.convKind === "channel" || ring.convKind === "personal"
+      ? `in ${convLabel(ring)}`
+      : "with you"
   return (
     <div
       role="status"
@@ -1070,6 +1076,7 @@ export function Ringing({ onJoined }: { onJoined: (convId: string) => void }) {
             callId: asking.callId,
             convKind: asking.convKind,
             convName: asking.convName,
+            convId: asking.convId,
           }
         }
         onConfirm={() => asking && join(asking)}
@@ -1087,12 +1094,13 @@ export type NoticeAsk = {
   callId?: string
   convKind: string
   convName: string
+  convId?: string
 }
 
 // NoticeText is the notice's words, with the badge's dot when what you say
 // is written down.
 export function NoticeText({ text }: { text: string }) {
-  const on = text.startsWith("This huddle is transcribed")
+  const on = text.startsWith("Agents hear this huddle")
   return (
     <span className="flex items-start gap-2 text-left">
       {on ? (
@@ -1114,6 +1122,23 @@ export function NoticeText({ text }: { text: string }) {
 // useCanTranscribe is whether this device can write down its person's
 // voice: null until it says, asked afresh each time `open` turns on, and
 // Start or Join waits for it.
+// useAgentsOff is whether a huddle in `convId` can't reach agents live: a
+// space where some device is too old for huddle rows (card #1047).
+function useAgentsOff(open: boolean, convId?: string): boolean {
+  const [off, setOff] = useState(false)
+  useEffect(() => {
+    if (!open || !convId) return
+    let live = true
+    void agentsReady(convId)
+      .then((ok) => live && setOff(!ok))
+      .catch(() => live && setOff(false))
+    return () => {
+      live = false
+    }
+  }, [open, convId])
+  return off
+}
+
 function useCanTranscribe(open: boolean): boolean | null {
   const [canTranscribe, setCanTranscribe] = useState<boolean | null>(null)
   // Opening forgets the last answer (set while rendering, so no stale
@@ -1142,10 +1167,12 @@ function useCanTranscribe(open: boolean): boolean | null {
 export function startNotice(
   start: StartWhere,
   transcribeOn: boolean,
-  canTranscribe: boolean | null
+  canTranscribe: boolean | null,
+  agentsOff = false
 ): string {
   if (canTranscribe === null) return "Checking…"
   return transcriptNotice({
+    agentsOff,
     convKind: start.kind,
     // The label is "#suzuri" for a channel; the notice names it itself.
     convName: start.kind === "dm" ? start.label : start.label.replace(/^#/, ""),
@@ -1170,6 +1197,7 @@ export function HuddleNotice({
   const transcribeOn = useCallPart((s) => s.transcribeOn)
   const open = !!ask
   const canTranscribe = useCanTranscribe(open)
+  const agentsOff = useAgentsOff(open, ask?.convId)
   // A join's huddle that ended, or stopped ringing, closes the notice.
   const callId = ask?.callId
   const stillOn = useCallPart(
@@ -1192,6 +1220,7 @@ export function HuddleNotice({
           convName: a.convName,
           transcribeOn,
           canTranscribe,
+          agentsOff,
         })
   const start = a?.action === "start"
   return (
@@ -1200,8 +1229,7 @@ export function HuddleNotice({
         <AlertDialogHeader>
           <AlertDialogTitle>
             {start ? "Start a huddle" : "Join the huddle"}
-            {a &&
-              ` ${a.convKind === "channel" ? "in" : "with"} ${convLabel(a)}`}
+            {a && ` ${a.convKind === "dm" ? "with" : "in"} ${convLabel(a)}`}
           </AlertDialogTitle>
           <AlertDialogDescription render={<div />}>
             <NoticeText text={text} />

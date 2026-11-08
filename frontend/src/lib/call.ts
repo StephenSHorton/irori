@@ -234,6 +234,14 @@ export async function canTranscribeHere(): Promise<boolean> {
   }
 }
 
+// agentsReady is whether a huddle in `convId` reaches agents live (card
+// #1047); false in a space with a device too old for huddle rows. The
+// preview says yes.
+export async function agentsReady(convId: string): Promise<boolean> {
+  if (!inWails()) return true
+  return CallService.AgentsReady(convId)
+}
+
 // canTranscribeWith is canTranscribeHere for a voice status: no engine or
 // no model can't; a mic that's denied still has the model.
 export function canTranscribeWith(voiceState: string): boolean {
@@ -241,31 +249,38 @@ export function canTranscribeWith(voiceState: string): boolean {
 }
 
 // transcriptNotice is what the window says before the mic opens: who reads
-// what you say, or that your voice isn't written down and why.
+// what you say, or that your voice isn't written down and why. Present
+// tense (call-agents.md section 10): agents hear the huddle. `agentsOff` is
+// a channel of a space where some device is too old for huddle rows: the
+// lines reach it only at the end, and agents and the canvas are off.
 export function transcriptNotice(c: {
   convKind: string
   convName: string
   transcribeOn: boolean
   canTranscribe: boolean
+  agentsOff?: boolean
 }): string {
-  // A Personal channel: only you and your agents read it.
-  if (c.convKind === "personal") {
-    if (!c.canTranscribe) return "Your voice isn't transcribed on this device."
-    if (!c.transcribeOn) return "Your voice isn't transcribed (Settings > App)."
-    return `This huddle is transcribed. What you say is written down in ${convLabel({ ...c, convKind: "channel" })} for you and your agents.`
-  }
+  const place = convLabel(c)
+  const personal = c.convKind === "personal"
   // Your own voice not written down doesn't stop the others' being.
-  const others =
-    c.convKind === "channel"
-      ? `Others in the huddle may still be written down in ${convLabel(c)}.`
-      : "The other person may still be written down."
+  const others = personal
+    ? ""
+    : c.convKind === "channel"
+      ? ` Others in the huddle may still be written down in ${place}.`
+      : " The other person may still be written down."
   if (!c.canTranscribe)
-    return `Your voice isn't transcribed on this device. ${others}`
+    return `Your voice isn't transcribed on this device.${others}`
   if (!c.transcribeOn)
-    return `Your voice isn't transcribed (Settings > App). ${others}`
-  return c.convKind === "channel"
-    ? `This huddle is transcribed. What you say is written down in ${convLabel(c)} for its members and their agents.`
-    : "This huddle is transcribed. What you say is written down for the two of you."
+    return `Your voice isn't transcribed (Settings > App).${others}`
+  const said = "What you say is written down as you speak"
+  if (personal)
+    return `Agents hear this huddle. ${said}, for you and your agents.`
+  if (c.convKind === "channel") {
+    if (c.agentsOff)
+      return `Agents and the canvas are off: someone's Irori in this space needs updating. What you say is written down in ${place} at the end, for its members and their agents.`
+    return `Agents hear this huddle. ${said}, for ${place}'s members and all their agents.`
+  }
+  return `Agents hear this huddle. ${said}, for the two of you and your agents.`
 }
 
 // transcriptOn is whether anyone in the huddle is writing down: the
@@ -278,9 +293,18 @@ export function transcriptOn(m: CallMineView): boolean {
 }
 
 // whoCanRead says who reads a huddle's transcript.
-export function whoCanRead(t: { convKind: string; convName: string }): string {
-  return t.convKind === "channel"
-    ? `Who can read it: the people and agents of ${convLabel(t)}.`
+// A person DM's lines carry `agents` when said under the notice that lets
+// agents read them; older ones stay with the two people (card #1047).
+export function whoCanRead(t: {
+  convKind: string
+  convName: string
+  agents?: boolean
+}): string {
+  if (t.convKind === "channel")
+    return `Who can read it: the people and agents of ${convLabel(t)}.`
+  if (t.convKind === "personal") return "Who can read it: you and your agents."
+  return t.agents
+    ? "Who can read it: the two of you and your agents."
     : "Who can read it: the two of you."
 }
 
@@ -429,7 +453,7 @@ export function inCallHere(s: CallView, convId: string): boolean {
 // convLabel is a huddle's conversation as a line says it: "#suzuri", or
 // the DM's person.
 export function convLabel(c: { convKind: string; convName: string }): string {
-  return c.convKind === "channel"
+  return c.convKind === "channel" || c.convKind === "personal"
     ? `#${nameOr(c.convName, "channel")}`
     : personWord(c.convName)
 }
@@ -648,6 +672,7 @@ function previewTranscript(callId: string): TalkTranscript {
     convId,
     convName,
     convKind: "channel",
+    agents: false,
     startedAtMs: started,
     ended: !live,
     durationMs: live ? 0 : 18 * 60_000,
