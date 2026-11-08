@@ -83,6 +83,7 @@ pub use crate::service::spaces::{
     MAX_BOARD_DESCRIPTION, OpenCards, PERSONAL_BOARD, SpaceBoard, SpaceTolerance,
     fold_space_boards,
 };
+pub use crate::service::thread_names;
 pub use crate::service::spawn;
 pub use crate::service::spawn_agents;
 pub use crate::service::spawn_capable;
