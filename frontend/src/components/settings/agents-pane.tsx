@@ -36,8 +36,11 @@ import {
   idleLabel,
   useLimits,
   modelLabel,
+  sentBackRate,
+  shortModel,
   runningSince,
   useAgentStarts,
+  useRunHistory,
   useAgents,
   useRunning,
   useTrusted,
@@ -102,6 +105,7 @@ export function AgentsPane({ open }: { open: boolean }) {
             </div>
             <SpacesSection open={open} />
             <WeightsSection settings={s} set={set} />
+            <HistorySection open={open} />
             <NamesThemesSection open={open} />
             <LimitsSection open={open} settings={s} set={set} />
           </div>
@@ -212,6 +216,47 @@ function WeightsSection({
           </li>
         ))}
       </ul>
+    </section>
+  )
+}
+
+// HistorySection is how cards ended by weight and model (card #966), so the
+// mapping above rests on what happened: each row counts the attempts you
+// answered, Done or Not done.
+function HistorySection({ open }: { open: boolean }) {
+  const rows = useRunHistory(open)
+  return (
+    <section className="grid gap-2" data-setting="agents.history">
+      <h3 className="text-sm font-medium text-ink">How cards ended</h3>
+      <p className="text-[12.5px] text-muted-foreground">
+        Each agent&apos;s done check you answered, by what it ran on. A crash or
+        a card you send back starts its next agent one weight higher.
+      </p>
+      {rows.length === 0 ? (
+        <p className="text-[12.5px] text-muted-foreground">
+          Nothing yet: it fills in as you answer done checks.
+        </p>
+      ) : (
+        <ul className="grid divide-y divide-border rounded-md border border-border">
+          {rows.map((r) => (
+            <li
+              key={`${r.weight}-${r.model}-${r.effort}`}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-0.5 px-3 py-2 text-[13px]"
+            >
+              <span className="min-w-0 text-ink capitalize">
+                {r.weight} · {shortModel(r.model, r.effort)}
+              </span>
+              <span className="text-ink tabular-nums">
+                {sentBackRate({ runs: r.runs, sentBack: r.sentBack })} sent back
+              </span>
+              <span className="col-span-2 text-[12px] text-muted-foreground tabular-nums">
+                {r.runs} answered · {r.firstTry} done first try · {r.sentBack}{" "}
+                sent back · {r.advised} with the advisor
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   )
 }

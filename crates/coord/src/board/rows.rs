@@ -459,6 +459,8 @@ crate::go_struct! {
         /// person's Undo. In the row, as rows can fold out of order.
         pub was_level: String = "wasLevel" "omit",
         pub was_reason: String = "wasReason" "omit",
+        /// "up" or "down" when the card's agent moved it (card #966).
+        pub moved: String = "moved" "omit",
     }
 }
 
@@ -728,6 +730,10 @@ crate::go_struct! {
         pub worktree: String = "worktree" "omit",
         pub model: String = "model" "omit",
         pub effort: String = "effort" "omit",
+        /// The weight this attempt runs at, and whether the advisor was on
+        /// where it was asked for (card #966).
+        pub weight: String = "weight" "omit",
+        pub advisor: bool = "advisor" "omit",
         pub permission_mode: String = "permissionMode",
         pub name: String = "name" "omit",
         pub reason: String = "reason" "omit",

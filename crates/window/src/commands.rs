@@ -1876,6 +1876,13 @@ pub async fn agents_settings(w: W<'_>, board_id: String) -> R<AgentsSettings> {
     Ok(w.agents_settings(&board_id))
 }
 
+/// How cards ended, by weight, model and effort (card #966).
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_history(w: W<'_>) -> R<Vec<crate::agents::RunHistoryRow>> {
+    Ok(w.agents_history())
+}
+
 /// "My agents may start agents on my cards" and its maximum (card #575).
 #[tauri::command]
 #[specta::specta]
@@ -2442,6 +2449,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             term_list,
             term_device_list,
             agents_settings,
+            agents_history,
             agents_set,
             names_themes,
             names_theme_set,

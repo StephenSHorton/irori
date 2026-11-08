@@ -201,6 +201,7 @@ const CARD_WRITES: &[&str] = &[
     "board_steps",
     "board_join",
     "board_leave",
+    "board_move",
     "board_assign",
     "board_link",
     "board_edit",

@@ -454,6 +454,8 @@ export const commands = {
 	 *  board).
 	 */
 	agentsSettings: (boardId: string) => __TAURI_INVOKE<AgentsSettings>("agents_settings", { boardId }),
+	/**  How cards ended, by weight, model and effort (card #966). */
+	agentsHistory: () => __TAURI_INVOKE<RunHistoryRow[]>("agents_history"),
 	/**  The person changes them: the app only, never a tool. */
 	agentsSet: (change: AgentsChange) => __TAURI_INVOKE<AgentsSettings>("agents_set", { change }),
 	/**
@@ -1840,7 +1842,14 @@ export type CardWeight = {
 	/**  One line on why; empty when the person gave none. */
 	reason?: string,
 	/**
-	 *  Who set it: person, assistant (Irori's office assistant) or agent.
+	 *  The level its next attempt starts on and why, when a crash or a Not
+	 *  done stepped it above `level` (card #966); else empty.
+	 */
+	runsAt?: string,
+	steppedWhy?: string,
+	/**
+	 *  Who set it: person, assistant (Irori's office assistant) or agent;
+	 *  empty on a card with no weight that a retry stepped up.
 	 *  The person's is theirs: agents and the assistant don't change it.
 	 */
 	setBy: string,
@@ -2724,6 +2733,20 @@ export type Rollup = {
 export type RosterChange = {
 	change: Change,
 	agents: AgentCard[],
+};
+
+/**
+ *  One row of Settings › Agents' history (card #966): attempts the person
+ *  answered on one weight, model and effort.
+ */
+export type RunHistoryRow = {
+	weight: string,
+	model: string,
+	effort: string,
+	runs: number,
+	firstTry: number,
+	sentBack: number,
+	advised: number,
 };
 
 /**

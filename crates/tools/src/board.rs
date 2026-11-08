@@ -2359,6 +2359,45 @@ pub(crate) fn board_leave(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     )
 }
 
+const MOVE_ARGS: &[(&str, Ty)] = &[
+    ("task_id", Ty::Str),
+    ("direction", Ty::Str),
+    ("why", Ty::Str),
+    ("left_off", Ty::Str),
+];
+
+/// Moves the caller's card one weight up or down and leaves it (card #966):
+/// Irori starts a fresh agent on the new weight from its Left off.
+pub(crate) fn board_move(s: &Inner, c: &Caller, raw: &[u8]) -> String {
+    let a = match decode(raw, MOVE_ARGS) {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
+    let id = match s.task_id(a.str("task_id")) {
+        Ok(id) => id,
+        Err(m) => return m,
+    };
+    let up = match trim(a.str("direction")) {
+        "up" => true,
+        "down" => false,
+        _ => return err_text("give direction: up or down."),
+    };
+    let (co, as_) = match s.on(&id, std::slice::from_ref(&c.sender.key)) {
+        Ok(v) => v,
+        Err(e) => return map_err(e),
+    };
+    let t = match co.move_weight(&as_[0], &id, up, a.str("why"), a.str("left_off")) {
+        Ok(t) => t,
+        Err(e) => return map_err(e),
+    };
+    format!(
+        "{} moved {} and you left it: Irori ends you and starts its next agent from your Left off.\n{}",
+        t.short_ref(),
+        if up { "up" } else { "down" },
+        s.line(&t)
+    )
+}
+
 const ASSIGN_ARGS: &[(&str, Ty)] = &[("task_id", Ty::Str), ("to", Ty::Str), ("note", Ty::Str)];
 
 pub(crate) fn board_assign(s: &Inner, c: &Caller, raw: &[u8]) -> String {

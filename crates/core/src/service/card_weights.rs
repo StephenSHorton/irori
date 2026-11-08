@@ -240,7 +240,7 @@ impl Services {
             && !coord::is_terminal(&t.state)
             && t.weight
                 .as_ref()
-                .is_none_or(|w| !w.by_person() && !w.by_assistant())
+                .is_none_or(|w| !w.by_person() && !w.by_assistant() && w.moved.is_empty())
             && self.card_age_secs(t) < NEW_FOR_SECS
     }
 

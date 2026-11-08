@@ -97,6 +97,15 @@ pub(crate) fn close_named(t: &mut Task, ids: &[String], by: &str, note: &str, at
 /// The person's completed answers t's open done checks with Done (card
 /// #315), as their Done button would have.
 pub(crate) fn say_done_open(t: &mut Task, by: &str, at: GoTime) {
+    let answered: Vec<String> = t
+        .blockers
+        .iter()
+        .filter(|b| b.open() && b.done_check)
+        .map(|b| b.id.clone())
+        .collect();
+    // Card #966: Done withdraws a Not done on the same check.
+    t.retries
+        .retain(|r| r.cause != RETRY_SENT_BACK || !answered.contains(&r.of));
     for b in t.blockers.iter_mut().filter(|b| b.open() && b.done_check) {
         let Some(i) = b.options.iter().position(|o| o.answer == DONE_ANSWER) else {
             continue;
@@ -250,6 +259,22 @@ pub(crate) fn refresh_blocker(
     b.status = BLOCKER_OPEN.into();
     b.sent_to.clear();
     b.missing.clear();
+    // Card #966: the person's Not done on a done check raises the next
+    // attempt, for as long as it is their last word since the check was
+    // last asked. Worked out afresh each time, so the order rows fold in
+    // doesn't matter.
+    if b.done_check {
+        let bid = b.id.clone();
+        let word = cs.iter().rfind(|c| c.person).map(|c| (c.pick, c.at));
+        t.retries
+            .retain(|r| r.cause != RETRY_SENT_BACK || r.of != bid);
+        // Their Done on the check after it withdraws it, as in sent_back.
+        let done = b.resolved.as_ref().is_some_and(|r| r.option >= 0);
+        if let Some((_, at)) = word.filter(|(pick, _)| *pick <= 0 && !done) {
+            t.note_retry(RETRY_SENT_BACK, &bid, at.unix_nano());
+        }
+    }
+    let b = &mut t.blockers[i];
     let n = cs.len();
     if n == 0 {
         return;

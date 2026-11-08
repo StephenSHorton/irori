@@ -402,6 +402,8 @@ export const StorageService = {
 export const AgentsService = {
   Settings: (boardId: string) => call(commands.agentsSettings(boardId)),
   Set: (change: B.AgentsChange) => call(commands.agentsSet(change)),
+  // How cards ended, by weight, model and effort (card #966).
+  History: () => call(commands.agentsHistory()),
   Starts: () => call(commands.agentsStarts()),
   SetStarts: (on: boolean, max: number) =>
     call(commands.agentsStartsSet(on, max)),
