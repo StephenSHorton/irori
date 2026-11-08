@@ -649,13 +649,13 @@ pub async fn agent_stop(w: W<'_>, key: String, text: String) -> R<()> {
     w.agent_stop(&key, &text)
 }
 
-/// Wind down on (cards #220, #787): holds agent starts on every device in
-/// `scope` ("this" device or "all" devices) and asks each of their agents to
-/// save its place, hand back its cards and stop.
+/// Wind down on (cards #220, #787): holds agent starts on every one of the
+/// person's devices and asks every agent to save its place, hand back its
+/// cards and stop.
 #[tauri::command]
 #[specta::specta]
-pub async fn wind_down_all(w: W<'_>, scope: String) -> R<crate::wind_down::WindDownStatus> {
-    w.wind_down_all(&scope)
+pub async fn wind_down_all(w: W<'_>) -> R<crate::wind_down::WindDownStatus> {
+    w.wind_down_all()
 }
 
 /// Wind down off (card #787): wind-downs not reached yet close, the pauses

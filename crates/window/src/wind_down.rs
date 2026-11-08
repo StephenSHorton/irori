@@ -1,7 +1,7 @@
 //! Wind down (card #220, a switch since card #787,
 //! docs/design/wind-down.md): the person asks every agent to save its
 //! place, hand back its cards and stop, and Irori stops starting agents on
-//! the devices in scope (Pause agents) until the person turns it off.
+//! every one of their devices (Pause agents) until the person turns it off.
 
 use std::sync::{Arc, Mutex};
 
@@ -12,9 +12,8 @@ use crate::Window;
 
 /// windDown:changed: the switch or a run's status moved.
 pub const EVENT_WIND_DOWN: &str = "windDown:changed";
-/// This device's agents only.
-pub const SCOPE_THIS: &str = "this";
-/// Every one of the person's devices.
+/// A run's scope: every one of the person's devices (the only one since
+/// card #787).
 pub const SCOPE_ALL: &str = "all";
 
 /// What a wind-down says (the wake's preamble carries the steps).
@@ -116,34 +115,23 @@ pub fn finished(rows: &[WindDownRow]) -> bool {
 }
 
 impl Window {
-    /// Wind down on (WindDownService.All): holds agent starts on every
-    /// device in scope (`this` device or `all` the person's) at once, then
-    /// sends a wind-down to each of their live agents, as a run that
-    /// replaces any earlier one. A device already paused stays as it was.
-    pub fn wind_down_all(&self, scope: &str) -> Result<WindDownStatus, String> {
-        let scope = match crate::trim(scope) {
-            "" | SCOPE_THIS => SCOPE_THIS,
-            SCOPE_ALL => SCOPE_ALL,
-            other => return Err(format!("wind down where? {other:?} (this or all)")),
-        };
+    /// Wind down on (WindDownService.All): holds agent starts on every one
+    /// of the person's devices at once, then sends a wind-down to every
+    /// live agent on all of them, as a run that replaces any earlier one.
+    /// There is no Wind down for one device (card #787): that is Pause
+    /// agents. A device already paused stays as it was.
+    pub fn wind_down_all(&self) -> Result<WindDownStatus, String> {
         let here = self.core.device_id().to_string();
         let me = self.core.user_sender();
         let ib = self.core.inbox();
-        let mut agents: Vec<_> = self
-            .core
-            .mesh_agents()
-            .into_iter()
-            .filter(|a| scope == SCOPE_ALL || a.device_id == here)
-            .collect();
+        let mut agents = self.core.mesh_agents();
         agents.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.key.cmp(&b.key)));
         agents.dedup_by(|a, b| a.key == b.key);
         // Stop starts first, so no fresh agent takes a card the wound-down
-        // ones leave (card #787).
-        let mut devs = vec![here.clone()];
-        if scope == SCOPE_ALL {
-            devs.extend(self.core.agent_devices());
-            devs.extend(agents.iter().map(|a| a.device_id.clone()));
-        }
+        // ones leave, on any device (card #787).
+        let mut devs = vec![here];
+        devs.extend(self.core.agent_devices());
+        devs.extend(agents.iter().map(|a| a.device_id.clone()));
         devs.sort();
         devs.dedup();
         self.core.wind_down_pause(&devs)?;
@@ -156,7 +144,7 @@ impl Window {
                         .map(|d| d.as_millis())
                         .unwrap_or_default()
                 ),
-                scope: scope.into(),
+                scope: SCOPE_ALL.into(),
                 ..WindDownStatus::default()
             },
         };

@@ -6,14 +6,14 @@
 use crate::common;
 
 use common::*;
-use irori_window::wind_down::{SCOPE_THIS, row};
+use irori_window::wind_down::row;
 
 #[test]
 fn wound_down_replies_show_only_in_the_dialog() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
     let me = r.w.core.user_sender().key;
-    let st = r.w.wind_down_all(SCOPE_THIS).unwrap();
+    let st = r.w.wind_down_all().unwrap();
     let rows: Vec<_> = st
         .rows
         .iter()
@@ -48,7 +48,7 @@ fn a_straggler_stop_is_followed_and_kept_out_too() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
     let me = r.w.core.user_sender().key;
-    let st = r.w.wind_down_all(SCOPE_THIS).unwrap();
+    let st = r.w.wind_down_all().unwrap();
     let first = st
         .rows
         .iter()
@@ -83,7 +83,7 @@ fn on_holds_starts_at_once_and_off_cancels_and_lifts_it() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
     assert!(!r.w.wind_down_status().on);
-    let st = r.w.wind_down_all(SCOPE_THIS).unwrap();
+    let st = r.w.wind_down_all().unwrap();
     // From the first moment, before any agent has answered.
     assert!(st.on && st.since > 0, "{st:?}");
     assert_eq!(st.devices.len(), 1, "{st:?}");
@@ -116,7 +116,7 @@ fn on_holds_starts_at_once_and_off_cancels_and_lifts_it() {
 fn off_leaves_a_device_that_was_paused_before() {
     let r = Rig::new();
     r.w.core.set_agents_paused(true).unwrap();
-    let st = r.w.wind_down_all(SCOPE_THIS).unwrap();
+    let st = r.w.wind_down_all().unwrap();
     // This device's pause is the person's, not Wind down's.
     assert!(!st.on, "{st:?}");
     r.w.wind_down_off().unwrap();
@@ -129,7 +129,7 @@ fn off_leaves_a_device_that_was_paused_before() {
 fn a_finished_run_keeps_the_switch_on() {
     let r = Rig::new();
     // Every row answered at once: the run finishes, the switch stays on.
-    let st = r.w.wind_down_all(SCOPE_THIS).unwrap();
+    let st = r.w.wind_down_all().unwrap();
     for x in &st.rows {
         let name = if x.key == r.key_a { "alpha" } else { "beta" };
         r.w.core
@@ -149,7 +149,7 @@ fn a_finished_run_keeps_the_switch_on() {
 fn a_row_whose_agent_ended_without_answering_reads_no_answer() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
-    let st = r.w.wind_down_all(SCOPE_THIS).unwrap();
+    let st = r.w.wind_down_all().unwrap();
     for x in &st.rows {
         if x.key == r.key_a {
             ib.reply(&inbox::Sender::new(&x.key, "alpha", "claude"), &x.delivery_id, "wound down")

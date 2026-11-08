@@ -2,7 +2,7 @@
 
 *2026-11-01, card #220, from Stephen's #219: "ending the day or switching accounts means winding every agent down by hand." Builds on Stop and Pause (#207, `docs/design/stop-pause.md`) on main @ 98226e4. A switch since card #787 (2026-11-07, from #773: "Wind down is meant to be used when someone literally wants everyone to stop working … it should work the same way where it's a toggle").*
 
-**Wind down** is an on/off switch, like Pause agents (#665), in the app header, the tray, the dialog and the command palette. On asks every agent of the person's (on this device, or on all their devices) to save its place, hand back its cards and stop, and stops Irori starting agents on those devices from that moment. Off, at any time, cancels what hasn't reached an agent yet and lets work start again.
+**Wind down** is an on/off switch, like Pause agents (#665), in the app header, the tray, the dialog and the command palette. On asks every agent of the person's, on every one of their devices, to save its place, hand back its cards and stop, and stops Irori starting agents on all of those devices from that moment. There is no Wind down for one device (Stephen on #773: "'winding down' one machine, there is no action for that"): stopping one machine is Pause agents on it, and its cards then start on other devices with room. Off, at any time, cancels what hasn't reached an agent yet and lets work start again.
 
 ## 1. The message
 
@@ -24,12 +24,10 @@ A wind-down is a person's message with reason `wind_down` (`inbox::REASON_WIND_D
 
 ## 2. The switch
 
-**On** (`Window::wind_down_all(scope)`, scope `this` = this device, `all` = every device that can run agents):
+**On** (`Window::wind_down_all()`, no scope: every device that can run agents, and every device with a live agent):
 
-1. **Starts stop first.** Pause agents (#665, `spawn_pause.rs`) turns on for each device in scope, written by this device for the others (the `spawn.cap` row replicates; each device reads it at its next sweep, every 5 s). Its `by` is `winddown:<this device id>` (`spawn_pause::WIND_DOWN_BY_PREFIX`), not `user:…`, so Off can tell Wind down's pauses from the person's. A device already paused keeps its pause and its `by`. So no fresh agent takes a card the wound-down agents leave, here or (for `all`) on another device.
-2. **Then the wind-downs** (§1), one per live agent in scope, as a run.
-
-With scope `this`, only this device stops: the cards its agents leave may start on the person's other devices, as with Pause agents (a paused device is never chosen, `spawn_device`). With `all`, nothing starts anywhere until Off.
+1. **Starts stop first.** Pause agents (#665, `spawn_pause.rs`) turns on for each device, written by this device for the others (the `spawn.cap` row replicates; each device reads it at its next sweep, every 5 s). Its `by` is `winddown:<this device id>` (`spawn_pause::WIND_DOWN_BY_PREFIX`), not `user:…`, so Off can tell Wind down's pauses from the person's. A device already paused keeps its pause and its `by`. So no fresh agent takes a card the wound-down agents leave, on any device: nothing starts anywhere until Off.
+2. **Then the wind-downs** (§1), one per live agent on every device, as a run.
 
 **The switch's state** is read from the pause rows, not kept in the window: Wind down is on while any device's Pause agents is on with a `winddown:` `by` (`WindDownStatus.on`, with `since` and the `devices` it holds). So every device shows it, and it outlives a restart (the run's rows don't: they are this device's memory).
 
@@ -39,7 +37,7 @@ With scope `this`, only this device stops: the cards its agents leave may start 
 2. Every pause with a `winddown:` `by` lifts, on every device: one switch for the person. A pause the person (or an agent) set stays.
 3. Lifting kicks the sweep: the cards the agents left start in queue order.
 
-**Pause all after is gone** (it was on by default): Pause agents on every device in scope covers "nothing starts", and Pause all (this device's wakes only) stays its own switch.
+**Pause all after is gone** (it was on by default): Pause agents on every device covers "nothing starts", and Pause all (this device's wakes only) stays its own switch.
 
 ## 3. A run
 
@@ -71,14 +69,14 @@ The window re-reads the run on every inbox change, and the switch every 5 s (it 
 ## 4. The window
 
 - **Header:** off, a Wind down button that opens the dialog. On, the button is pressed, "Wound down · 12 min", naming the devices it holds; clicking it turns Wind down off. The separate Pause agents button hides while Wind down is on (its pause is Wind down's).
-- **Tray:** a check item. Off: "Wind down all agents…" opens the window on the dialog (the scope choice stays in the window). On: checked; clicking it turns Wind down off.
+- **Tray:** a check item. Off: "Wind down all agents…" opens the window on the dialog (the confirm stays in the window). On: checked; clicking it turns Wind down off.
 - **Palette:** "Wind down all agents", or "Turn Wind down off" while it is on.
-- **The dialog:** off, the scope (this device / all my devices) and what On does; on, which devices it holds since when, a Turn off button (mid-run too), the live list with Stop per row and a summary ("4 of 5 wound down").
+- **The dialog:** off, how many agents it reaches and what On does (no scope choice); on, which devices it holds since when, a Turn off button (mid-run too), the live list with Stop per row and a summary ("4 of 5 wound down").
 
 ## 5. Tests
 
 - inbox: reason `wind_down` refused from an agent; a reply to one (wake or stop) is answered with its text kept and reaches neither the person's inbox nor the watcher's toasts, while an ordinary reply still does; Pause all doesn't hold it; a paused inbox plans a wake (and an append) for it and for nothing else; it waits behind a running wake (not cut); the preamble carries the instructions and `wind_down="true"`.
 - inbox (#787): the person's wind-down to a session that ended closes (no answer), their other messages still stay; Off closes only wind-downs not reached yet; another device's is asked of its host, which closes it (and ignores the ask for anything else).
-- core (#787): an agent that left its card while winding down is ended once it answered, not before; one that never answers is ended after the wait and its wind-down closes; Wind down "all" holds another device's starts and Off lifts only the pauses it set.
+- core (#787): an agent that left its card while winding down is ended once it answered, not before; one that never answers is ended after the wait and its wind-down closes; Wind down holds another device's starts and Off lifts only the pauses it set.
 - window: a run's status from delivery states, with each reply; a straggler's Stop is followed by its row; On holds starts at once and Off cancels and lifts; a device paused before stays paused; a row whose agent ended reads no answer and the run finishes.
 - agent-check: a busy agent holding a card and a lease gets Wind down: it finishes its tool call, leaves the card with a hand-off comment, releases the lease and replies.

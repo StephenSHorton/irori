@@ -794,7 +794,7 @@ fn wind_down(o: &Opts, h: &Host) -> (Result<String, String>, Option<PathBuf>) {
     }
     let run = match h
         .window
-        .wind_down_all(irori_window::wind_down::SCOPE_THIS)
+        .wind_down_all()
     {
         Ok(r) => r,
         Err(e) => return (Err(format!("the person's wind down: {e}")), log),
