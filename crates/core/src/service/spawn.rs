@@ -485,10 +485,10 @@ impl SpawnSetting {
         }
     }
 
-    /// The model and effort card `t` starts with, by its weight.
+    /// The model and effort card `t`'s next attempt starts with: by its
+    /// weight, stepped up for its crashes and Not dones (card #966).
     pub fn pick_for(&self, t: &coord::Task) -> (String, String) {
-        let level = t.weight.as_ref().map(|w| w.level.as_str()).unwrap_or("");
-        let (m, e) = self.pick(level);
+        let (m, e) = self.pick(t.run_level());
         (m.to_string(), e.to_string())
     }
 
@@ -616,6 +616,22 @@ pub const MAX_CAP: i64 = 200;
 /// The cap a device starts with (§6): 6 on Windows, 12 elsewhere.
 pub fn default_cap() -> i64 {
     if cfg!(windows) { 6 } else { 12 }
+}
+
+/// Whether the person's Claude Code has the advisor on (card #966): its
+/// user settings name an `advisorModel`. Read where the agent is asked for;
+/// Irori's own `--settings` file never sets it.
+pub fn advisor_on() -> bool {
+    let dir = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+                .map(|h| PathBuf::from(h).join(".claude"))
+        });
+    dir.and_then(|d| std::fs::read(d.join("settings.json")).ok())
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v["advisorModel"].as_str().map(|m| !m.trim().is_empty()))
+        .unwrap_or(false)
 }
 
 /// The brief a spawned agent reads first.
@@ -1325,12 +1341,16 @@ fn weight_words(b: &mut String, t: &Task, short: &str) {
             "{short} has no weight, so it runs as normal."
         )),
     }
+    let why = t.stepped_why();
+    if !why.is_empty() {
+        b.push_str(&format!(" This attempt runs {}, {why}.", t.run_level()));
+    }
     let mine = t.weight.as_ref().is_some_and(|w| w.by_person());
-    b.push_str(if mine {
-        " If its work turns out heavier or lighter than that, say so on the card in one line (board_comment); the person set its weight, so leave it to them."
+    if mine {
+        b.push_str(" If its work turns out heavier or lighter than that, say so on the card in one line (board_comment); the person set its weight, so leave it to them.");
     } else {
-        " If its work turns out heavier or lighter than that, say so on the card in one line (board_comment) and give it the weight it needs (board_edit weight), so its next agent starts on the right model."
-    });
+        b.push_str(&format!(" If you find it heavier than that, or your advisor keeps sending you back on the same point, push your branch and move it up: board_move task_id={short} direction=up, with why and left_off. Irori ends you and starts a fresh agent one weight higher, from your Left off. If it turns out to be busy work, move it down the same way."));
+    }
     b.push(' ');
     b.push_str(SPLIT_WORK);
     b.push_str("\n\n");
@@ -2255,6 +2275,8 @@ impl Services {
             // By the card's weight (card #963); none is normal.
             model: setting.pick_for(t).0,
             effort: setting.pick_for(t).1,
+            weight: t.run_level().to_string(),
+            advisor: advisor_on(),
             counted: self.start_counts(&self.coord, t),
             ..SpawnAsk::default()
         };
@@ -3205,6 +3227,15 @@ impl Services {
                 if lost || quiet {
                     self.begin_end(&a.key);
                 }
+                continue;
+            }
+            // The person's Not done lifted the card (card #966): the agent
+            // still here from its done check runs on the old weight, so it
+            // hands off and the next attempt starts one step higher.
+            if t.spawn_request().is_some_and(|s| {
+                s.generation == m.generation && !s.key.is_empty() && t.sent_back_lifts(s)
+            }) {
+                self.begin_end(&a.key);
                 continue;
             }
             let waiting = t.state == BLOCKED

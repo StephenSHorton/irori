@@ -166,6 +166,20 @@ pub struct AgentsChange {
     pub start_tries: Option<u32>,
 }
 
+/// One row of Settings › Agents' history (card #966): attempts the person
+/// answered on one weight, model and effort.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RunHistoryRow {
+    pub weight: String,
+    pub model: String,
+    pub effort: String,
+    pub runs: u32,
+    pub first_try: u32,
+    pub sent_back: u32,
+    pub advised: u32,
+}
+
 pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
     let (light_model, light_effort) = s.pick(coord::WEIGHT_LIGHT);
     let (heavy_model, heavy_effort) = s.pick(coord::WEIGHT_HEAVY);
@@ -315,6 +329,25 @@ fn valid_idle(c: &AgentsChange) -> Result<(), String> {
 
 impl Window {
     /// Settings › Agents for a board (`""`: the private board).
+    /// How this person's cards ended, by weight, model and effort (card
+    /// #966): their private board's.
+    pub fn agents_history(&self) -> Vec<RunHistoryRow> {
+        self.core
+            .coord()
+            .run_tally()
+            .into_iter()
+            .map(|r| RunHistoryRow {
+                weight: r.weight,
+                model: r.model,
+                effort: r.effort,
+                runs: r.runs,
+                first_try: r.first_try,
+                sent_back: r.sent_back,
+                advised: r.advised,
+            })
+            .collect()
+    }
+
     pub fn agents_settings(&self, board_id: &str) -> AgentsSettings {
         view(
             &self.core.spawn_setting(board_id),

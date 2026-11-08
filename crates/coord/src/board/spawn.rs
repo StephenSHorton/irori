@@ -114,6 +114,10 @@ pub struct Spawn {
     pub worktree: String,
     pub model: String,
     pub effort: String,
+    /// The weight it runs at (card #966); empty on older rows.
+    pub weight: String,
+    /// Whether the advisor was on where it was asked for (card #966).
+    pub advisor: bool,
     pub permission_mode: String,
     pub name: String,
     pub reason: String,
@@ -172,6 +176,9 @@ pub struct SpawnAsk {
     pub worktree: String,
     pub model: String,
     pub effort: String,
+    /// The weight it runs at, and whether the advisor is on (card #966).
+    pub weight: String,
+    pub advisor: bool,
     pub permission_mode: String,
     pub name: String,
     /// The person's words for the agent's brief, for the device that
@@ -297,6 +304,21 @@ impl Fold {
             self.ignore(&ev.device_id);
             return;
         }
+        if p.op == SPAWN_REQUESTED
+            && p.step.is_empty()
+            && p.subtask.is_empty()
+            && !p.weight.is_empty()
+        {
+            self.runs.entry(p.task_id.clone()).or_default().insert(
+                p.generation,
+                super::runs::Run {
+                    weight: p.weight.clone(),
+                    model: p.model.clone(),
+                    effort: p.effort.clone(),
+                    advisor: p.advisor,
+                },
+            );
+        }
         let Some(t) = self.tasks.get_mut(&p.task_id) else {
             return;
         };
@@ -311,6 +333,8 @@ impl Fold {
             worktree: p.worktree,
             model: p.model,
             effort: p.effort,
+            weight: p.weight,
+            advisor: p.advisor,
             permission_mode: p.permission_mode,
             name: p.name,
             reason: p.reason,
@@ -493,6 +517,8 @@ impl Fold {
                 worktree: a.worktree,
                 model: a.model,
                 effort: a.effort,
+                weight: a.weight,
+                advisor: a.advisor,
                 permission_mode: a.permission_mode,
                 name: a.name,
                 reason: String::new(),

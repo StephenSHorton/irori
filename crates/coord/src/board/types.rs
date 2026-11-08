@@ -171,7 +171,79 @@ crate::go_struct! {
     }
 }
 
+/// A card's attempt that went wrong, or its agent moving it (card #966).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Retry {
+    /// [`RETRY_CRASH`], [`RETRY_SENT_BACK`] or [`RETRY_MOVED`].
+    pub cause: &'static str,
+    /// What it is about, so one thing counts once: the agent, the done
+    /// check, or the weight row.
+    pub of: String,
+    /// When, in Unix nanoseconds.
+    pub at: i64,
+}
+
+pub const RETRY_CRASH: &str = "crash";
+pub const RETRY_SENT_BACK: &str = "sent_back";
+pub const RETRY_MOVED: &str = "moved";
+
 impl Task {
+    fn counted_retries(&self) -> impl Iterator<Item = &Retry> {
+        self.retries
+            .iter()
+            .filter(|r| r.cause != RETRY_MOVED && r.at > self.weighed_at)
+    }
+
+    fn own_level(&self) -> &str {
+        self.weight
+            .as_ref()
+            .map_or(WEIGHT_NORMAL, |w| w.level.as_str())
+    }
+
+    /// The weight its next attempt starts on (card #966): its own, or
+    /// normal, one step higher for each crash or Not done since that weight
+    /// was written, up to heavy. The weight itself stays as it was set: it
+    /// may be the person's.
+    pub fn run_level(&self) -> &'static str {
+        let own = self.own_level();
+        let at = WEIGHTS.iter().position(|w| *w == own).unwrap_or(1);
+        WEIGHTS[(at + self.counted_retries().count()).min(WEIGHTS.len() - 1)]
+    }
+
+    /// Why its next attempt starts above its weight; "" when it doesn't.
+    pub fn stepped_why(&self) -> &'static str {
+        if self.run_level() == self.own_level() {
+            return "";
+        }
+        match self.counted_retries().max_by_key(|r| r.at).map(|r| r.cause) {
+            Some(RETRY_SENT_BACK) => "one step higher: the person sent it back as not done",
+            Some(RETRY_CRASH) => "one step higher: its last agent crashed",
+            _ => "",
+        }
+    }
+
+    /// Whether the person's Not done should end attempt `s`'s live agent:
+    /// it came after that attempt started and lifts the card off the weight
+    /// that attempt runs at.
+    pub fn sent_back_lifts(&self, s: &super::spawn::Spawn) -> bool {
+        !s.weight.is_empty()
+            && s.weight != self.run_level()
+            && self
+                .counted_retries()
+                .any(|r| r.cause == RETRY_SENT_BACK && r.at > s.at.unix_nano())
+    }
+
+    /// Records a retry once, by what it is about.
+    pub(crate) fn note_retry(&mut self, cause: &'static str, of: &str, at: i64) {
+        if !self.retries.iter().any(|r| r.cause == cause && r.of == of) {
+            self.retries.push(Retry {
+                cause,
+                of: of.to_string(),
+                at,
+            });
+        }
+    }
+
     /// The person's say clears a run of crashes (cards #447, #540, #575).
     pub(crate) fn person_cleared_crashes(&mut self) {
         if self.spawn_crashes > 0 {
@@ -490,6 +562,9 @@ pub struct Weight {
     pub was_level: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub was_reason: String,
+    /// "up" or "down" when the card's agent moved it (card #966).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub moved: String,
 }
 
 pub const WEIGHT_LIGHT: &str = "light";
@@ -631,6 +706,14 @@ pub struct Task {
     /// agent is theirs, so it doesn't count toward their agents' limit.
     #[serde(skip)]
     pub person_restart: i64,
+    /// What went wrong with its attempts, or moved it (card #966): each
+    /// crash and Not done raises the level its next attempt starts on.
+    #[serde(skip)]
+    pub retries: Vec<Retry>,
+    /// When its weight was last written, in Unix nanoseconds: retries
+    /// before it don't count.
+    #[serde(skip)]
+    pub weighed_at: i64,
     /// Where the holder's work is (card #137), kept after it stops so
     /// whoever takes the card over can find it.
     #[serde(rename = "where", skip_serializing_if = "omit")]

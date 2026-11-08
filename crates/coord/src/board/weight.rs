@@ -195,6 +195,103 @@ impl Fold {
         Ok((t, true))
     }
 
+    /// The card's holder moves it one weight up or down (card #966): its
+    /// left_off, the new weight, and it leaves, so Irori ends it and starts
+    /// a fresh agent from Left off on the new weight. It moves from the
+    /// level this attempt runs at, and never back the way it last moved,
+    /// so a card can't bounce.
+    pub(crate) fn move_weight(
+        &mut self,
+        by: &str,
+        id: &str,
+        up: bool,
+        reason: &str,
+        left_off: &str,
+    ) -> Result<Task> {
+        let by = caller(by)?;
+        check_key(&by)?;
+        let reason = clean_reason(reason)?;
+        if reason.is_empty() {
+            return Err(invalid("say in one line why it moves"));
+        }
+        if trim_space(left_off).is_empty() {
+            return Err(invalid(
+                "give left_off: what's done and what's next, for the agent that carries on",
+            ));
+        }
+        let t = self.open_task(id)?.clone();
+        if !super::fold::is_holder(&t, &by) {
+            return Err(not_allowed(format!(
+                "only an agent working {} moves it",
+                t.short_ref()
+            )));
+        }
+        let now = self.weight_of(id);
+        if let Some(w) = now.as_ref().filter(|w| w.by_person()) {
+            return Err(not_allowed(format!(
+                "{}'s weight ({}) was set by the person: say so on the card and leave it to them",
+                t.short_ref(),
+                w.level
+            )));
+        }
+        let (dir, back) = if up { ("up", "down") } else { ("down", "up") };
+        if now.as_ref().is_some_and(|w| w.moved == back) {
+            return Err(not_allowed(format!(
+                "{} was moved {back} already and doesn't move back: carry on, or say why on the card",
+                t.short_ref()
+            )));
+        }
+        let at_level = WEIGHTS
+            .iter()
+            .position(|w| *w == t.run_level())
+            .unwrap_or(1);
+        let next = if up {
+            WEIGHTS.get(at_level + 1)
+        } else {
+            at_level.checked_sub(1).and_then(|i| WEIGHTS.get(i))
+        };
+        let Some(level) = next else {
+            return Err(invalid(format!(
+                "{} is already {}: it can't move {dir}",
+                t.short_ref(),
+                t.run_level()
+            )));
+        };
+        let Some(step) = t
+            .steps
+            .iter()
+            .find(|s| s.doing)
+            .or_else(|| t.steps.iter().find(|s| !s.done))
+            .or(t.steps.last())
+            .cloned()
+        else {
+            return Err(invalid(format!(
+                "{} has no steps to hold left_off: give it steps (board_steps) first",
+                t.short_ref()
+            )));
+        };
+        let keep = StepUpdate {
+            done: None,
+            doing: Some(step.doing),
+        };
+        self.set_step(&by, id, &step.id, keep, left_off)?;
+        let at = self.stamp();
+        self.write(
+            &by,
+            kinds::TASK_WEIGHT,
+            &TaskWeightRow {
+                task_id: id.to_string(),
+                level: (*level).to_string(),
+                reason,
+                by: by.clone(),
+                at,
+                moved: dir.to_string(),
+                ..TaskWeightRow::default()
+            },
+        )?;
+        self.leave(&by, id, &by)
+    }
+
     /// Irori's office assistant weighs card `id` (card #965), remembering
     /// what it replaces for the person's Undo. Never a weight the person
     /// set, and never twice: a weight it already gave stays.
@@ -245,6 +342,7 @@ impl Fold {
                 at,
                 was_level,
                 was_reason,
+                ..TaskWeightRow::default()
             },
         )?;
         let mut t = t;
@@ -288,8 +386,11 @@ impl Fold {
             self.ignore(&ev.device_id);
             return;
         };
-        let line = (set_by == SET_BY_ASSISTANT && !p.level.is_empty()).then(|| {
-            if !p.was_level.is_empty() && p.was_level != p.level {
+        let moved = p.moved.clone();
+        let line = (!p.level.is_empty() && (set_by == SET_BY_ASSISTANT || !moved.is_empty())).then(|| {
+            if !moved.is_empty() {
+                format!("moved it {moved} to {}: {}", p.level, p.reason)
+            } else if !p.was_level.is_empty() && p.was_level != p.level {
                 format!(
                     "changed the weight from {} to {}: {}",
                     p.was_level, p.level, p.reason
@@ -307,7 +408,15 @@ impl Fold {
             at: p.at,
             was_level: p.was_level,
             was_reason: p.was_reason,
+            moved: p.moved,
         };
+        if let Some(t) = self.tasks.get_mut(&p.task_id) {
+            let nanos = when.unix_nano();
+            t.weighed_at = t.weighed_at.max(nanos);
+            if !moved.is_empty() {
+                t.note_retry(RETRY_MOVED, &nanos.to_string(), nanos);
+            }
+        }
         let slots = self.weights.entry(p.task_id.clone()).or_default();
         let slot = if set_by == SET_BY_PERSON {
             &mut slots.person
@@ -321,7 +430,9 @@ impl Fold {
         // Irori's weighing is a line on the card, with its Undo; it wakes
         // nobody (card #965).
         if let (Some(what), Some(t)) = (line, self.tasks.get(&p.task_id))
-            && now.as_ref().is_some_and(Weight::by_assistant)
+            && now
+                .as_ref()
+                .is_some_and(|w| w.by_assistant() || !w.moved.is_empty())
         {
             let ti = Touch::of(t);
             self.touch(ev, &ti, when, &by, &what, false, Vec::new());

@@ -312,6 +312,8 @@ impl Services {
             // By the card's weight (card #963); none is normal.
             model: setting.pick_for(t).0,
             effort: setting.pick_for(t).1,
+            weight: t.run_level().to_string(),
+            advisor: super::spawn::advisor_on(),
             counted: self.start_counts(&log.co, t),
             ..SpawnAsk::default()
         };

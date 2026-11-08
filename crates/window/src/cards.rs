@@ -1703,7 +1703,18 @@ pub(crate) fn card_place(t: &Task, s: &irori_core::BoardSummary) -> (String, Str
 /// Card `t`'s weight as the card shows it (card #963), its model and
 /// effort read from board `board` (`""`: the private board).
 pub(crate) fn card_weight(t: &Task, board: &str, p: &People) -> Option<CardWeight> {
-    let w = t.weight.as_ref().filter(|w| !w.level.is_empty())?;
+    // Card #966: a card a crash or a Not done stepped up shows the level
+    // its next attempt runs at, and why, weight or none.
+    let stepped = t.stepped_why();
+    let none = coord::Weight {
+        set_by: coord::SET_BY_ASSISTANT.into(),
+        ..coord::Weight::default()
+    };
+    let w = match t.weight.as_ref().filter(|w| !w.level.is_empty()) {
+        Some(w) => w,
+        None if !stepped.is_empty() => &none,
+        None => return None,
+    };
     let by_name = match w.set_by.as_str() {
         coord::SET_BY_PERSON if w.by == p.user || p.is_owner(&w.by) => "you".to_string(),
         coord::SET_BY_ASSISTANT => "Irori".to_string(),
@@ -1716,10 +1727,15 @@ pub(crate) fn card_weight(t: &Task, board: &str, p: &People) -> Option<CardWeigh
             Some(f) => f(board),
             None => irori_core::spawn::SpawnSetting::default(),
         });
-    let (model, effort) = set.pick(&w.level);
+    let level = t.run_level();
+    let (model, effort) = set.pick(level);
     Some(CardWeight {
-        level: w.level.clone(),
-        reason: w.reason.clone(),
+        level: level.to_string(),
+        reason: if stepped.is_empty() {
+            w.reason.clone()
+        } else {
+            stepped.to_string()
+        },
         set_by: w.set_by.clone(),
         by_name,
         model: model.into(),

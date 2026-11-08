@@ -67,6 +67,7 @@ mod tasks;
 mod types;
 mod util;
 mod waits;
+mod runs;
 mod weight;
 
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
@@ -128,6 +129,7 @@ pub use waits::{
     MAX_WAITS, UNTIL_BLOCKED, UNTIL_CHANGED, UNTIL_DONE, UNTIL_UNBLOCKED, WAIT_CARD_GONE,
     WAIT_EXPIRED, WAIT_GONE, WAIT_TTL, until_text, wait_line,
 };
+pub use runs::RunTally;
 pub use weight::{MAX_WEIGHT_REASON, check_weight};
 
 use crate::roster::{AgentCard, Agents};
@@ -1122,6 +1124,22 @@ impl Coord {
     /// Weighs a card (card #963): light, normal or heavy, or "" to clear.
     /// A weight the person set is changed only by a person. Returns the
     /// card and whether anything changed.
+    pub fn move_weight(
+        &self,
+        by: &str,
+        id: &str,
+        up: bool,
+        reason: &str,
+        left_off: &str,
+    ) -> Result<Task> {
+        self.lock().move_weight(by, id, up, reason, left_off)
+    }
+
+    /// How attempts ended, by weight, model and effort (card #966).
+    pub fn run_tally(&self) -> Vec<RunTally> {
+        self.lock().run_tally()
+    }
+
     pub fn set_weight(
         &self,
         by: &str,

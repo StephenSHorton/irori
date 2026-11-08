@@ -257,6 +257,18 @@ pub(crate) fn refresh_blocker(
     let Some(last_person) = cs.iter().rposition(|c| c.person) else {
         return;
     };
+    // Card #966: the person's Not done on a done check raises the next
+    // attempt; a later pick (their Done) takes that back.
+    if b.done_check {
+        let (bid, word) = (b.id.clone(), cs[last_person]);
+        let (not_done, at) = (word.pick <= 0, word.at.unix_nano());
+        t.retries
+            .retain(|r| not_done || r.cause != RETRY_SENT_BACK || r.of != bid);
+        if not_done {
+            t.note_retry(RETRY_SENT_BACK, &bid, at);
+        }
+    }
+    let b = &mut t.blockers[i];
     if last_person == n - 1 || cs[n - 1].missing.is_empty() {
         // The person's answer stands, or an agent replied after it with
         // nothing missing: it acted on the answer (card #204), so the item
