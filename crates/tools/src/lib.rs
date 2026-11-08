@@ -60,6 +60,7 @@ pub mod notice;
 pub mod notify;
 mod observe;
 mod room;
+mod review_claim;
 mod shared;
 mod specs;
 mod started;
@@ -512,7 +513,7 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 63] = [
+    let list: [(&'static str, Handler); 64] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -560,6 +561,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("lease", board::lease),
         ("leases", board::leases),
         ("release", board::release),
+        ("review_claim", review_claim::review_claim),
         ("timeline", capturetools::timeline),
         ("why", capturetools::why),
         ("join", join),
