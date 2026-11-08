@@ -359,7 +359,7 @@ On an older peer:
 
 ## 12. Build plan
 
-All cards come after #1030. Each is normal weight unless marked, and links here. Every card: tests from the repo's patterns, `sh scripts/check.sh`, scratch builds per CLAUDE.md. The order is: 1 and 2 can go side by side, then 3 after 2, 4 after 1 and 2, 5 after 4, 6 after 3 and 5, 7 and 8 after 6, and 9 at any time.
+All cards come after #1030, and are on the Board as #1057–#1065 (cards 1–9 in order). Each is normal weight unless marked, and links here. Every card: tests from the repo's patterns, `sh scripts/check.sh`, scratch builds per CLAUDE.md. The order is: 1 and 2 can go side by side, then 3 after 2, 4 after 1 and 2, 5 after 4, 6 after 3 and 5, 7 and 8 after 6, and 9 at any time.
 
 **1. The channel.**
 Files: `crates/coord/src/talk.rs` (`assistants_channel_id`, `is_assistants_channel`, the fold's `ch_oa_` refusal), `crates/core/src/service/spaces.rs` (`ensure_assistants_channel`), `crates/core/src/service/spawn.rs` (call it from `sweep_spawns`), `crates/window/src/talk.rs` (a pinned flag on the channel binding), `frontend/src/lib/conversations.ts` (`listed()` puts it first).
