@@ -67,7 +67,9 @@ const Structure = 10_000
 export function reasons(
   f: Facts,
   where: Where,
-  parent: string | null
+  // Its parent card's ref ("#12"), and whether it's in the same area
+  // (only then does the subtask sit under it).
+  parent: { short: string; here: boolean } | null
 ): Reason[] {
   const out: Reason[] = []
   if (where.by === "you")
@@ -89,7 +91,9 @@ export function reasons(
     })
   if (parent)
     out.push({
-      text: `Under ${parent}: it's a subtask of it`,
+      text: parent.here
+        ? `Under ${parent.short}: it's a subtask of it`
+        : `A subtask of ${parent.short}, which sits with its own holder`,
       weight: Structure + 1,
     })
   if (f.done) return out

@@ -10,10 +10,17 @@ import workerUrl from "elkjs/lib/elk-worker.min.js?url"
 
 import type { Elk } from "./elk"
 
-let elk: Elk | null = null
+let elk: InstanceType<typeof ELK> | null = null
 
 // appElk is the one ELK the window shares, started on first use.
 export function appElk(): Elk {
   elk ??= new ELK({ workerUrl })
   return elk
+}
+
+// resetElk stops the worker after a failure, so the next layout starts a
+// fresh one.
+export function resetElk() {
+  elk?.terminateWorker()
+  elk = null
 }

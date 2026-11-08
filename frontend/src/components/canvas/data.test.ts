@@ -371,9 +371,11 @@ describe("canvas layout on ELK (card #776)", () => {
       expect(pts[0].y).toBe(l.pos[p.id].y + NodeSize.card.h)
       expect(pts[pts.length - 1].y).toBe(l.pos[s.id].y)
     }
-    // The subtasks sit under their parent.
+    // Two rows, as in the screenshot: the parent, then both subtasks side
+    // by side under it.
     expect(l.pos[s1.id].y).toBeGreaterThan(l.pos[p.id].y)
-    expect(l.pos[s2.id].y).toBeGreaterThan(l.pos[p.id].y)
+    expect(l.pos[s2.id].y).toBe(l.pos[s1.id].y)
+    expect(l.pos[s2.id].x).not.toBe(l.pos[s1.id].x)
   })
 
   test("a card moved by hand keeps every line out of the cards", async () => {
@@ -482,6 +484,27 @@ describe("canvas layout on ELK (card #776)", () => {
     ])
   })
 
+  test("weights: a hub of stale cards falls behind a hub of plain ones", () => {
+    const g = graphOf([
+      card({ working: [idle("old")], stale: true }),
+      card({ working: [idle("new")] }),
+    ])
+    expect(areaOrder(g).map((x) => x.id)).toEqual([
+      "group:agent:new",
+      "group:agent:old",
+    ])
+  })
+
+  test("why: a subtask held elsewhere doesn't claim to sit under its parent", () => {
+    const p = card({ working: [busy("a")] })
+    const s1 = card({ working: [busy("b")], parent: { id: p.id } as never })
+    const g = graphOf([p, s1])
+    const why = (g.nodes.find((x) => x.id === s1.id) as CardNode).why
+    expect(why.map((r) => r.text)).toContain(
+      `A subtask of #${p.short}, which sits with its own holder`
+    )
+  })
+
   test("weights: agents talking sit side by side, done comes last", () => {
     const [a, b, c] = [busy("a"), busy("b"), busy("c")]
     const g = graphOf([
@@ -552,6 +575,49 @@ describe("canvas lines (card #776)", () => {
     // Above it: out of the top.
     pts = route(a, box(0, -300), [])
     expect(pts[0]).toEqual({ x: 140, y: 0 })
+  })
+
+  test("a tall stack past the search window doesn't let a line through", () => {
+    // Review of #776: a column of boxes 8 px apart reaching past the
+    // window, so the only way round is outside it.
+    const a = box(0, 0)
+    const b = box(700, 0)
+    const wall: Rect[] = []
+    for (let y = -430; y <= 1200; y += 80)
+      wall.push({ x: 400, y, w: 240, h: 72 })
+    const pts = route(a, b, wall)
+    expect(fits(pts, a, b, [...wall, a, b])).toBe(true)
+  })
+
+  test("a big scattered board: every line clear, and kept while nothing moves", () => {
+    const cards: Rect[] = []
+    for (let i = 0; i < 60; i++)
+      cards.push(
+        box(
+          (i % 10) * 330 + ((i * 37) % 23),
+          Math.floor(i / 10) * 190 + ((i * 53) % 29)
+        )
+      )
+    const lines = Array.from({ length: 20 }, (_, i) => ({
+      id: `l${i}`,
+      kind: "subtask",
+      source: `n${i}`,
+      target: `n${59 - i}`,
+    }))
+    const rects = Object.fromEntries(cards.map((r, i) => [`n${i}`, r]))
+    const out = routeAll(lines, rects, {})
+    for (const l of lines) {
+      const others = cards.filter(
+        (_, i) => `n${i}` !== l.source && `n${i}` !== l.target
+      )
+      expect(fits(out[l.id], rects[l.source], rects[l.target], others)).toBe(
+        true
+      )
+    }
+    // A second pass with nothing moved (a drag frame elsewhere) keeps
+    // every line as it was, without routing it again.
+    const again = routeAll(lines, rects, {}, out)
+    for (const l of lines) expect(again[l.id]).toBe(out[l.id])
   })
 
   test("ELK's line is kept while it fits, rerouted once a card is in its way", () => {

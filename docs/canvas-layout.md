@@ -53,7 +53,8 @@ window (2.2 to 1):
 | `working` | +40 | The hub's agent is working now. |
 | `idle` | −20 | The hub's agent is idle. |
 
-Ties go by the number of cards, then the agent's name. Then come, in this
+Ties go by the number of cards, then the agent's name (in code-unit order,
+never the locale's, so every device agrees). Then come, in this
 order: the cards nobody is on, the "Also here" strip, and Done.
 
 ## 3. Fades
@@ -64,7 +65,8 @@ Done cards fade and go last. Stale cards go to the back of their area
 ## 4. Why it's here
 
 Hovering a card shows its top three reasons, strongest first: where it is
-(its area, then its parent), then what put it forward or back, with "Kept
+(its area, then its parent: "Under #12" when it sits under it, or that its
+parent sits with its own holder), then what put it forward or back, with "Kept
 where you put it" first when the person placed it. The texts are
 `reasons()` in `weights.ts`.
 
@@ -89,8 +91,12 @@ where you put it" first when the person placed it. The texts are
 
 The canvas lays out again only when something the layout depends on changes
 (`layoutKey`: the cards, their areas, parents, prominence, blockers, agents
-and talk lines), never for a title, steps or a clock tick. The last picture
-stays up while the next one is worked out.
+and talk lines), never for a title or steps. New cards, areas or lines lay
+out at once. A change that only reorders (a weight, or an agent going
+between working and idle, which happens every turn) waits 30 seconds
+unchanged first, so the map doesn't jump with each turn. `recent` runs out
+on time: the canvas reads the clock again when the next card's hour is up.
+The last picture stays up while the next one is worked out.
 
 A card the person dragged keeps its spot (`withPlaced`, kept in coord) while
 it lies inside its own area; one that would land elsewhere goes back to the
@@ -115,7 +121,12 @@ corners:
   broke. The router finds the shortest path with few bends on a grid made of
   the lines just outside each nearby node (12 px out, half the gap between
   two cards). It leaves and enters by whichever sides suit where the two
-  ends actually are, never through another node.
+  ends actually are, never through another node. (The one exception: two
+  nodes dragged on top of each other have no clear way out, and get a
+  straight line between their nearest sides.)
+- While a card is dragged, a line keeps its route as long as that still
+  fits, so only the lines the card breaks are routed again each frame; on
+  the drop every line takes its best route again.
 - A blocker's line leaves its left side and goes up the strip its inset
   leaves clear under the card, so it never crosses the blockers above it.
 - A holder line inside its agent's own hub is not drawn, hover or not: the

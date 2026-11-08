@@ -117,48 +117,75 @@ export function simplify(pts: readonly Point[]): Point[] {
   return out
 }
 
-// A small binary heap on [cost, state].
+// A small binary min-heap of (priority, state), ties to the lower state
+// so the search is deterministic; two flat arrays, no garbage per push.
 class Heap {
-  private a: [number, number][] = []
+  private p: number[] = []
+  private s: number[] = []
   get size() {
-    return this.a.length
+    return this.p.length
   }
-  push(c: number, s: number) {
-    const a = this.a
-    a.push([c, s])
-    let i = a.length - 1
+  private less(i: number, j: number) {
+    const p = this.p
+    return p[i] < p[j] || (p[i] === p[j] && this.s[i] < this.s[j])
+  }
+  private swap(i: number, j: number) {
+    const p = this.p
+    const s = this.s
+    const tp = p[i]
+    p[i] = p[j]
+    p[j] = tp
+    const ts = s[i]
+    s[i] = s[j]
+    s[j] = ts
+  }
+  push(pri: number, state: number) {
+    this.p.push(pri)
+    this.s.push(state)
+    let i = this.p.length - 1
     while (i > 0) {
-      const p = (i - 1) >> 1
-      if (!less([c, s], a[p])) break
-      a[i] = a[p]
-      i = p
+      const up = (i - 1) >> 1
+      if (!this.less(i, up)) break
+      this.swap(i, up)
+      i = up
     }
-    a[i] = [c, s]
   }
-  pop(): [number, number] {
-    const a = this.a
-    const top = a[0]
-    const last = a.pop()!
-    if (a.length) {
-      a[0] = last
-      let i = 0
-      for (;;) {
-        const l = 2 * i + 1
-        const r = l + 1
-        let m = i
-        if (l < a.length && less(a[l], a[m])) m = l
-        if (r < a.length && less(a[r], a[m])) m = r
-        if (m === i) break
-        ;[a[i], a[m]] = [a[m], a[i]]
-        i = m
-      }
+  // pop takes the smallest off; top() and topState read it first.
+  pop(): void {
+    const n = this.p.length - 1
+    this.swap(0, n)
+    this.p.pop()
+    this.s.pop()
+    let i = 0
+    for (;;) {
+      const l = 2 * i + 1
+      const r = l + 1
+      let m = i
+      if (l < n && this.less(l, m)) m = l
+      if (r < n && this.less(r, m)) m = r
+      if (m === i) break
+      this.swap(i, m)
+      i = m
     }
-    return top
+  }
+  top(): number {
+    return this.p[0]
+  }
+  topState(): number {
+    return this.s[0]
   }
 }
 
-function less(x: [number, number], y: [number, number]): boolean {
-  return x[0] < y[0] || (x[0] === y[0] && x[1] < y[1])
+// lowerBound is the first index in sorted xs whose value is >= v.
+function lowerBound(xs: readonly number[], v: number): number {
+  let lo = 0
+  let hi = xs.length
+  while (lo < hi) {
+    const m = (lo + hi) >> 1
+    if (xs[m] < v) lo = m + 1
+    else hi = m
+  }
+  return lo
 }
 
 function search(
@@ -198,27 +225,57 @@ function search(
     xsSet.add(area.x).add(area.x + area.w)
     ysSet.add(area.y).add(area.y + area.h)
   }
-  const xs = [...xsSet].sort((a, b) => a - b)
-  const ys = [...ysSet].sort((a, b) => a - b)
+  // Inside a window the grid stays inside it: the nodes outside it were
+  // left out, so a line there could run through one.
+  const inX = (x: number) => !area || (x >= area.x && x <= area.x + area.w)
+  const inY = (y: number) => !area || (y >= area.y && y <= area.y + area.h)
+  const xs = [...xsSet].filter(inX).sort((a, b) => a - b)
+  const ys = [...ysSet].filter(inY).sort((a, b) => a - b)
   const X = xs.length
   const Y = ys.length
   const at = (i: number, j: number) => ({ x: xs[i], y: ys[j] })
-  const free = new Uint8Array(X * Y)
-  for (let i = 0; i < X; i++)
-    for (let j = 0; j < Y; j++) {
-      const p = at(i, j)
-      free[j * X + i] = blocks.some((b) => inside(p, b)) ? 0 : 1
+  // What each node blocks, marked once: the grid points strictly inside
+  // it, and the grid steps that pass through its inside (cell by cell,
+  // not node by node, so a search costs about the grid's size).
+  const free = new Uint8Array(X * Y).fill(1)
+  const hOpen = new Uint8Array(X * Y).fill(1) // step (i, j) -> (i + 1, j)
+  const vOpen = new Uint8Array(X * Y).fill(1) // step (i, j) -> (i, j + 1)
+  for (const b of blocks) {
+    const [x0, x1, y0, y1] = [b.x, b.x + b.w, b.y, b.y + b.h]
+    const i0 = Math.max(0, lowerBound(xs, x0) - 1)
+    const i1 = Math.min(X - 1, lowerBound(xs, x1))
+    const j0 = Math.max(0, lowerBound(ys, y0) - 1)
+    const j1 = Math.min(Y - 1, lowerBound(ys, y1))
+    for (let j = j0; j <= j1; j++) {
+      const y = ys[j]
+      const yIn = y > y0 && y < y1
+      for (let i = i0; i <= i1; i++) {
+        const x = xs[i]
+        const k = j * X + i
+        if (yIn && x > x0 && x < x1) free[k] = 0
+        if (yIn && i + 1 < X && x < x1 && xs[i + 1] > x0) hOpen[k] = 0
+        if (x > x0 && x < x1 && j + 1 < Y && y < y1 && ys[j + 1] > y0)
+          vOpen[k] = 0
+      }
     }
-  // open[k][d]: the step from node k in direction d is clear.
+  }
+  // stepOk is the node one step from (i, j) in direction d, or -1.
   const stepOk = (i: number, j: number, d: number): number => {
-    const ni = i + (d === 1 ? 1 : d === 3 ? -1 : 0)
-    const nj = j + (d === 2 ? 1 : d === 0 ? -1 : 0)
-    if (ni < 0 || nj < 0 || ni >= X || nj >= Y) return -1
-    if (!free[nj * X + ni]) return -1
-    const a = at(i, j)
-    const b = at(ni, nj)
-    if (blocks.some((r) => crosses(a, b, r))) return -1
-    return nj * X + ni
+    let k: number
+    if (d === 1) {
+      if (i + 1 >= X || !hOpen[j * X + i]) return -1
+      k = j * X + i + 1
+    } else if (d === 3) {
+      if (i < 1 || !hOpen[j * X + i - 1]) return -1
+      k = j * X + i - 1
+    } else if (d === 2) {
+      if (j + 1 >= Y || !vOpen[j * X + i]) return -1
+      k = (j + 1) * X + i
+    } else {
+      if (j < 1 || !vOpen[(j - 1) * X + i]) return -1
+      k = (j - 1) * X + i
+    }
+    return free[k] ? k : -1
   }
   const idx = (p: Point) => ys.indexOf(p.y) * X + xs.indexOf(p.x)
   const goalAt = new Map<number, Side[]>()
@@ -234,20 +291,44 @@ function search(
   const cost = new Float64Array(N + 1).fill(Infinity)
   const prev = new Int32Array(N + 1).fill(-1)
   const goalSide = new Int8Array(1).fill(-1)
+  // A*: a node's priority is its cost so far plus the least it can still
+  // cost (the straight-line run to the nearest goal, which no bend makes
+  // shorter), so a long line searches toward its target, not all round.
+  // A line still off to the side of a goal in both x and y has a bend
+  // ahead of it, so that counts too (still never more than it can cost).
+  const left = (k: number): number => {
+    const i = k % X
+    const x = xs[i]
+    const y = ys[(k - i) / X]
+    let best = Infinity
+    for (const g of goals) {
+      const dx = Math.abs(x - g.q.x)
+      const dy = Math.abs(y - g.q.y)
+      best = Math.min(best, dx + dy + (dx && dy ? Bend : 0))
+    }
+    return best + M
+  }
+  // Among equally good nodes, the one furthest along first: a board of
+  // cards in a grid has many paths of the same cost, and this keeps the
+  // search from widening across all of them.
+  const pri = (c: number, k: number) => c + left(k) - c * 1e-7
   const heap = new Heap()
   for (const s of starts) {
     const st = idx(s.q) * 4 + s.s
     if (M < cost[st]) {
       cost[st] = M
       prev[st] = -2 - s.s // a start: which side it left by
-      heap.push(M, st)
+      heap.push(pri(M, st >> 2), st)
     }
   }
   while (heap.size) {
-    const [c, st] = heap.pop()
-    if (c > cost[st]) continue
+    const f = heap.top()
+    const st = heap.topState()
+    heap.pop()
     if (st === GOAL) break
     const k = st >> 2
+    const c = cost[st]
+    if (f > pri(c, k) + 1e-9) continue // a stale entry
     const dir = st & 3
     const sides = goalAt.get(k)
     if (sides)
@@ -268,15 +349,14 @@ function search(
       if (d === (dir + 2) % 4) continue // no turning back
       const nk = stepOk(i, j, d)
       if (nk < 0) continue
-      const a = at(i, j)
-      const b = at(nk % X, (nk - (nk % X)) / X)
-      const len = Math.abs(a.x - b.x) + Math.abs(a.y - b.y)
+      const ni = nk % X
+      const len = Math.abs(xs[i] - xs[ni]) + Math.abs(ys[j] - ys[(nk - ni) / X])
       const nc = c + len + (d === dir ? 0 : Bend)
       const ns = nk * 4 + d
       if (nc < cost[ns]) {
         cost[ns] = nc
         prev[ns] = st
-        heap.push(nc, ns)
+        heap.push(pri(nc, nk), ns)
       }
     }
   }
@@ -349,19 +429,22 @@ export function blockerLine(blocker: Rect, card: Rect): Point[] | null {
 export type Line = { id: string; kind: string; source: string; target: string }
 
 // routeAll is every line's points where the nodes are now: a blocker's
-// own line, ELK's line while it still fits, else one routed here.
+// own line, ELK's line while it still fits, else the line it had last
+// time (prev) while that still fits, else one routed here. So while a
+// card is dragged, only the lines it breaks are routed again.
 export function routeAll(
   lines: readonly Line[],
   rects: Readonly<Record<string, Rect>>,
-  elk: Readonly<Record<string, Point[]>>
+  elk: Readonly<Record<string, Point[]>>,
+  prev: Readonly<Record<string, Point[]>> = {}
 ): Record<string, Point[]> {
-  const all = Object.entries(rects)
+  const entries = Object.entries(rects)
   const out: Record<string, Point[]> = {}
   for (const e of lines) {
     const s = rects[e.source]
     const t = rects[e.target]
     if (!s || !t) continue
-    const others = all
+    const others = entries
       .filter(([id]) => id !== e.source && id !== e.target)
       .map(([, r]) => r)
     if (e.kind === "blocker") {
@@ -371,11 +454,15 @@ export function routeAll(
         continue
       }
     }
+    const all = [...others, s, t]
     const given = elk[e.id]
+    const last = prev[e.id]
     out[e.id] =
-      given && fits(given, s, t, [...others, s, t])
+      given && fits(given, s, t, all)
         ? given
-        : route(s, t, others)
+        : last && last !== given && fits(last, s, t, all)
+          ? last
+          : route(s, t, others)
   }
   return out
 }

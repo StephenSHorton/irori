@@ -272,8 +272,9 @@ export function toGraph(
       stale: !isDone && !!c.stale,
       done: isDone,
     }
-    const parentShort = parent
-      ? `#${(cards.find((x) => x.id === parent)?.short ?? "").replace(/^#/, "")}`
+    const up = parent ? cards.find((x) => x.id === parent) : undefined
+    const parentRef = up
+      ? { short: `#${up.short.replace(/^#/, "")}`, here: hubOf(up) === g }
       : null
     nodes.push({
       kind: "card",
@@ -310,7 +311,7 @@ export function toGraph(
             : first.status === "person"
               ? { by: "you" }
               : { by: "agent", name: displayName(first) },
-        parentShort
+        parentRef
       ),
     })
     if (parent) edge("subtask", parent, c.id)

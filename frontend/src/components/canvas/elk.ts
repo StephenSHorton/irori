@@ -48,6 +48,10 @@ const HubTop = Head + Pad + NodeSize.agent.h + Gap
 // Areas pack to about the window's shape.
 const Aspect = 2.2
 
+function cmp(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
 // areaOrder is the areas as they are packed (see the top of this file).
 export function areaOrder(g: Graph): GroupNode[] {
   const cards = g.nodes.filter((n): n is CardNode => n.kind === "card")
@@ -60,7 +64,10 @@ export function areaOrder(g: Graph): GroupNode[] {
     members.set(c.group, [...(members.get(c.group) ?? []), c])
   const areaScore = (a: GroupNode): number => {
     const ag = agentOf.get(a.id)
-    const top = Math.max(0, ...(members.get(a.id) ?? []).map((c) => c.score))
+    // A hub counts as much as its most prominent card (every hub holds
+    // one), so a hub of stale cards falls behind.
+    const scores = (members.get(a.id) ?? []).map((c) => c.score)
+    const top = scores.length ? Math.max(...scores) : 0
     const tone = ag?.tone
     return (
       top +
@@ -78,8 +85,9 @@ export function areaOrder(g: Graph): GroupNode[] {
       (a, b) =>
         areaScore(b) - areaScore(a) ||
         count(b) - count(a) ||
-        label(a).localeCompare(label(b)) ||
-        (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+        // Code-unit order, never the locale's: every device agrees.
+        cmp(label(a), label(b)) ||
+        cmp(a.key, b.key)
     )
   // Agents talking pull together: a hub's talk partner comes right after
   // it (the first time either comes up), so the line between them is
@@ -195,18 +203,20 @@ export function toElk(g: Graph): ElkNode {
       return {
         id: c.id,
         width: NodeSize.card.w,
-        height: NodeSize.card.h + b * (NodeSize.blocker.h + BlockerGap) + 0,
+        height: NodeSize.card.h + b * (NodeSize.blocker.h + BlockerGap),
       }
     })
-    // The others strip is agents only: ELK packs their pills.
+    // The others strip is agents only: ELK packs their pills, by name
+    // (not by the order the cards came in, which differs by device).
     if (a.by === "others")
-      for (const n of g.nodes)
-        if (n.kind === "agent" && n.group === a.id)
-          kids.push({
-            id: n.id,
-            width: NodeSize.agent.w,
-            height: NodeSize.agent.h,
-          })
+      for (const n of g.nodes
+        .filter((n): n is AgentNode => n.kind === "agent" && n.group === a.id)
+        .sort((x, y) => cmp(x.label, y.label) || cmp(x.id, y.id)))
+        kids.push({
+          id: n.id,
+          width: NodeSize.agent.w,
+          height: NodeSize.agent.h,
+        })
     const edges: ElkExtendedEdge[] = []
     for (const e of g.edges)
       if (
@@ -288,17 +298,21 @@ export async function layoutGraph(g: Graph, elk: Elk): Promise<Layout> {
 }
 
 // layoutKey is everything the layout depends on, and nothing else: a new
-// key means lay out again. A card's title or steps changing, or an agent
-// going quiet for a moment, keeps the picture still.
-export function layoutKey(g: Graph): string {
+// key means lay out again. A card's title or steps changing keeps the
+// picture still. steady leaves out what only reorders (the weights, and
+// whether an agent is working or idle), which the canvas lets settle a
+// while before it moves anything (reactflow/index.tsx).
+export function layoutKey(g: Graph, steady = false): string {
   const parts: string[] = []
   for (const n of g.nodes) {
     if (n.kind === "card")
-      parts.push(`c|${n.id}|${n.group}|${n.parent ?? ""}|${n.score}|${n.short}`)
+      parts.push(
+        `c|${n.id}|${n.group}|${n.parent ?? ""}|${steady ? "" : n.score}|${n.short}`
+      )
     else if (n.kind === "blocker") parts.push(`b|${n.id}|${n.card}`)
     else if (n.kind === "agent")
       parts.push(
-        `a|${n.id}|${n.group}|${n.tone}|${n.person ? 1 : 0}|${n.label}`
+        `a|${n.id}|${n.group}|${steady ? "" : n.tone}|${n.person ? 1 : 0}|${n.label}`
       )
     else parts.push(`g|${n.id}|${n.by}`)
   }

@@ -65,7 +65,7 @@ import {
   type Rect,
 } from "../data"
 import { layoutGraph, layoutKey } from "../elk"
-import { appElk } from "../elk-worker"
+import { appElk, resetElk } from "../elk-worker"
 import { roundedPath, routeAll } from "../route"
 import {
   AgentBody,
@@ -408,30 +408,68 @@ function lineOf(e: Edge<LineData>) {
   return { id: e.id, kind, source: e.source, target: e.target }
 }
 
-// useElkLayout is the board laid out by ELK (card #776), or null until
-// the first layout is in. It lays out again only when the layout's own
-// inputs change (layoutKey), keeping the last picture up meanwhile.
-function useElkLayout(graph: Graph): Layout | null | "failed" {
-  const key = useMemo(() => layoutKey(graph), [graph])
-  const latest = useRef(graph)
-  latest.current = graph
-  const [got, setGot] = useState<Layout | null | "failed">(null)
-  useEffect(() => {
-    let live = true
-    layoutGraph(latest.current, appElk()).then(
-      (l) => {
-        if (live) setGot(l)
+// A busy/idle flip or a weight change waits this long, unchanged, before
+// the cards move: agents go between turns all the time, and the map
+// shouldn't jump with each one.
+const Settle = 30_000
+// A layout that doesn't come back in this long has failed (the worker
+// didn't start, say).
+const LayoutTimeout = 30_000
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = window.setTimeout(
+      () => reject(new Error(`no layout after ${ms} ms`)),
+      ms
+    )
+    p.then(
+      (v) => {
+        window.clearTimeout(t)
+        resolve(v)
       },
-      (err: unknown) => {
-        console.error("canvas: ELK layout failed", err)
-        if (live) setGot((g) => g ?? "failed")
+      (e: unknown) => {
+        window.clearTimeout(t)
+        reject(e)
       }
     )
+  })
+}
+
+type Laid = { layout: Layout; steady: string }
+
+// useElkLayout is the board laid out by ELK (card #776), or null until
+// the first layout is in, or "failed" when there never was one. It lays
+// out again only when the layout's own inputs change (layoutKey), keeping
+// the last picture up meanwhile: at once for new cards, areas or lines,
+// after Settle for a change that only reorders.
+function useElkLayout(graph: Graph): Layout | null | "failed" {
+  const key = useMemo(() => layoutKey(graph), [graph])
+  const steady = useMemo(() => layoutKey(graph, true), [graph])
+  const [got, setGot] = useState<Laid | null | "failed">(null)
+  const laidSteady = got && got !== "failed" ? got.steady : null
+  useEffect(() => {
+    let live = true
+    const wait = laidSteady === steady ? Settle : 0
+    const t = window.setTimeout(() => {
+      withTimeout(layoutGraph(graph, appElk()), LayoutTimeout).then(
+        (layout) => {
+          if (live) setGot({ layout, steady })
+        },
+        (err: unknown) => {
+          console.error("canvas: ELK layout failed", err)
+          resetElk()
+          if (live) setGot((g) => g ?? "failed")
+        }
+      )
+    }, wait)
     return () => {
       live = false
+      window.clearTimeout(t)
     }
+    // It lays out on the key alone, with the graph of that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
-  return got
+  return got === null || got === "failed" ? got : got.layout
 }
 
 function holders(graph: Graph): Map<string, string> {
@@ -594,11 +632,20 @@ function LaidOut({
     return out
   }, [nodes, layout.size])
   // The lines shown now are routed with every move; a hidden one (a
-  // watcher's) only while its hover shows it.
+  // watcher's) only while its hover shows it. While a card is dragged, a
+  // line keeps its last route as long as that still fits, so only the
+  // lines the card breaks are routed again each frame; on the drop every
+  // line takes its best route again.
+  const [dragFrom, setDragFrom] = useState<Record<string, Point[]> | null>(null)
   const routes = useMemo(
     () =>
-      routeAll(base.filter((e) => !e.hidden).map(lineOf), rects, layout.routes),
-    [base, rects, layout.routes]
+      routeAll(
+        base.filter((e) => !e.hidden).map(lineOf),
+        rects,
+        layout.routes,
+        dragFrom ?? {}
+      ),
+    [base, rects, layout.routes, dragFrom]
   )
   const hoverRoutes = useMemo(
     () =>
@@ -673,6 +720,10 @@ function LaidOut({
         onNodesChange={onNodesChange}
         onNodeMouseEnter={(_, n) => setHover(n.type === "group" ? null : n.id)}
         onNodeMouseLeave={() => setHover(null)}
+        // The lines as the drag starts: each keeps its route while it
+        // still fits (see routes).
+        onNodeDragStart={() => setDragFrom(routes)}
+        onNodeDragStop={() => setDragFrom(null)}
         // An event means the person moved the view (fitView moves it too,
         // without one).
         onMoveStart={(e) => {
