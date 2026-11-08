@@ -800,7 +800,7 @@ impl Fold {
             // An agent's own thread starts one only on its person's post
             // (card #631), so its opener's mark doesn't carry.
             None => {
-                t.ask.as_ref().is_none_or(|a| a.opener.is_empty())
+                t.ask.as_ref().is_none_or(|a| a.opener.is_empty() || a.fresh)
                     && self.spawned.get(&t.created_by).is_some_and(|m| m.counted)
             }
         }
@@ -1470,7 +1470,7 @@ impl Fold {
         if self.spawn_now.contains(&t.id)
             || (t.parent.is_empty() && self.is_owner(&t.created_by) && !self.in_chain(t))
             // An agent's thread its person wrote in is theirs (card #631).
-            || (t.ask.as_ref().is_some_and(|a| a.thread && !a.opener.is_empty())
+            || (t.ask.as_ref().is_some_and(|a| a.thread && !a.opener.is_empty() && !a.fresh)
                 && !self.agent_thread_rests(t))
         {
             0

@@ -95,6 +95,10 @@ impl Fold {
         let Some(a) = t.ask.as_ref().filter(|a| a.thread && !a.opener.is_empty()) else {
             return false;
         };
+        // Given to a fresh agent (card #1027): it goes out without waiting.
+        if a.fresh {
+            return false;
+        }
         !self
             .comments
             .values()
@@ -248,7 +252,7 @@ impl Fold {
             .tasks
             .get(id)
             .and_then(|t| t.ask.as_ref())
-            .filter(|a| a.thread && !a.opener.is_empty())
+            .filter(|a| a.thread && !a.opener.is_empty() && !a.gave)
             .map(|a| vec![a.opener.clone()])
             .unwrap_or_default();
         for c in cs {
