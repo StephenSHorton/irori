@@ -233,7 +233,7 @@ A block has no status: the Core writes every assistant item as `open` (§8), exc
 
 **Fast acknowledgement.** On an L1 match, before the model runs, the host writes a placeholder item: "Juno is looking: do we have anyone on signing?". The answer replaces it, or it says "Juno found nothing". Everyone should see that within about a second of the line landing (not measured), which matters more to how it feels than the few seconds behind it. On a look's timeout the host sets it to "Juno couldn't answer". A new host of the same person closes the old host's placeholders that are still "looking" when it connects.
 
-**De-duplication.** Mostly structural: one digest writer, and one addressee per ask. On top of that, each look's message lists what others added since the last look, and the Core drops an item whose normalised text equals one already on the canvas.
+**De-duplication.** Mostly structural: each line has one writer (its speaker's assistant), each routed question one answer per card holder, and each ask one addressee. On top of that, each look's message lists what others added since the last look, and the Core drops an item whose normalised text equals one already on the canvas.
 
 ## 8. Rows
 
@@ -407,7 +407,7 @@ Dependencies, not preference: the place first, then who can read, then the names
 | 7b Feed, L1 and L2 | #1050 | 6, 7a |
 | 8 Canvas rows and writes | #1051 | 7b |
 | 9 Canvas UI and the roster | #1052 | 2, 8 |
-| 10 Note-taker: L3 and L4 | #1053 | 8, and the person's note-taker answer (§6) |
+| 10 Digests, routed questions, the chair | #1053 | 8, and the person's yes to §6 |
 | 11 After-call: divide into cards | #1054 | 9, 10 |
 | 12 Ordinary agents' tools | #1055 | 3, 8 |
 | 13 Real-device check | #1056 | 11, 12 |
@@ -435,8 +435,8 @@ Files: `crates/window/src/assistant.rs` (the held process: `job_args` with `tool
 Done when: a held session takes a priming turn and several looks, and restarts from the seed (packet included) after being killed or past the context limit; its arguments carry no `--mcp-config` and no secret; a packet test with a private card, a Personal card and a card on a space the other person isn't in contains none of them, for a channel and a DM huddle; packet text goes in fenced; time and cost per look are recorded in §7 for Haiku and Sonnet low with a 40-card packet, and for a one-hour run.
 
 **6. Matcher and layer rules.** Pure Rust, no I/O.
-Files: a new `crates/core/src/service/huddle_rules.rs` (the §5 matcher, the §6 layers, skips, throttles, hold, freshness, cap, the note-taker order from rows).
-Done when: tests cover each §5 form (chosen name, "Addam's assistant", "my assistant" only from its own person, "Stephen's Juno"), near-spellings ("Adam's"), position, the vocative rule and its negatives ("My assistant said…", "I'll ask my assistant later", "June third…", "John, can you…" beside a Juno), collisions; L2's skips (short lines, tag questions, a question to a named person); one look at a time, the hold, other callers' throttle, the cap, and stale lines triggering nothing.
+Files: a new `crates/core/src/service/huddle_rules.rs` (the §5 matcher, the §6 layers, skips, throttles, hold, freshness, cap, the chair order from rows, the question-to-card match for L3b).
+Done when: tests cover each §5 form (chosen name, "Addam's assistant", "my assistant" only from its own person, "Stephen's Juno"), near-spellings ("Adam's"), position, the vocative rule and its negatives ("My assistant said…", "I'll ask my assistant later", "June third…", "John, can you…" beside a Juno), collisions; L2's skips (short lines, tag questions, a question to a named person); one look at a time, the hold, other callers' throttle, the cap, and stale lines triggering nothing; the question match picks the holders of matching cards and ignores common words; an L3b look's non-answer blocks are dropped.
 
 **7a. Host and `call.assist`.**
 Files: a new `crates/core/src/service/huddle_host.rs` (the pick from `AgentDevices.homes` and `agents_paused_on`, `call.assist` arbitration, away after 60 s, re-pick after sleep, when a session opens and closes, §7), `call.assist` registration (`crates/store/src/kinds.rs`, golden test, `crates/coord/src/talk.rs` fold, `spaces.rs`, `dm_spaces.rs`), the roster state in `crates/window/src/talk.rs`.
@@ -456,9 +456,9 @@ Files: a new `frontend/src/components/canvas/huddle.tsx` (and `huddle-elk.ts` if
 Three traps on main that the card must avoid: `FitWhileUntouched` refits whenever its area count changes, and a drag doesn't count as touching; `LaidOut` resets all node state at render time when the graph object changes; a new node id changes the layout key and lays out again at once. So: build the graph from the items alone, memoized on their content, never on transcript lines; no render-time reset while a node is dragged; lay out append-stable (time order, existing items keep their spot). Item text runs to 2000 characters and a placeholder grows: clamp shown text to a few lines and expand on click.
 Done when: people and their connected assistants head the canvas; items group under who asked and show the assistant's label; a person adds an item, settles or drops one, and a drag saves its position, all seen on another member's device; the Ask box shows only while the viewer's assistant is connected; the roster shows connected, taking notes, reconnecting, not connected, the cap, "lines reach assistants only at the end" and "older Irori"; the page says when there are no notes, and when agents and the canvas are off in a space that isn't ready; a test appends items during a simulated drag and the dragged node and the viewport are unchanged; it works at phone width and in light and dark; screenshots on the card.
 
-**10. Note-taker: L3 and L4.** Waits on the person's yes to one note-taker (§6).
-Files: `huddle_feed.rs`, `huddle_rules.rs`, `crates/core/src/service/calls.rs` (hand-on, the end mark after a crash), `crates/store/src/kinds.rs` and `crates/store/tests/it/golden.rs` (the two settings rows, in `SINCE_GO_REFUSED`), `frontend/src/components/settings/` (Settings › App).
-Done when: only one assistant digests per huddle, chosen from rows, and two that both claim it settle on one; it passes on when its person leaves mid-call or its host goes away; no digest runs without new talk; a title appears after a couple of minutes and doesn't replace a person's; the end produces one summary with action items and `refs`, and changes no status; if the note-taker's host is gone at the end, the next writes it within 3 minutes; a crashed huddle gets one end mark, from an assistant's host or else any member device; both settings turn off what they say.
+**10. Digests, routed questions, the chair (L3, L3b, L4).** Waits on the person's yes to §6's sharing model.
+Files: `huddle_feed.rs`, `huddle_rules.rs`, `crates/core/src/service/calls.rs` (the chair's hand-on, the end mark after a crash), `crates/store/src/kinds.rs` and `crates/store/tests/it/golden.rs` (the two settings rows, in `SINCE_GO_REFUSED`), `frontend/src/components/settings/` (Settings › App).
+Done when: each assistant digests only its own person's lines, and a silent person's assistant runs none; an exchange between two people gives one item from each assistant; a question item gets one routed look per person who holds a matching card, which writes only answers, and nothing a routed look writes triggers another; one chair per huddle, chosen from rows, and two that both claim it settle on one; it passes on when its person leaves mid-call or its host goes away; a title appears after a couple of minutes and doesn't replace a person's; the end produces one summary with action items and `refs`, and changes no status; if the chair's host is gone at the end, the next writes it within 3 minutes; a crashed huddle gets one end mark, from an assistant's host or else any member device; both settings turn off what they say.
 
 **11. After-call: divide into cards.**
 Files: `huddle-page.tsx` (finished canvas, Settle these from the summary's `refs`, Divide), `frontend/src/lib/assistant.ts` (`splitReply` takes `<<cards>>` and `<<settle>>` out before `splitGo`), `assistant-chat.tsx` (drafts, Make cards, Apply), `crates/window/src/assistant.rs` (huddle context, fenced, cut to 20 minutes), `crates/window/src/commands.rs` and the generated bindings (`assistant_ask` takes `callId`), `crates/window/src/new_card.rs`.
@@ -474,6 +474,6 @@ Done when: a real huddle between a Mac and the Pixel, with the Pixel person's as
 ## 14. Not in this design
 
 - An assistant talking to other people's assistants (#1030). "Who knows about X?" in v1 is answered from what the space can see.
-- Asking the room ("assistants, who knows…") and handing that between assistants. Later, by decision 38's rule.
+- Assistants talking to each other (#1030 designs that). Inside a huddle they divide the canvas work by speaker and by card holder (§6) but never message one another.
 - Voice addressing of ordinary agents, and cards or any other real work from a live huddle.
 - Wake words other than the name, screen-share reading, and audio retention. No audio is kept, as today.
