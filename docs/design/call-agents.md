@@ -205,10 +205,10 @@ call.assist   {"callId","convId","device","state":"on|off","by","at"}
 - **`status`:** `open`, `settled`, `dropped`, `carded`, shown by kind (a question reads open or answered, a decision proposed or agreed). `summary` and `note` have none.
 - **`call.item.set`** folds per field, newest wins. Only the writer's person edits `text`. Any person sets `status` or `x`/`y`.
 - **New kinds, read only by this fold.** No other fold reads `call.item`: a `task` item is never a board task, and nothing on the Board, in agent starts or in the inbox looks at canvas rows.
-- **An assistant's row is never the person's decision.** An assistant writes items as `open` only, and the fold refuses a `call.item` or `call.item.set` with `assistant: true` that carries any other status. Only a person's own row (no `assistant` flag) settles, drops or cards an item. During the call a question with an answer shows as "open · 1 answer" until a person settles it.
+- **An assistant's row is never the person's decision.** An assistant writes items as `open` only. A `call.item` or `call.item.set` with `assistant: true` that carries any other status is still stored and replicated like any `call.*` row, but the fold ignores that status (an item reads as `open`, a set's status field is dropped). Only a person's own row (no `assistant` flag) settles, drops or cards an item. During the call a question with an answer shows as "open · 1 answer" until a person settles it.
 - **Append-mostly:** an assistant adds items and edits only its own placeholder's text. Nothing is deleted: `dropped` is a status. Agents never move anything.
 - **`card`** is a plain ref string set when an item becomes a card (§9). It isn't `taskId`, because `store::board::resolves` refuses a `taskId` that isn't on that board, and a DM's cards live on the promoter's Personal.
-- **Writes after the fact:** `status: carded` and `card` are refused while the huddle is live.
+- **Writes after the fact:** while the huddle is live the window won't write `status: carded` or `card`, and the fold ignores them if they arrive.
 
 **"Agent-written" is a flag.** Assistant rows are written by the person's device under the person's own key, with `assistant: true`.
 - That is as provable as the alternative. A row's signature proves only the person (`bind_actor`). Any of a person's devices can already sign as any of their agent cards, so an `agent:<card>` actor proves nothing more.
@@ -349,7 +349,7 @@ Done when: pure tests cover §5's matching (each form: chosen name, "Addam's ass
 
 **6. Canvas rows and writes.**
 Files: `crates/store/src/kinds.rs`, `crates/coord/src/talk.rs` (fold), `crates/core/src/service/dm_spaces.rs`, `spaces.rs`, `huddle_feed.rs` (placeholder, block to row, de-dupe), `crates/window/src/talk.rs`.
-Done when: blocks become items on all members' devices in a channel, a DM and a Personal channel; `dm_conv_of` still refuses anything not by the pair; `carded` is refused while live; an `assistant: true` row with any status but `open` is refused; no fold but this one reads the new kinds; a person's item and an assistant's show differently.
+Done when: blocks become items on all members' devices in a channel, a DM and a Personal channel; `dm_conv_of` still refuses anything not by the pair; `carded` written while live is ignored by the fold; an `assistant: true` row with any status but `open` is stored but its status is ignored by the fold; no fold but this one reads the new kinds; a person's item and an assistant's show differently.
 
 **7. Canvas UI.**
 Files: `frontend/src/components/canvas/data.ts` (a `NoteNode`, in `GraphNode`), `elk.ts` (a huddle layout), `reactflow/index.tsx`, a new `canvas/huddle.tsx`, `huddle-page.tsx`.
