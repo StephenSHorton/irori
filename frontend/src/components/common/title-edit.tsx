@@ -34,11 +34,8 @@ export function nextTitle(draft: string, now: string): string | null {
 export function TitleEdit({
   title,
   save,
-  as: Heading = "h1",
   className,
   inputClassName,
-  oneLine,
-  formClassName,
   label = "Title",
   editing = false,
   children,
@@ -46,14 +43,9 @@ export function TitleEdit({
   title: string
   // Saves the new title; a rejection is shown under the field.
   save: (title: string) => Promise<unknown>
-  as?: "h1" | "h2"
   // The heading's look, as it was before it could be renamed.
   className?: string
   inputClassName?: string
-  // A one-line header: the title is cut with "…", the pencil stays.
-  oneLine?: boolean
-  // Where the field sits while it is open (a row of its own on a phone).
-  formClassName?: string
   label?: string
   // Opens with the field showing (the preview's ?rename=<id>).
   editing?: boolean
@@ -119,7 +111,7 @@ export function TitleEdit({
   if (draft !== null) {
     return (
       <form
-        className={cn("grid min-w-0 flex-1 gap-1", formClassName)}
+        className="grid min-w-0 flex-1 gap-1"
         onSubmit={(e) => void submit(e)}
       >
         <span className="flex min-w-0 items-center gap-1.5">
@@ -169,30 +161,22 @@ export function TitleEdit({
     )
   }
   return (
-    <Heading className={cn("group min-w-0", className)}>
+    <h1 className={cn("group min-w-0", className)}>
       {/* The heading's name stays the title; Rename is its hint. */}
       <button
         ref={button}
         type="button"
         title="Rename"
         data-title-edit=""
-        className={cn(
-          "max-w-full cursor-text rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-          oneLine ? "flex min-w-0 items-center" : "[overflow-wrap:anywhere]"
-        )}
+        className="max-w-full cursor-text rounded-sm text-left [overflow-wrap:anywhere] outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         onClick={open}
       >
-        <span className={cn(oneLine && "min-w-0 truncate")}>
-          {saved ? plainLine(shown) : (children ?? plainLine(shown))}
-        </span>
+        <span>{saved ? plainLine(shown) : (children ?? plainLine(shown))}</span>
         <PencilIcon
           aria-hidden
-          className={cn(
-            "ml-1.5 size-[0.7em] text-muted-foreground opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-60",
-            oneLine ? "shrink-0" : "inline align-baseline"
-          )}
+          className="ml-1.5 inline size-[0.7em] align-baseline text-muted-foreground opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-60"
         />
       </button>
-    </Heading>
+    </h1>
   )
 }

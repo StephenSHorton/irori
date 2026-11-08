@@ -56,9 +56,12 @@ import {
   type CardSummary,
   type CardWait,
   type Step,
+  type ThreadSummary,
   type Told,
   cardStore,
 } from "@/lib/cards"
+import { emptyLine } from "@/components/talk/threads"
+import { ThreadBar } from "./thread-bar"
 import {
   parseTime,
   plainLine,
@@ -166,6 +169,33 @@ function gist(s: string): string {
   return l.length > GistChars ? `${l.slice(0, GistChars - 1)}…` : l
 }
 
+// askedTitle heads what the card is for: a thread's or an open ask's
+// question, an agent's own thread's (card #631), or a card's objective.
+export function askedTitle(
+  d: Pick<CardDetail, "ask">,
+  thread?: Pick<ThreadSummary, "openedBy">
+): string {
+  if (thread) return thread.openedBy ? "Asked" : "You asked"
+  return openAsk(d) ? "You asked" : "Objective"
+}
+
+// threadAgents are the agents on a card's thread: its holders, and on a
+// Talk thread (card #780) the agent that opened it, those told and those
+// that answered, once each.
+export function threadAgents(
+  d: Pick<CardDetail, "working">,
+  thread?: Pick<ThreadSummary, "openedBy" | "told" | "answeredBy">
+): AgentRef[] {
+  if (!thread) return d.working
+  const all = [
+    ...d.working,
+    ...(thread.openedBy ? [thread.openedBy] : []),
+    ...thread.told,
+    ...thread.answeredBy,
+  ]
+  return all.filter((a, i) => all.findIndex((b) => b.key === a.key) === i)
+}
+
 // CardPage is one card on its own page, in the window's full width: a
 // header (short ref, title, state, scope, Back), a main column with the
 // objective, its blockers and the thread, and a side column with progress,
@@ -182,6 +212,10 @@ export function CardPage({
   now,
   onBack,
   onOpen,
+  thread,
+  pane,
+  why,
+  onResolved,
 }: {
   // summary is the card's grid tile, if the grid has it, for the header
   // while the full card loads.
@@ -194,6 +228,15 @@ export function CardPage({
   // onOpen opens another card's page: a subtask's parent, a parent's
   // subtasks.
   onOpen?: (id: string) => void
+  // thread is the card's Talk thread when it is one (card #780): its bar
+  // takes the ask's Close line, with Resolve and Agents answer now.
+  thread?: ThreadSummary
+  // pane shows the page in Talk's pane (card #780): Back goes to Talk's
+  // list, on a narrow window only.
+  pane?: { narrow: boolean }
+  // Why nobody is free to take a waiting thread (card #172).
+  why?: string
+  onResolved?: () => void
 }) {
   const [answered, setAnswered] = useState<Answered | null>(null)
   // The done check lifted to the top (card #140) stays there once answered
@@ -205,7 +248,22 @@ export function CardPage({
   // The live roster's status over the card's (card #317): the same busy
   // rule Home's Agent progress reads, as of now.
   const live = useContext(LiveRoster)
-  const back = (
+  // In Talk's pane the list is beside it, so Back shows only on a narrow
+  // window, where the thread has the whole screen (card #780).
+  const back = pane ? (
+    pane.narrow && (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="-ml-2 self-start justify-self-start text-muted-foreground"
+        onClick={onBack}
+        aria-label="Back to Talk"
+      >
+        <ArrowLeftIcon aria-hidden />
+        Talk
+      </Button>
+    )
+  ) : (
     <Button
       variant="ghost"
       size="sm"
@@ -217,6 +275,7 @@ export function CardPage({
       Cards
     </Button>
   )
+  const L = pane ? PaneLayout : PageLayout
   // While the card loads (card #598), the header comes from the grid's
   // tile when there is one, and the body is a skeleton in the page's own
   // shape; the same Loading (key "body") then reveals the page in place.
@@ -299,301 +358,230 @@ export function CardPage({
   const blockers = detail.blockers.filter((b) => b !== ready)
   const hasObjective = !!(detail.goal || detail.doneWhen || showNote)
   const hasBlockers = blockers.length > 0 || legacy || !!answered
+  const asked = askedTitle(detail, thread)
+  const about = (
+    <AboutCard
+      detail={detail}
+      live={now_}
+      p={p}
+      links={links}
+      files={files}
+      gone={gone}
+      now={now}
+      spinning={spinning}
+      onOpen={onOpen}
+    />
+  )
+  // A thread's own lines in its thread (card #780): no answer yet says
+  // why, the reply box is a reply, and a resolved one takes none.
+  const threadOn = {
+    agents: threadAgents(detail, thread),
+    over: thread ? thread.state === "resolved" : over(detail),
+    working: workers,
+    jobs,
+  }
+  const composer =
+    thread?.state === "resolved" ? undefined : (
+      <CommentBox
+        cardId={detail.id}
+        noFiles={!!detail.onBoard}
+        reply={!!thread}
+      />
+    )
+  const statusBar = thread ? (
+    <ThreadBar
+      t={thread}
+      ask={detail.ask}
+      spawn={detail}
+      newest={detail.thread[detail.thread.length - 1]?.id ?? ""}
+      why={why}
+      onResolved={onResolved}
+    />
+  ) : (
+    <>
+      {openAsk(detail) ? (
+        <AskStatus detail={detail} onClosed={onBack} />
+      ) : (
+        <ProgressStrip detail={detail} spinning={spinning} />
+      )}
+      {!over(detail) && !openAsk(detail) && (
+        <CloseBar detail={detail} ready={!!readyNow} />
+      )}
+      {over(detail) &&
+        (detail.sharedTo && !detail.sharedTo.withdrawn ? (
+          <SharedToBar detail={detail} onOpen={onOpen} />
+        ) : (
+          <ReopenBar detail={detail} />
+        ))}
+    </>
+  )
+  const header = (
+    <PageHeader
+      card={detail}
+      spinning={spinning}
+      onOpen={onOpen}
+      small={!!pane}
+      thread={!!thread}
+      renamable
+      extra={
+        <>
+          <BoardActions
+            detail={detail}
+            boards={boards}
+            onOpen={onOpen}
+            onBack={onBack}
+          />
+          <NotYetButton card={detail} />
+          {!detail.onBoard && <PauseButton card={detail} />}
+          {!detail.onBoard && (
+            <DeleteButton detail={detail} onDeleted={onBack} />
+          )}
+        </>
+      }
+    />
+  )
+  const mainCard = (ready || hasObjective || hasBlockers) && (
+    <Card className={cn("gap-0 py-0!", L.main)}>
+      {ready && (
+        <Section
+          title={readyNow ? "Ready for you" : "Done check"}
+          last={!hasObjective && !hasBlockers}
+        >
+          <BlockerItem
+            cardId={detail.id}
+            blocker={ready}
+            now={now}
+            noFiles={!!detail.onBoard}
+            onNoteAnswered={() => {}}
+          />
+        </Section>
+      )}
+      {hasObjective && (
+        <Section title={asked} last={!hasBlockers}>
+          {detail.goal && (
+            <RichText
+              text={detail.goal}
+              mentions={detail.ask?.mentions}
+              className="text-sm text-ink-2"
+            />
+          )}
+          {detail.onBoard && (
+            <p className="text-[12.5px] text-muted-foreground">
+              <span className="font-medium text-ink-2">Visible to:</span>{" "}
+              {detail.onBoard.visibleTo.map(plainLine).join(", ")}
+            </p>
+          )}
+          {showNote && (
+            <p className="text-[12.5px] text-muted-foreground">
+              <span className="font-medium text-ink-2">Note:</span>{" "}
+              <RichLine text={detail.note} />
+            </p>
+          )}
+          {detail.doneWhen && (
+            <p className="text-[12.5px] text-muted-foreground">
+              <span className="font-medium text-ink-2">Done when:</span>{" "}
+              <RichLine text={detail.doneWhen} />
+            </p>
+          )}
+        </Section>
+      )}
+      {hasBlockers && !laterOf(detail) && (
+        <Section title="Blockers" last>
+          {legacy && (
+            <div className="grid gap-1.5 rounded-lg border border-destructive/50 bg-destructive/10 p-3">
+              <div className="text-[13.5px] font-semibold text-ink">
+                <RichLine text={detail.blockerQuestion} />
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Raised without recommended answers. The agent on it clears it
+                when it's sorted.
+              </div>
+            </div>
+          )}
+          {answered && !open.some((b) => b.id === NoteItem) && (
+            <div className="grid gap-2 rounded-lg border border-border bg-muted/40 p-3 opacity-85">
+              <div className="text-[13.5px] font-semibold text-ink">
+                <span className="text-success" aria-label="Answered: ">
+                  ✓{" "}
+                </span>
+                {plainLine(answered.question)}
+              </div>
+              <div className="text-[11.5px] text-muted-foreground">
+                You answered: “{gist(answered.answer)}”
+              </div>
+              <ToldLine told={answered.told} raiser={answered.to} />
+            </div>
+          )}
+          {blockers
+            .filter((b) => !isWait(b))
+            .map((b) => (
+              <BlockerItem
+                key={b.id}
+                cardId={detail.id}
+                blocker={b}
+                now={now}
+                noFiles={!!detail.onBoard}
+                onNoteAnswered={(answer, told) =>
+                  setAnswered({
+                    question: b.question,
+                    answer,
+                    told,
+                    to: b.raisedBy,
+                  })
+                }
+              />
+            ))}
+          {blockers.filter(isWait).map((b) => (
+            <WaitItem
+              key={b.id}
+              cardId={detail.id}
+              blocker={b}
+              onOpen={onOpen}
+            />
+          ))}
+        </Section>
+      )}
+    </Card>
+  )
+  const threadSection = (
+    <BlockersHere.Provider value={blockersHere}>
+      <StartAgentOn.Provider value={startable(detail) ? detail.id : ""}>
+        <Thread
+          cardId={detail.id}
+          items={detail.thread}
+          now={now}
+          starting={!!detail.starting}
+          earlier={detail.threadEarlier}
+          historyTrimmed={detail.historyTrimmed}
+          on={threadOn}
+          empty={thread ? emptyLine(thread) : undefined}
+          composer={composer}
+        />
+      </StartAgentOn.Provider>
+    </BlockersHere.Provider>
+  )
   return (
     <MentionBoard.Provider value={detail.onBoard?.id ?? ""}>
-      <article className="grid gap-3" aria-label="Card">
+      <article className={cn("grid gap-3", L.article)} aria-label="Card">
         {back}
         <WorkingRow card={now_} />
-        <PageHeader
-          card={detail}
-          spinning={spinning}
-          onOpen={onOpen}
-          renamable
-          extra={
-            <>
-              <BoardActions
-                detail={detail}
-                boards={boards}
-                onOpen={onOpen}
-                onBack={onBack}
-              />
-              <NotYetButton card={detail} />
-              {!detail.onBoard && <PauseButton card={detail} />}
-              {!detail.onBoard && (
-                <DeleteButton detail={detail} onDeleted={onBack} />
-              )}
-            </>
-          }
-        />
+        {header}
         <Loading key="body" loading={false} label="Loading the card">
           <div className="grid gap-3">
-            {openAsk(detail) ? (
-              <AskStatus detail={detail} onClosed={onBack} />
-            ) : (
-              <ProgressStrip detail={detail} spinning={spinning} />
-            )}
-            {!over(detail) && !openAsk(detail) && (
-              <CloseBar detail={detail} ready={!!readyNow} />
-            )}
-            {over(detail) &&
-              (detail.sharedTo && !detail.sharedTo.withdrawn ? (
-                <SharedToBar detail={detail} onOpen={onOpen} />
-              ) : (
-                <ReopenBar detail={detail} />
-              ))}
-            <div className="grid items-start gap-4 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)] min-[900px]:grid-rows-[auto_1fr] min-[1600px]:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
-              {(ready || hasObjective || hasBlockers) && (
-                <Card className="gap-0 py-0! min-[900px]:col-start-1 min-[900px]:row-start-1">
-                  {ready && (
-                    <Section
-                      title={readyNow ? "Ready for you" : "Done check"}
-                      last={!hasObjective && !hasBlockers}
-                    >
-                      <BlockerItem
-                        cardId={detail.id}
-                        blocker={ready}
-                        now={now}
-                        noFiles={!!detail.onBoard}
-                        onNoteAnswered={() => {}}
-                      />
-                    </Section>
-                  )}
-                  {hasObjective && (
-                    <Section
-                      title={openAsk(detail) ? "You asked" : "Objective"}
-                      last={!hasBlockers}
-                    >
-                      {detail.goal && (
-                        <RichText
-                          text={detail.goal}
-                          mentions={detail.ask?.mentions}
-                          className="text-sm text-ink-2"
-                        />
-                      )}
-                      {detail.onBoard && (
-                        <p className="text-[12.5px] text-muted-foreground">
-                          <span className="font-medium text-ink-2">
-                            Visible to:
-                          </span>{" "}
-                          {detail.onBoard.visibleTo.map(plainLine).join(", ")}
-                        </p>
-                      )}
-                      {showNote && (
-                        <p className="text-[12.5px] text-muted-foreground">
-                          <span className="font-medium text-ink-2">Note:</span>{" "}
-                          <RichLine text={detail.note} />
-                        </p>
-                      )}
-                      {detail.doneWhen && (
-                        <p className="text-[12.5px] text-muted-foreground">
-                          <span className="font-medium text-ink-2">
-                            Done when:
-                          </span>{" "}
-                          <RichLine text={detail.doneWhen} />
-                        </p>
-                      )}
-                    </Section>
-                  )}
-                  {hasBlockers && !laterOf(detail) && (
-                    <Section title="Blockers" last>
-                      {legacy && (
-                        <div className="grid gap-1.5 rounded-lg border border-destructive/50 bg-destructive/10 p-3">
-                          <div className="text-[13.5px] font-semibold text-ink">
-                            <RichLine text={detail.blockerQuestion} />
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            Raised without recommended answers. The agent on it
-                            clears it when it's sorted.
-                          </div>
-                        </div>
-                      )}
-                      {answered && !open.some((b) => b.id === NoteItem) && (
-                        <div className="grid gap-2 rounded-lg border border-border bg-muted/40 p-3 opacity-85">
-                          <div className="text-[13.5px] font-semibold text-ink">
-                            <span
-                              className="text-success"
-                              aria-label="Answered: "
-                            >
-                              ✓{" "}
-                            </span>
-                            {plainLine(answered.question)}
-                          </div>
-                          <div className="text-[11.5px] text-muted-foreground">
-                            You answered: “{gist(answered.answer)}”
-                          </div>
-                          <ToldLine told={answered.told} raiser={answered.to} />
-                        </div>
-                      )}
-                      {blockers
-                        .filter((b) => !isWait(b))
-                        .map((b) => (
-                          <BlockerItem
-                            key={b.id}
-                            cardId={detail.id}
-                            blocker={b}
-                            now={now}
-                            noFiles={!!detail.onBoard}
-                            onNoteAnswered={(answer, told) =>
-                              setAnswered({
-                                question: b.question,
-                                answer,
-                                told,
-                                to: b.raisedBy,
-                              })
-                            }
-                          />
-                        ))}
-                      {blockers.filter(isWait).map((b) => (
-                        <WaitItem
-                          key={b.id}
-                          cardId={detail.id}
-                          blocker={b}
-                          onOpen={onOpen}
-                        />
-                      ))}
-                    </Section>
-                  )}
-                </Card>
-              )}
-
+            {statusBar}
+            <div className={cn("grid items-start gap-4", L.grid)}>
+              {mainCard}
               <aside
                 aria-label="About the card"
-                className="min-w-0 min-[900px]:sticky min-[900px]:top-0 min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:max-h-[calc(100svh-5.5rem)] min-[900px]:overflow-y-auto"
+                className={cn("min-w-0", L.aside)}
               >
-                <Card className="gap-0 py-0!">
-                  <Section title="Progress">
-                    {detail.ask && openAsk(detail) ? (
-                      <AskLine ask={detail.ask} spawn={detail} />
-                    ) : p === null ? (
-                      <HolderLine holder={detail.holder} />
-                    ) : (
-                      <ProgressBar
-                        progress={detail.progress}
-                        label={`${p ?? 0}% complete`}
-                        tone={cardTone(detail)}
-                      />
-                    )}
-                    <ProgressLine detail={detail} />
-                    {detail.subtaskList?.length > 0 ? (
-                      <>
-                        <Subtasks list={detail.subtaskList} onOpen={onOpen} />
-                        {detail.steps.length > 0 && (
-                          <details className="text-xs text-muted-foreground">
-                            <summary className="cursor-pointer">
-                              Steps done before the split
-                            </summary>
-                            <Steps
-                              steps={detail.steps}
-                              spinning={false}
-                              people={detail.working}
-                            />
-                          </details>
-                        )}
-                      </>
-                    ) : (
-                      detail.steps.length > 0 && (
-                        <Steps
-                          steps={detail.steps}
-                          spinning={spinning}
-                          people={detail.working}
-                        />
-                      )
-                    )}
-                    <WhereLines detail={detail} now={now} />
-                  </Section>
-
-                  <Section
-                    title="Who's on it"
-                    last={
-                      !detail.reviews.length &&
-                      !detail.prs.length &&
-                      !links.length &&
-                      !files.length
-                    }
-                  >
-                    <People detail={now_} gone={gone} />
-                  </Section>
-
-                  {detail.reviews.length > 0 && (
-                    <Section
-                      title="Review"
-                      last={
-                        !detail.prs.length && !links.length && !files.length
-                      }
-                    >
-                      <div className="grid gap-2">
-                        {detail.reviews.map((r) => (
-                          <ReviewRow
-                            key={r.reviewer.key}
-                            review={r}
-                            now={now}
-                          />
-                        ))}
-                      </div>
-                    </Section>
-                  )}
-
-                  {detail.prs.length > 0 && (
-                    <Section
-                      title="Pull requests"
-                      last={!links.length && !files.length}
-                    >
-                      <div className="grid gap-2">
-                        {detail.prs.map((pr) => (
-                          <PRRow key={`${pr.repo}#${pr.number}`} pr={pr} />
-                        ))}
-                      </div>
-                    </Section>
-                  )}
-
-                  {links.length > 0 && (
-                    <Section title="Links" last={!files.length}>
-                      <div className="flex flex-wrap gap-1.5">
-                        {links.map((l) => (
-                          <LinkChip key={`${l.kind}:${l.ref}`} link={l} />
-                        ))}
-                      </div>
-                    </Section>
-                  )}
-
-                  {files.length > 0 && (
-                    <Section title="Files" last>
-                      <AttachmentList attachments={files} compact />
-                    </Section>
-                  )}
-                </Card>
+                {about}
               </aside>
-
-              <div className="grid gap-4 min-[900px]:col-start-1 min-[900px]:row-start-2">
+              <div className={cn("grid gap-4", L.thread)}>
                 <TerminalCard cardId={detail.id} />
                 <Card className="gap-0 py-0!">
                   <Section title="Thread" last>
-                    <BlockersHere.Provider value={blockersHere}>
-                      <StartAgentOn.Provider
-                        value={startable(detail) ? detail.id : ""}
-                      >
-                        <Thread
-                          cardId={detail.id}
-                          items={detail.thread}
-                          now={now}
-                          starting={!!detail.starting}
-                          earlier={detail.threadEarlier}
-                          historyTrimmed={detail.historyTrimmed}
-                          on={{
-                            agents: detail.working,
-                            over: over(detail),
-                            working: workers,
-                            jobs,
-                          }}
-                          composer={
-                            <CommentBox
-                              cardId={detail.id}
-                              noFiles={!!detail.onBoard}
-                            />
-                          }
-                        />
-                      </StartAgentOn.Provider>
-                    </BlockersHere.Provider>
+                    {threadSection}
                   </Section>
                 </Card>
               </div>
@@ -602,6 +590,146 @@ export function CardPage({
         </Loading>
       </article>
     </MentionBoard.Provider>
+  )
+}
+
+// PageLayout is the card page's two columns, by the window's width;
+// PaneLayout the same in Talk's pane (card #780), by the pane's own width,
+// since Threads' list takes part of the window.
+const PageLayout = {
+  article: "",
+  grid: "min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)] min-[900px]:grid-rows-[auto_1fr] min-[1600px]:grid-cols-[minmax(0,1fr)_minmax(0,400px)]",
+  main: "min-[900px]:col-start-1 min-[900px]:row-start-1",
+  aside:
+    "min-[900px]:sticky min-[900px]:top-0 min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:max-h-[calc(100svh-5.5rem)] min-[900px]:overflow-y-auto",
+  thread: "min-[900px]:col-start-1 min-[900px]:row-start-2",
+}
+const PaneLayout = {
+  article: "@container",
+  grid: "@min-[820px]:grid-cols-[minmax(0,1fr)_minmax(0,340px)] @min-[820px]:grid-rows-[auto_1fr] @min-[1200px]:grid-cols-[minmax(0,1fr)_minmax(0,380px)]",
+  main: "@min-[820px]:col-start-1 @min-[820px]:row-start-1",
+  aside:
+    "@min-[820px]:sticky @min-[820px]:top-0 @min-[820px]:col-start-2 @min-[820px]:row-span-2 @min-[820px]:row-start-1 @min-[820px]:max-h-[calc(100svh-8rem)] @min-[820px]:overflow-y-auto",
+  thread: "@min-[820px]:col-start-1 @min-[820px]:row-start-2",
+}
+
+// AboutCard is the page's side column: Progress, Who's on it, Review,
+// PRs, Links and Files.
+function AboutCard({
+  detail,
+  live,
+  p,
+  links,
+  files,
+  gone,
+  now,
+  spinning,
+  onOpen,
+}: {
+  detail: CardDetail
+  live: CardDetail
+  p: number | null
+  links: CardDetail["links"]
+  files: FileRef[]
+  gone: GoneSession[]
+  now: Date
+  spinning: boolean
+  onOpen?: (id: string) => void
+}) {
+  return (
+    <Card className="gap-0 py-0!">
+      <Section title="Progress">
+        {detail.ask && openAsk(detail) ? (
+          <AskLine ask={detail.ask} spawn={detail} />
+        ) : p === null ? (
+          <HolderLine holder={detail.holder} />
+        ) : (
+          <ProgressBar
+            progress={detail.progress}
+            label={`${p ?? 0}% complete`}
+            tone={cardTone(detail)}
+          />
+        )}
+        <ProgressLine detail={detail} />
+        {detail.subtaskList?.length > 0 ? (
+          <>
+            <Subtasks list={detail.subtaskList} onOpen={onOpen} />
+            {detail.steps.length > 0 && (
+              <details className="text-xs text-muted-foreground">
+                <summary className="cursor-pointer">
+                  Steps done before the split
+                </summary>
+                <Steps
+                  steps={detail.steps}
+                  spinning={false}
+                  people={detail.working}
+                />
+              </details>
+            )}
+          </>
+        ) : (
+          detail.steps.length > 0 && (
+            <Steps
+              steps={detail.steps}
+              spinning={spinning}
+              people={detail.working}
+            />
+          )
+        )}
+        <WhereLines detail={detail} now={now} />
+      </Section>
+
+      <Section
+        title="Who's on it"
+        last={
+          !detail.reviews.length &&
+          !detail.prs.length &&
+          !links.length &&
+          !files.length
+        }
+      >
+        <People detail={live} gone={gone} />
+      </Section>
+
+      {detail.reviews.length > 0 && (
+        <Section
+          title="Review"
+          last={!detail.prs.length && !links.length && !files.length}
+        >
+          <div className="grid gap-2">
+            {detail.reviews.map((r) => (
+              <ReviewRow key={r.reviewer.key} review={r} now={now} />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {detail.prs.length > 0 && (
+        <Section title="Pull requests" last={!links.length && !files.length}>
+          <div className="grid gap-2">
+            {detail.prs.map((pr) => (
+              <PRRow key={`${pr.repo}#${pr.number}`} pr={pr} />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {links.length > 0 && (
+        <Section title="Links" last={!files.length}>
+          <div className="flex flex-wrap gap-1.5">
+            {links.map((l) => (
+              <LinkChip key={`${l.kind}:${l.ref}`} link={l} />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {files.length > 0 && (
+        <Section title="Files" last>
+          <AttachmentList attachments={files} compact />
+        </Section>
+      )}
+    </Card>
   )
 }
 
@@ -1023,12 +1151,18 @@ function PageHeader({
   spinning,
   onOpen,
   extra,
+  small,
+  thread,
   renamable,
 }: {
   card: CardSummary
   spinning?: boolean
   onOpen?: (id: string) => void
   extra?: ReactNode
+  // small is its title in Talk's pane (card #780), under the list's size.
+  small?: boolean
+  // thread: the card is a Talk thread (card #780).
+  thread?: boolean
   // The person may rename it here (card #779): the loaded page, not the
   // summary shown while it loads.
   renamable?: boolean
@@ -1037,7 +1171,7 @@ function PageHeader({
     <header className="grid gap-2">
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         <ShortRef card={card} />
-        <StatePill card={card} />
+        <StatePill card={card} thread={thread} />
         {spinning && <Spinner />}
         <ScopeBadge card={card} />
         <SideBadge card={card} />
@@ -1056,15 +1190,23 @@ function PageHeader({
         <TitleEdit
           title={card.title}
           save={(t) => cards.rename(card.id, t)}
-          label="Card title"
+          label={thread ? "Thread title" : "Card title"}
           editing={previewFlag("rename") === card.id}
           inputClassName="text-base"
-          className="text-2xl leading-tight font-semibold tracking-tight text-balance text-ink"
+          className={cn(
+            "leading-tight font-semibold tracking-tight text-balance text-ink",
+            small ? "text-lg" : "text-2xl"
+          )}
         >
           {plainLine(card.title) || "(untitled)"}
         </TitleEdit>
       ) : (
-        <h1 className="text-2xl leading-tight font-semibold tracking-tight text-balance text-ink">
+        <h1
+          className={cn(
+            "leading-tight font-semibold tracking-tight text-balance text-ink",
+            small ? "text-lg" : "text-2xl"
+          )}
+        >
           {plainLine(card.title) || "(untitled)"}
         </h1>
       )}
@@ -1587,7 +1729,9 @@ function Section({
   return (
     <section
       className={cn(
-        "grid gap-2.5 px-5 py-3.5",
+        // minmax(0,1fr): a wide row (a file chip) shrinks inside the card
+        // instead of widening the column past its edge.
+        "grid grid-cols-[minmax(0,1fr)] gap-2.5 px-5 py-3.5",
         !last && "border-b border-border"
       )}
     >

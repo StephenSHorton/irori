@@ -3,31 +3,19 @@
 // open thread itself.
 
 import { cardRef } from "@/components/cards/bits"
-import { useContext, useEffect, useState } from "react"
+import { useContext } from "react"
 
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { AgentsNowToggle } from "@/components/common/agents-now-toggle"
-import { RichText } from "@/components/common/rich-text"
-import { CommentBox } from "@/components/cards/card-detail"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { Face } from "@/components/cards/faces"
-import { Thread } from "@/components/cards/thread"
-import { MessageRowsShape } from "@/components/common/loading-shapes"
-import { Loading } from "@/components/ui/loading"
 import { spawnLine } from "@/lib/spawn-line"
-import { StartPastLimit } from "@/components/cards/start-past-limit"
 import {
   displayName,
-  threads as threadsApi,
-  useCard,
   type AgentRef,
   type ThreadCard,
   type ThreadSummary,
 } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
-import { errorText } from "@/lib/talk"
-import { cn } from "@/lib/utils"
 
 // resolvedShown is whether the "Resolved" list is unfolded: the person's
 // pick, or a resolved thread open (a #ref to one unfolds it, card #144).
@@ -135,163 +123,6 @@ export function ThreadCards({ cards }: { cards: ThreadCard[] }) {
   )
 }
 
-// ThreadView is an open thread on the Talk page (card #390): what the
-// person asked, the answers (the card's own thread, events left out), the
-// reply box and Resolve. Only its messages scroll, so the reply box stays
-// in view and nothing passes under it (card #564).
-export function ThreadView({
-  t,
-  now,
-  onResolved,
-  bound,
-}: {
-  t: ThreadSummary
-  now: Date
-  onResolved: () => void
-  // Classes that bound its height (a max-h) where the parent doesn't, as
-  // Talk's pane does: everything but the messages keeps its height.
-  bound?: string
-}) {
-  const { detail, error: readError } = useCard(t.id)
-  // The answers are a skeleton until the card's first read lands (card
-  // #598), not "No answer yet"; a failed read keeps the plain line.
-  const reading = !detail && !readError
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const resolved = t.state === "resolved"
-  // Events stay out, but a card made from the thread is part of the answer.
-  const items = (detail?.thread ?? []).filter(
-    (it) => it.kind !== "event" || it.made
-  )
-  // Open and in view, what it holds now is read (card #719): Talk's count
-  // drops it until an agent writes again. A reply that lands while the
-  // window is in the background waits until it is back in front.
-  const newest = items[items.length - 1]?.id ?? ""
-  useEffect(() => {
-    if (resolved) return
-    const read = () => {
-      if (document.visibilityState === "visible" && document.hasFocus())
-        void threadsApi.read(t.id).catch(() => {})
-    }
-    read()
-    window.addEventListener("focus", read)
-    return () => window.removeEventListener("focus", read)
-  }, [t.id, newest, resolved])
-  const act = (f: (id: string) => Promise<void>) => async () => {
-    if (busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      await f(t.id)
-    } catch (err) {
-      setError(errorText(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-  const resolve = act(async (id) => {
-    await threadsApi.resolve(id)
-    onResolved()
-  })
-  const reopen = act(threadsApi.reopen)
-  const setAgentsNow = (on: boolean) =>
-    void act((id) => threadsApi.setAgentsNow(id, on))()
-  return (
-    <div className={cn("flex min-h-0 min-w-0 flex-col gap-2", bound)}>
-      <div className="grid min-w-0 shrink-0 grid-cols-[minmax(0,1fr)] gap-1 text-[12.5px]">
-        {/* An agent's own thread says whose it is (card #631): the
-            question is the agent's, not the person's. */}
-        {t.openedBy && <OpenedBy who={t.openedBy} />}
-        {/* A long question scrolls by itself, so it leaves the messages
-            and the reply box their room in a short window. */}
-        <div className={cn("min-w-0 overflow-y-auto", QuestionMax)}>
-          <RichText
-            text={t.text}
-            className="[overflow-wrap:anywhere] text-ink-2"
-          />
-        </div>
-        {t.told.length > 0 && (
-          <span className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
-            {t.state === "waiting" ? "Asked first:" : "Told:"}
-            {t.told.map((w) => (
-              <Badge
-                key={w.key}
-                variant="slate"
-                className="h-4 gap-1 px-1 text-[10.5px]"
-              >
-                {/* The small face fits the 16px badge (card #386), in
-                    the agent's colour as the framed face was. */}
-                <Face who={w} inline className="size-3 text-(--face-tint)" />
-                {displayName(w)}
-              </Badge>
-            ))}
-          </span>
-        )}
-      </div>
-      <Thread
-        cardId={t.id}
-        items={items}
-        now={now}
-        starting={!!t.starting}
-        on={{
-          agents: [
-            ...(t.openedBy ? [t.openedBy] : []),
-            ...t.told,
-            ...t.answeredBy,
-          ],
-          over: resolved,
-        }}
-        compact
-        empty={
-          reading ? (
-            <Loading loading label="Loading the answers">
-              <MessageRowsShape rows={2} />
-            </Loading>
-          ) : (
-            emptyLine(t)
-          )
-        }
-        composer={resolved ? undefined : <CommentBox cardId={t.id} reply />}
-        scroll
-      />
-      {t.state === "waiting" && (
-        <StartPastLimit id={t.id} state={t} size="xs" />
-      )}
-      <div className="flex shrink-0 items-center gap-2">
-        {resolved ? (
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={busy}
-            onClick={() => void reopen()}
-            title="Bring it back: your next reply goes to the agents that answered"
-          >
-            Reopen
-          </Button>
-        ) : (
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={busy}
-            onClick={() => void resolve()}
-            title="Done with it: the thread closes"
-          >
-            Resolve
-          </Button>
-        )}
-        {!resolved && (
-          <AgentsNowToggle
-            on={t.agentsNow}
-            onChange={setAgentsNow}
-            disabled={busy}
-          />
-        )}
-        {error && <span className="text-xs text-destructive">{error}</span>}
-      </div>
-    </div>
-  )
-}
-
 // OpenedBy names the agent that opened a thread itself (card #631).
 export function OpenedBy({ who }: { who: AgentRef }) {
   return (
@@ -325,6 +156,3 @@ export function emptyLine(
 export function emptyOpened(who: AgentRef): string {
   return `No replies yet. ${displayName(who)} hears yours; no other agent is started for it until you write.`
 }
-
-// How tall a thread's question grows before it scrolls (card #564).
-const QuestionMax = "max-h-[max(3rem,calc(50svh-10rem))]"

@@ -26,12 +26,11 @@ import {
   MessageRowsShape,
 } from "@/components/common/loading-shapes"
 import { Loading } from "@/components/ui/loading"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Face } from "@/components/cards/faces"
-import { cards, type ThreadSummary } from "@/lib/cards"
-import { TitleEdit } from "@/components/common/title-edit"
-import { previewFlag } from "@/lib/preview"
+import { useCard, type ThreadSummary } from "@/lib/cards"
+import { CardPage } from "@/components/cards/card-detail"
+import { AgentCards } from "@/components/cards/agent-hover"
 import {
   dmGone,
   dmPerson,
@@ -50,7 +49,7 @@ import { AllSpaces, convInSpace } from "@/lib/spaces"
 import { LiveRoster } from "@/lib/thread"
 import { parseTime, plainLine, relativeTime } from "@/lib/irori"
 import { useNarrow } from "@/lib/media"
-import { errorText } from "@/lib/talk"
+import { errorText, useGone } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import {
   agentRows,
@@ -65,12 +64,9 @@ import {
   type SectionKey,
 } from "@/lib/talk-sections"
 import {
-  ThreadCards,
-  ThreadView,
   openAfterResolve,
   resolvedShown,
   resolvedToggle,
-  stateBadges,
   stateLine,
 } from "./threads"
 import { agentStatus } from "@/lib/agent-status"
@@ -419,11 +415,12 @@ export function TalkPage({
     !!open && !current && !conv && (threadsLoading || conversationsLoading)
 
   const conversation = current ? (
-    <Conversation
+    <ThreadPane
       key={current.id}
       t={current}
       now={now}
       narrow={narrow}
+      why={why}
       onBack={() => onOpen("")}
       onResolved={() => onOpen(openAfterResolve(open, current.id))}
     />
@@ -1085,88 +1082,47 @@ function ThreadItem({
   )
 }
 
-function Conversation({
+// ThreadPane is an open thread in Talk's pane (card #780): the thread's
+// ask card view, the same page the Board opens for it, with the thread's
+// bar (Resolve, Agents answer now, its cards). The list stays beside it.
+function ThreadPane({
   t,
   now,
   narrow,
+  why,
   onBack,
   onResolved,
 }: {
   t: ThreadSummary
   now: Date
   narrow: boolean
+  why: string
   onBack: () => void
   onResolved: () => void
 }) {
-  const badge = stateBadges[t.state]
-  const at = parseTime(t.updatedAt)
+  const { detail, error } = useCard(t.id)
+  const { gone } = useGone()
+  const ctx = useContext(AgentCards)
   return (
     <section
       aria-label={plainLine(t.title)}
       className={cn(
-        // Fills the pane: only the thread's messages scroll (card #564).
-        // The column scrolls only when its fixed lines alone outgrow it.
-        "flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto mac:overscroll-none",
+        "flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto mac:overscroll-none",
         narrow ? "px-1 py-2" : "p-4"
       )}
     >
-      <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
-        {narrow && (
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-label="Back to Talk"
-            onClick={onBack}
-          >
-            <ChevronLeftIcon />
-          </Button>
-        )}
-        <MessageSquareTextIcon
-          className="size-4 shrink-0 text-muted-foreground"
-          aria-hidden
-        />
-        {t.short && (
-          <span className="shrink-0 text-[12px] text-muted-foreground tabular-nums">
-            {cardRef(t)}
-          </span>
-        )}
-        <TitleEdit
-          as="h2"
-          title={t.title}
-          save={(title) => cards.rename(t.id, title)}
-          label="Thread title"
-          editing={previewFlag("rename") === t.id}
-          className="flex-1 text-[15px] font-semibold text-ink"
-          oneLine
-          formClassName="max-md:order-last max-md:basis-full"
-          inputClassName="h-7 text-[13px]"
-        />
-        {t.private && (
-          <Badge
-            variant="slate"
-            className="h-4 shrink-0 px-1.5 text-[10.5px]"
-            title="Only you and your own agents see this thread; it never reaches other members' devices"
-          >
-            Private
-          </Badge>
-        )}
-        {badge && (
-          <Badge
-            variant={badge.variant}
-            className="h-4 shrink-0 px-1.5 text-[10.5px]"
-          >
-            {badge.label}
-          </Badge>
-        )}
-        <time
-          className="shrink-0 text-[11px] text-muted-foreground tabular-nums"
-          dateTime={at?.toISOString()}
-        >
-          {relativeTime(at, now)}
-        </time>
-      </header>
-      {t.cards.length > 0 && <ThreadCards cards={t.cards} />}
-      <ThreadView t={t} now={now} onResolved={onResolved} />
+      <CardPage
+        detail={detail}
+        error={error}
+        gone={gone}
+        now={now}
+        onBack={onBack}
+        onOpen={ctx?.onOpen}
+        thread={t}
+        pane={{ narrow }}
+        why={why}
+        onResolved={onResolved}
+      />
     </section>
   )
 }

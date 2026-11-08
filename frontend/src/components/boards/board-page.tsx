@@ -6,7 +6,8 @@
 // cards starts a thread on this board (card #134), listed in the board's
 // own Threads panel above who is on it.
 
-import { useEffect, useState, type FormEvent } from "react"
+import { useContext, useEffect, useState, type FormEvent } from "react"
+import { AgentCards } from "@/components/cards/agent-hover"
 import {
   ArrowLeftIcon,
   EllipsisIcon,
@@ -107,6 +108,7 @@ export function BoardPage({
 }) {
   const { boards, loaded } = useBoards()
   const { threads } = useThreads(boardId)
+  const ctx = useContext(AgentCards)
   // Presence on the member chips (card #371) moves without a
   // boards:changed: read the list again while the page is open.
   useEffect(() => {
@@ -182,6 +184,8 @@ export function BoardPage({
                 onThread={(id) => {
                   setThread(id)
                   setThreadsHidden(false)
+                  // It opens in Talk, in its ask card view (card #780).
+                  ctx?.onOpenThread?.(id)
                 }}
               />
             )}
