@@ -976,7 +976,7 @@ fn an_agent_ended_without_answering_closes_its_wind_down() {
 fn an_agent_cant_lift_stop_everywhere() {
     let s = bound();
     let me = s.r.core.device_id().to_string();
-    s.r.core.wind_down_pause(&[me.clone()]).unwrap();
+    s.r.core.wind_down_pause(std::slice::from_ref(&me)).unwrap();
     let said = tool_as_a(&s, "agents_pause", serde_json::json!({ "on": false }));
     assert!(said.contains("Stop everywhere is on"), "{said}");
     assert!(s.r.core.agents_pause().on, "still paused");
