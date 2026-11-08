@@ -71,6 +71,7 @@ mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
 pub mod huddle_packet;
+mod huddle_rules;
 pub mod huddle_session;
 mod liveness;
 mod mirror;
