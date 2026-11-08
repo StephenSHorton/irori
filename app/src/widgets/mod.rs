@@ -95,6 +95,8 @@ pub struct Model {
     pub gallery: bool,
     /// The open hover card.
     pub hover: Option<agent_hover::Hover>,
+    /// The agent face the pointer is on (its hover card's key), if any.
+    pub on_face: Option<String>,
     /// The hover card's Stop: its why, in flight, its answer.
     pub stop_draft: TextEdit,
     pub stop_busy: bool,

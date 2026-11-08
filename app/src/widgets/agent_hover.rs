@@ -4,11 +4,14 @@
 //! one click from its page), the spawned agent's actions, "Offer it
 //! cards", and Stop with an optional why.
 //!
-//! [`trigger`] wraps a face: hovering it (or pressing it, the touch path)
-//! opens the card, which [`card`] draws in the overlay layer. Rune times
-//! it as main's PreviewCard does: it opens once the pointer rests on the
-//! face for [`OPEN_DELAY`], and closes once the pointer has been off the
-//! face and the card for [`CLOSE_DELAY`] (`El::hover_delays`).
+//! [`trigger`] wraps a face: hovering it opens the card, which [`card`]
+//! draws in the overlay layer. Rune times it as main's PreviewCard does
+//! (`El::hover_delays`): it opens once the pointer rests on the face for
+//! [`OPEN_DELAY`], and closes once the pointer has been off the face and
+//! the card for [`CLOSE_DELAY`]. A click on the face does nothing to the
+//! card (it reaches the tile under it), as on main's desktop. Main's touch
+//! path (a tap opens it) needs the press's pointer kind, which Rune
+//! doesn't give.
 
 use std::time::Duration;
 
@@ -76,33 +79,47 @@ fn leave(s: &mut State, anchor: Option<&str>) {
     }
 }
 
-/// Wraps a face (keyed `key`) so hovering or pressing it opens `who`'s
+/// Wraps a face (keyed `key`) so resting the pointer on it opens `who`'s
 /// card. The person has none.
+///
+/// Two hover regions: the face itself reports the pointer at once and
+/// its leaving after [`CLOSE_DELAY`] (so moving from the card back onto
+/// the face keeps the card open, and leaving always closes it), and a
+/// child covering it reports a rest of [`OPEN_DELAY`], which opens it.
 pub fn trigger(_s: &State, _f: &mut Frame, key: &str, who: &AgentRef, face: El) -> El {
     if who.status == "person" {
         return face;
     }
-    let (a1, w1) = (key.to_string(), who.clone());
-    let (a2, w2) = (key.to_string(), who.clone());
-    face.hover_delays(OPEN_DELAY, CLOSE_DELAY)
+    let (a1, a2, w2) = (key.to_string(), key.to_string(), who.clone());
+    let opener = el()
+        .key(format!("{key}-hover-open"))
+        .absolute(0.0, 0.0)
+        .w_full()
+        .h_full()
+        .a11y_hidden()
+        .hover_delays(OPEN_DELAY, Duration::ZERO)
+        .on_hover_change(move |s: &mut State, inside, _: &mut Tx| {
+            // Only while the face hasn't reported the pointer gone, so a
+            // late rest never opens a card for a face it already left.
+            if inside && s.widgets.on_face.as_deref() == Some(a2.as_str()) {
+                enter(s, &a2, &w2);
+            }
+        });
+    face.child(opener)
+        .hover_delays(Duration::ZERO, CLOSE_DELAY)
         .on_hover_change(move |s: &mut State, inside, _: &mut Tx| {
             if inside {
-                enter(s, &a1, &w1);
+                s.widgets.on_face = Some(a1.clone());
+                if let Some(h) = s.widgets.hover.as_mut().filter(|h| h.anchor == a1) {
+                    h.over_face = true;
+                }
             } else {
+                if s.widgets.on_face.as_deref() == Some(a1.as_str()) {
+                    s.widgets.on_face = None;
+                }
                 leave(s, Some(&a1));
             }
         })
-        // The touch path: a press opens it, and a press on the same face
-        // closes it (a press cancels Rune's hover wait, so a pointer that
-        // leaves right after may report nothing to close it by).
-        .on_press(move |s: &mut State| {
-            if s.widgets.hover.as_ref().is_some_and(|h| h.anchor == a2) {
-                s.widgets.hover = None;
-            } else {
-                enter(s, &a2, &w2);
-            }
-        })
-        .cursor(rune::Cursor::Pointer)
 }
 
 /// The hover card, in the overlay layer, while one is open.

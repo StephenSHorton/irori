@@ -6,8 +6,8 @@
 use irori_window::call::{CallCaptionView, CallMineView, CallPeerView, CallRingView};
 use rune::{Color, El, ScrollSpec, col, el, icon, row, text};
 use rune_kit::{
-    Avatar, Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButtonVariant, Kit,
-    Placement, Popover,
+    Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButtonVariant, Kit, Placement,
+    Popover,
 };
 
 use super::icons as ic;
@@ -103,15 +103,15 @@ fn mic_off(m: &CallMineView) -> bool {
 
 /// An avatar: the name's initials on its hue, with the link's dot.
 pub(super) fn avatar(k: &Kit, key: String, name: &str, health: Option<Health>, small: bool) -> El {
-    let mut a = Avatar::new(name)
-        .initials(logic::initials(name))
-        .size(if small { 20.0 } else { 40.0 })
-        .fill(hue(name))
-        .ink(k.c.bg_base);
-    if let Some(h) = health {
-        a = a.status(health_color(k, h));
-    }
-    a.build(k).key(key)
+    let (side, font) = if small { (20.0, 9.0) } else { (40.0, 14.0) };
+    let letters = crate::profile::avatar::Letters {
+        text: logic::initials(name),
+        size: font,
+        weight: 650.0,
+        ink: k.c.bg_base,
+    };
+    let status = health.map(|h| health_color(k, h));
+    crate::profile::avatar::kit_face(k, name, side, hue(name), letters, None, status).key(key)
 }
 
 /// A call's square icon button: on `fill` with `ink` on the icon (red for

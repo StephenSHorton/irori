@@ -31,7 +31,7 @@ use irori_window::update::{EVENT_UPDATE_STATUS, UpdateStatus};
 use irori_window::usage::{EVENT_USAGE_CHANGED, UsageLimits};
 use rune::tok::TextStyle;
 use rune::{Align, Color, El, col, el, icon, oklch, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Placement, Progress, Spinner, popover};
+use rune_kit::{Button, ButtonVariant, ControlSize, Placement, Spinner, popover};
 
 use crate::ui::{Event, Frame, State, icons, theme};
 use sparkline::{Max, sparkline};
@@ -255,14 +255,21 @@ fn update_banner(s: &State, f: &mut Frame) -> Option<El> {
                 )
                 .child(
                     // irori-sweep: a quarter-width segment crosses the
-                    // track, then comes round from the left again.
-                    Progress::indeterminate()
-                        .height(4.0)
-                        .color(accent(f))
-                        .track(k.c.surface_weak)
-                        .build(k)
-                        .key("status-update-sweep")
-                        .label(format!("Downloading Irori {v}")),
+                    // track, then comes round from the left again. Square
+                    // ended as main's UpdateBanner; the kit Progress always
+                    // rounds its ends.
+                    el().key("status-update-sweep")
+                        .w_full()
+                        .h(4.0)
+                        .fill(k.c.surface_weak)
+                        .clip_soft(0.0)
+                        .label(format!("Downloading Irori {v}"))
+                        .child(
+                            el().w_frac(0.25)
+                                .h_full()
+                                .fill(accent(f))
+                                .looping(rune::LoopSpec::slide(1.4, [-1.0, 0.0], [4.0, 0.0])),
+                        ),
                 ),
         ),
         "installing" => Some(

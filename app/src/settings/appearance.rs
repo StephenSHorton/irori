@@ -877,7 +877,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
             )
             .child(text(label.to_string()).font(k.ty.ui).color(k.c.text_base))
     };
-    let mut colours = row()
+    let colours = row()
         .key("settings-colours")
         .w_full()
         .gap(16.0)
@@ -895,9 +895,6 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 })
                 .build(k),
         );
-    if m.picking.is_none() {
-        colours = colours.child(el());
-    }
     let mut your = col()
         .key("settings-your-colours")
         .w_full()
