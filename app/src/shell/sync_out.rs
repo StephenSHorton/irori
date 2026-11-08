@@ -63,6 +63,14 @@ pub fn watch_power<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     }
 }
 
+/// The window was shown: the person came to it (card #786).
+#[cfg(desktop)]
+pub fn on_show<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(core) = core_of(app) {
+        core.away_focus();
+    }
+}
+
 /// The person coming to or leaving the desktop window (card #786).
 #[cfg(desktop)]
 pub fn on_attention<R: tauri::Runtime>(app: &tauri::AppHandle<R>, ev: &tauri::WindowEvent) {

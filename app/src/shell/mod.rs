@@ -741,11 +741,9 @@ pub fn show(app: &AppHandle) {
     }
     if let Some(w) = app.get_webview_window(MAIN) {
         let _ = w.show();
+        // Every show is the person coming to the window (card #786).
         #[cfg(desktop)]
-        if let Some(core) = app.try_state::<Arc<Core>>() {
-            // Every show is the person coming to the window (card #786).
-            core.away_focus();
-        }
+        sync_out::on_show(app);
         #[cfg(desktop)]
         let _ = w.unminimize();
         let _ = w.set_focus();
