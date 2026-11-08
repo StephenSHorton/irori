@@ -107,7 +107,6 @@ import {
   replace,
   sameSection,
   sectionFromHash,
-  sectionHash,
   type Section,
 } from "@/lib/nav"
 import { leftHomeFilter, startLeave, stepLeave } from "@/lib/space-leave"
@@ -710,18 +709,7 @@ export function App() {
     })
     leaving.current = state
     if (changed && leftHomeFilter(filter, space)) pickHomeFilter("all")
-    if (!to) return
-    if (!open) {
-      replace(to)
-      return
-    }
-    window.history.replaceState(
-      null,
-      "",
-      window.location.pathname + window.location.search + sectionHash(to)
-    )
-    setOpen("")
-    setSection(to)
+    if (to) replace(to)
   })
   const onPaletteBoard = useCallback(
     (id: string) => goTo({ kind: "board", id }),
