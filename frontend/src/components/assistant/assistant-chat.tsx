@@ -358,9 +358,11 @@ export function AssistantPanel({
   // The newest message stays in view as the reply comes in.
   const last = entries.length
   const growing = reply ? reply.text.length + reply.status.length : -1
+  // A draft just posted shows its "Posted as #N" line.
+  const posted = entries.filter((e) => e.posted).length
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" })
-  }, [last, growing])
+  }, [last, growing, posted])
 
   const busy = !!reply
   const send = (t: string) => {
