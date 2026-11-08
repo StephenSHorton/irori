@@ -28,7 +28,7 @@ import {
 import { AgentCards } from "@/components/cards/agent-hover"
 import { AskBox } from "@/components/cards/ask-box"
 import { NeedsYou } from "@/components/cards/needs-you"
-import { nobodyTook, needsOf } from "@/lib/needs"
+import { nobodyTook, needsOf, needsYou as cardNeedsYou } from "@/lib/needs"
 import { cardRef } from "@/components/cards/bits"
 import { idleLine, whyWaiting } from "@/lib/agent-counts"
 import {
@@ -81,7 +81,7 @@ import {
   PersonalHeaderBar,
   PersonalList,
 } from "@/components/boards/space-boards"
-import { NewBoardDialog, PickSpace } from "@/components/boards/parts"
+import { NewBoardDialog } from "@/components/boards/parts"
 import { NotesPage } from "@/components/notes/notes-page"
 import { StoragePage } from "@/components/storage/storage-page"
 import { ProfilePage } from "@/components/profile/profile-page"
@@ -92,8 +92,10 @@ import {
   boardsOf,
   cardInSpace,
   convInSpace,
+  spacesOf,
   threadsSpace,
   useSpace,
+  waitingSpaces,
 } from "@/lib/spaces"
 import { NotificationsPage } from "@/components/notifications-page"
 import { useNotifications, useUnreadNotifications } from "@/lib/notifications"
@@ -109,7 +111,7 @@ import {
   sectionFromHash,
   type Section,
 } from "@/lib/nav"
-import { leftHomeFilter, startLeave, stepLeave } from "@/lib/space-leave"
+import { startLeave, stepLeave } from "@/lib/space-leave"
 import {
   CommandPalette,
   PaletteJump,
@@ -214,18 +216,15 @@ export function App() {
   const idle = useIdleReport(roster.agents)
   const { boards, loaded: boardsLoaded } = useBoards()
   const { boards: personalBoards } = usePersonalBoards()
-  // The space the sidebar's switcher picked (card #393): Home, Talk and
-  // Boards show it. All spaces, the default, is everything.
+  // The space the sidebar's switcher picked (card #393): Talk and Boards
+  // show it. The Dashboard ignores it and always shows every space (card
+  // #1001), so its cards are all of them and its scope is the person's own.
   const [space, setSpace] = useSpace(boards)
-  const shared = space !== AllSpaces && space !== Personal
-  const spaceCards = useMemo(
-    () => cards.filter((c) => cardInSpace(c, space)),
-    [cards, space]
-  )
+  const spaceCards = cards
   // Agents Irori started for a card are never free for other work (§6).
   const spawned = useMemo(() => spawnedKeys(cards), [cards])
-  // Home's own scope: your cards, or a shared space's.
-  const homeScope = shared ? space : ScopeOwn
+  // Home's own scope: your cards, and every space's that your agents hold.
+  const homeScope = ScopeOwn
   const me = useMe()
   const now = useNow()
   // ?filter=done in the browser preview starts on that filter; otherwise
@@ -529,16 +528,17 @@ export function App() {
     // it. A wait on a PR is its agent's (card #970).
     (c) => c.scope === "board" && (c.openBlockers > 0 || !!c.goneWait)
   )
-  // Needs you leads Home (card #261): its cards and held messages. An
-  // agent's message to you is a DM in Talk (card #390). Held ones are
-  // yours, not a shared space's (card #393).
+  // Needs you leads Home (card #261): its cards, held messages and, from
+  // any space, the threads waiting on you (card #1001). An agent's message
+  // to you is a DM in Talk (card #390).
   const needs = useMemo(
     () =>
       needsOf(
         spaceCards.filter((c) => inScope(c, homeScope)),
-        shared ? [] : held.held
+        held.held,
+        allThreads
       ),
-    [spaceCards, homeScope, shared, held.held]
+    [spaceCards, homeScope, held.held, allThreads]
   )
   const needCards = useMemo(
     () =>
@@ -654,8 +654,8 @@ export function App() {
   )
   // pickSpace is a pick in the space picker (or Profile). Boards show only
   // the picked space's (card #689), so on Boards the page follows the pick,
-  // closing a card open over it. From #boards (pick a space) the space's
-  // page takes its place, so Back doesn't land on #boards and bounce.
+  // closing a card open over it. From #boards the space's page takes its
+  // place, so Back doesn't land on #boards and bounce.
   const pickSpace = useCallback(
     (id: string) => {
       if (id === space) return
@@ -675,11 +675,10 @@ export function App() {
   const syncedPage = useRef("")
   useEffect(() => {
     if (open) return
+    // "#boards" names no space: it opens the picked one's page (card #1001).
     if (
       section.kind === "boards" &&
-      space !== AllSpaces &&
-      boardsLoaded &&
-      knownSpace(space)
+      (space === Personal || (boardsLoaded && knownSpace(space)))
     )
       replace(boardsFor(space))
     if (section.kind !== "board") {
@@ -695,7 +694,7 @@ export function App() {
   // reopen it. A link past the pick still opens: only a change moves it.
   const leaving = useRef(startLeave(space))
   useEffect(() => {
-    const { state, changed, to } = stepLeave(leaving.current, {
+    const { state, to } = stepLeave(leaving.current, {
       space,
       spaceKnown: knownSpace(space),
       section,
@@ -708,8 +707,6 @@ export function App() {
       conversationsLoading,
     })
     leaving.current = state
-    if (changed && knownSpace(space) && leftHomeFilter(filter, space))
-      pickHomeFilter("all")
     if (to) replace(to)
   })
   const onPaletteBoard = useCallback(
@@ -759,10 +756,10 @@ export function App() {
     {
       id: "nav.home",
       shortcut: SectionShortcuts[0],
-      title: "Home",
+      title: "Dashboard",
       group: "Go to",
       order: 1,
-      keywords: ["my cards", "start"],
+      keywords: ["home", "my cards", "start"],
       run: () => goTo(Home),
     },
     {
@@ -927,7 +924,7 @@ export function App() {
     setDrawer(false)
   }
 
-  // A phone (card #395, mockup talk-5): Home, Talk and Boards are tabs at
+  // A phone (card #395, mockup talk-5): Dashboard, Talk and Boards are tabs at
   // the bottom (Boards the picked space's, card #689), and an open
   // conversation is the whole screen, its own header carrying Back.
   const narrow = useNarrow()
@@ -938,6 +935,27 @@ export function App() {
       conversations.filter((c) => convInSpace(c, space)),
       liveRoster
     )
+  // The picker's dots (card #1001): a space with something waiting for the
+  // person, since Talk's count covers only the picked space.
+  const waiting = useMemo(
+    () =>
+      waitingSpaces(
+        spacesOf(boards),
+        (id) =>
+          allThreads.some((t) => convInSpace(t, id) && needsYou(t)) ||
+          talkWaitingIn(
+            conversations.filter((c) => convInSpace(c, id)),
+            liveRoster
+          ) > 0 ||
+          cards.some((c) => cardInSpace(c, id) && cardNeedsYou(c))
+      ),
+    [boards, allThreads, conversations, liveRoster, cards]
+  )
+  // A thread's space by name, for its Needs you row.
+  const spaceName = (id: string) =>
+    id ? boards.find((b) => b.boardId === id)?.name || "A space" : "Personal"
+  // (section "boards", "#boards", renders nothing: it is on its way to the
+  // picked space's page.)
   const fullScreen = narrow && !open && section.kind === "talk" && !!section.id
 
   return (
@@ -964,6 +982,7 @@ export function App() {
             space={space}
             onSpace={pickSpace}
             onNewSpace={() => setNewBoard(true)}
+            waiting={waiting}
             me={me}
           />
           <div className="flex min-w-0 flex-1 flex-col">
@@ -992,7 +1011,7 @@ export function App() {
                                   ? "Notifications"
                                   : section.kind === "storage"
                                     ? "Storage"
-                                    : "Home"
+                                    : "Dashboard"
                 }
                 bar={
                   !open && section.kind === "board" ? (
@@ -1106,11 +1125,8 @@ export function App() {
                   nameOf={name}
                   now={now}
                 />
-              ) : section.kind === "boards" ? (
-                <Scroll>
-                  <PickSpace boards={boards} onPick={pickSpace} />
-                </Scroll>
-              ) : section.kind === "storage" ? (
+              ) : section.kind === "boards" ? null : section.kind ===
+                "storage" ? (
                 <Scroll>
                   <StoragePage
                     tab={section.tab}
@@ -1208,11 +1224,11 @@ export function App() {
                       />
                       <AskBox
                         onThread={startedThread}
-                        board={threadsSpace(space)}
+                        note="From the Dashboard a thread goes to Personal."
                       />
                       <IdleLine text={idleLine(idle, untaken, homeIds)} />
                       <HomeFreshness
-                        space={space}
+                        space={AllSpaces}
                         names={
                           new Map(
                             boards.map((b) => [b.boardId, b.name || b.tag])
@@ -1224,7 +1240,7 @@ export function App() {
                   lead={
                     // Held messages read apart from the cards: until they
                     // land, "Nothing waits on you" could be false.
-                    !shared && held.loading && needs.length === 0 ? (
+                    held.loading && needs.length === 0 ? (
                       <Loading loading label="Loading what needs you">
                         <NeedsYouShape rows={1} />
                       </Loading>
@@ -1235,6 +1251,8 @@ export function App() {
                         name={name}
                         onOpenCard={openCard}
                         onHeld={() => openHeld("")}
+                        onOpenThread={openThread}
+                        spaceName={spaceName}
                       />
                     )
                   }
@@ -1290,11 +1308,9 @@ export function App() {
             board={
               section.kind === "board" && !open
                 ? boards.find((b) => b.boardId === section.id)
-                : // Home in a shared space makes its cards there (card #393).
-                  !open && shared && section.kind === "home"
-                  ? boards.find((b) => b.boardId === space)
-                  : undefined
+                : undefined
             }
+            dashboard={!open && section.kind === "home"}
           />
           {heldOpen && (
             <HeldDialog

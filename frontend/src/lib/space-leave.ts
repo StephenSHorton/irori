@@ -8,7 +8,7 @@
 // the decision waits for them: nothing moves while membership is unknown.
 
 import { boardsFor, onBoards, type Section } from "./nav"
-import { AllSpaces, cardInSpace, convInSpace } from "./spaces"
+import { cardInSpace, convInSpace } from "./spaces"
 
 type Conv = Parameters<typeof convInSpace>[0]
 
@@ -73,6 +73,9 @@ function leaveTarget(v: SpaceView): Section | null | typeof Wait {
     if (here === Wait) return Wait
     return here ? null : { kind: "talk", id: "" }
   }
+  // The Dashboard shows every space (card #1001): a card opened over it
+  // belongs there whatever the pick.
+  if (section.kind === "home") return null
   if (!v.card) return v.cardFailed ? null : Wait
   if (cardInSpace(v.card, v.space)) return null
   // Boards follow the pick; Talk's thread may have been left too.
@@ -95,21 +98,10 @@ export function stepLeave(
   if (changed && !pending && shown) pending = { from: state.space, shown }
   const done = { state: { space: v.space, pending: null }, changed, to: null }
   if (!pending) return done
-  // All spaces holds everything; a pick undone before it could act is no
-  // switch at all.
-  if (v.space === AllSpaces || v.space === pending.from) return done
+  // A pick undone before it could act is no switch at all.
+  if (v.space === pending.from) return done
   const to = v.spaceKnown ? leaveTarget(v) : Wait
   if (to === Wait)
     return { state: { space: v.space, pending }, changed, to: null }
   return { ...done, to }
-}
-
-// leftHomeFilter says whether Home's remembered filter names a board the
-// pick no longer holds (card #199): All spaces holds every board.
-export function leftHomeFilter(filter: string, space: string): boolean {
-  return (
-    space !== AllSpaces &&
-    filter.startsWith("board:") &&
-    filter !== `board:${space}`
-  )
 }
