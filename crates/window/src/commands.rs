@@ -19,6 +19,7 @@ use crate::agents::{
     AgentStartsView, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings, NamesThemesView,
     RunningAgent,
 };
+use crate::assistant::{AssistantEvent, AssistantTurn};
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
 use crate::boards::{BoardSettings, BoardSummary, SharePreview, SpaceBoard};
@@ -2393,6 +2394,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             desk_set,
             meters_history,
             usage_limits,
+            assistant_ask,
+            assistant_stop,
         ])
         .typ::<RosterChange>()
         .typ::<CaptureChange>()
@@ -2411,6 +2414,37 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .dangerously_cast_bigints_to_number()
         .disable_serde_phases()
+}
+
+// ---- The assistant (card #783) ----------------------------------------------
+
+/// Asks the corner chat's assistant `text` after `history`. Returns the
+/// run's id at once; its events come on `on`, ending with one `done` or
+/// `error` (a failure to start included).
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_ask(
+    w: W<'_>,
+    history: Vec<AssistantTurn>,
+    text: String,
+    on: tauri::ipc::Channel<AssistantEvent>,
+) -> R<u32> {
+    if text.trim().is_empty() {
+        return Err("ask something first".into());
+    }
+    blocking(&w, move |w| {
+        Ok(w.assistant_ask(&history, &text, Box::new(move |e| on.send(e).is_ok())))
+    })
+    .await
+}
+
+/// Stops assistant run `id`: its channel gets error "Stopped." or nothing
+/// more. An unknown or finished id is fine.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_stop(w: W<'_>, id: u32) -> R<()> {
+    w.assistant_stop(id);
+    Ok(())
 }
 
 // ---- Terminals (card #369; docs/design/inline-terminals.md section 5) ----------

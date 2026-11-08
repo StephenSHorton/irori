@@ -9,7 +9,8 @@
 //! seconds after the window opens (default 15). `IRORI_DEV_WINDOW_QUERY`,
 //! when set, opens the window on `index.html?dev&<query>`, so the
 //! frontend's preview switches apply in the app too (`view=canvas&full`;
-//! frontend/src/lib/preview.ts).
+//! frontend/src/lib/preview.ts). `IRORI_DEV_WINDOW_SIZE=390x844` opens it
+//! at that size.
 //! Run it on a copy of a data dir (`IRORI_HOME`) with `IRORI_DEV_OFFLINE=1`.
 //! A release build ignores all of it.
 
@@ -27,6 +28,20 @@ pub fn window_url() -> Option<tauri::WebviewUrl> {
         .ok()
         .filter(|s| !s.is_empty())?;
     Some(tauri::WebviewUrl::App(format!("index.html?dev&{q}").into()))
+}
+
+/// The main window's size for a window check: `IRORI_DEV_WINDOW_SIZE` as
+/// `<width>x<height>` (`390x844` for phone width, card #783), with
+/// `IRORI_DEV_WINDOW_SHOTS` set; never in a release build.
+pub fn window_size() -> Option<(f64, f64)> {
+    if !cfg!(all(target_os = "macos", debug_assertions)) {
+        return None;
+    }
+    std::env::var_os("IRORI_DEV_WINDOW_SHOTS")?;
+    let v = std::env::var("IRORI_DEV_WINDOW_SIZE").ok()?;
+    let (w, h) = v.split_once('x')?;
+    let (w, h): (f64, f64) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
+    (w >= 200.0 && h >= 200.0).then_some((w, h))
 }
 
 pub fn start(app: &AppHandle) {

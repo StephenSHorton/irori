@@ -676,3 +676,19 @@ export const MetersService = {
 export const UsageService = {
   Limits: () => call(commands.usageLimits()),
 }
+
+// Ask Irori (card #783): the read-only helper's answer comes as
+// AssistantEvents on a Channel (delta, tool, then done or error); Ask
+// returns the run's id at once, and Stop(id) ends it.
+export const AssistantService = {
+  Ask(
+    history: B.AssistantTurn[],
+    text: string,
+    onEvent: (ev: B.AssistantEvent) => void
+  ): Promise<number> {
+    const on = new Channel<B.AssistantEvent>()
+    on.onmessage = onEvent
+    return call(commands.assistantAsk(history, text, on))
+  },
+  Stop: (id: number) => done(commands.assistantStop(id)),
+}
