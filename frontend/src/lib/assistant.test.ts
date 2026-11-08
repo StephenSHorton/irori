@@ -439,7 +439,7 @@ describe("the Office Assistant posts what it drafts (card #988)", () => {
     expect(start).toHaveBeenCalledTimes(1)
   })
   test("a tap while it posts by itself is the same post", async () => {
-    let done = (_: unknown) => {}
+    let done: (v: unknown) => void = () => {}
     start.mockReturnValue(new Promise((r) => (done = r)))
     await ask("Can you fix the lobby?")
     while (!assistantState().autoPosting) await Bun.sleep(10)
