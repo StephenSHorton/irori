@@ -6,6 +6,7 @@
 mod agent_starts;
 mod agentnames;
 mod ask_spawn;
+mod assistant_card;
 mod assistant_names;
 mod assistant_weighs;
 mod attachments;
@@ -41,6 +42,7 @@ mod names;
 mod notes;
 mod notifications;
 mod offline;
+mod others_text;
 mod pair;
 mod personal_boards;
 mod prefetch;

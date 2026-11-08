@@ -1,6 +1,8 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
 
 import {
+  ask,
+  assistantState,
   capHistory,
   capKeeping,
   failedLine,
@@ -9,18 +11,24 @@ import {
   historyFor,
   HistoryCap,
   liftOver,
+  newChat,
+  postDraft,
+  postsByItself,
   parseHistory,
   replyText,
   sampleAnswer,
   serializeHistory,
   settled,
+  stopAsking,
   splitDraft,
   DraftClose,
   DraftOpen,
+  DraftOpenCheck,
   type AssistantEvent,
   type ChatEntry,
   type Reply,
 } from "./assistant"
+import { threads } from "./cards"
 import { boldRuns, richBlocks } from "./rich"
 
 const ev = (kind: string, text = ""): AssistantEvent => ({ kind, text })
@@ -48,7 +56,13 @@ describe("Ask Irori's reply (card #783)", () => {
       ev("delta", "ok"),
       ev("done")
     )
-    expect(r).toEqual({ text: "ok", status: "", end: "done", error: "" })
+    expect(r).toEqual({
+      text: "ok",
+      status: "",
+      end: "done",
+      error: "",
+      looked: "",
+    })
     expect(settled(r)).toEqual([{ role: "assistant", text: "ok" }])
   })
   test("an error ends it as a plain line, after any text it wrote", () => {
@@ -200,6 +214,7 @@ describe("Ask Irori's drafted thread (card #783)", () => {
       text: "Two cards wait on you.",
       draft: "",
       partial: false,
+      check: false,
     })
   })
   test("a whole draft comes out of the text", () => {
@@ -210,6 +225,7 @@ describe("Ask Irori's drafted thread (card #783)", () => {
       text: "Drafted it, naming #8.",
       draft: "Add a changelog page. #8 has the notes.",
       partial: false,
+      check: false,
     })
   })
   test("words after the draft stay in the text", () => {
@@ -224,16 +240,19 @@ describe("Ask Irori's drafted thread (card #783)", () => {
       text: "Drafting.",
       draft: "",
       partial: false,
+      check: false,
     })
     expect(splitDraft(`Drafting.\n${DraftOpen}\nFix the lob`)).toEqual({
       text: "Drafting.",
       draft: "Fix the lob",
       partial: true,
+      check: false,
     })
     expect(splitDraft(`${DraftOpen}\nFix the lobby.\n<</thr`)).toEqual({
       text: "",
       draft: "Fix the lobby.",
       partial: true,
+      check: false,
     })
   })
   test("the history keeps the reply whole, draft and all", () => {
@@ -244,7 +263,7 @@ describe("Ask Irori's drafted thread (card #783)", () => {
     ]
     expect(historyFor(entries)[1]).toEqual({
       role: "assistant",
-      text: `${text}\n\n(The person posted this draft as thread #9.)`,
+      text: `${text}\n\n(This draft was posted as thread #9.)`,
     })
   })
   test("the history says where a posted thread and a reply went (card #785)", () => {
@@ -262,9 +281,7 @@ describe("Ask Irori's drafted thread (card #783)", () => {
       { role: "person", text: "Use Steam.", to: "mlg#5" },
     ]
     const h = historyFor(entries)
-    expect(h[0].text).toEndWith(
-      "(The person posted this draft as thread mlg#5.)"
-    )
+    expect(h[0].text).toEndWith("(This draft was posted as thread mlg#5.)")
     expect(h[1]).toEqual({
       role: "assistant",
       text: "(The chat's own lines on the work it follows:)\n- No agent has started on mlg#5 yet.",
@@ -371,6 +388,13 @@ describe("Ask Irori's drafted thread (card #783)", () => {
     )
     expect(bad.map((e) => e.posted)).toEqual([undefined, undefined])
   })
+  test("the stand-in holds a thread when told to check first (card #988)", () => {
+    const s = splitDraft(
+      sampleAnswer("Can you add a page? Check with me first.").text
+    )
+    expect(s.check).toBe(true)
+    expect(s.draft).not.toContain("heck with me")
+  })
   test("the stand-in drafts a thread when asked for work, not for a question", () => {
     const work = splitDraft(sampleAnswer("Can you add a changelog page?").text)
     expect(work.draft).toContain("Add a changelog page.")
@@ -395,6 +419,169 @@ describe("the cap keeps what the chat still follows (card #785)", () => {
     const kept = capKeeping(all, new Set(["t1"]), 4)
     expect(kept).toEqual([posted, lines[2], lines[3], lines[4]])
     expect(capKeeping(all, new Set(), 4)).toEqual(lines.slice(1))
+  })
+})
+
+describe("the Office Assistant posts what it drafts (card #988)", () => {
+  const whole = `Posting it.\n${DraftOpen}\nFix the lobby.\n${DraftClose}`
+  const held = `Waiting for you.\n${DraftOpenCheck}\nFix the lobby.\n${DraftClose}`
+  const ended = (text: string, end: Reply["end"] = "done"): Reply => ({
+    ...freshReply,
+    text,
+    end,
+  })
+  const started = (short: string) =>
+    ({ task: { id: `task:${short}`, short } }) as never
+  const lastDraft = () => {
+    const { entries } = assistantState()
+    return entries.findLast((e) => e.role === "assistant" && !e.note)
+  }
+  const replied = async () => {
+    while (assistantState().reply || assistantState().autoPosting)
+      await Bun.sleep(10)
+  }
+  let start: ReturnType<typeof spyOn>
+
+  beforeEach(() => {
+    // ask() checks for the app through window; here it is the preview.
+    Object.assign(globalThis, { window: { location: { search: "" } } })
+    newChat()
+    start = spyOn(threads, "start").mockResolvedValue(started("20"))
+  })
+  afterEach(() => {
+    start.mockRestore()
+    delete (globalThis as { window?: unknown }).window
+  })
+
+  test("a check-first thread is known by its opening line, whole or partial", () => {
+    expect(splitDraft(held)).toEqual({
+      text: "Waiting for you.",
+      draft: "Fix the lobby.",
+      partial: false,
+      check: true,
+    })
+    expect(splitDraft(`${DraftOpenCheck}\nFix the`).check).toBe(true)
+    expect(splitDraft(`${DraftOpenCheck}\nFix the`).partial).toBe(true)
+  })
+  test("half of either opening line never shows", () => {
+    for (const tail of ["<<thread>", "<<thread ", "<<thread chec"])
+      expect(splitDraft(`Writing.\n${tail}`).text).toBe("Writing.")
+  })
+  test("only a finished, whole thread nobody asked to check posts itself", () => {
+    expect(postsByItself(ended(whole))).toBe(true)
+    expect(postsByItself(ended(held))).toBe(false)
+    expect(postsByItself(ended("Two cards wait on you."))).toBe(false)
+    expect(postsByItself(ended(`${DraftOpen}\nFix the`))).toBe(false)
+    expect(postsByItself(ended(`${DraftOpen}\n${DraftClose}`))).toBe(false)
+    expect(postsByItself(ended(whole, "error"))).toBe(false)
+    expect(postsByItself(ended(whole, ""))).toBe(false)
+  })
+  test("markers only quoted, or laid out oddly, wait for a tap", () => {
+    const quoted = `A thread goes between ${DraftOpen} and ${DraftClose}.`
+    expect(splitDraft(quoted).draft).toBe("and")
+    expect(postsByItself(ended(quoted))).toBe(false)
+    expect(postsByItself(ended(`${quoted}\n\n${whole}`))).toBe(false)
+    expect(postsByItself(ended(`${DraftOpen}Fix.${DraftClose}`))).toBe(false)
+    expect(postsByItself(ended(`${whole}\nAnd more words.`))).toBe(false)
+    expect(postsByItself(ended(`${whole}\n\n<<go card #8>>`))).toBe(true)
+  })
+  test("asking for work posts one thread with no tap, and a tap adds none", async () => {
+    await ask("Can you fix the lobby?")
+    await replied()
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(lastDraft()?.posted?.short).toBe("20")
+    await postDraft(assistantState().entries.indexOf(lastDraft()!))
+    expect(start).toHaveBeenCalledTimes(1)
+  })
+  test("a tap while it posts by itself is the same post", async () => {
+    let done: (v: unknown) => void = () => {}
+    start.mockReturnValue(new Promise((r) => (done = r)))
+    await ask("Can you fix the lobby?")
+    while (!assistantState().autoPosting) await Bun.sleep(10)
+    const tap = postDraft(assistantState().entries.length - 1)
+    done(started("21"))
+    expect((await tap).short).toBe("21")
+    await replied()
+    expect(start).toHaveBeenCalledTimes(1)
+  })
+  test("asked to check first, only the tap posts", async () => {
+    await ask("Can you fix the lobby? Check with me first.")
+    await replied()
+    expect(start).not.toHaveBeenCalled()
+    expect(lastDraft()?.posted).toBeUndefined()
+    await postDraft(assistantState().entries.length - 1)
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(lastDraft()?.posted?.short).toBe("20")
+  })
+  test("a plain question posts nothing", async () => {
+    await ask("What's blocked?")
+    await replied()
+    expect(start).not.toHaveBeenCalled()
+  })
+  test("a thread Stopped while being written posts nothing", async () => {
+    await ask("Can you fix the lobby?")
+    while (!assistantState().reply?.text.includes(DraftOpen)) await Bun.sleep(5)
+    stopAsking()
+    await Bun.sleep(30)
+    expect(start).not.toHaveBeenCalled()
+  })
+  test("a failed post says so, and a tap retries it", async () => {
+    start.mockRejectedValueOnce(new Error("The server is away."))
+    await ask("Can you fix the lobby?")
+    await replied()
+    const { entries, autoFailed } = assistantState()
+    expect(autoFailed.get(lastDraft()!)).toBe("The server is away.")
+    expect(entries[entries.length - 1].note).toBeUndefined()
+    expect(lastDraft()?.posted).toBeUndefined()
+    await postDraft(entries.indexOf(lastDraft()!))
+    expect(start).toHaveBeenCalledTimes(2)
+    expect(lastDraft()?.posted?.short).toBe("20")
+  })
+  test("restored history never posts, even an unposted whole thread", async () => {
+    const saved = serializeHistory([
+      { role: "person", text: "Can you fix the lobby?" },
+      { role: "assistant", text: whole },
+    ])
+    const was = globalThis.localStorage
+    globalThis.localStorage = {
+      getItem: () => saved,
+      setItem: () => {},
+      removeItem: () => {},
+    } as unknown as Storage
+    try {
+      const fresh = await import("./assistant?restored")
+      expect(fresh.assistantState().entries.length).toBe(2)
+      await Bun.sleep(30)
+      expect(start).not.toHaveBeenCalled()
+      expect(fresh.assistantState().entries[1].posted).toBeUndefined()
+    } finally {
+      globalThis.localStorage = was
+    }
+  })
+})
+
+describe("Looked at (card #1009)", () => {
+  test("a reply that read the screen keeps the text it read", () => {
+    const r = { ...freshReply, text: "It needs a call.", looked: "Page: Home" }
+    expect(settled({ ...r, end: "done" })).toEqual([
+      { role: "assistant", text: "It needs a call.", looked: "Page: Home" },
+    ])
+  })
+  test("saved history keeps it", () => {
+    const e = [
+      { role: "assistant", text: "ok", looked: "Page: Home\nIn view: #1 “A”" },
+    ] as const
+    expect(parseHistory(serializeHistory(e))).toEqual([...e])
+  })
+  test("the sample reads the screen for a question about where you are", () => {
+    const a = sampleAnswer(
+      "what does this card need?",
+      "Page: Home\nIn view: #1 “A”"
+    )
+    expect(a.tools).toEqual(["Looking at your screen: Home, #1 “A”"])
+    expect(sampleAnswer("who is working?", "Page: Home").tools).not.toContain(
+      "Looking at your screen: Home"
+    )
   })
 })
 
