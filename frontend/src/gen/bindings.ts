@@ -726,6 +726,12 @@ export type AgentsChange = {
 	lightEffort?: string | null,
 	heavyModel?: string | null,
 	heavyEffort?: string | null,
+	/**
+	 *  The office assistant's model and effort (card #1014); the default
+	 *  stores nothing.
+	 */
+	assistantModel?: string | null,
+	assistantEffort?: string | null,
 	idleMins?: number | null,
 	crashLimit?: number | null,
 	startTries?: number | null,
@@ -799,6 +805,13 @@ export type AgentsSettings = {
 	/**  A heavy card's: the board's pick, or Opus at no less than high. */
 	heavyModel: string,
 	heavyEffort: string,
+	/**
+	 *  The office assistant's chat model and effort (card #1014), and the
+	 *  models it offers (the efforts are `efforts`).
+	 */
+	assistantModel: string,
+	assistantEffort: string,
+	assistantModels: string[],
 	/**
 	 *  The idle limit in minutes (card #456, sa-6): how long a spawned
 	 *  agent waits on an unanswered question before it hands off and goes.

@@ -83,6 +83,7 @@ export function AgentsPane({ open }: { open: boolean }) {
           <div className="grid gap-5">
             <WhenSection open={open} settings={s} set={set} />
             <WeightsSection settings={s} set={set} />
+            <AssistantSection settings={s} set={set} />
           </div>
         ) : (
           <AgentsShape />
@@ -306,6 +307,51 @@ function WeightsSection({
           </li>
         ))}
       </ul>
+    </section>
+  )
+}
+
+// AssistantSection is the model and effort of the office assistant's chat
+// (card #1014): Sonnet at low until picked. Only the chat: thread names,
+// weighing and Rewrite stay on Haiku. The next question uses the change.
+function AssistantSection({
+  settings: s,
+  set,
+}: {
+  settings: AgentsSettings
+  set: (c: Omit<AgentsChange, "boardId">) => void
+}) {
+  return (
+    <section className="grid gap-2" data-setting="agents.assistant">
+      <h3 className="text-sm font-medium text-ink">Office assistant</h3>
+      <p className="text-[12.5px] text-muted-foreground">
+        What the assistant chat answers with. A change applies to your next
+        question.
+      </p>
+      <div className="grid grid-cols-2 gap-2 rounded-md border border-border px-3 py-2">
+        <ChoiceSelect
+          label="Assistant model"
+          size="sm"
+          value={s.assistantModel}
+          choices={withValue(s.assistantModels, s.assistantModel).map((m) => ({
+            value: m,
+            label: modelLabel(m, "sonnet"),
+          }))}
+          onValueChange={(v) => set({ assistantModel: v })}
+          className="min-w-0 text-[13px]"
+        />
+        <ChoiceSelect
+          label="Assistant effort"
+          size="sm"
+          value={s.assistantEffort}
+          choices={withValue(s.efforts, s.assistantEffort).map((e) => ({
+            value: e,
+            label: effortLabel(e, "low"),
+          }))}
+          onValueChange={(v) => set({ assistantEffort: v })}
+          className="min-w-0 text-[13px]"
+        />
+      </div>
     </section>
   )
 }

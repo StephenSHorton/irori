@@ -64,17 +64,20 @@ export function useSettings(active: boolean): SettingsState {
   useEffect(() => {
     if (!active || !inWails()) return
     let live = true
-    Promise.all([
-      SettingsService.GetNotifications(),
-      SettingsService.GetLaunchAtLogin(),
-    ])
-      .then(([n, l]) => {
+    // Each read lands on its own: a failed one (launch at login has no
+    // meaning on a phone) must not blank the others (card #1068).
+    SettingsService.GetNotifications().then(
+      (n) => {
         if (!live) return
         setNotifyState(n)
-        setLaunch(l)
         setError(null)
-      })
-      .catch((err) => live && setError(errorText(err)))
+      },
+      (err) => live && setError(errorText(err))
+    )
+    SettingsService.GetLaunchAtLogin().then(
+      (l) => live && setLaunch(l),
+      () => {}
+    )
     const off = Events.On(EventLaunchAtLogin, (ev) =>
       setLaunch(Boolean(ev.data))
     )
