@@ -162,10 +162,17 @@ impl Services {
             return;
         };
         // A review ask is for a PR the card links: a row naming any other
-        // is dropped (§12.12 B1b).
-        if ev.kind == kinds::REVIEW_REQUESTED && !links_pr(&t, &f.pr) {
-            return;
-        }
+        // is dropped (§12.12 B1b). The sender links the PR just before it
+        // asks, so the link can come in the same sync and not be folded
+        // yet: fold what the log holds before dropping it.
+        let t = if ev.kind == kinds::REVIEW_REQUESTED && !links_pr(&t, &f.pr) {
+            match co.catch_up().ok().and_then(|()| co.get_task(&f.task_id)) {
+                Some(t) if links_pr(&t, &f.pr) => t,
+                _ => return,
+            }
+        } else {
+            t
+        };
         let who = self.board_person_name(b, &person);
         // A comment (a blocker reply too) naming this person: a desktop
         // notification on each of their devices that opens the card at the
@@ -884,7 +891,7 @@ fn row_plan(co: &Coord, me: &str, ev: &Event, f: RowFields, t: &Task) -> Option<
             kinds::TASK_COMMENT => f.text,
             kinds::TASK_ASSIGNED => format!("{name} assigned you {title}."),
             kinds::REVIEW_REQUESTED => format!(
-                "{name} asks you to review {0} for {title} ({short}). Review it with your own gh and answer on the PR by its URL ({0}); Irori never posts reviews or merges.",
+                "{name} asks you to review {0} for {title} ({short}). Read it with `gh pr view {0} --comments`, review it with your own gh and answer on the PR by its URL ({0}); Irori never posts reviews or merges.",
                 f.pr
             ),
             kinds::BLOCKER_OPTION => {

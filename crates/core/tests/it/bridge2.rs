@@ -373,6 +373,54 @@ fn a_review_ask_for_a_pr_off_the_card_is_dropped() {
     settle_bridged(t.a(), &t.ra.key_b, 1);
 }
 
+/// §12.12 B1b: Bob's agent links the PR and asks at once, so the link and
+/// the ask reach Alice in one sync, behind a run of other rows. Her bridge
+/// gets to the ask before her fold has the link; it folds the log and
+/// looks again rather than dropping the ask.
+#[test]
+fn a_review_ask_and_its_link_in_one_sync_arrive() {
+    let t = two_people();
+    let a1 = t.a().board_key(&t.board, &t.ra.key_a).unwrap();
+    let a2 = t.a().board_key(&t.board, &t.ra.key_b).unwrap();
+    let b1 = t.b().board_key(&t.board, &t.rb.key_a).unwrap();
+    let co_a = t.a().board_coord(&t.board).unwrap();
+    let card = co_a
+        .create_task(
+            &a1,
+            coord::NewTask {
+                title: "Fix the loader".into(),
+                objective: "make it load".into(),
+                shared: true,
+                ..coord::NewTask::default()
+            },
+        )
+        .unwrap();
+    co_a.set_reviewer(&Two::person(t.a()), &a2, "").unwrap();
+    t.sync();
+    let co_b = t.b().board_coord(&t.board).unwrap();
+    wait_for(10, "alice's reviewer and card on bob's side", || {
+        co_b.reviewer(&t.a().person().id, "") == a2 && co_b.get_task(&card.id).is_some()
+    });
+    // Rows first that Alice's fold must get through and her bridge skips,
+    // so the ask reaches her bridge before her fold has the link.
+    for _ in 0..100 {
+        co_b.add_link(&b1, &card.id, "https://example.com/x")
+            .unwrap();
+        co_b.remove_link(&b1, &card.id, "https://example.com/x")
+            .unwrap();
+    }
+    co_b.add_link(&b1, &card.id, PR).unwrap();
+    co_b.request_review(&b1, &card.id, PR, "").unwrap();
+    t.sync();
+    let ds = wait_bridged(t.a(), &t.ra.key_b, 1);
+    assert_eq!(ds[0].message.board.kind, row_kind::REVIEW, "{:?}", ds[0]);
+    assert!(
+        ds[0].message.text.contains("--comments"),
+        "{:?}",
+        ds[0].message
+    );
+}
+
 /// §5.4: Bob's agent asks Alice's agent to release a lease, on the shared
 /// card the lease mirrors through. It reaches the holder alone, held
 /// (member_lease) under Ask me and let through under Open.
