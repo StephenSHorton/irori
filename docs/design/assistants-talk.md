@@ -1,6 +1,6 @@
 # Office Assistants talking across people: design
 
-*2026-11-08, card #1030, from the person's idea on thread #1021. Design only: nothing here is built yet. Build cards are in §12. Checked against main by five adversarial reviews (identity, leaks, delivery, buildability, consistency); what they found is folded in.*
+*2026-11-08, card #1030, from the person's idea on thread #1021. Design only: nothing here is built yet. Build cards are in §12. Checked against main by five adversarial reviews (identity, leaks, delivery, buildability, consistency), then a second pass on the revision. What they found is folded in.*
 
 The idea, in the person's words: "Maybe office assistants can communicate with other people's office assistants", to agree on who should review a PR, or because "I need to ask addam some questions, maybe office assistants already have that info". "Would want this to be legit though", and "We don't have to go hard on this. just an idea."
 
@@ -17,7 +17,7 @@ So this is the smallest version that is legit. One person or agent asks, and the
 | D5 | **The turn that answers another person has no tools.** Irori gathers the facts in code, the model only writes text, and Irori posts it. | A peer's words must not be able to reach private data (§6). |
 | D6 | **On its own it only says what the asker's device already holds**: this space's rows. Anything else needs the owner's yes on the exact text. | This makes the sharing rule structural, not a prompt. |
 | D7 | **One question, one answer.** A post that replies to another never starts a turn. | Two assistants can't loop. |
-| D8 | **A labelled line in the receiver's Office Assistant chat, the dot and a notification, only for what waits on them.** The chat doesn't pop open by itself in v1. | #1000's rule for the chat. Opening steals focus today and covers a phone screen (§8). |
+| D8 | **A labelled line in the receiver's Office Assistant chat.** The dot and a notification come only for what waits on them. Lines that don't wait are quiet. The chat doesn't pop open by itself in v1. | #1000's rule for the chat, and the person's wish to see it. Opening steals focus today and covers a phone screen (§8). |
 | D9 | **It never starts agents, answers blockers, approves, merges, commits its owner to anything or speaks as its owner.** "I can spawn one" becomes "I'll ask Addam". | "It must never act as the person." |
 
 ## 2. What is there today
@@ -29,7 +29,7 @@ The earlier check on #1023 read a checkout 265 commits behind main. On main:
 - **Delivery across people already works in space channels.** `talk_post_bridge` wakes the `agent:` keys a post mentions, under the receive setting, Pause, rate limit and hop limit. Card #1030's "mentions aren't delivered across people" is out of date for channels, cards and threads. It is still true for `send`/`reply`, and DMs to another person's agent are refused on purpose.
 - **#1000 cut the chat to what waits on the person.** Its follower (`frontend/src/lib/assistant-follow.ts`) follows only threads the chat posted. `parseHistory` drops a saved update line unless it has an answer act or passes `waitsOnPerson`. The reply act and `replyOn` are gone.
 - **So the gaps are identity and a way to answer**, plus the channel, the labelled line and the sharing rule.
-- **#987's assistant write tools are not on main.** Nothing here builds on them.
+- **#987 gave the chat two write tools** (`crates/tools/src/assistant_writes.rs`): `assistant_close` and `assistant_tick`, which close a card or tick a step as the person. They work only against a grant made from the person's own typed message (`grants_for`), spent once. `Grants` holds one set per Core, and `begin` replaces it on each run. Nothing here uses them, and no turn in this design calls `begin` (§7).
 
 ## 3. Who the assistant is
 
@@ -50,7 +50,7 @@ This design only reads the name. Until #1029's card lands, every assistant has t
 
 It is written by a new `Services::assistant_card(board)`, not `card_for`, which needs a roster entry. It gets no roster entry and no `board_cards` mapping. The assistant stays off the private roster and nothing reaches its inbox (§5). `sync_card_status` walks only `by_id`, so no sweep marks the card gone.
 
-**It must not look like a free agent.** The space's roster (`roster_of` in `crates/core/src/service/boards.rs`) includes every card in the space. The board's `offers` closure (boards.rs, around line 1429) offers any card with no `by_id` entry. `free_agents` (`crates/coord/src/board/asks.rs`) puts the card that has been idle longest first. The assistant card is always idle and its `updated_at` is zero, so without a fix **every room ask in the space would be handed to an assistant card first, and stick there**. So `offers`, `free_agents` and the presence counts in `boards_presence.rs` all skip cards of kind `assistant`. Card 2 tests that a room ask passes it by.
+**It must not look like a free agent.** The space's roster (`roster_of` in `crates/core/src/service/boards.rs`) includes every card in the space. The board's `offers` closure (boards.rs, around line 1429) offers any card with no `by_id` entry. `free_agents` (`crates/coord/src/board/asks.rs`) puts the card that has been idle longest first. The assistant card is always idle and its `updated_at` is zero, so without a fix **every room ask in the space would be handed to an assistant card first, and stick there**. So `offers`, `free_agents` and the presence counts in `boards_presence.rs` all skip cards of kind `assistant`. `free_agents` has two branches, and the skip goes in both: an ask that @-mentions someone goes "to them alone, idle or not" before the idle loop runs, and card asks resolve mentions from `board_mentionables`, which lists the assistant. Card 2 tests that a room ask passes it by, and that a card ask mentioning it isn't handed to it.
 
 **The pointer.** `assistant_card` also sets a new `assistantCard` field on the person's `member.profile` for that space, holding the card's id.
 
@@ -60,7 +60,7 @@ It is written by a new `Services::assistant_card(board)`, not `card_for`, which 
 - `keep_current` (boards.rs) rebuilds the profile from `member_profile_row` on every name, colour or avatar change. It must carry the pointer forward, as it carries `had` for the login.
 - A card counts as the assistant only when its owner's profile points at it.
 
-**Minting.** Only the assistant's computer (below) mints, and only when the profile has no pointer. Before minting, it looks for an existing card of this person's of kind `assistant` on the space, and points at that one instead. If two computers race anyway, both cards belong to the person. The newest pointer wins, and the other card stays an idle card that is never offered and never labelled.
+**Minting.** Only the assistant's computer (below) mints. It does this from its host sweep (`sweep_spawns`, `crates/core/src/service/spawn.rs`), once per space, and only when the profile has no pointer. Before minting, it looks for an existing card of this person's of kind `assistant` on the space, and points at that one instead. If two computers race anyway, both cards belong to the person. The newest pointer wins, and the other card stays an idle card that is never offered and never labelled.
 
 **Why not an id everyone can compute.** That was the first draft, and it fails:
 
@@ -83,7 +83,7 @@ A random id can't be claimed ahead of time, and the pointer needs no change to t
 **The label comes from the verified owner, not from the card row.** `BoardLog::fold_card` (boards.rs) keeps the last `agent.card` row that arrives for an id, and doesn't check the writer. Another member can write an `agent.card` row for Addam's card id with their own `personId`; `bind_actor` accepts it, because it checks only that `personId` is the writer's. So:
 
 - The person comes from the verifier's `card_person(id)`, never from the row's `personId`.
-- The kind and name come only from rows written by that person's devices. `fold_card` keeps, per card, the newest row whose writer is `card_person(id)`'s device, for the label and for mentions.
+- The kind and name come only from rows written by that person's devices. `fold_card` keeps, per card, the newest row by `ev.hlc` whose writer is a device of `card_person(id)`, for the label and for mentions. Today it keeps the last row to arrive. `card_of` can change after a row is kept (a person's first device certifies late), so the map is refolded when it does. Every reader of `maps.cards` (roster_of, offers, presence, space names, `board_mentionables`, `send_to`) then sees the same filtered map.
 - Show "Juno · Addam's assistant", or just "Addam's assistant" for a default name, only when that kind is `assistant` *and* the owner's profile points at the card.
 - A card merely *named* "Addam's assistant" that fails either test shows as an ordinary agent ("Addam's assistant · Eve", agent tag).
 - Talk's member mapping keeps the member kind `agent`, so a typed mention still turns Agents answer now on (`agentsNowFor`), and adds an `assistant` flag. `conversation.tsx` shows an `assistant` tag.
@@ -92,23 +92,24 @@ Two members can share a profile name. Eve can rename herself "Addam", and then h
 
 **Mentions.** People pick from the list, which records the key. Agents write `@Addam's assistant` or `@Juno`. For that to resolve:
 
-- `board_mentionables` lists the pointed-at assistant under both its chosen name and the default form, `<profile name>'s assistant`.
+- `board_mentionables` lists the pointed-at assistant under its chosen name and under the default form, `<profile name>'s assistant`. It also lists it under `<first word of the profile name>'s assistant` ("Addam's assistant" for "Addam Lee") when no other member's name starts with that word, as #1029 §5 does.
 - It doesn't list another card under a name equal to some member's `<profile name>'s assistant`, so an ordinary agent named "Addam's assistant" can't take mentions meant for the assistant.
-- `coord::mentions::resolve` tries names longest first, so `@Addam's assistant` matches the listed assistant before the person "Addam". Card 2 tests this, because `ends_token` treats `'` as the end of a name.
+- `coord::mentions::resolve` tries names longest first, so `@Addam's assistant` matches the listed assistant before the person "Addam". Card 3 tests this, because `ends_token` treats `'` as the end of a name.
 - If two members share a name, the name is ambiguous and the sender gets the candidates' keys, as today.
-- The picker offers assistants only in `#office-assistants`. Today `MentionBoard.Provider` carries only the space, and `MentionCandidate` has no kind. Card 2 passes the conversation id and adds the kind (`frontend/src/lib/mentions.ts`, `frontend/src/components/common/mention-textarea.tsx`, `crates/window/src/mentions.rs`).
+- The picker offers assistants only in `#office-assistants`. Today `MentionBoard.Provider` carries only the space, and `MentionCandidate` has no kind. Card 3 passes the conversation id and adds the kind (`frontend/src/lib/mentions.ts`, `frontend/src/components/common/mention-textarea.tsx`, `crates/window/src/mentions.rs`).
 
 **Which computer answers.** One of the person's desktops that can run the answering turn (a desktop with Claude Code signed in, the same condition as the namer):
 
-- Each such desktop says so with a new `answers: true` field on its `spawn.host` row.
-- The assistant's computer is the first device in `agent_home("")`'s order whose `spawn.host` says `answers`. This way an older build or a phone that ranks first doesn't silence the assistant.
-- `agent_home` ranks devices from each device's own mesh view. So when two of the person's desktops can't see each other, both may think they're home. §5's answer id makes that harmless.
-- `append_space_talk` doesn't check that this device hosts the card, so "this device is the assistant's computer" in §5 is the only gate, and it must be checked.
+- Each such desktop says so with a new `assistantTurn: true` field on its `spawn.host` row. (`spawn.answers` is already a kind, so don't call it `answers`.) `spawn.host` is a private-log row that only the device itself writes, and older builds ignore the field.
+- `publish_host` rewrites the row only when its `(os, repos, no_agents, moves, held)` tuple changes, and reloads that tuple after a restart. `assistantTurn` must join the tuple, or an upgraded desktop never publishes it.
+- The assistant's computer is the first device in `AgentDevices.homes` (built in `refresh_agent_devices`, `crates/core/src/service/spawn_capable.rs`) whose `spawn.host` says `assistantTurn`. `homes` already leaves out phones and builds without `moves`. `agent_home` itself returns one device, so filter `homes`, not its result.
+- `homes` is ranked from each device's own mesh view. So when two of the person's desktops can't see each other, both may think they're home. §5's answer id makes that harmless.
+- `append_space_talk` doesn't check that this device hosts the card, so "this device is the assistant's computer" in §5 is the only gate for an automatic answer, and it must be checked. A person's own tap (§8) may answer from any of their desktops.
 
 ## 4. The channel
 
-- **Id:** `ch_` plus a hash of a fixed domain and the space id, following `pair_dm_id`. Every member computes the same id, and the fold keeps one channel however many members write it (it keeps the oldest copy).
-- **It can't be created in another space.** The talk fold keeps the first copy it folds, and `append_space_talk` stamps each row with the space that carried it. Without a check, a member of two spaces could create S1's assistants channel inside S2 and break it for everyone who folds S2 first. So the `coord::talk` fold refuses a `talk.channel.created` whose id is an assistants-channel id for a space other than the one carrying it. Older devices don't have this check. On them, only a member of both spaces acting in bad faith can cause it, and the channel can still be read.
+- **Id:** `ch_oa_` plus a hash of a fixed domain and the space id, following `pair_dm_id`. Ordinary channel ids are `ch_` plus an uppercase ULID, so the `oa_` marker is unambiguous. Every member computes the same id, and the fold keeps one channel however many members write it (it keeps the oldest copy).
+- **It can't be created in another space.** The talk fold keeps the first copy it folds, and `append_space_talk` stamps each row with the space that carried it. Without a check, a member of two spaces could create S1's assistants channel inside S2 and break it for everyone who folds S2 first. So the `coord::talk` fold refuses a `talk.channel.created` whose id starts `ch_oa_` but isn't `assistants_channel_id(r.space_id)`. `space_talk_row` re-stamps `spaceId` from the log that carried the row, so `r.space_id` can be trusted, and the fold needs no list of spaces. Older devices don't have this check. On them, only a member of both spaces acting in bad faith can cause it, and the channel can still be read.
 - **Name:** `office-assistants`. Topic: "Ask anyone's assistant. It answers from what is on this space."
 - **Made by** a new `ensure_assistants_channel(space)`:
   - It runs on Core start, when a space appears, and on each host sweep. No event fires when a space's gate opens, so the sweep is the retry.
@@ -116,7 +117,7 @@ Two members can share a profile name. Eve can rename herself "Addam", and then h
   - It skips hidden DM spaces and Personal.
   - Don't use `create_channel_in`: it mints a random id and joins the author.
 - **No new kind and no schema change:** `coord::talk::is_assistants_channel(id, space)` recomputes the id. An older device shows an ordinary channel.
-- Talk pins it first in the space's channels. Anyone may archive it, as with any channel. Archived means no answers, and `ensure` doesn't bring it back.
+- Talk pins it first in the space's channels: a flag on the window's channel binding, read by `listed()` in `frontend/src/lib/conversations.ts`. Anyone may archive it, as with any channel. Archived means no answers, and `ensure` doesn't bring it back.
 - The person reads any space channel without joining (`tools::talk::posts`), on every device.
 
 ## 5. Asking and answering
@@ -127,12 +128,14 @@ Two members can share a profile name. Eve can rename herself "Addam", and then h
 2. An agent posts it with `talk_post` (how #1022's reviewer picking will use this).
 3. From your own Office Assistant chat (§9), posted as *your* assistant after you tap Send.
 
-**The bridge.** `talk_post_bridge` (`crates/core/src/service/bridge.rs`) runs on the receiver's Core and has already checked the author and the channel. Add one split, placed **before** the `!r.agents_now` early return (a question to an assistant is a question whatever that toggle says) and before `send_ref`:
+**The bridge.** `talk_post_bridge` (`crates/core/src/service/bridge.rs`) runs on the receiver's Core. Today it returns early on `!r.agents_now` *before* it checks the author (`person_of`, not this person) and the channel (in this space, not archived). Move that early return below the channel lookup, since it only gates the existing path, and put the split after the channel lookup and before `send_ref`. That way a question to an assistant counts whatever Agents answer now says, and the author and channel checks still apply:
 
 - Mentions of *this person's assistant card*, in the assistants channel, go to the answering turn.
 - Everything else carries on unchanged.
 
 The mention can't go through `inbox.bridge`, because `bridge_locked` skips any key whose `device_of` isn't this device, and `device_of("agent:<id>")` is empty. Nothing would be delivered. A mention of the assistant in any other channel, or on a card, reaches nothing.
+
+**A repeated answer id.** If two desktops answer, Talk's fold keeps one post, but `boards.rs` calls `bridge_row` after `talk.apply` regardless, and delivery dedupes by `<device>/<seq>`, which differs. So an asking agent would be woken twice. `talk_post_bridge` skips a row whose `post_id` was already folded from another device. Which copy a peer keeps depends on arrival order, so two peers may show different texts for the same answer. Accepted: it needs a partition and two answers at once.
 
 **Catching up.** `bridge_row` runs only on live rows, and `agent_home` is `None` until `set_spawner` runs. So questions that arrive during start-up, or while home is moving, would never be seen. When `set_answerer` installs the turn, and whenever this device becomes the assistant's computer, it scans each assistants channel for mentions of this person's assistant that are under an hour old and unanswered. It queues them the same way. The scan also covers a job lost when the app quit.
 
@@ -140,33 +143,34 @@ The mention can't go through `inbox.bridge`, because `bridge_locked` skips any k
 
 | Check | If it fails |
 |---|---|
+| The author is another active member and the channel is this space's assistants channel, not archived (today's bridge checks, kept) | Nothing |
 | This device is the assistant's computer (§3) | Nothing here; that computer handles it |
 | The post has no `replyTo` | No turn, ever (D7). This doesn't depend on the author's kind, which a row can't be trusted for |
 | Not already answered: no post with this question's answer id or waiting id (below) | Nothing |
 | The question's hop is under `MAX_HOP` | Nothing |
-| Under the rate limit: 8 per asking person per 10 minutes, keyed like `pair_key` in `inbox/bridge.rs` (per space and person, so extra agents don't multiply it), kept in memory | A `held` line: "N questions from Eve were not answered" |
+| Under the rate limit: 8 per asking person per 10 minutes, keyed like the inbox's `rate_from` (`board_sender_key(board_id, "", person_id)`: per space and person, so extra agents don't multiply it), kept in memory | A `held` line: "N questions from Eve were not answered" |
 | Younger than one hour by `PostRow.at` (the asker's clock; a time in the future counts as now) | A `held` line: "Addam's assistant didn't get to this in time" |
 | Pause all is off on this device | Treat as Ask me |
 | The receive setting (below) | Below |
 
 The rate limit comes before the age check, so backdated posts can't flood the chat. The counter resets on a restart or when home moves. That is accepted.
 
-**The receive setting decides.** It's read with `Inbox::receive_setting(b.id, person)` and `receive_decision`, which are already public, keyed by the space's log id, with `bypass = false`:
+**The receive setting decides.** It's read with `Inbox::receive_setting(b.id, person)` and `receive_decision`, which are already public, keyed by the space's log id, with `bypass = false` and `BoardFrom { wake: true, kind: COMMENT, person_id, board_id: b.id, card_id: "" }`. With `wake: false`, Open returns next-turn, which is not "answer":
 
 | Setting | The assistant |
 |---|---|
 | Open (the default) | Answers |
 | Members wake | Answers the people you picked; the rest as Ask me |
-| Ask me | Posts the waiting line (below) and shows a `needs` line with **Let it answer** |
+| Ask me | Posts the waiting line (`waiting: "ask"`) and shows a `needs` line with **Let it answer** |
 | Closed | Doesn't answer and posts nothing |
 
 The mapping a builder must use: answer only when the mode is wake and there's no hold. Ask me when the hold is `MEMBER_WAKE` or the setting is Ask me. Anything else is nothing. Under Closed, `receive_decision` returns next-turn with no hold, which is not "answer".
 
-**The turn.** It is modelled on naming. `Namer` (`crates/core/src/service/thread_names.rs`) is `Fn(&NameAsk{system, prompt}) -> Result<String, String>`, already reused by `set_weigher` and `rewrite_draft`, so it takes this prompt and packet as it is:
+**The turn.** It is modelled on naming. `Namer` (`crates/core/src/service/thread_names.rs`) is `Fn(&NameAsk{system, prompt}) -> Result<String, String>`, already reused by `set_weigher` (and `rewrite_draft` reuses `NameAsk`), so it takes this prompt and packet as it is:
 
 - A `set_answerer` hook installs it on desktops.
 - A worker thread takes jobs from a channel and survives a panic.
-- It has its own `Runner`, a fourth field in `crates/window/src/lib.rs` with its shutdown beside `assistant_shutdown`, so a peer never takes a slot from the person's chat.
+- It has its own `Runner`, a fifth field in `crates/window/src/lib.rs` (after `assistant`, `names`, `weighs` and `rewrites`) with its shutdown beside `assistant_shutdown`, so a peer never takes a slot from the person's chat.
 - `tools: false`: no MCP config, no secret, `--tools ""`.
 - The same model as the Office Assistant.
 
@@ -178,7 +182,7 @@ The mapping a builder must use: answer only when the mode is wake and there's no
 - `hop`: the question's hop + 1, set explicitly. `board_hop` looks the actor up by session key, and the assistant has none.
 - `agentsNow: true`.
 
-**The waiting line.** On Ask me, or when the turn returns `NEEDS_OWNER`, the assistant posts a fixed line instead: "I've asked Addam". It uses the same fields, `waiting: true`, and **the waiting id** (the answer id's hash with a different domain). This tells the asker it's pending. It also lets every device of the owner's build the `needs` line from the channel. A later answer uses the answer id, so it's posted alongside, never blocked by the waiting line.
+**The waiting line.** On Ask me, or when the turn returns `NEEDS_OWNER`, the assistant posts a fixed line instead: "I've asked Addam". It uses the same fields, `waiting: "ask"` or `waiting: "owner"` (so every device knows which button the `needs` line gets), and **the waiting id** (the answer id's hash with a different domain). This tells the asker it's pending. It also lets every device of the owner's build the `needs` line from the channel. A later answer uses the answer id, so it's posted alongside, never blocked by the waiting line.
 
 **Before posting:**
 
@@ -210,10 +214,10 @@ The mapping a builder must use: answer only when the mode is wake and there's no
   - `no_agent_line` reads local spawn state.
   - `board_views` rewrites holders into this device's session keys.
 
-  Card 3 tests a space card with a private-log wait on it and a private agent holding it, and checks that neither shows.
+  Card 5 tests a space card with a private-log wait on it and a private agent holding it, and checks that neither shows.
 - **What it holds, in order:** the owner's open cards first (at most 30), then their agents, then the channel's last 10 posts.
 - **How big it gets:** each title and post is clipped to 300 characters, each objective and comment to 500, and the whole packet to 24 KB. Today a person may post up to 512 KB, and the split sits before the inbox's own clipping. So without these clips one member could make every turn cost a full context.
-- **The asker's words:** clipped to `MAX_TEXT` and fenced as untrusted, following `inbox::fence`. The system prompt says so.
+- **The asker's words:** clipped to the inbox's `MAX_TEXT` (8,000) and fenced as untrusted, following `inbox::fence`. The system prompt says so.
 
 **The output is parsed by code:** a reason first, then `ANSWER: <text>` or `NEEDS_OWNER: <one line>`. Reason before verdict is what makes Haiku use what it read (see the repo note on this). Anything that doesn't parse counts as `NEEDS_OWNER`.
 
@@ -229,6 +233,7 @@ The `needs` line shows the question with **Answer this**. Nothing about private 
    - No chat history.
    - No `<<thread>>`, `<<go>>` or ask markers are taught or parsed. Today's chat would auto-go on a `<<go>>` while the panel is open, or offer **Post thread** for an attacker-written draft.
    - It is never stored as a person's turn.
+   - Read tools only (`ASSISTANT_TOOLS`), never #987's write tools. It doesn't call `Grants::begin`: there's no person's message to grant from, and `begin` would replace the grants of a chat run in flight.
 2. The reply is a draft, rendered as plain text like a `from` line, with **Send to Eve's assistant** and **Don't send**. The model can't send it: it has no tool to.
 3. On Send, the host posts it as the assistant's card, with `replyTo` and the answer id, through a new Tauri command beside `assistant_ask`. Send is refused if a post with that answer id already exists, so two desktops can't both answer. The scrub still applies.
 
@@ -281,7 +286,7 @@ For example:
 
 **Taps:**
 
-- **Let it answer** runs the tool-less turn (§5) on the device where it was tapped, if that device can run it. The answer id makes a second tap elsewhere harmless.
+- **Let it answer** runs the tool-less turn (§5) on the device where it was tapped, if that device can run it, through a new Tauri command and a Core entry point, `Services::answer_now(board, post_id)`. A person's tap skips §5's home check, the waiting-line check, the rate limit, the hour and the receive setting, since the owner chose it. It keeps the author and channel check, the answer-id check (so a second tap elsewhere does nothing), the hop limit, the scrub and the cap.
 - **Answer this** is §7.
 - A phone shows the line with neither button, since it can't run either turn, and offers Open in Talk.
 
@@ -294,15 +299,15 @@ For example:
 
 - `parseHistory` whitelists `from` and drops a `from` it can't validate.
 - `historyFor` leaves `from` lines out, like `note`.
-- `capKeeping` keeps `needs` lines that are still unanswered, so quiet lines can't push them past the 50-line cap.
+- `capKeeping`, and `capHistory` at the end of `parseHistory`, keep `needs` lines that are still unanswered, so quiet lines can't push them past the 50-line cap.
 
-Card 4 tests that after a reload the line still has `from`, renders no draft and no go button, and isn't in `historyFor`.
+Card 6 tests that after a reload the line still has `from`, renders no draft and no go button, and isn't in `historyFor`.
 
 **In the model's history:** left out by default. If the person then asks about it, it goes in fenced as another person's words. `render_prompt` must never show it as "The person" or "You".
 
 **Notifications.** Irori posts these in code. The assistant has no `notify` tool, and adding it to `ASSISTANT_TOOLS` would break the read-only rule and title it with the person's own name.
 
-- `answer` notifies through Talk's own mention (§5), so there's no second toast.
+- `answer` to a question the person typed notifies through Talk's own mention (§5), so there's no second toast. For a question sent from the chat (§9) the answer mentions the person's own assistant card, which Talk doesn't ring for, so the follower raises the toast itself.
 - `needs` raises one toast through the `Notifier`, titled "Addam's assistant", with a dedupe key that stays the same per conversation, so a burst is one toast.
 - On the phone the toast uses a `talk:` id and opens the channel (`phone_target` → `TAB_TALK`).
 - On the desktop it uses a new target tab, `assistant`, which App.tsx's `onOpen` routes to `setAssistantOpen(true)`.
@@ -325,7 +330,7 @@ The chat model has no way to post, and keeps it that way:
 
 Tap-to-send matters here because the model holds private reads while writing a question that will be public to the space.
 
-`ASSISTANT_TOOLS` and its tests stay exactly as they are.
+`ASSISTANT_TOOLS`, #987's `ASSISTANT_WRITE_TOOLS` and their tests stay exactly as they are. `grants_for` must not grant anything from an ask draft: sending one is a tap, not a write tool.
 
 ## 10. Devices, offline, limits
 
@@ -342,7 +347,7 @@ Nothing needs a gate, and the verifier is unchanged:
 
 - `agent.card` and `talk.channel.created` are existing kinds.
 - `kind: "assistant"` is a new value of an existing string.
-- `replyTo`, `waiting` and `answers` are optional fields.
+- `replyTo`, `waiting` and `assistantTurn` are optional fields.
 - `assistantCard` sits outside `personSig` on `member.profile`.
 
 On an older peer:
@@ -354,56 +359,74 @@ On an older peer:
 
 ## 12. Build plan
 
-All cards come after #1030, in this order. Each is normal weight unless marked, and links here. Every card: tests from the repo's patterns, `sh scripts/check.sh`, scratch builds per CLAUDE.md.
+All cards come after #1030. Each is normal weight unless marked, and links here. Every card: tests from the repo's patterns, `sh scripts/check.sh`, scratch builds per CLAUDE.md. The order is: 1 and 2 can go side by side, then 3 after 2, 4 after 1 and 2, 5 after 4, 6 after 3 and 5, 7 and 8 after 6, and 9 at any time.
 
 **1. The channel.**
-Files: `crates/coord/src/talk.rs` (id, `is_assistants_channel`, the fold's cross-space refusal), `crates/core/src/service/spaces.rs` (`ensure_assistants_channel`, called from start, a new space and the host sweep), `frontend/src/components/talk/*` (pinned first).
-Done when: a two-Core test shows both Cores with one channel of the same id in each space; a `talk.channel.created` for S1's id carried by S2 is refused; the channel isn't made in a hidden DM space or Personal; an archived channel stays archived.
+Files: `crates/coord/src/talk.rs` (`assistants_channel_id`, `is_assistants_channel`, the fold's `ch_oa_` refusal), `crates/core/src/service/spaces.rs` (`ensure_assistants_channel`), `crates/core/src/service/spawn.rs` (call it from `sweep_spawns`), `crates/window/src/talk.rs` (a pinned flag on the channel binding), `frontend/src/lib/conversations.ts` (`listed()` puts it first).
+Done when: a two-Core test shows both Cores with one channel of the same id in each space; a `talk.channel.created` with S1's id carried by S2 is refused; the channel isn't made in a hidden DM space or Personal; an archived channel stays archived.
 
-**2. The assistant card, pointer and label.**
-Files: `crates/identity/src/objects.rs` (`MemberProfile.assistant_card`), `crates/identity/src/board.rs` (fold it like `github_login`, `profile_assistant_card`), `crates/core/src/service/boards.rs` (`assistant_card`, `keep_current` carrying the pointer, `fold_card` keeping the owner's newest row for the label, `offers`), `crates/coord/src/board/asks.rs` (`free_agents`), `crates/core/src/service/boards_presence.rs`, `crates/tools/src/shared.rs` and `crates/core/src/service/bridge.rs` (`board_mentionables`: both names, no name squats), `crates/window/src/mentions.rs`, `frontend/src/lib/mentions.ts`, `frontend/src/components/common/mention-textarea.tsx`, `frontend/src/components/talk/*` (tag, `assistant` flag on the member, kind stays `agent`).
+**2. The assistant card, its pointer and its computer.**
+Files: `crates/identity/src/objects.rs` (`MemberProfile.assistant_card`), `crates/identity/src/board.rs` (fold it like `github_login`, `profile_assistant_card`), `crates/core/src/service/boards.rs` (`assistant_card`, `keep_current` carrying the pointer, `offers`), `crates/core/src/service/spawn_remote.rs` (`assistantTurn` on `spawn.host` and in `publish_host`'s tuple), `crates/core/src/service/spawn_capable.rs` (the home filter), `crates/core/src/service/spawn.rs` (minting from `sweep_spawns`), `crates/coord/src/board/asks.rs` (`free_agents`, both branches), `crates/core/src/service/boards_presence.rs`.
 Done when tests show:
 - No assistant row has a `person:` actor.
-- A room ask passes an assistant card by.
+- The home device mints one card per space, and reuses an existing assistant card of the person's rather than minting a second.
+- A device without `assistantTurn` is never home.
+- A room ask passes the card by, and a card ask that mentions it isn't handed to it.
 - A profile written without `assistantCard` (an older build, or a rename through `keep_current`) doesn't clear the pointer.
+
+Until #1029's name card lands, the card's name is the default.
+
+**3. The label and mentions.**
+Files: `crates/core/src/service/boards.rs` (`fold_card` keeping the owner's newest row by HLC, refolded when `card_of` changes), `crates/tools/src/shared.rs` and `crates/core/src/service/bridge.rs` (`board_mentionables`: the names, no squats), `crates/window/src/mentions.rs`, `frontend/src/lib/mentions.ts`, `frontend/src/components/common/mention-textarea.tsx`, `frontend/src/components/talk/*` (tag; an `assistant` flag on the member, whose kind stays `agent`).
+Done when tests show:
 - A kind-`claude` card named "Addam's assistant" isn't labelled as the assistant, and doesn't take `@Addam's assistant`.
 - A kind-`assistant` card the profile doesn't point at isn't labelled.
 - Another member's `agent.card` row for the card's id doesn't change its label or name.
-- `@Addam's assistant` resolves to the assistant, not to the person Addam, both with a chosen name and without.
+- `@Addam's assistant` resolves to the assistant, not to the person Addam, with a chosen name and without.
 - The picker offers assistants only in the assistants channel.
 
-The name is the default only. Reading #1029's `assistantName` is a one-line addition on #1029's name card or a light follow-up, so this card doesn't wait on it.
+Reading #1029's `assistantName` is a one-line addition on #1029's name card or a light follow-up, so this card doesn't wait on it.
 
-**3. The answering turn.** *(heavy: a security boundary and a delivery path)*
-Files: new `crates/core/src/service/assistant_answers.rs` (packet, parse, checks, queue, catch-up scan), `crates/core/src/service/bridge.rs` (the split, before `agents_now`), `crates/core/src/service/spawn_remote.rs` (`answers` on `spawn.host`), `crates/core/src/service/spaces.rs` (the `pub` post wrapper), `crates/coord/src/talk.rs` (`replyTo` and `waiting` on `PostRow`, `Post` and its fold), `crates/window/src/talk.rs` (`TalkPost`), `crates/core/src/service.rs` and `app/src/shell/mod.rs` (`set_answerer`), `crates/window/src/assistant.rs` and `crates/window/src/lib.rs` (its turn and `Runner`, `tools:false`).
-Done when, with a fake turn, tests show:
+**4. The answering path, with a fake turn.**
+Files: `crates/coord/src/talk.rs` (`replyTo` and `waiting` on `PostRow`, `Post` and its fold), `crates/window/src/talk.rs` (`TalkPost`) and the generated bindings, `crates/core/src/service/spaces.rs` (the `pub` post wrapper writing raw rows), `crates/core/src/service/bridge.rs` (the split after the channel lookup, the moved `agents_now` return, the repeated-id skip), new `crates/core/src/service/assistant_answers.rs` (the checks, answer and waiting ids, queue, catch-up scan), `crates/core/src/service.rs` and `app/src/shell/mod.rs` (`set_answerer`), `crates/window/src/lib.rs` (the fifth `Runner`).
+Done when, with a fake turn that returns fixed text, tests show:
 - Open answers once as `agent:<cardId>` with the answer id and `replyTo`.
 - Each check in §5's table stops it, Closed included.
 - A post with `replyTo` starts no turn.
-- Two Cores both home answer, and peers show one post.
+- Two Cores both home answer, peers show one post, and an asking agent is woken once.
 - A question that arrived before `set_answerer` is answered by the scan.
-- The packet for a space with a private card, a card on another space, and a private wait on a space card contains none of them.
-- A 512 KB post is clipped.
-- A scrubbed reply posts nothing.
+- Ask me posts `waiting: "ask"`.
 - A mention elsewhere runs nothing.
-- Ask me and `NEEDS_OWNER` post the waiting line.
+- A post with Agents answer now off still reaches the assistant, and existing bridge tests pass.
 
-**4. The labelled lines and notification.**
-Files: `frontend/src/lib/assistant.ts` (`from`, `parseHistory`, `historyFor`, `capKeeping`), new `frontend/src/lib/assistant-talk-follow.ts`, `frontend/src/components/assistant/assistant-chat.tsx` (the `from` branch, **Let it answer**), a host call for the person's `assistantCard` per space, `crates/core/src/service.rs` (the `needs` toast, the `held` event), `frontend/src/App.tsx` (the `assistant` target).
+**5. The answering turn.** *(heavy: a security boundary)*
+Files: `crates/core/src/service/assistant_answers.rs` (packet from `b.coord()` only, clipping, parse, system prompt, scrub, normalising), `crates/window/src/assistant.rs` (its job, `tools:false`).
+Done when tests show:
+- The packet for a space with a private card, a card on another space, a private-log wait on a space card and a private agent holding a space card contains none of them.
+- A 512 KB post is clipped, and the packet stays under 24 KB.
+- A question asking it to commit the owner gets `NEEDS_OWNER`, which posts `waiting: "owner"`.
+- Unparseable output counts as `NEEDS_OWNER`.
+- A scrubbed reply posts nothing.
+- Tag characters are stripped from the answer.
+
+A real Haiku run is shown answering a question from the packet.
+
+**6. The labelled lines, notification and Let it answer.**
+Files: `frontend/src/lib/assistant.ts` (`from`, `parseHistory`, `historyFor`, `capKeeping`, `capHistory`), new `frontend/src/lib/assistant-talk-follow.ts`, `frontend/src/components/assistant/assistant-chat.tsx` (the `from` branch, the buttons), `crates/window/src/commands.rs` (a host call for the person's `assistantCard` per space; Let it answer), `crates/core/src/service.rs` (`answer_now`, the `needs` toast, the `held` event), `frontend/src/App.tsx` (the `assistant` target).
 Done when:
-- Tests show the line surviving a reload past #1000's filter with `from` intact, no draft or go button, and not in `historyFor`; `asked` and `held` lighting no dot; an unanswered `needs` kept through the cap.
+- Tests show the line surviving a reload past #1000's filter with `from` intact, no draft or go button, and not in `historyFor`; `asked` and `held` lighting no dot; an unanswered `needs` kept through the cap; Let it answer passing the receive setting but not a second answer.
 - There are screenshots at desktop and phone width.
-- A two-instance scratch run shows an `answer` line for a question typed in the channel, and a `needs` line under Ask me.
+- A two-instance scratch run shows an `answer` line for a question typed in the channel, and a `needs` line under Ask me that Let it answer clears.
 
-**5. Ask from your chat.**
+**7. Ask from your chat.**
 Files: `crates/window/src/assistant.rs` (prompt, marker), `assistant.ts`, `assistant-chat.tsx`, `crates/window/src/commands.rs` (host command).
-Done when: nothing posts before the tap; the posted text is exactly the normalised text shown; a draft with tag characters posts without them, and an emoji survives; the scrub runs; the ASSISTANT_TOOLS test is untouched.
+Done when: nothing posts before the tap; the posted text is exactly the normalised text shown; a draft with tag characters posts without them, and an emoji survives; the scrub runs; an answer raises the toast; the `ASSISTANT_TOOLS` and `ASSISTANT_WRITE_TOOLS` tests are untouched, and the draft grants nothing.
 
-**6. The owner's OK.**
+**8. The owner's OK.**
 Files: `crates/window/src/assistant.rs` (the separate turn, prompt and renderer), `crates/window/src/commands.rs` (Send), `assistant.ts`, `assistant-chat.tsx`.
-Done when: Send appears only on a turn the tap started; that turn parses no markers and never auto-goes; what's posted is exactly the normalised text shown; Send is refused once an answer exists; one OK sends one answer; a phone shows no action it can't run.
+Done when: Send appears only on a turn the tap started; that turn parses no markers, never auto-goes, has no write tools and leaves a chat run's grants alone; what's posted is exactly the normalised text shown; Send is refused once an answer exists; one OK sends one answer; a phone shows no action it can't run.
 
-**7. (light) Tidy the docs.** The list in §14.
+**9. (light) Tidy the docs.** The list in §14.
 
 ## 13. Not in v1
 
@@ -416,7 +439,7 @@ Done when: Send appears only on a turn the tap started; that turn parses no mark
 
 ## 14. Found along the way
 
-Worth correcting, on build card 7:
+Worth correcting, on build card 9:
 
 - `talk-channels.md` §3 says every member agent gets next-turn reading. Other people's agents don't (`tell_readers`); only mentions cross people.
 - `merge-desk.md` still places desks under Talk › Channels in places. Decision 54 took them out.
