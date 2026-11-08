@@ -19,6 +19,7 @@ import {
   useFileAttach,
 } from "@/components/attachments"
 import { ConfirmButton } from "@/components/common/confirm-button"
+import { TitleEdit } from "@/components/common/title-edit"
 import { MentionTextarea } from "@/components/common/mention-textarea"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -301,6 +302,7 @@ export function CardPage({
           card={detail}
           spinning={spinning}
           onOpen={onOpen}
+          renamable
           extra={
             <>
               <BoardActions
@@ -965,11 +967,15 @@ function PageHeader({
   spinning,
   onOpen,
   extra,
+  renamable,
 }: {
   card: CardSummary
   spinning?: boolean
   onOpen?: (id: string) => void
   extra?: ReactNode
+  // The person may rename it here (card #779): the loaded page, not the
+  // summary shown while it loads.
+  renamable?: boolean
 }) {
   return (
     <header className="grid gap-2">
@@ -990,9 +996,21 @@ function PageHeader({
         <PinButton card={card} />
         {extra}
       </div>
-      <h1 className="text-2xl leading-tight font-semibold tracking-tight text-balance text-ink">
-        {plainLine(card.title) || "(untitled)"}
-      </h1>
+      {renamable ? (
+        <TitleEdit
+          title={card.title}
+          save={(t) => cards.rename(card.id, t)}
+          label="Card title"
+          inputClassName="text-base"
+          className="text-2xl leading-tight font-semibold tracking-tight text-balance text-ink"
+        >
+          {plainLine(card.title) || "(untitled)"}
+        </TitleEdit>
+      ) : (
+        <h1 className="text-2xl leading-tight font-semibold tracking-tight text-balance text-ink">
+          {plainLine(card.title) || "(untitled)"}
+        </h1>
+      )}
       {card.parent && (
         <p className="text-sm text-muted-foreground">
           Part of{" "}

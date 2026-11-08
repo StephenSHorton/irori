@@ -1173,6 +1173,19 @@ function sampleMoveBoard(id: string, board: string) {
   sampleChanged()
 }
 
+// sampleRename is BoardService.Rename on the sample (card #779): cards
+// and threads alike, as the host's checks.
+export function sampleRename(id: string, title: string) {
+  const t = title.trim()
+  if (!t) throw new Error("coord: a card needs a title")
+  if ([...t].length > 200)
+    throw new Error("coord: title longer than 200 characters")
+  const c = sampleCard(id)
+  if (c.title === t) return
+  c.title = t
+  sampleChanged()
+}
+
 // sampleBoardGone is a board delete on the sample (card #563): its cards go
 // to the default board, shown by its tag.
 export function sampleBoardGone(boardId: string, tag: string) {
@@ -2002,6 +2015,17 @@ export const cards = {
       return
     }
     sampleDelete(id)
+  },
+
+  // rename is the person renaming a card or thread by hand (card #779):
+  // the board, the Threads list and its page show it at the next read,
+  // and an agent's later rename doesn't land.
+  async rename(id: string, title: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.Rename(id, title)
+      return
+    }
+    sampleRename(id, title)
   },
 
   // move puts a card on another board in its space (card #563), with its

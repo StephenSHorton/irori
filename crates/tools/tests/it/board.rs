@@ -510,6 +510,24 @@ fn test_board_edit() {
         "{t:?}"
     );
 
+    // The person renames it by hand (card #779): an agent's rename alone
+    // is refused and says why; with other changes those land without it.
+    co.rename_task("user:dev1", &id, "The person's name").unwrap();
+    h.failsj(
+        &b,
+        "board_edit",
+        json!({"task_id": id, "title": "agent name"}),
+        &["the person named", "leave its title"],
+    );
+    h.okj(
+        &b,
+        "board_edit",
+        json!({"task_id": id, "title": "agent name", "done_when": "thumbnails show"}),
+    );
+    let t = co.get_task(&id).unwrap();
+    assert_eq!(t.title, "The person's name");
+    assert_eq!(t.done_criteria, "thumbnails show");
+
     // A card that was an ask: once closed, a later holder may rename it.
     let (ask, _) = co
         .post_ask(

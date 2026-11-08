@@ -29,7 +29,8 @@ import { Loading } from "@/components/ui/loading"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Face } from "@/components/cards/faces"
-import { type ThreadSummary } from "@/lib/cards"
+import { cards, type ThreadSummary } from "@/lib/cards"
+import { TitleEdit } from "@/components/common/title-edit"
 import {
   dmGone,
   dmPerson,
@@ -1125,9 +1126,15 @@ function Conversation({
             {cardRef(t)}
           </span>
         )}
-        <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">
-          {plainLine(t.title)}
-        </h2>
+        <TitleEdit
+          as="h2"
+          title={t.title}
+          save={(title) => cards.rename(t.id, title)}
+          label="Thread title"
+          className="flex-1 text-[15px] font-semibold text-ink"
+          buttonClassName="block truncate"
+          inputClassName="h-7 text-[13px]"
+        />
         {t.private && (
           <Badge
             variant="slate"

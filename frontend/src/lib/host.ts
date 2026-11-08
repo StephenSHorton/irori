@@ -250,6 +250,8 @@ export const BoardService = {
   Delete: (id: string) => done(commands.boardDelete(id)),
   // Another board in the card's space (card #563).
   Move: (id: string, board: string) => call(commands.boardMove(id, board)),
+  // The person renames a card or thread by hand (card #779).
+  Rename: (id: string, title: string) => call(commands.boardRename(id, title)),
   Pin: (id: string, pinned: boolean) => done(commands.boardPin(id, pinned)),
   // Pause / Resume (card #207): who was told.
   Pause: (id: string, paused: boolean, note: string) =>
