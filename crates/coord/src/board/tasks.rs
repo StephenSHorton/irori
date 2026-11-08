@@ -206,6 +206,9 @@ impl Fold {
         if let Some(p) = self.tasks.get(&ct.parent) {
             ct.board = p.board.clone();
         }
+        if self.board_closed(&ct.board) {
+            return Err(self.closed_refusal(&ct.board));
+        }
         let mut bb = None;
         if !ct.reason.is_empty() {
             bb = self.check_blocker(ct.blocked_by.as_ref(), "")?;
@@ -584,6 +587,9 @@ impl Fold {
     pub(crate) fn reopen_locked(&mut self, by: &str, id: &str, note: &str) -> Result<()> {
         let t = self.tasks[id].clone();
         self.reopen_refusal(&t)?;
+        if self.board_closed(&t.board) {
+            return Err(self.closed_refusal(&t.board));
+        }
         if let Some(p) = self.tasks.get(&t.parent).cloned()
             && is_terminal(&p.state)
         {
