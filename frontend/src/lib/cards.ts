@@ -70,6 +70,7 @@ import { EventInboxChanged, useLatest } from "./talk"
 import { NoteItem, sampleAgents, sampleCards, sampleYou } from "./sample-cards"
 import { nameOr, unknownAgent } from "./names"
 import { pending, type Pending } from "./pending"
+import { spawnLine, type SpawnLine, type SpawnState } from "./spawn-line"
 
 export type {
   AgentRef,
@@ -241,9 +242,34 @@ export function openAsk(c: { ask?: CardAsk | null }): boolean {
   return !!c.ask && c.ask.state !== AskState.Closed
 }
 
+// askSpawn is what Irori is doing to get an ask nobody took an agent
+// (card #739), from its card's spawn state: starting one, its place in a
+// queue, or why it can't. null once an agent took it or it closed, or
+// while Irori isn't getting it one. Without it a reopened thread whose
+// agent had gone read "Nobody took this yet" while its new agent started.
+export function askSpawn(
+  a: CardAsk,
+  spawn?: SpawnState | null
+): SpawnLine | null {
+  if (
+    !spawn ||
+    a.state === AskState.Taken ||
+    a.state === AskState.Handed ||
+    a.state === AskState.Closed
+  )
+    return null
+  return spawnLine(spawn)
+}
+
 // askLine is an open ask's line in place of the holder line: how many
-// it told, who it waits on, or who took it.
-export function askLine(a: CardAsk): string {
+// it told, who it waits on, or who took it; while nobody took it and
+// Irori gets it an agent, that (card #739).
+// A reason it can't start is a long sentence: the line says it short, and
+// the card page's queue row (and a tile's title) carries it in full.
+export function askLine(a: CardAsk, spawn?: SpawnState | null): string {
+  const sp = askSpawn(a, spawn)
+  if (sp?.tone === "warn") return "Can't start an agent"
+  if (sp) return sp.text.charAt(0).toUpperCase() + sp.text.slice(1)
   switch (a.state) {
     case AskState.Taken:
       return `${a.taker ? displayName(a.taker) : "An agent"} took it`
@@ -411,6 +437,43 @@ function sampleThreadSeed(now: Date): CardDetail[] {
       [],
       "waiting"
     ),
+    // Card #739: answered by an agent that has gone since, resolved,
+    // reopened, and written on. Nobody live heard the follow-up; Irori
+    // starts a new agent for it, and the thread says so while it starts.
+    {
+      ...sampleThread(
+        "sample-thread-6",
+        "28",
+        "Can we add shortcuts to the app, like Cmd+[ to go back?",
+        ago(600),
+        [
+          CardThreadItem({
+            id: "sample-thread-6-a",
+            kind: "comment",
+            at: ago(540),
+            who: { ...sampleAgents.heron, status: "gone", live: false },
+            text: "Yes: #733 adds Back/Forward, Cmd+1–5 and Cmd+B, and #734 a terminal panel on Ctrl+`.",
+          }),
+          CardThreadItem({
+            id: "sample-thread-6-b",
+            kind: "comment",
+            at: ago(15),
+            who: sampleYou,
+            text: "we're doing equivalent windows shortcuts right?",
+            unheard: true,
+          }),
+        ],
+        "waiting"
+      ),
+      ask: CardAsk({
+        state: "unclaimed",
+        told: 0,
+        owner: "",
+        wake: true,
+        outcomeRef: "",
+      }),
+      starting: "Macbook Pro (this one)",
+    } as CardDetail,
     sampleThread(
       "sample-thread-4",
       "26",
@@ -448,8 +511,13 @@ function sampleThreads(boardId: string | null = ""): ThreadSummary[] {
       short: c.short,
       title: c.title,
       text: c.goal,
+      // A follow-up nobody live heard waits on an agent (card #739).
       state:
-        state === "resolved" ? "resolved" : agents.length ? "answered" : state,
+        state === "resolved"
+          ? "resolved"
+          : agents.length && c.id !== "sample-thread-6"
+            ? "answered"
+            : state,
       told: c.id === "sample-thread-1" ? [sampleAgents.heron] : [],
       answeredBy: agents
         .map((it) => it.who)
@@ -477,7 +545,9 @@ function sampleThreads(boardId: string | null = ""): ThreadSummary[] {
       spaceId: sampleThreadBoard.get(c.id),
       unread,
       starting:
-        c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
+        c.id === "sample-thread-5" || c.id === "sample-thread-6"
+          ? "Macbook Pro (this one)"
+          : undefined,
     })
   })
   const t = (s: ThreadSummary) => Date.parse(s.updatedAt) || 0

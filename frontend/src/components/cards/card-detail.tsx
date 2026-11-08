@@ -455,7 +455,7 @@ export function CardPage({
                 <Card className="gap-0 py-0!">
                   <Section title="Progress">
                     {detail.ask && openAsk(detail) ? (
-                      <AskLine ask={detail.ask} />
+                      <AskLine ask={detail.ask} spawn={detail} />
                     ) : p === null ? (
                       <HolderLine holder={detail.holder} />
                     ) : (
@@ -568,6 +568,7 @@ export function CardPage({
                           cardId={detail.id}
                           items={detail.thread}
                           now={now}
+                          starting={!!detail.starting}
                           earlier={detail.threadEarlier}
                           historyTrimmed={detail.historyTrimmed}
                           on={{
@@ -632,9 +633,14 @@ function WorkingRow({ card }: { card: CardSummary }) {
 // getting it an agent (spawned-agents §10, card #450): starting, its place
 // in a device's queue, held on a usage limit until its reset (with Start
 // an agent), or why one can't start. Nothing otherwise.
+//
+// An open ask's line says that an agent is starting or queued (card
+// #739), so the page doesn't say it twice; why one can't start, and a
+// usage limit's reset with Start an agent, still show here in full.
 function QueueRow({ card }: { card: CardSummary }) {
   const line = spawnLine(card)
   if (!line) return null
+  if (openAsk(card) && line.tone === "quiet" && !card.usageLimit) return null
   const resets = card.usageLimit ? usageResets(card.usageLimit) : ""
   return (
     <p
@@ -670,7 +676,7 @@ function AskStatus({
   if (!detail.ask) return null
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 glass-panel">
-      <AskLine ask={detail.ask} className="min-w-48 flex-1" />
+      <AskLine ask={detail.ask} spawn={detail} className="min-w-48 flex-1" />
       <Input
         value={note}
         onChange={(e) => setNote(e.target.value)}

@@ -85,6 +85,7 @@ pub mod spawn_remote;
 pub mod spawn_stop;
 pub mod spawn_waiting;
 pub mod spawn_why;
+pub mod storage;
 pub mod sync_out;
 pub use mirror::BoardReviewer;
 pub mod invites;

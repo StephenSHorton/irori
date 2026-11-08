@@ -647,3 +647,37 @@ fn close_waits_for_running_reads() {
         }
     }
 }
+
+/// The Storage page's breakdown (card #728): rows and bytes per kind,
+/// device-only rows counted too, largest first.
+#[test]
+fn kind_sizes_counts_rows_and_bytes() {
+    let dir = tempdir();
+    let s = open_test(dir.path(), "dev-a");
+    assert!(s.kind_sizes().unwrap().is_empty());
+    for i in 0..3 {
+        must_append(
+            &s,
+            "agent.seen",
+            &serde_json::json!({"key": format!("a{i}")}),
+        );
+    }
+    must_append(
+        &s,
+        "task.comment",
+        &serde_json::json!({"text": "x".repeat(500)}),
+    );
+    s.append_local(
+        "irori",
+        BOARD_FORGOTTEN,
+        &serde_json::json!({"boardId": "b"}),
+    )
+    .unwrap();
+    let got = s.kind_sizes().unwrap();
+    let of = |k: &str| got.iter().find(|g| g.kind == k).cloned().unwrap();
+    assert_eq!(got[0].kind, "task.comment", "largest first: {got:?}");
+    assert_eq!(of("agent.seen").rows, 3);
+    assert_eq!(of("task.comment").rows, 1);
+    assert!(of("task.comment").bytes > 500);
+    assert_eq!(of(BOARD_FORGOTTEN).rows, 1);
+}

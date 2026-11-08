@@ -73,3 +73,31 @@ describe("merge desks live in the address (card #417)", () => {
     expect(sameSection(s, { kind: "desk", repo: "" })).toBe(false)
   })
 })
+
+describe("Storage lives in the address (card #728)", () => {
+  test("#storage is the overview, #storage/<kind> one kind's page", () => {
+    expect(sectionFromHash("#storage")).toEqual({ kind: "storage", tab: "" })
+    expect(sectionFromHash("#storage/files")).toEqual({
+      kind: "storage",
+      tab: "files",
+    })
+  })
+  test("the hash round-trips", () => {
+    for (const s of [
+      { kind: "storage", tab: "" },
+      { kind: "storage", tab: "builds" },
+    ] as const)
+      expect(sectionFromHash(sectionHash(s))).toEqual(s)
+  })
+  test("another kind is another place, so it adds history", () => {
+    expect(
+      sameSection({ kind: "storage", tab: "" }, { kind: "storage", tab: "" })
+    ).toBe(true)
+    expect(
+      sameSection(
+        { kind: "storage", tab: "" },
+        { kind: "storage", tab: "files" }
+      )
+    ).toBe(false)
+  })
+})

@@ -2066,7 +2066,7 @@ fn newer(a: &GoTime, a_id: &str, b: &GoTime, b_id: &str) -> std::cmp::Ordering {
 }
 
 impl Window {
-    fn now_ms(&self) -> i64 {
+    pub(crate) fn now_ms(&self) -> i64 {
         ms(&GoTime::from_system(std::time::SystemTime::now()))
     }
 

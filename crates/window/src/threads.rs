@@ -20,6 +20,8 @@ use crate::ts;
 
 /// Where a thread stands, for the panel.
 pub const THREAD_WAITING: &str = "waiting";
+/// Irori's own key on a card's thread.
+const IRORI: &str = "irori";
 pub const THREAD_HANDED: &str = "handed";
 pub const THREAD_ANSWERED: &str = "answered";
 pub const THREAD_RESOLVED: &str = "resolved";
@@ -439,27 +441,44 @@ impl Window {
     /// ones newest first, then the newest resolved ones.
     fn thread_rows(&self, found: Vec<Found>, space: &str) -> Vec<ThreadSummary> {
         let p = self.people();
+        // Threads the person cleared from Storage (card #728) leave the
+        // lists while they stay closed, as cleared cards do (#138).
+        let cleared = self.core.coord().archived_ids();
         let me = self.core.user_sender().key;
         let mut open = Vec::new();
         let mut done = Vec::new();
         for (co, t, private) in found {
-            if !is_thread(&t) || t.withdrawn {
+            if !is_thread(&t)
+                || t.withdrawn
+                || (cleared.contains(&t.id) && coord::is_terminal(coord::effective_state(&t)))
+            {
                 continue;
             }
             let raw = co.comments(&t.id).unwrap_or_default();
             // People, not agents: on a board, any member (card #134).
             let mut answered: Vec<String> = Vec::new();
             let mut said: Vec<Said> = Vec::new();
+            // The newest reply by an agent and post by a person (card #739).
+            // Irori's own lines (say why its agent can't start) aren't one.
+            let (mut agent_at, mut person_at) = (i64::MIN, i64::MIN);
             for c in &raw {
-                if c.msg_id.is_empty() {
-                    said.push(Said {
-                        at: c.at.unix_nano(),
-                        id: c.id.clone(),
-                        agent: !co.is_any_person(&c.by),
-                    });
+                if !c.msg_id.is_empty() {
+                    continue;
+                }
+                said.push(Said {
+                    at: c.at.unix_nano(),
+                    id: c.id.clone(),
+                    agent: !co.is_any_person(&c.by),
+                });
+                if co.is_any_person(&c.by) {
+                    person_at = person_at.max(c.at.unix_nano());
+                    continue;
+                }
+                if c.by != IRORI {
+                    agent_at = agent_at.max(c.at.unix_nano());
                 }
                 let k = self.core.private_key(&c.by);
-                if c.msg_id.is_empty() && !co.is_any_person(&c.by) && !answered.contains(&k) {
+                if !answered.contains(&k) {
                     answered.push(k);
                 }
             }
@@ -472,10 +491,23 @@ impl Window {
             let a = t.ask.clone().unwrap_or_default();
             let opener = self.core.private_key(&a.opener);
             let resolved = a.outcome.is_some() || coord::is_terminal(&t.state);
+            // The person's follow-up that no live agent heard (card #739):
+            // it went out again, nobody has it yet, and no agent wrote since.
+            // It waits on an agent as a new thread does, so it reads
+            // Waiting, with the agent Irori starts for it, not Answered by
+            // an agent that is gone. With Agents answer now off nothing
+            // comes for it: it stays Answered, the person's to follow up.
+            let follow_up_waits = !rests
+                && a.wake
+                && a.taker.is_empty()
+                && (a.reason == coord::TAKE_REOPENED || a.reason == coord::TAKE_UNCLAIMED)
+                && (answered.is_empty() || person_at > agent_at);
             let cursor = self.core.talk().cursor(&me, &read_conv(&t.id));
             let unread = !resolved && thread_unread(&said, cursor.as_deref(), !opener.is_empty());
             let state = if resolved {
                 THREAD_RESOLVED
+            } else if follow_up_waits {
+                THREAD_WAITING
             } else if !answered.is_empty() || a.reason == coord::TAKE_ANSWERED || rests {
                 THREAD_ANSWERED
             } else if !a.taker.is_empty() {

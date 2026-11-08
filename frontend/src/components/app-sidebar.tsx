@@ -20,6 +20,7 @@ import {
 } from "react"
 import {
   BellIcon,
+  HardDriveIcon,
   GitMergeIcon,
   HomeIcon,
   InboxIcon,
@@ -432,6 +433,14 @@ export function AppSidebar({
             countTone="info"
             countTitle="Notifications you haven't read"
             onClick={() => go({ kind: "notifications" })}
+          />
+          {/* Storage (card #728): what Irori keeps and its size. */}
+          <NavItem
+            icon={HardDriveIcon}
+            label="Storage"
+            folded={folded}
+            current={!openCard && section?.kind === "storage"}
+            onClick={() => go({ kind: "storage", tab: "" })}
           />
           <NavItem
             icon={InboxIcon}
