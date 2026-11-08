@@ -35,6 +35,7 @@ import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Button } from "@/components/ui/button"
 import { Message, MessageContent } from "@/components/ui/message"
 import { Textarea } from "@/components/ui/textarea"
+import { MicButton } from "@/components/common/mic-button"
 import {
   Tooltip,
   TooltipContent,
@@ -50,7 +51,6 @@ import {
   addNote,
   onGo,
   postDraft,
-  replyOn,
   replyText,
   setAssistantOpen,
   splitReply,
@@ -58,7 +58,6 @@ import {
   stopAsking,
   subscribeAssistant,
   suggestions,
-  type Act,
   type Box,
   type ChatEntry,
   type Posted,
@@ -436,6 +435,13 @@ export function AssistantPanel({
 }) {
   const [text, setText] = useState(draft)
   const input = useRef<HTMLTextAreaElement>(null)
+  // Where dictation left the caret, applied once the new text is in.
+  const pendingCaret = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const at = pendingCaret.current
+    pendingCaret.current = null
+    if (at !== null) input.current?.setSelectionRange(at, at)
+  }, [text])
   const end = useRef<HTMLDivElement>(null)
   useEffect(() => {
     input.current?.focus({ preventScroll: true })
@@ -448,14 +454,6 @@ export function AssistantPanel({
   const posted =
     entries.filter((e) => e.posted).length +
     Object.values(work).reduce((n, w) => n + w.cards.length, 0)
-  // Each posted thread's #ref, for a reply sent on it.
-  const refs = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const e of entries)
-      if (e.posted)
-        m.set(e.posted.id, `${e.posted.tag ?? ""}#${e.posted.short}`)
-    return m
-  }, [entries])
   // Whether the person is at the end. Lines the follower adds (card #785)
   // come at any time: they keep the end in view only while the person is
   // there, never pulling them away from an older line they read or answer.
@@ -570,7 +568,6 @@ export function AssistantPanel({
                 entry={e}
                 onGo={onGo}
                 work={e.posted ? work[e.posted.id] : undefined}
-                threadRef={e.update ? (refs.get(e.update) ?? "") : ""}
                 onPost={() => onPost(i)}
               />
             ))}
@@ -607,6 +604,19 @@ export function AssistantPanel({
             aria-label="Ask the Office Assistant"
             className="max-h-28 min-h-8 flex-1 border-transparent bg-transparent px-2 py-1.5 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
           />
+          {/* Centred on the 32 px send button the row bottom-aligns to. */}
+          <div className="flex h-8 shrink-0 items-center">
+            <MicButton
+              target={input}
+              value={text}
+              onText={(t, at) => {
+                // Same as typing: the module draft and the text both take it.
+                draft = t
+                pendingCaret.current = at
+                setText(t)
+              }}
+            />
+          </div>
           {busy ? (
             <Button
               type="button"
@@ -681,15 +691,12 @@ function Entry({
   entry,
   onGo,
   work,
-  threadRef,
   onPost,
 }: {
   entry: ChatEntry
   onGo: (t: GoTarget, from?: Element) => Promise<string>
   // A posted draft's thread, as last read.
   work?: WorkThread
-  // An update's thread, as the chat cites it.
-  threadRef: string
   onPost: () => Promise<void>
 }) {
   if (entry.role === "person")
@@ -707,7 +714,7 @@ function Entry({
         </Bubble>
       </Message>
     )
-  if (entry.update) return <Update entry={entry} threadRef={threadRef} />
+  if (entry.update) return <Update entry={entry} />
   if (entry.note)
     return (
       <p className="text-[12.5px] text-muted-foreground" data-note="">
@@ -950,7 +957,7 @@ function WorkLine({ work }: { work: WorkThread }) {
 
 // Update is a line the chat says about a thread it posted (card #785):
 // the line, its cards as chips, and what it lets the person do.
-function Update({ entry, threadRef }: { entry: ChatEntry; threadRef: string }) {
+function Update({ entry }: { entry: ChatEntry }) {
   // Sending unmounts the box that had focus: focus stays in the panel, on
   // this line, so Escape still closes it.
   const row = useRef<HTMLDivElement>(null)
@@ -967,30 +974,13 @@ function Update({ entry, threadRef }: { entry: ChatEntry; threadRef: string }) {
     >
       <RichText bold text={replyText(entry.text)} />
       {entry.act && (
-        <ActRow act={entry.act} threadRef={threadRef} settle={settle} />
+        <AnswerAsk
+          card={entry.act.card}
+          blocker={entry.act.blocker}
+          settle={settle}
+        />
       )}
     </div>
-  )
-}
-
-function ActRow({
-  act,
-  threadRef,
-  settle,
-}: {
-  act: Act
-  threadRef: string
-  settle: () => void
-}) {
-  if (act.kind === "answer")
-    return <AnswerAsk card={act.card} blocker={act.blocker} settle={settle} />
-  return (
-    <ReplyOnThread
-      thread={act.thread}
-      threadRef={act.ref || threadRef}
-      to={act.to}
-      settle={settle}
-    />
   )
 }
 
@@ -1086,60 +1076,6 @@ function AnswerAsk({
           onSend={(t) => void send(-1, t)}
         />
       )}
-      {error && (
-        <span className="text-[12px] text-destructive" role="alert">
-          {error}
-        </span>
-      )}
-    </div>
-  )
-}
-
-// ReplyOnThread sends the person's reply on a thread the chat posted:
-// its agents hear it, as from the thread's own box.
-function ReplyOnThread({
-  thread,
-  threadRef,
-  to,
-  settle,
-}: {
-  thread: string
-  threadRef: string
-  to: string
-  settle: () => void
-}) {
-  // Kept with the thread's own reply box's draft.
-  const [text, setText] = useDraft(`${thread}/comment`)
-  const [open, setOpen] = useState(() => text !== "")
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState("")
-  const send = async (t: string) => {
-    if (busy) return
-    setBusy(true)
-    setError("")
-    try {
-      await replyOn(thread, threadRef, t)
-      settle()
-      setText("")
-      setOpen(false)
-    } catch (err) {
-      setError(errorText(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <div className="grid gap-1.5" data-assistant-reply="">
-      <WordsBox
-        open={open}
-        text={text}
-        label={to ? `Reply to ${to}` : "Reply"}
-        busy={busy}
-        onOpen={() => setOpen(true)}
-        onText={setText}
-        onCancel={() => setOpen(false)}
-        onSend={(t) => void send(t)}
-      />
       {error && (
         <span className="text-[12px] text-destructive" role="alert">
           {error}

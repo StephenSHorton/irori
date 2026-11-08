@@ -39,11 +39,12 @@ export type { Act, WorkThread }
 // person tapped Post thread (so it is never posted twice).
 //
 // Card #785: an update is a line the chat says about a thread it posted
-// (its id): an agent took it, a card was made, it needs you, it is done.
-// It goes to the assistant as its own words, so "how's that going?"
-// knows. act is what the line lets the person do: answer the card's
-// question, or reply on the thread. A person's message with to was a
-// reply sent on that thread (its #ref) from the chat, not a question.
+// (its id), only what waits on the person (card #1000): it needs you, it
+// is ready, it wants permission, no agent has started. It goes to the
+// assistant as its own words, so "how's that going?" knows. act is what
+// the line lets the person do: answer the card's question. A person's
+// message with to was a reply sent on a thread (its #ref) from the chat
+// by an older build, not a question.
 export type ChatEntry = {
   role: "person" | "assistant"
   text: string
@@ -201,8 +202,10 @@ export function parseHistory(raw: string | null): ChatEntry[] {
       if (typeof p.tag === "string" && p.tag) e.posted.tag = p.tag
     }
     if (role === "assistant" && typeof update === "string" && update) {
-      e.update = update
       const a = parseAct(act)
+      // Lines an older build said that no longer belong here (card #1000).
+      if (!a && !waitsOnPerson(text)) continue
+      e.update = update
       if (a) e.act = a
     }
     if (role === "person" && typeof to === "string" && to) e.to = to
@@ -219,9 +222,17 @@ function parseAct(v: unknown): Act | undefined {
   const str = (k: string) => (typeof a[k] === "string" ? (a[k] as string) : "")
   if (a.kind === "answer" && str("card") && str("blocker"))
     return { kind: "answer", card: str("card"), blocker: str("blocker") }
-  if (a.kind === "reply" && str("thread"))
-    return { kind: "reply", thread: str("thread"), to: str("to") }
   return undefined
+}
+
+// waitsOnPerson says a saved update line with nothing to tap is one of
+// the two that still belong in the chat: a permission, or no agent yet.
+// Everything else with no answer on it was work-following (card #1000).
+function waitsOnPerson(text: string): boolean {
+  return (
+    /^\S*#\S+ is waiting for your permission: /.test(text) ||
+    text.startsWith("No agent has started on ")
+  )
 }
 
 export function serializeHistory(entries: readonly ChatEntry[]): string {
@@ -300,7 +311,7 @@ function initial(): AssistantState {
   const flag = typeof window === "undefined" ? null : previewFlag("assistant")
   const base = { work: {} }
   // ?assistant=follow: a thread the chat posted, sample #20, followed
-  // from nothing said, so the first read says how its work went (#785).
+  // from nothing said, so the first read says what waits on the person.
   if (flag === "follow")
     return {
       ...base,
@@ -579,7 +590,8 @@ export function splitReply(
 
 // postDraft posts the draft of the chat's message at index as a thread,
 // as the ask box does (lib/cards' threads.start: the room's thread, its
-// #refs telling the agents on those cards). It notes the thread on the
+// #refs telling the agents on those cards), marked as the assistant's so
+// Irori doesn't rename it (card #991). It notes the thread on the
 // message and returns it. Posted already: that thread again; being
 // posted (a second tap after the panel closed and opened): that post.
 const posting = new Map<ChatEntry, Promise<Posted>>()
@@ -595,7 +607,7 @@ export function postDraft(index: number): Promise<Posted> {
   if (!draft || partial)
     return Promise.reject(new Error("That message has no thread to post."))
   const p = threads
-    .start(draft)
+    .start(draft, [], [], "", null, { assistant: true })
     .then((res) => {
       const posted: Posted = { id: res.task.id, short: res.task.short ?? "" }
       if (res.task.tag) posted.tag = res.task.tag
@@ -618,7 +630,7 @@ export function postDraft(index: number): Promise<Posted> {
 // ---- following the work it posted (card #785) -------------------------------------
 
 // The chat follows each thread it posted (lib/assistant-follow.ts) and
-// says in the chat, as updates, when the work moves. What it has said is
+// says in the chat, as updates, what waits on the person. What it has said is
 // kept on this device beside the history.
 const seenKey = "irori.assistant.follow"
 let follower: Follower | null = null
@@ -703,26 +715,6 @@ export function startFollowing(): () => void {
     f.stop()
     if (follower === f) follower = null
   }
-}
-
-// replyOn sends the person's reply on a thread the chat posted, as the
-// thread's own reply box does (its agents hear it), and shows it in the
-// chat. ref is the thread's #ref.
-export async function replyOn(
-  thread: string,
-  ref: string,
-  text: string
-): Promise<void> {
-  const body = text.trim()
-  if (!body) return
-  await cards.comment(thread, body)
-  const s = assistantState()
-  set({
-    entries: capChat([
-      ...s.entries,
-      { role: "person", text: body, to: ref || "the thread" },
-    ]),
-  })
 }
 
 // answerAsk answers a card's open item from the chat, as its card page

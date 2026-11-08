@@ -265,7 +265,7 @@ function BackHome() {
       onClick={() => go(Home)}
     >
       <ArrowLeftIcon aria-hidden />
-      Home
+      Dashboard
     </Button>
   )
 }

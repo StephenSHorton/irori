@@ -2,9 +2,10 @@
 // is a group of people that holds boards and channels. Personal is you and
 // your agents (the private log); each shared space is a BoardSummary (its
 // id is its first board's, docs/design/spaces.md §1) whose boards are
-// `boards`. The pick is this device's view, not data: Home, Talk and
-// Boards then show that space, and All spaces (the default) shows
-// everything, Needs you across all of it.
+// `boards`. The pick is this device's view, not data: Talk and Boards show
+// that space. The Dashboard ignores it and always shows every space (card
+// #1001), so "all spaces" is no pick: the picker lists Personal and the
+// shared spaces, and Personal is the default.
 
 import { useCallback, useEffect, useState } from "react"
 
@@ -12,20 +13,22 @@ import type { BoardSummary, SpaceBoard } from "./boards"
 import type { CardSummary } from "./cards"
 import { previewFlag } from "./preview"
 
-// AllSpaces and Personal are the two picks that aren't a shared space.
+// Personal is the one pick that isn't a shared space. AllSpaces is no pick
+// (card #1001): it is "every space", which the Dashboard and the helpers
+// below take as their scope, and what an old saved pick of "All spaces"
+// reads as before it falls back to Personal.
 export const AllSpaces = ""
 export const Personal = "personal"
 
 export type Space = {
-  // AllSpaces, Personal, or a shared space's id.
+  // Personal, or a shared space's id.
   id: string
   name: string
   // The other people in it, for "with Blake".
   others: string[]
 }
 
-// spacesOf is the switcher's list: All spaces, Personal, then each shared
-// space by name.
+// spacesOf is the switcher's list: Personal, then each shared space by name.
 export function spacesOf(boards: BoardSummary[]): Space[] {
   const shared = [...boards]
     .filter((b) => !b.leaving)
@@ -35,11 +38,7 @@ export function spacesOf(boards: BoardSummary[]): Space[] {
       name: b.name || b.tag || "(unnamed)",
       others: b.members.filter((m) => !m.me).map((m) => m.name),
     }))
-  return [
-    { id: AllSpaces, name: "All spaces", others: [] },
-    { id: Personal, name: "Personal", others: [] },
-    ...shared,
-  ]
+  return [{ id: Personal, name: "Personal", others: [] }, ...shared]
 }
 
 // boardsOf is a space's boards, its default board first (card #558). A
@@ -73,11 +72,13 @@ export function withLine(others: string[]): string {
   return `with ${others[0]} +${others.length - 1}`
 }
 
-// known keeps a pick that still names a space; a space the person left
-// (or a stale id) falls back to All spaces.
+// known keeps a pick that still names a space; a space the person left, a
+// stale id, or the old "All spaces" pick (card #1001) falls back to Personal.
 export function known(id: string, boards: BoardSummary[]): string {
-  if (id === AllSpaces || id === Personal) return id
-  return boards.some((b) => b.boardId === id && !b.leaving) ? id : AllSpaces
+  if (id === Personal) return id
+  return id !== AllSpaces && boards.some((b) => b.boardId === id && !b.leaving)
+    ? id
+    : Personal
 }
 
 // cardsOnPersonal is Personal's cards on one of its boards (card #558). A
@@ -91,7 +92,10 @@ export function cardsOnPersonal(
 
 // cardInSpace is whether a card shows in the picked space: Personal's are
 // the private cards, a shared space's its own cards (on any of its boards).
-export function cardInSpace(c: CardSummary, space: string): boolean {
+export function cardInSpace(
+  c: { board?: string | null },
+  space: string
+): boolean {
   if (space === AllSpaces) return true
   if (space === Personal) return !c.board
   return c.board === space
@@ -123,8 +127,8 @@ export function convInSpace(
   return c.spaceId === space
 }
 
-// boardsInSpace is the Boards page in the picked space: every shared space
-// under All spaces, none under Personal, else that one.
+// boardsInSpace is the spaces whose boards the picked space shows: none under
+// Personal (its boards are the private ones), else that one.
 export function boardsInSpace(
   boards: BoardSummary[],
   space: string
@@ -148,9 +152,10 @@ function readSpace(): string {
   const flag = previewFlag("space")
   if (flag !== null) return flag
   try {
-    return localStorage.getItem(spaceKey) ?? AllSpaces
+    // No saved pick, or an old "All spaces" one: Personal (card #1001).
+    return localStorage.getItem(spaceKey) || Personal
   } catch {
-    return AllSpaces
+    return Personal
   }
 }
 
@@ -167,17 +172,27 @@ export function useSpace(
   }, [])
   const pick = useCallback((id: string) => {
     try {
-      if (id === AllSpaces) localStorage.removeItem(spaceKey)
-      else localStorage.setItem(spaceKey, id)
+      localStorage.setItem(spaceKey, id || Personal)
     } catch {
       // A blocked storage keeps it for this run only.
     }
-    setRaw(id)
+    setRaw(id || Personal)
     window.dispatchEvent(new Event(SpaceEvent))
   }, [])
   // Until the boards load, a shared pick can't be checked: keep it.
   return [
-    boards.length === 0 && raw !== Personal ? raw : known(raw, boards),
+    boards.length === 0 && raw !== AllSpaces ? raw : known(raw, boards),
     pick,
   ]
+}
+
+// waitingSpaces is the picker rows that have something waiting on the person
+// (card #1001): Talk's count covers only the picked space, so what waits in
+// another one shows as a dot on its row. waits says whether a thread, a
+// conversation or a card (each as the pick would list it) is waiting.
+export function waitingSpaces(
+  spaces: { id: string }[],
+  waits: (space: string) => boolean
+): Set<string> {
+  return new Set(spaces.filter((s) => waits(s.id)).map((s) => s.id))
 }

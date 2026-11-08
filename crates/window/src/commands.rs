@@ -16,8 +16,8 @@ use tauri::State;
 
 use crate::Window;
 use crate::agents::{
-    AgentStartsView, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings, NamesThemesView,
-    RunningAgent,
+    AgentStartsView, AgentUsage, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings,
+    NamesThemesView, RunningAgent,
 };
 use crate::assistant::{AssistantEvent, AssistantTurn};
 use crate::attachments::AttachmentInfo;
@@ -774,8 +774,9 @@ pub async fn board_start_thread(
     mentions: Vec<crate::ts::Mention>,
     board_id: String,
     agents_now: Option<bool>,
+    assistant: bool,
 ) -> R<TaskResult> {
-    w.start_thread_with(&text, &mentions, &[], &board_id, agents_now)
+    w.start_thread_with(&text, &mentions, &[], &board_id, agents_now, assistant)
 }
 
 /// A thread with files (card #124), as an ask takes them; your own
@@ -788,9 +789,10 @@ pub async fn board_start_thread_with_files(
     mentions: Vec<crate::ts::Mention>,
     files: Vec<UploadFile>,
     agents_now: Option<bool>,
+    assistant: bool,
 ) -> R<TaskResult> {
     blocking(&w, move |w| {
-        w.start_thread_with(&text, &mentions, &files, "", agents_now)
+        w.start_thread_with(&text, &mentions, &files, "", agents_now, assistant)
     })
     .await
 }
@@ -1980,6 +1982,13 @@ pub async fn agents_running(w: W<'_>) -> R<Vec<RunningAgent>> {
     blocking(&w, move |w| Ok(w.agents_running())).await
 }
 
+/// An agent's model, effort and tokens, for its hover card: what is known.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_usage(w: W<'_>, key: String) -> R<AgentUsage> {
+    blocking(&w, move |w| Ok(w.agent_usage(&key))).await
+}
+
 /// The person ends an agent Irori started: its hand-off, then stop and rm.
 #[tauri::command]
 #[specta::specta]
@@ -2474,6 +2483,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             agents_logs,
             agents_attach,
             agents_running,
+            agents_usage,
             desk_list,
             desk_set,
             meters_history,
