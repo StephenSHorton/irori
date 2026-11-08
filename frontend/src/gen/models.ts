@@ -160,6 +160,7 @@ export type SubtaskPreview = B.SubtaskPreview
 export type SummaryMember = B.SummaryMember
 export type TalkCall = B.TalkCall
 export type TalkConversation = B.TalkConversation
+export type TalkHuddle = B.TalkHuddle
 export type TalkMember = B.TalkMember
 export type TalkMemberRef = B.TalkMemberRef
 export type TalkPerson = B.TalkPerson
@@ -908,6 +909,11 @@ export function TalkCall(p: Partial<B.TalkCall> = {}): B.TalkCall {
 /** TalkConversation with Go's zero values for every field left out. */
 export function TalkConversation(p: Partial<B.TalkConversation> = {}): B.TalkConversation {
   return { "convId": "", "kind": "", "name": "", "unread": 0, "mentions": 0, "members": [], "lastAt": "", "lastText": "", "lastBy": "", "readOnly": false, "agentsNow": false, ...p } as B.TalkConversation
+}
+
+/** TalkHuddle with Go's zero values for every field left out. */
+export function TalkHuddle(p: Partial<B.TalkHuddle> = {}): B.TalkHuddle {
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "title": "", "titleByAssistant": false, "startedAtMs": null, "lastAtMs": 0, "ended": false, "durationMs": 0, "over": false, "people": [], "lines": 0, ...p } as B.TalkHuddle
 }
 
 /** TalkMember with Go's zero values for every field left out. */

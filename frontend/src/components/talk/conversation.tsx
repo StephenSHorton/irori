@@ -92,6 +92,7 @@ import { composing, MentionBoard, type Mention } from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
 import { parseTime, plainLine } from "@/lib/irori"
 import { useMedia } from "@/lib/media"
+import { go } from "@/lib/nav"
 import { previewFlag } from "@/lib/preview"
 import { errorText } from "@/lib/talk"
 import { agentStatus } from "@/lib/agent-status"
@@ -230,6 +231,8 @@ export function ConversationView({
     () => typeof window !== "undefined" && previewFlag("call") === "sheet"
   )
   const onLeave = () => void huddle(leaveHuddle)
+  // A huddle's page (card #1044).
+  const openHuddle = (callId: string) => go({ kind: "huddle", id: callId })
   // The notice before the mic opens (#656): Huddle's start sheet says it
   // (StartSheet), and every Join here asks first; only Start huddle or Join
   // in it opens the mic.
@@ -527,6 +530,7 @@ export function ConversationView({
               onShare={onShare}
               onStopShare={onStopShare}
               onShareNoteSeen={onShareNoteSeen}
+              onOpenHuddle={() => openHuddle(mine.callId)}
             />
           </div>
         ) : narrow && mine ? (
@@ -539,6 +543,7 @@ export function ConversationView({
             onShare={onShare}
             onStopShare={onStopShare}
             onShareNoteSeen={onShareNoteSeen}
+            onOpenHuddle={() => openHuddle(mine.callId)}
           />
         ) : narrow && transcript ? (
           <TranscriptPane
@@ -604,6 +609,7 @@ export function ConversationView({
                           }
                           liveCall={liveHere?.callId}
                           onTranscript={setTranscript}
+                          onOpenHuddle={openHuddle}
                         />
                       </div>
                     )
@@ -633,6 +639,7 @@ export function ConversationView({
           onShare={onShare}
           onStopShare={onStopShare}
           onShareNoteSeen={onShareNoteSeen}
+          onOpenHuddle={() => openHuddle(mine.callId)}
         />
       ) : transcript && !narrow ? (
         <TranscriptPane
@@ -701,6 +708,7 @@ export function PostRow({
   liveCall,
   onJoinCall,
   onTranscript,
+  onOpenHuddle,
 }: {
   post: Post
   who?: Member
@@ -715,6 +723,8 @@ export function PostRow({
   onJoinCall?: (callId: string) => void
   // Opens an ended huddle's transcript (#656).
   onTranscript?: (callId: string) => void
+  // Opens a huddle's page (card #1044).
+  onOpenHuddle?: (callId: string) => void
 }) {
   const [asking, setAsking] = useState(false)
   // Its @names, so the text shows them as mentions.
@@ -744,6 +754,10 @@ export function PostRow({
       <HuddleEnded
         durationMs={post.call.durationMs}
         people={post.call.people}
+        title={post.call.title}
+        onOpen={
+          onOpenHuddle ? () => onOpenHuddle(post.call!.callId) : undefined
+        }
         onTranscript={
           post.call.transcript && onTranscript
             ? () => onTranscript(post.call!.callId)
@@ -753,6 +767,10 @@ export function PostRow({
     ) : (
       <HuddleStarted
         by={name}
+        title={post.call.title}
+        onOpen={
+          onOpenHuddle ? () => onOpenHuddle(post.call!.callId) : undefined
+        }
         onJoin={
           onJoinCall && post.call.callId === liveCall
             ? () => onJoinCall(post.call!.callId)

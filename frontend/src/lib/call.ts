@@ -14,6 +14,7 @@ import { inWails } from "./irori"
 import { nameOr, unknownPerson } from "./names"
 import { previewFlag } from "./preview"
 import type { CallShareView, ShareSourceView } from "./share"
+import { previewTitleOf } from "./huddles"
 import { allowMic, loadVoiceStatus } from "./voice"
 import type {
   CallCaptionView,
@@ -620,25 +621,40 @@ function previewCaptions(n: number, now: number): CallCaptionView[] {
   })
 }
 
-// previewTranscript is the stand-in for an ended huddle's transcript
-// (?call=transcript: #suzuri's earlier huddle).
+// previewTranscript is the stand-in for a huddle's transcript
+// (?call=transcript: #suzuri's earlier huddle). A huddle the stand-in has
+// on (preview-call-…) is live, and gains a line every few seconds, so the
+// huddle page can be seen following its transcript (card #1044).
 function previewTranscript(callId: string): TalkTranscript {
-  const started = Date.now() - 90 * 60_000
+  const live = callId.startsWith("preview-call-")
+  const convId = live
+    ? callId.slice("preview-call-".length)
+    : callId === "sample-call-2"
+      ? "sample-ch-netcode"
+      : "sample-ch-suzuri"
+  const convName = convId.split("-").pop() ?? ""
+  const started = live ? previewLiveStart : Date.now() - 90 * 60_000
+  const said = [
+    ...previewSaid,
+    { name: "Spencer", text: "Sounds good. I'll be at the PC around two." },
+  ]
+  const n = live
+    ? Math.min(said.length, 1 + Math.floor((Date.now() - started) / 6_000))
+    : callId === "sample-call-3"
+      ? 0
+      : said.length
   return {
     callId,
-    convId: "sample-ch-suzuri",
-    convName: "suzuri",
+    convId,
+    convName,
     convKind: "channel",
     startedAtMs: started,
-    ended: true,
-    durationMs: 18 * 60_000,
-    title: "",
+    ended: !live,
+    durationMs: live ? 0 : 18 * 60_000,
+    title: previewTitleOf(callId) ?? "",
     titleByAssistant: false,
-    over: true,
-    lines: [
-      ...previewSaid,
-      { name: "Spencer", text: "Sounds good. I'll be at the PC around two." },
-    ].map((l, i) => ({
+    over: !live,
+    lines: said.slice(0, n).map((l, i) => ({
       name: l.name,
       mine: l.name === "you",
       atMs: started + 20_000 + i * 75_000,
@@ -646,6 +662,8 @@ function previewTranscript(callId: string): TalkTranscript {
     })),
   }
 }
+
+const previewLiveStart = Date.now() - 4_000
 
 function previewSeed(flag: string | null) {
   if (flag === "live" || flag === "share" || flag === "sharing") {

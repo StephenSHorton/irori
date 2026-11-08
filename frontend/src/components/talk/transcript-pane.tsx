@@ -17,6 +17,8 @@ import {
   whoCanRead,
   type TalkTranscript,
 } from "@/lib/call"
+import { Events } from "@/lib/host"
+import { inWails } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import { dayLabel } from "./conversation"
@@ -40,7 +42,8 @@ function Frame({
   children,
 }: {
   wide?: boolean
-  onClose: () => void
+  // Left out, there is no close button: the huddle page's own column.
+  onClose?: () => void
   sub?: string
   children: ReactNode
 }) {
@@ -49,7 +52,7 @@ function Frame({
       aria-label="Huddle transcript"
       className={cn(
         "flex min-h-0 flex-col",
-        wide ? "flex-1" : "w-[340px] shrink-0 border-l border-border"
+        wide ? "min-w-0 flex-1" : "w-[340px] shrink-0 border-l border-border"
       )}
     >
       <div className="flex items-center gap-2 px-3 pt-3">
@@ -62,16 +65,18 @@ function Frame({
             {sub}
           </span>
         )}
-        <Button
-          size="icon-xs"
-          variant="ghost"
-          className="ml-auto shrink-0"
-          title="Close the transcript"
-          aria-label="Close the transcript"
-          onClick={onClose}
-        >
-          <XIcon />
-        </Button>
+        {onClose && (
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            className="ml-auto shrink-0"
+            title="Close the transcript"
+            aria-label="Close the transcript"
+            onClick={onClose}
+          >
+            <XIcon />
+          </Button>
+        )}
       </div>
       {children}
     </aside>
@@ -89,7 +94,7 @@ export function TranscriptView({
   t: TalkTranscript
   now: Date
   wide?: boolean
-  onClose: () => void
+  onClose?: () => void
 }) {
   const [q, setQ] = useState("")
   const shown = findLines(t.lines, q)
@@ -151,18 +156,14 @@ export function TranscriptView({
   )
 }
 
-// TranscriptPane reads huddle `callId`'s transcript and shows it.
-export function TranscriptPane({
-  callId,
-  now,
-  wide,
-  onClose,
-}: {
-  callId: string
-  now: Date
-  wide?: boolean
-  onClose: () => void
-}) {
+// useTranscript reads huddle `callId`'s transcript. With `follow` it reads
+// again whenever Talk changes (a new line is a talk row), which is how the
+// huddle page follows a huddle that is on; the browser preview, which has
+// no rows, asks every few seconds instead.
+export function useTranscript(
+  callId: string,
+  follow = false
+): { t?: TalkTranscript; error?: string } {
   const [got, setGot] = useState<{
     callId: string
     t?: TalkTranscript
@@ -170,29 +171,67 @@ export function TranscriptPane({
   } | null>(null)
   useEffect(() => {
     let live = true
-    loadTranscript(callId)
-      .then((t) => live && setGot({ callId, t }))
-      .catch(
-        (err: unknown) => live && setGot({ callId, error: errorText(err) })
-      )
+    const read = () =>
+      loadTranscript(callId)
+        .then((t) => live && setGot({ callId, t }))
+        .catch(
+          (err: unknown) =>
+            live &&
+            // A failed re-read keeps the lines already shown.
+            setGot((g) =>
+              g?.callId === callId && g.t
+                ? g
+                : { callId, error: errorText(err) }
+            )
+        )
+    void read()
+    if (!follow) {
+      return () => {
+        live = false
+      }
+    }
+    const off = inWails()
+      ? Events.On("talk:changed", () => void read())
+      : () => {}
+    const timer = inWails() ? 0 : window.setInterval(() => void read(), 3_000)
     return () => {
       live = false
+      off()
+      window.clearInterval(timer)
     }
-  }, [callId])
+  }, [callId, follow])
   const here = got?.callId === callId ? got : null
-  if (here?.t)
-    return <TranscriptView t={here.t} now={now} wide={wide} onClose={onClose} />
+  return { t: here?.t, error: here?.error }
+}
+
+// TranscriptPane reads huddle `callId`'s transcript and shows it. `follow`
+// keeps it current while the huddle is on.
+export function TranscriptPane({
+  callId,
+  now,
+  wide,
+  follow,
+  onClose,
+}: {
+  callId: string
+  now: Date
+  wide?: boolean
+  follow?: boolean
+  onClose?: () => void
+}) {
+  const { t, error } = useTranscript(callId, follow)
+  if (t) return <TranscriptView t={t} now={now} wide={wide} onClose={onClose} />
   return (
     <Frame wide={wide} onClose={onClose}>
       <p
-        role={here?.error ? "alert" : undefined}
+        role={error ? "alert" : undefined}
         className={cn(
           "px-3 py-3 text-[12.5px]",
-          here?.error ? "text-destructive" : "text-muted-foreground"
+          error ? "text-destructive" : "text-muted-foreground"
         )}
       >
-        {here?.error
-          ? `Could not read the transcript: ${here.error}`
+        {error
+          ? `Could not read the transcript: ${error}`
           : "Reading the transcript…"}
       </p>
     </Frame>
