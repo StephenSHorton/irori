@@ -3212,7 +3212,7 @@ impl Core {
             )
         } else {
             format!(
-                "{} is back on the Board. Agents is switched off for this board here (Settings › Agents), so it waits for a free agent.",
+                "{} is back on the Board. Agents is switched off on this computer (Settings › Agents), so it waits for a free agent.",
                 t.short_ref()
             )
         })
