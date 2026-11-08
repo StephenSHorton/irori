@@ -313,6 +313,7 @@ impl Fold {
             } else {
                 String::new()
             },
+            assistant: a.thread && a.assistant,
             ..Ask::default()
         });
     }
@@ -959,6 +960,7 @@ impl Fold {
                     } else {
                         String::new()
                     },
+                    assistant: input.thread && input.assistant,
                 }),
                 side,
                 by: by.clone(),
@@ -1124,6 +1126,7 @@ impl Fold {
                     },
                     owner: String::new(),
                     channel: clean_channel(&input.channel),
+                    assistant: false,
                 }),
                 side,
                 by: by.clone(),
