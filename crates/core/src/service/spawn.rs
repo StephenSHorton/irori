@@ -1348,7 +1348,7 @@ fn weight_words(b: &mut String, t: &Task, short: &str) {
             b.push_str(&format!(" If you find it heavier than that, or your advisor keeps sending you back on the same point, push your branch and move it up: board_move task_id={short} direction=up, with why and left_off. Irori ends you and starts a fresh agent one weight higher, from your Left off."));
         }
         if t.run_level() != coord::WEIGHT_LIGHT {
-            b.push_str(&format!(" If it turns out to be busy work, move it down the same way (board_move direction=down)."));
+            b.push_str(" If it turns out to be busy work, move it down the same way (board_move direction=down).");
         }
     }
     b.push(' ');
