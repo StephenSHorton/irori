@@ -136,6 +136,7 @@ unchanged.
 | `/?meters=open` | the top bar's hardware meters (card #599) open: Claude usage left first, 5-hour 62% and Weekly 39% with when each resets; then CPU, Memory, a row per disk, Network and a row per GPU (an RTX 5080 and the CPU's Radeon), each with its last two minutes, Task Manager style. Every page's top bar has the strip (desktop only): CPU and Mem first, "Claude 62% · 39% left" (hover for which is which), GPU, then Net and Disk (the system disk, C:) as the header widens; a board's page needs more room for each |
 | `/?meters=open&usage=none` | Claude usage left before any reading: "No reading yet: appears after a Claude Code reply on this computer"; the strip has no Claude part |
 | `/?meters=open&usage=stale` | a usage reading 40 minutes old: "as of 14:05" beside Claude usage left |
+| `/?meters=open&usage=20` | both usage windows with 20% left (any 0 to 100; card #772): the bars blend from the theme color (50% left and up) toward amber (20%) and red (0), and the strip's Claude reading takes the same color at 25% left and under |
 | `/?meters=open&gpu=none` | a machine with no GPU: no GPU rows, no GPU in the strip |
 | `/?android` at desktop width | no meters strip: the phone never shows it (it's also hidden under 768 px) |
 | `/?empty` | no cards yet |
