@@ -2821,7 +2821,7 @@ impl Core {
     /// window that kept the OS focus gets no new focus event, so this is
     /// what says someone is there; otherwise it changes nothing.
     pub fn away_input(&self) {
-        self.s.away_focus()
+        self.s.away_input()
     }
 
     /// The machine woke: never a return by itself (nobody may be there),

@@ -300,6 +300,15 @@ impl Services {
         }
     }
 
+    /// The person typed or clicked in the window. Only matters when Core
+    /// doesn't think they're at it, which after a wake it may not: the
+    /// tick keeps attention current the rest of the time.
+    pub(crate) fn away_input(&self) {
+        if !lock(&self.awaying.attention).focused {
+            self.away_focus();
+        }
+    }
+
     /// The desktop window lost the person (a blur, a hide, or the machine
     /// about to sleep).
     pub(crate) fn away_blur(&self) {
