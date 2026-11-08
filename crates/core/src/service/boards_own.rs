@@ -1284,6 +1284,8 @@ impl Services {
             &actor,
             coord::NewTask {
                 board: space_board.into(),
+                // A name the person gave stays theirs there (card #779).
+                title_by_person: priv_t.title_by_person && top.title == priv_t.title,
                 ..new_card(&top, &priv_t, "")
             },
         )?;
@@ -1299,10 +1301,12 @@ impl Services {
         let mut made: Vec<(String, Task)> = Vec::new();
         for f in &p.subtasks {
             let from = self.coord.get_task(&f.task_id).unwrap_or_default();
-            match b
-                .coord()
-                .create_task(&actor, new_card(f, &from, &shared.id))
-            {
+            let card = coord::NewTask {
+                // A subtask the person named keeps that too (card #779).
+                title_by_person: from.title_by_person && f.title == from.title,
+                ..new_card(f, &from, &shared.id)
+            };
+            match b.coord().create_task(&actor, card) {
                 Ok(k) => {
                     self.boards
                         .inner
@@ -1477,6 +1481,7 @@ impl Services {
             &user,
             coord::NewTask {
                 title: t.title.clone(),
+                title_by_person: t.title_by_person,
                 objective: t.objective.clone(),
                 done_criteria: t.done_criteria.clone(),
                 repo_key: t.repo_key.clone(),

@@ -610,6 +610,13 @@ pub async fn board_move(w: W<'_>, id: String, board: String) -> R<Typed<coord::T
     w.move_card(&id, &board).map(Typed::new)
 }
 
+/// The person renames a card or thread by hand (card #779).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_rename(w: W<'_>, id: String, title: String) -> R<Typed<coord::Task, ts::Task>> {
+    w.rename_card(&id, &title).map(Typed::new)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn board_pin(w: W<'_>, id: String, pinned: bool) -> R<()> {
@@ -2188,6 +2195,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_close,
             board_delete,
             board_move,
+            board_rename,
             board_pin,
             board_pause,
             board_not_yet,

@@ -122,6 +122,7 @@ unchanged.
 | `/?filter=owner:sample-person-0#board/sample-board-mlg` | MLG on Blake's cards only |
 | `/#card/sample-board-3` | Blake's card that his agent kite works: the owner chip in the header, kite in Who's on it |
 | `/?share=sample-card-10#card/sample-card-10` | Share to board's preview, with a path in the goal taken out |
+| `/?rename=sample-card-10#card/sample-card-10` | the card page's title with its rename field open (card #779); `?rename=<thread>&thread=<thread>` does the same on a thread's page |
 | `/?settings` | Settings (card #132): Notifications; `?settings=devices`, `=people`, `=app` open those sections |
 | `/?update=ready` | the update card (`downloading`, `installing` too) |
 | `/?android&update=available` | the phone's update bar (card #270): Update downloads, checks SHA256SUMS and opens Android's install screen; `update=ready` says Install, `update=error` Try again |

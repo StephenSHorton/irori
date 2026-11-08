@@ -986,6 +986,11 @@ impl Coord {
     pub fn edit_task(&self, by: &str, id: &str, e: TaskEdit) -> Result<Task> {
         self.lock().edit_task(by, id, e)
     }
+    /// The person renames a card or thread by hand (card #779); an agent's
+    /// later rename doesn't land.
+    pub fn rename_task(&self, by: &str, id: &str, title: &str) -> Result<Task> {
+        self.lock().rename_task(by, id, title)
+    }
     /// [`Self::set_steps`] with a notice for each agent newly given a step
     /// (card #86).
     pub fn set_steps_notice(

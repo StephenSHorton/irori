@@ -19,6 +19,7 @@ import {
   useFileAttach,
 } from "@/components/attachments"
 import { ConfirmButton } from "@/components/common/confirm-button"
+import { TitleEdit } from "@/components/common/title-edit"
 import { MentionTextarea } from "@/components/common/mention-textarea"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -421,6 +422,7 @@ export function CardPage({
       onOpen={onOpen}
       small={!!pane}
       thread={!!thread}
+      renamable
       extra={
         <>
           <BoardActions
@@ -1151,6 +1153,7 @@ function PageHeader({
   extra,
   small,
   thread,
+  renamable,
 }: {
   card: CardSummary
   spinning?: boolean
@@ -1160,6 +1163,9 @@ function PageHeader({
   small?: boolean
   // thread: the card is a Talk thread (card #780).
   thread?: boolean
+  // The person may rename it here (card #779): the loaded page, not the
+  // summary shown while it loads.
+  renamable?: boolean
 }) {
   return (
     <header className="grid gap-2">
@@ -1180,14 +1186,30 @@ function PageHeader({
         <PinButton card={card} />
         {extra}
       </div>
-      <h1
-        className={cn(
-          "leading-tight font-semibold tracking-tight text-balance text-ink",
-          small ? "text-lg" : "text-2xl"
-        )}
-      >
-        {plainLine(card.title) || "(untitled)"}
-      </h1>
+      {renamable ? (
+        <TitleEdit
+          title={card.title}
+          save={(t) => cards.rename(card.id, t)}
+          label={thread ? "Thread title" : "Card title"}
+          editing={previewFlag("rename") === card.id}
+          inputClassName="text-base"
+          className={cn(
+            "leading-tight font-semibold tracking-tight text-balance text-ink",
+            small ? "text-lg" : "text-2xl"
+          )}
+        >
+          {plainLine(card.title) || "(untitled)"}
+        </TitleEdit>
+      ) : (
+        <h1
+          className={cn(
+            "leading-tight font-semibold tracking-tight text-balance text-ink",
+            small ? "text-lg" : "text-2xl"
+          )}
+        >
+          {plainLine(card.title) || "(untitled)"}
+        </h1>
+      )}
       {card.parent && (
         <p className="text-sm text-muted-foreground">
           Part of{" "}

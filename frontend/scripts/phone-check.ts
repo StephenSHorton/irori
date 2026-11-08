@@ -67,6 +67,9 @@ const PAGES: Array<[name: string, query: string]> = [
   ["dm", "#talk/sample-dm-heron"],
   // Card #780: a thread opens in its ask card view.
   ["thread", "?thread=sample-thread-1"],
+  // Card #779: the title's rename field, open, on a card and a thread.
+  ["card-rename", "?rename=sample-card-10&open=board:task:sample-card-10"],
+  ["thread-rename", "?rename=sample-thread-1&thread=sample-thread-1"],
   ["new-space", "?boards"],
   ["boards", "#boards"],
   ["board-mlg", "#board/sample-board-mlg"],
