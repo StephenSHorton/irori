@@ -23,9 +23,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use coord::talk::{SegmentRow, is_dm, is_person_key};
 
 use super::Services;
-use super::huddle_rules::{
-    Assistant, Brain, Layer, Line, Look, Person, Room, Settings, Step,
-};
+use super::huddle_rules::{Assistant, Brain, Layer, Line, Look, Person, Room, Settings, Step};
 use super::huddle_session::{HuddleSeed, fence_lines};
 
 /// `logf` with format arguments.
@@ -306,7 +304,9 @@ impl Services {
                     Some(b) => (
                         b.verifier
                             .profile(&pid)
-                            .or_else(|| b.verifier.membership().person(&pid).map(|p| p.name.clone()))
+                            .or_else(|| {
+                                b.verifier.membership().person(&pid).map(|p| p.name.clone())
+                            })
                             .unwrap_or_default(),
                         b.verifier.profile_assistant_name(&pid),
                     ),
@@ -356,7 +356,9 @@ impl Services {
 
     /// Lines buffered for `call`.
     pub(crate) fn huddle_fed(&self, call: &str) -> usize {
-        lock(&self.feed.calls).get(call).map_or(0, |h| h.lines.len())
+        lock(&self.feed.calls)
+            .get(call)
+            .map_or(0, |h| h.lines.len())
     }
 
     /// Forgets `call`'s buffer (the huddle isn't served any more).
@@ -585,7 +587,14 @@ mod tests {
         let none = feed(
             &mut hd,
             now,
-            &heard("ch_general", 0, ME, "I told Juno about the signing", now, true),
+            &heard(
+                "ch_general",
+                0,
+                ME,
+                "I told Juno about the signing",
+                now,
+                true,
+            ),
         );
         assert!(none.is_empty(), "{none:?}");
     }
@@ -601,14 +610,25 @@ mod tests {
         .into_iter()
         .enumerate()
         {
-            let l = feed(&mut hd, now, &heard("ch_general", i as i64, BOB, t, now, true));
+            let l = feed(
+                &mut hd,
+                now,
+                &heard("ch_general", i as i64, BOB, t, now, true),
+            );
             assert!(l.is_empty(), "{t}: {l:?}");
         }
         // The person's own question wakes their own assistant (L2).
         let l = feed(
             &mut hd,
             now,
-            &heard("ch_general", 9, ME, "do we have anyone working on signing", now, true),
+            &heard(
+                "ch_general",
+                9,
+                ME,
+                "do we have anyone working on signing",
+                now,
+                true,
+            ),
         );
         assert_eq!(l.len(), 1);
         assert_eq!(l[0].layer, Layer::Own);
@@ -623,7 +643,14 @@ mod tests {
             let l = feed(
                 &mut hd,
                 now,
-                &heard("ch_general", i as i64, ME, "Juno, who is on signing", old, true),
+                &heard(
+                    "ch_general",
+                    i as i64,
+                    ME,
+                    "Juno, who is on signing",
+                    old,
+                    true,
+                ),
             );
             assert!(l.is_empty(), "{l:?}");
         }
@@ -648,7 +675,14 @@ mod tests {
         let l = feed(
             &mut hd,
             now,
-            &heard("dm:0123456789abcdef", 0, ME, "Juno, who is on signing", now, false),
+            &heard(
+                "dm:0123456789abcdef",
+                0,
+                ME,
+                "Juno, who is on signing",
+                now,
+                false,
+            ),
         );
         assert!(l.is_empty(), "{l:?}");
         assert!(hd.lines.is_empty() && hd.seen.is_empty());
@@ -656,7 +690,14 @@ mod tests {
         let l = feed(
             &mut hd,
             now,
-            &heard("dm:0123456789abcdef", 1, ME, "Juno, who is on signing", now, true),
+            &heard(
+                "dm:0123456789abcdef",
+                1,
+                ME,
+                "Juno, who is on signing",
+                now,
+                true,
+            ),
         );
         assert_eq!(l.len(), 1);
     }
@@ -668,9 +709,20 @@ mod tests {
         feed(
             &mut hd,
             now,
-            &heard("ch_general", 0, BOB, "morning", now - Duration::from_secs(700), true),
+            &heard(
+                "ch_general",
+                0,
+                BOB,
+                "morning",
+                now - Duration::from_secs(700),
+                true,
+            ),
         );
-        feed(&mut hd, now, &heard("ch_general", 1, BOB, "all set", now, true));
+        feed(
+            &mut hd,
+            now,
+            &heard("ch_general", 1, BOB, "all set", now, true),
+        );
         assert_eq!(hd.lines.len(), 1);
         assert_eq!(hd.lines[0].line.text, "all set");
     }
