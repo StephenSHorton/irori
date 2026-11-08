@@ -2611,7 +2611,9 @@ export function createCardStore(
 // inbox change, and focus.
 function cardEvents(again: () => void): () => void {
   const offCards = subscribe(again)
-  const offInbox = inWails() ? Events.OnShown(EventInboxChanged, again) : () => {}
+  const offInbox = inWails()
+    ? Events.OnShown(EventInboxChanged, again)
+    : () => {}
   const onFocus = () => {
     if (inWails()) again()
   }
