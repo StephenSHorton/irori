@@ -564,14 +564,18 @@ impl Services {
             .get(&t.id)
             .cloned()
             .unwrap_or_default();
+        let name_logged = name.clone();
         let ask = SpawnAsk {
             task_id: t.id.clone(),
             device: dev.to_string(),
             repo_key: t.repo_key.clone(),
             permission_mode: perms.mode,
             name,
-            model: setting.model().into(),
-            effort: setting.effort().into(),
+            // By the card's weight (card #963); none is normal.
+            model: setting.pick_for(t).0,
+            effort: setting.pick_for(t).1,
+            weight: t.run_level().to_string(),
+            advisor: super::spawn::advisor_in(std::path::Path::new(&self.presence.claude_dir())),
             note,
             counted: self.start_counts(&self.coord, t),
             ..SpawnAsk::default()
@@ -581,6 +585,8 @@ impl Services {
             .request_spawn(SWEEPER, ask)
             .map_err(|e| e.to_string())?;
         if let Some(g) = out {
+            let on = format!("device {dev}");
+            super::spawn::log_asked(t, t.spawn_request(), g, &name_logged, &on, &(self.now)());
             self.settle_ask(&t.id);
             self.note_tried(&t.id, dev);
             self.spawn
@@ -680,6 +686,12 @@ impl Services {
             // sees the hold on this device's host row and asks elsewhere.
             if let Some(until) = self.usage_held() {
                 let why = super::spawn_limits::usage_reason(&until);
+                logf(format_args!(
+                    "spawn {} gen {}: held by a usage limit until {}",
+                    t.short_ref(),
+                    s.generation,
+                    until.format_rfc3339()
+                ));
                 if let Err(e) =
                     self.coord
                         .end_spawn(SWEEPER, &t.id, s.generation, coord::SPAWN_FAILED, &why)

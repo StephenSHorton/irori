@@ -10,6 +10,12 @@
 // Motion (card #587): a working agent pulses, its holder lines flow, talk
 // lines between agents flow, and a card that changes hands flashes once.
 // None of it runs under Reduce Motion.
+//
+// Layout and lines (card #776, docs/canvas-layout.md): ELK lays the board
+// out in a worker (elk.ts) from the weights in weights.ts, and every line
+// is drawn on the points route.ts gives it: ELK's own while it still fits,
+// else a line routed around the cards, by the sides that suit where the
+// two ends actually are. Hovering a card says why it sits where it does.
 
 import "@xyflow/react/dist/style.css"
 import "./flow.css"
@@ -19,6 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Background,
   BackgroundVariant,
+  BaseEdge,
   Controls,
   Handle,
   MarkerType,
@@ -29,6 +36,7 @@ import {
   useReactFlow,
   useStore,
   type Edge,
+  type EdgeProps,
   type Node,
   type NodeChange,
   type NodeProps,
@@ -40,9 +48,11 @@ import { useReducedMotion } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 
 import {
+  drawn,
   followers,
   groupRects,
   handOffs,
+  withPlaced,
   type AgentNode,
   type BlockerNode,
   type CanvasProps,
@@ -54,6 +64,9 @@ import {
   type Point,
   type Rect,
 } from "../data"
+import { layoutGraph, layoutKey } from "../elk"
+import { appElk, resetElk } from "../elk-worker"
+import { roundedPath, routeAll } from "../route"
 import {
   AgentBody,
   BlockerBody,
@@ -63,12 +76,36 @@ import {
   toneVar,
 } from "../node"
 
-type CardData = { n: CardNode }
+// kept: the person put it here (its spot is kept), not the layout.
+type CardData = { n: CardNode; kept: boolean }
 type BlockerData = { n: BlockerNode }
 type AgentData = { n: AgentNode }
 type GroupData = { n: GroupNode }
 
 const hidden = "!size-1.5 !min-h-0 !min-w-0 !border-0 !bg-transparent"
+
+// Why is a card's "why it's here" (card #776): the top reasons from
+// weights.ts, shown under the card while the pointer is on it (flow.css).
+function Why({ n, kept }: { n: CardNode; kept: boolean }) {
+  const lines = [
+    ...(kept ? ["Kept where you put it"] : []),
+    ...n.why.map((r) => r.text),
+  ].slice(0, 3)
+  if (!lines.length) return null
+  return (
+    <div
+      className="irori-why pointer-events-none absolute top-full left-0 z-50 mt-2 hidden w-full border border-border bg-background px-3 py-2 text-xs text-foreground shadow-lg"
+      role="note"
+    >
+      <p className="mb-1 font-medium text-muted-foreground">Why it's here</p>
+      <ul className="space-y-0.5">
+        {lines.map((l) => (
+          <li key={l}>{l}</li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 function CardNodeView({ data, selected }: NodeProps<Node<CardData>>) {
   return (
@@ -93,6 +130,7 @@ function CardNodeView({ data, selected }: NodeProps<Node<CardData>>) {
       />
       <CardMarkers n={data.n} />
       <CardBody n={data.n} selected={selected} />
+      <Why n={data.n} kept={data.kept} />
       <Handle
         type="source"
         position={Position.Bottom}
@@ -188,7 +226,7 @@ const nodeTypes = {
 
 // toNodes is every card, blocker and agent at its spot (areas are drawn
 // from these on each render, see groupNodes). Done cards are faded.
-function toNodes(graph: Graph, layout: Layout): Node[] {
+function toNodes(graph: Graph, layout: Layout, auto: Layout): Node[] {
   const out: Node[] = []
   for (const n of graph.nodes) {
     if (n.kind === "group") continue
@@ -201,7 +239,13 @@ function toNodes(graph: Graph, layout: Layout): Node[] {
       type: n.kind,
       position: p,
       style: { width: s.w, height: s.h, ...(faded ? { opacity: 0.45 } : {}) },
-      data: { n },
+      data: {
+        n,
+        kept:
+          n.kind === "card" &&
+          !!auto.pos[n.id] &&
+          (auto.pos[n.id].x !== p.x || auto.pos[n.id].y !== p.y),
+      },
       // A blocker follows its card.
       draggable: n.kind !== "blocker",
     })
@@ -255,6 +299,8 @@ const edgeStyle: Record<
   talk: { stroke: "var(--info)", dash: "6 4", opacity: 0.9 },
 }
 
+// Every node has a handle per kind of line, as React Flow wants one at
+// each end; where a line really runs is route.ts's (see RoutedEdge).
 const handlesFor: Record<
   GraphEdge["kind"],
   { sourceHandle: string; targetHandle: string }
@@ -266,11 +312,51 @@ const handlesFor: Record<
   talk: { sourceHandle: "right", targetHandle: "talk-in" },
 }
 
+type LineData = { points?: Point[]; kind?: GraphEdge["kind"] }
+
+// RoutedEdge draws a line on its points (route.ts), its corners rounded;
+// with none yet, straight between its handles.
+function RoutedEdge({
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  data,
+  markerEnd,
+  style,
+  label,
+  labelStyle,
+  labelBgStyle,
+}: EdgeProps<Edge<LineData>>) {
+  const pts = data?.points ?? [
+    { x: sourceX, y: sourceY },
+    { x: targetX, y: targetY },
+  ]
+  const { d, mid } = roundedPath(pts)
+  return (
+    <BaseEdge
+      path={d}
+      markerEnd={markerEnd}
+      style={style}
+      label={label}
+      labelX={mid.x}
+      labelY={mid.y}
+      labelStyle={labelStyle}
+      labelShowBg={!!label}
+      labelBgStyle={labelBgStyle}
+    />
+  )
+}
+
+const edgeTypes = { routed: RoutedEdge }
+
 // toEdges is every line. still: Reduce Motion is on, so nothing flows.
 // A holder line flows while its agent works; a talk line always flows.
-// A holder line inside its agent's hub (the box says it) and a watcher
-// line wait for a hover (see Canvas), so the map isn't a web.
-export function toEdges(graph: Graph, still: boolean): Edge[] {
+// A holder line inside its agent's hub isn't drawn at all, hover or not
+// (card #776): the hub's box already says who holds what, and the line
+// ran through the cards between. A watcher line waits for a hover (see
+// Canvas), so the map isn't a web.
+export function toEdges(graph: Graph, still: boolean): Edge<LineData>[] {
   const working = new Set(
     graph.nodes
       .filter(
@@ -279,7 +365,7 @@ export function toEdges(graph: Graph, still: boolean): Edge[] {
       )
       .map((n) => n.id)
   )
-  return graph.edges.map((e) => {
+  return drawn(graph).map((e) => {
     const s = edgeStyle[e.kind]
     const flows =
       !still &&
@@ -289,14 +375,14 @@ export function toEdges(graph: Graph, still: boolean): Edge[] {
       source: e.source,
       target: e.target,
       ...handlesFor[e.kind],
-      type:
-        e.kind === "subtask" || e.kind === "holder" ? "smoothstep" : "default",
+      type: "routed",
       animated: flows,
-      hidden: e.kind === "watcher" || !!e.inHub,
+      hidden: e.kind === "watcher",
       label: e.label,
       labelStyle: e.label ? { fill: "var(--info)", fontSize: 11 } : undefined,
       labelBgStyle: e.label ? { fill: "var(--card)" } : undefined,
       zIndex: e.kind === "talk" ? 5 : 0,
+      data: { kind: e.kind },
       style: {
         stroke: s.stroke,
         strokeDasharray: s.dash,
@@ -314,6 +400,76 @@ export function toEdges(graph: Graph, still: boolean): Edge[] {
             },
     }
   })
+}
+
+// lineOf is an edge as route.ts takes it.
+function lineOf(e: Edge<LineData>) {
+  const kind = e.data?.kind ?? ""
+  return { id: e.id, kind, source: e.source, target: e.target }
+}
+
+// A busy/idle flip or a weight change waits this long, unchanged, before
+// the cards move: agents go between turns all the time, and the map
+// shouldn't jump with each one.
+const Settle = 30_000
+// A layout that doesn't come back in this long has failed (the worker
+// didn't start, say).
+const LayoutTimeout = 30_000
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = window.setTimeout(
+      () => reject(new Error(`no layout after ${ms} ms`)),
+      ms
+    )
+    p.then(
+      (v) => {
+        window.clearTimeout(t)
+        resolve(v)
+      },
+      (e: unknown) => {
+        window.clearTimeout(t)
+        reject(e)
+      }
+    )
+  })
+}
+
+type Laid = { layout: Layout; steady: string }
+
+// useElkLayout is the board laid out by ELK (card #776), or null until
+// the first layout is in, or "failed" when there never was one. It lays
+// out again only when the layout's own inputs change (layoutKey), keeping
+// the last picture up meanwhile: at once for new cards, areas or lines,
+// after Settle for a change that only reorders.
+function useElkLayout(graph: Graph): Layout | null | "failed" {
+  const key = useMemo(() => layoutKey(graph), [graph])
+  const steady = useMemo(() => layoutKey(graph, true), [graph])
+  const [got, setGot] = useState<Laid | null | "failed">(null)
+  const laidSteady = got && got !== "failed" ? got.steady : null
+  useEffect(() => {
+    let live = true
+    const wait = laidSteady === steady ? Settle : 0
+    const t = window.setTimeout(() => {
+      withTimeout(layoutGraph(graph, appElk()), LayoutTimeout).then(
+        (layout) => {
+          if (live) setGot({ layout, steady })
+        },
+        (err: unknown) => {
+          console.error("canvas: ELK layout failed", err)
+          resetElk()
+          if (live) setGot((g) => g ?? "failed")
+        }
+      )
+    }, wait)
+    return () => {
+      live = false
+      window.clearTimeout(t)
+    }
+    // It lays out on the key alone, with the graph of that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+  return got === null || got === "failed" ? got : got.layout
 }
 
 function holders(graph: Graph): Map<string, string> {
@@ -386,7 +542,27 @@ function KeepCenter() {
   return null
 }
 
-export default function Canvas({
+// Canvas lays the board out (ELK, in a worker) and shows it.
+export default function Canvas(props: CanvasProps) {
+  const auto = useElkLayout(props.graph)
+  const layout = useMemo(
+    () => (auto && auto !== "failed" ? withPlaced(props.graph, auto) : null),
+    [props.graph, auto]
+  )
+  if (auto === "failed")
+    return (
+      <p className="p-4 text-sm text-muted-foreground">
+        The canvas couldn't lay this board out. List shows every card.
+      </p>
+    )
+  if (!auto || !layout)
+    return (
+      <p className="p-4 text-sm text-muted-foreground">Laying out the board…</p>
+    )
+  return <LaidOut {...props} auto={auto} layout={layout} />
+}
+
+function LaidOut({
   graph,
   layout,
   auto,
@@ -394,8 +570,11 @@ export default function Canvas({
   onPlace,
   full,
   onFull,
-}: CanvasProps) {
-  const start = useMemo(() => toNodes(graph, layout), [graph, layout])
+}: CanvasProps & { layout: Layout; auto: Layout }) {
+  const start = useMemo(
+    () => toNodes(graph, layout, auto),
+    [graph, layout, auto]
+  )
   const [nodes, setNodes] = useState<Node[]>(start)
   const [seed, setSeed] = useState(start)
   if (seed !== start) {
@@ -443,21 +622,62 @@ export default function Canvas({
   // strength, and fade the rest a little.
   const [hover, setHover] = useState<string | null>(null)
   const base = useMemo(() => toEdges(graph, still), [graph, still])
-  const edges = useMemo(
+  // Each node's box where it sits now, for the lines to go around.
+  const rects = useMemo(() => {
+    const out: Record<string, Rect> = {}
+    for (const n of nodes) {
+      const s = layout.size[n.id]
+      if (s) out[n.id] = { x: n.position.x, y: n.position.y, w: s.w, h: s.h }
+    }
+    return out
+  }, [nodes, layout.size])
+  // The lines shown now are routed with every move; a hidden one (a
+  // watcher's) only while its hover shows it. While a card is dragged, a
+  // line keeps its last route as long as that still fits, so only the
+  // lines the card breaks are routed again each frame; on the drop every
+  // line takes its best route again.
+  const [dragFrom, setDragFrom] = useState<Record<string, Point[]> | null>(null)
+  const routes = useMemo(
+    () =>
+      routeAll(
+        base.filter((e) => !e.hidden).map(lineOf),
+        rects,
+        layout.routes,
+        dragFrom ?? {}
+      ),
+    [base, rects, layout.routes, dragFrom]
+  )
+  const hoverRoutes = useMemo(
     () =>
       hover === null
-        ? base
-        : base.map((e) => {
-            const lit = e.source === hover || e.target === hover
-            const o = Number(e.style?.opacity ?? 1)
-            return {
-              ...e,
-              hidden: lit ? false : e.hidden,
-              zIndex: lit ? 10 : e.zIndex,
-              style: { ...e.style, opacity: lit ? 1 : o * 0.5 },
-            }
-          }),
-    [base, hover]
+        ? {}
+        : routeAll(
+            base
+              .filter(
+                (e) => e.hidden && (e.source === hover || e.target === hover)
+              )
+              .map(lineOf),
+            rects,
+            layout.routes
+          ),
+    [base, rects, layout.routes, hover]
+  )
+  const edges = useMemo(
+    () =>
+      base.map((e) => {
+        const points = routes[e.id] ?? hoverRoutes[e.id]
+        const routed = { ...e, data: { ...e.data, points } }
+        if (hover === null) return routed
+        const lit = e.source === hover || e.target === hover
+        const o = Number(e.style?.opacity ?? 1)
+        return {
+          ...routed,
+          hidden: lit ? false : e.hidden,
+          zIndex: lit ? 10 : e.zIndex,
+          style: { ...e.style, opacity: lit ? 1 : o * 0.5 },
+        }
+      }),
+    [base, hover, routes, hoverRoutes]
   )
   const shown = useMemo(
     () =>
@@ -496,9 +716,14 @@ export default function Canvas({
         nodes={all}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onNodeMouseEnter={(_, n) => setHover(n.type === "group" ? null : n.id)}
         onNodeMouseLeave={() => setHover(null)}
+        // The lines as the drag starts: each keeps its route while it
+        // still fits (see routes).
+        onNodeDragStart={() => setDragFrom(routes)}
+        onNodeDragStop={() => setDragFrom(null)}
         // An event means the person moved the view (fitView moves it too,
         // without one).
         onMoveStart={(e) => {

@@ -322,6 +322,10 @@ impl Services {
         } else {
             return Ok(false);
         };
+        logf(format_args!(
+            "spawn {} gen {generation}: not started: {why}",
+            t.short_ref()
+        ));
         co.end_spawn(SWEEPER, &t.id, generation, SPAWN_FAILED, &why.to_string())
             .map_err(|e| e.to_string())?;
         Ok(true)
@@ -373,6 +377,7 @@ impl Services {
             Some(
                 Why::NoShow { .. }
                 | Why::NextPass
+                | Why::Weighing
                 | Why::AtCap { .. }
                 | Why::Elsewhere { .. }
                 | Why::NoDevice { .. }
@@ -504,7 +509,9 @@ impl Services {
             return back(e);
         }
         self.asks_kick.kick();
-        logf(format_args!("spawn {r}: {caller} asked for an agent on its thread"));
+        logf(format_args!(
+            "spawn {r}: {caller} asked for an agent on its thread"
+        ));
         let next = match &why {
             Some(
                 w @ (Why::AtCap { .. }

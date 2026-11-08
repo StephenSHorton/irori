@@ -61,12 +61,14 @@ pub use said::{SAID_CHARS, SAID_DAYS, SAID_MAX, SAID_PER_CARD, Said};
 mod short;
 mod side_gate;
 pub use side_gate::ASK_THE_PERSON;
+mod runs;
 mod spawn;
 mod subtasks;
 mod tasks;
 mod types;
 mod util;
 mod waits;
+mod weight;
 
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::{Duration, Instant};
@@ -76,10 +78,10 @@ use gocompat::time::GoTime;
 use store::{Event, Store, kinds};
 
 pub use asks::{
-    ALL_FULL, ASK_FULL_GRACE, ASK_FULL_SETTLE, ASK_FULL_WINDOW, ASK_UNCLAIMED, ASK_WAIT,
-    MAX_FULL_MOVES, MAX_OUTCOME, OUTCOME_ANSWERED, OUTCOME_CARD, OUTCOME_EDIT, OUTCOME_NONE,
-    TAKE_CLAIM, TAKE_GONE, TAKE_HANDED, TAKE_PASSED, TAKE_POSTED, TAKE_RELEASE, TAKE_RELEASED,
-    TAKE_REOPEN, TAKE_REOPENED, TAKE_TAKEN, TAKE_UNCLAIMED, ask_title,
+    ALL_FULL, ASK_FILES_NOTE, ASK_FULL_GRACE, ASK_FULL_SETTLE, ASK_FULL_WINDOW, ASK_UNCLAIMED,
+    ASK_WAIT, MAX_FULL_MOVES, MAX_OUTCOME, OUTCOME_ANSWERED, OUTCOME_CARD, OUTCOME_EDIT,
+    OUTCOME_NONE, TAKE_CLAIM, TAKE_GONE, TAKE_HANDED, TAKE_PASSED, TAKE_POSTED, TAKE_RELEASE,
+    TAKE_RELEASED, TAKE_REOPEN, TAKE_REOPENED, TAKE_TAKEN, TAKE_UNCLAIMED, ask_title,
 };
 pub use board_search::{DEFAULT_DOC_PAGE, SHOW_COMMENT_CUT, SHOW_COMMENTS};
 pub use cards::{SentBack, merge_watch, watch_text};
@@ -88,6 +90,7 @@ pub use desk::{
 };
 pub use error::{Error, ErrorKind, Result};
 pub use fold::blocker_gist;
+pub use fold::card_refs;
 pub use fold::{
     FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_PARKED, LEFT_REMOVED, MADE_KIND,
     REASON_CONFLICT, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN,
@@ -115,6 +118,7 @@ pub use resource::{
 pub use review::{
     NOTICE_REVIEW, REVIEW_REQUESTED, Review, ReviewRequest, VERDICT_APPROVED, VERDICT_CHANGES,
 };
+pub use runs::RunTally;
 pub use short::{parse_ref, parse_short, short_suffix};
 pub use threads::{
     NOT_YOURS_TO_CLOSE as THREAD_NOT_YOURS, READING_LINES, TAKE_ANSWERED, agents_now_default,
@@ -127,6 +131,7 @@ pub use waits::{
     MAX_WAITS, UNTIL_BLOCKED, UNTIL_CHANGED, UNTIL_DONE, UNTIL_UNBLOCKED, WAIT_CARD_GONE,
     WAIT_EXPIRED, WAIT_GONE, WAIT_TTL, until_text, wait_line,
 };
+pub use weight::{MAX_WEIGHT_REASON, check_weight};
 
 use crate::roster::{AgentCard, Agents};
 use fold::Sub;
@@ -241,6 +246,10 @@ pub struct BoardList {
     pub deleted: Vec<(String, RowPos)>,
     /// Every (tag, board) the log has named, deleted boards' too.
     pub tags: Vec<(String, String)>,
+    /// The closed boards (card #690): read-only, so this device puts no
+    /// card on one and reopens none of theirs. Checked only when writing:
+    /// a card another device put on one still folds.
+    pub closed: Vec<String>,
 }
 /// See [`Options::board_view`].
 ///
@@ -692,6 +701,12 @@ impl Coord {
         let f = self.lock();
         f.tasks.get(id).map(|t| f.shown(t))
     }
+    /// The open cards on board `board` (`""` or the first board's id: the
+    /// first), parents before their subtasks (card #690): what closing
+    /// the board keeps, moves or cancels.
+    pub fn open_on_board(&self, board: &str) -> Vec<Task> {
+        self.lock().open_on_board(board)
+    }
     /// Makes `by` the holder; ErrHeld if another live holder has it.
     pub fn claim_task(&self, by: &str, id: &str) -> Result<Task> {
         self.lock().claim_task(by, id)
@@ -976,6 +991,16 @@ impl Coord {
     pub fn edit_task(&self, by: &str, id: &str, e: TaskEdit) -> Result<Task> {
         self.lock().edit_task(by, id, e)
     }
+    /// The person renames a card or thread by hand (card #779); an agent's
+    /// later rename doesn't land.
+    pub fn rename_task(&self, by: &str, id: &str, title: &str) -> Result<Task> {
+        self.lock().rename_task(by, id, title)
+    }
+    /// Irori's assistant names the person's thread (card #782), while its
+    /// title is still `was` and the person hasn't named it.
+    pub fn rename_as_irori(&self, id: &str, title: &str, was: &str) -> Result<Task> {
+        self.lock().rename_as_irori(id, title, was)
+    }
     /// [`Self::set_steps`] with a notice for each agent newly given a step
     /// (card #86).
     pub fn set_steps_notice(
@@ -1096,6 +1121,39 @@ impl Coord {
     /// card and whether anything changed.
     pub fn pause(&self, by: &str, id: &str, paused: bool, note: &str) -> Result<(Task, bool)> {
         self.lock().pause(by, id, paused, note)
+    }
+    /// Weighs a card (card #963): light, normal or heavy, or "" to clear.
+    /// A weight the person set is changed only by a person. Returns the
+    /// card and whether anything changed.
+    pub fn move_weight(
+        &self,
+        by: &str,
+        id: &str,
+        up: bool,
+        reason: &str,
+        left_off: &str,
+    ) -> Result<Task> {
+        self.lock().move_weight(by, id, up, reason, left_off)
+    }
+
+    /// How attempts ended, by weight, model and effort (card #966).
+    pub fn run_tally(&self) -> Vec<RunTally> {
+        self.lock().run_tally()
+    }
+
+    pub fn set_weight(
+        &self,
+        by: &str,
+        id: &str,
+        level: &str,
+        reason: &str,
+    ) -> Result<(Task, bool)> {
+        self.lock().set_weight(by, id, level, reason)
+    }
+    /// Irori's office assistant weighs a card (card #965). See
+    /// [`Fold::weigh_as_irori`].
+    pub fn weigh_as_irori(&self, id: &str, level: &str, reason: &str) -> Result<Task> {
+        self.lock().weigh_as_irori(id, level, reason)
     }
     /// The cards the person paused (card #207).
     pub fn paused_ids(&self) -> std::collections::HashSet<String> {
@@ -1633,8 +1691,8 @@ impl Coord {
         f.tasks.get(id).map(|t| f.stranded(t)).unwrap_or_default()
     }
     /// Card `id`'s stranded waits that only Needs you shows (card #520):
-    /// waits on a gone agent, and outside waits (not a PR's merge) whose
-    /// gone agent raised them, while nobody holds it.
+    /// waits on a gone agent, and outside waits (a PR's too, card #970)
+    /// whose gone agent raised them, while nobody holds it.
     pub fn gone_waits(&self, id: &str) -> Vec<Stranded> {
         let f = self.lock();
         f.tasks.get(id).map(|t| f.gone_waits(t)).unwrap_or_default()
@@ -1673,6 +1731,11 @@ impl Coord {
     pub fn hands_out_here(&self, id: &str) -> bool {
         let f = self.lock();
         f.tasks.get(id).is_some_and(|t| f.spawns_out(t))
+    }
+    /// Whether this device names the person's thread `id` (card #782).
+    pub fn names_here(&self, id: &str) -> bool {
+        let f = self.lock();
+        f.tasks.get(id).is_some_and(|t| f.names_out(t))
     }
     /// Takes to this device the waiting asks whose owner can't serve them,
     /// when work goes here (card #541).
@@ -1724,6 +1787,10 @@ impl Coord {
     /// has been written since ([`Self::spawn_now`]).
     pub fn spawn_asked_now(&self, id: &str) -> bool {
         self.lock().spawn_now.contains(id)
+    }
+    /// Every card [`Self::spawn_asked_now`] holds for (card #717).
+    pub fn spawn_asked(&self) -> std::collections::HashSet<String> {
+        self.lock().spawn_now.iter().cloned().collect()
     }
     /// Ends request `generation` of card `id` (its own part) as failed or
     /// canceled with `reason`.
@@ -2039,19 +2106,10 @@ impl Coord {
         self.lock().pr_states.get(id)?.get(pr).cloned()
     }
 
-    /// The PRs card `id`'s open external waits ask this person to merge,
-    /// not yet known merged or closed (card #509); on a shared board only
-    /// their own agents' waits.
-    pub fn merge_waits(&self, id: &str) -> Vec<String> {
-        let f = self.lock();
-        f.tasks
-            .get(id)
-            .map(|t| f.merge_waits(t))
-            .unwrap_or_default()
-    }
-
-    /// The PRs of [`Coord::merge_waits`] the poller still asks about, a
-    /// closed one too (card #548).
+    /// The PRs card `id`'s open external waits are on that the poller
+    /// still asks about, whoever holds it: not known merged, a closed one
+    /// too (cards #509, #548). On a shared board only this person's own
+    /// agents' waits.
     pub fn polled_waits(&self, id: &str) -> Vec<String> {
         let f = self.lock();
         f.tasks

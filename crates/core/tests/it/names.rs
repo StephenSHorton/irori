@@ -397,9 +397,11 @@ fn test_no_name_comes_back_within_a_week() {
     let given = simulate(30, 20);
     assert_eq!(given.len(), 600);
     assert_eq!(shortest_reuse(&given), None, "a name came back");
-    // A busier device runs past the list; still nothing within 7 days.
-    let given = simulate(30, 60);
-    let (name, gap) = shortest_reuse(&given).expect("1800 names from about 1000 words");
+    // A busier device runs past the list (card #702's themes made it
+    // about 1900 words); still nothing within 7 days.
+    assert!(coord::names::WORDS.len() < 2100);
+    let given = simulate(21, 100);
+    let (name, gap) = shortest_reuse(&given).expect("2100 names from fewer words");
     assert!(
         gap >= 7 * 24 * 3600,
         "{name} came back after {:.1} days",
@@ -433,4 +435,70 @@ fn test_a_running_session_keeps_a_name_the_list_no_longer_gives() {
     n.set_mesh(Vec::new);
     assert_eq!(n.assigned("s1"), "oldword");
     assert_eq!(n.assign("s1"), "oldword", "renamed on restart");
+}
+
+/// Card #702: with themes turned off, new names come from the themes still
+/// on; when every one of their words is live or went by lately, from the
+/// full list, still never a recent one. With every theme on, or every one
+/// off, picks are over the full list as before.
+#[test]
+fn test_namer_takes_names_from_the_themes_on_then_the_full_list() {
+    let words = |id: &str| coord::names::theme(id).unwrap().words;
+    let (presidents, myth) = (words("presidents"), words("myth"));
+    let on = |w: &str| presidents.contains(&w) || myth.contains(&w);
+    let cards: Cards = Arc::default();
+    let (_d, n) = test_namer("pc", &cards);
+    let off: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(
+        coord::names::THEMES
+            .iter()
+            .map(|t| t.id.to_string())
+            .filter(|id| id != "presidents" && id != "myth")
+            .collect(),
+    ));
+    {
+        let off = off.clone();
+        n.set_themes_off(move || off.lock().unwrap().clone());
+    }
+    n.set_now(t0);
+    let mut from = std::collections::HashSet::new();
+    for i in 0..60 {
+        let got = n.assign(&format!("s{i}"));
+        assert!(on(&got), "{got}: from a theme turned off");
+        from.insert(presidents.contains(&got.as_str()));
+    }
+    assert_eq!(from.len(), 2, "both themes on give names");
+
+    // Every word of both went by in the last hour on another device:
+    // nothing is free in the themes on, so the next name is another's.
+    let recent: Vec<(String, String, GoTime)> = presidents
+        .iter()
+        .chain(myth.iter())
+        .map(|w| {
+            (
+                format!("other/{w}"),
+                w.to_string(),
+                minus(t0(), Duration::from_secs(3600)),
+            )
+        })
+        .collect();
+    n.set_seen(move || recent.clone());
+    let got = n.assign("after");
+    assert!(!on(&got), "{got}: every word on is recent");
+    assert!(coord::names::WORDS.contains(&got.as_str()), "{got}");
+
+    // Every theme off reads as every theme on: the full list, as before.
+    let (_d2, all_off) = test_namer("pc", &cards);
+    all_off.set_themes_off(|| coord::names::THEMES.iter().map(|t| t.id.into()).collect());
+    assert_eq!(
+        all_off.assign("s1"),
+        pick("s1", None),
+        "all off: the full list"
+    );
+    let (_d3, unknown) = test_namer("pc", &cards);
+    unknown.set_themes_off(|| vec!["westerns".into()]);
+    assert_eq!(
+        unknown.assign("s1"),
+        pick("s1", None),
+        "an unknown theme off"
+    );
 }

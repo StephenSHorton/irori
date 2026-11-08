@@ -273,10 +273,10 @@ fn a_reopened_pr_is_open_again_and_the_holder_hears() {
     assert!(ns[0].wake);
 }
 
-/// Card #548: a merge wait on a closed PR leaves the person's merges but
-/// is still asked about, and comes back when GitHub reopens it.
+/// Card #548: a wait on a closed PR is still asked about, as GitHub can
+/// reopen it; only a merge is final.
 #[test]
-fn a_closed_merge_wait_is_still_polled_and_comes_back_on_a_reopen() {
+fn a_closed_pr_wait_is_still_polled_until_it_merges() {
     let e = Env::new();
     let t = held_with_pr(&e);
     e.c.block(
@@ -290,12 +290,11 @@ fn a_closed_merge_wait_is_still_polled_and_comes_back_on_a_reopen() {
     )
     .unwrap();
     e.c.record_pr_state(&t.id, check(PR_CLOSED, "")).unwrap();
-    assert!(e.c.merge_waits(&t.id).is_empty());
     assert_eq!(e.c.polled_waits(&t.id), vec![PR.to_string()]);
 
     e.clk.add(secs(60));
     e.c.record_pr_state(&t.id, check(PR_OPEN, "")).unwrap();
-    assert_eq!(e.c.merge_waits(&t.id), vec![PR.to_string()]);
+    assert_eq!(e.c.polled_waits(&t.id), vec![PR.to_string()]);
 
     e.clk.add(secs(60));
     e.c.record_pr_state(&t.id, check(PR_MERGED, "")).unwrap();

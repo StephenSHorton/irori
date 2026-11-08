@@ -558,6 +558,7 @@ export function localRef(
     short: string
     title: string
     spaceId?: string
+    private?: boolean
   }[]
 ): RefHit {
   const c = cards.filter(
@@ -565,10 +566,12 @@ export function localRef(
   )
   if (c.length === 1 && (r.tag !== null || !c[0].tag))
     return { kind: "card", id: c[0].id, title: c[0].title }
-  if (c.length > 0 || r.tag !== null) return null
+  if (r.tag !== null || c.some((x) => !x.tag)) return null
   // A space's thread numbers in its own log, so a bare ref is the backend's
-  // to read across them (card #558).
-  const t = threads.filter((x) => x.short === r.n && !x.spaceId)
+  // to read across them (card #558). A private one is in your own log. Your
+  // own thread has no other ref, so it wins over a tagged card's number
+  // (card #982): the lookup would call that ambiguous and leave it text.
+  const t = threads.filter((x) => x.short === r.n && (!x.spaceId || x.private))
   if (t.length === 1) return { kind: "thread", id: t[0].id, title: t[0].title }
   return null
 }

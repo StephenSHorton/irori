@@ -374,14 +374,23 @@ fn a_thread_goes_to_a_named_agent_and_watch_keeps_the_opener() {
         .filter(|d| d.mode == WAKE)
         .collect();
     assert_eq!(ns.len(), 1, "{ns:?}");
-    has(&ns[0].message.text, &["started a thread", "handed it to you"]);
+    has(
+        &ns[0].message.text,
+        &["started a thread", "handed it to you"],
+    );
     // The person's reply goes to gamma, not to the opener that gave it away.
     let (_, ns) =
         h.b.co
             .person_comment(USER, &t.id, "Yes please.", true, &[], None)
             .unwrap();
-    assert!(ns.iter().any(|n| n.to.contains(&KEY_C.to_string())), "{ns:?}");
-    assert!(!ns.iter().any(|n| n.to.contains(&KEY_A.to_string())), "{ns:?}");
+    assert!(
+        ns.iter().any(|n| n.to.contains(&KEY_C.to_string())),
+        "{ns:?}"
+    );
+    assert!(
+        !ns.iter().any(|n| n.to.contains(&KEY_A.to_string())),
+        "{ns:?}"
+    );
     // With watch the opener hears it too.
     h.okj(
         &a,
@@ -397,7 +406,10 @@ fn a_thread_goes_to_a_named_agent_and_watch_keeps_the_opener() {
             .person_comment(USER, &w.id, "Sure.", true, &[], None)
             .unwrap();
     for k in [KEY_A, KEY_C] {
-        assert!(ns.iter().any(|n| n.to.contains(&k.to_string())), "{k}: {ns:?}");
+        assert!(
+            ns.iter().any(|n| n.to.contains(&k.to_string())),
+            "{k}: {ns:?}"
+        );
     }
     // Nobody by that name, and agent=new without the person's limit to
     // check against: refused, and no thread is opened.
