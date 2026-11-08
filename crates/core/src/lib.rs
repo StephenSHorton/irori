@@ -55,6 +55,7 @@ pub mod meshview;
 pub mod namer;
 pub mod notice;
 pub mod offline;
+pub mod prcard;
 pub mod prefetch;
 pub mod prwatch;
 mod publicrelays;

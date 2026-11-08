@@ -77,6 +77,7 @@ mod mirror;
 pub mod name_themes;
 pub mod notes;
 mod notifications;
+mod prcard;
 pub mod space_move;
 pub mod spaces;
 pub mod spawn;
@@ -4399,6 +4400,7 @@ impl Services {
                 let mut a = DeskAuthor {
                     pr: p.number,
                     agent: author.clone(),
+                    review_note: self.desk_watch.note(repo_key, p.number),
                     ..DeskAuthor::default()
                 };
                 match judge(&PrRef::of(&repo, p), &tasks, &author, &trust) {
@@ -4436,6 +4438,14 @@ impl Services {
         let ledger = self.capture.prs(&repo);
         let (mut tasks, home) = self.desk_cards(false);
         let logins = crate::deskmap::desk_logins(&desk, &self.people_logins());
+        // Other members' logins: a PR of theirs gets its card from their
+        // device, in the space we share (merge desk §12.2, card #1077).
+        let mine = [self.own_github_login(), snap.viewer.clone()];
+        let others: Vec<String> = self
+            .people_logins()
+            .into_iter()
+            .filter(|l| !mine.iter().any(|m| m.eq_ignore_ascii_case(l)))
+            .collect();
         let mut out = Vec::new();
         for p in &snap.prs {
             let pr = PrRef::of(&repo, p);
@@ -4451,6 +4461,17 @@ impl Services {
             let v = judge(&pr, &tasks, &author, &trust);
             let made = match &v {
                 Verdict::Card(m) => Some(m.task_id.clone()),
+                // A member's PR: their device makes its PR card in the space
+                // we share, and a private card made here would be one nobody
+                // else can claim on (merge desk §12.2, card #1077).
+                Verdict::NewCard(_)
+                    if !p.author.is_empty()
+                        && !desk.settings.reviews_off
+                        && crate::prcard::needs_card(p, &[])
+                        && others.iter().any(|l| l.eq_ignore_ascii_case(&p.author)) =>
+                {
+                    None
+                }
                 Verdict::NewCard(m) => {
                     let nt = coord::NewTask {
                         title: new_card_title(&pr),
@@ -4480,7 +4501,11 @@ impl Services {
                 }
                 Verdict::NotOurs => None,
             };
-            if let Some(id) = made {
+            // A PR card already links its PR, and is its author's to write.
+            let own_link = made
+                .as_ref()
+                .is_some_and(|id| tasks.iter().any(|t| &t.id == id && coord::pr_card(t)));
+            if let Some(id) = made.filter(|_| !own_link) {
                 let co = home.get(&id).unwrap_or(&self.coord);
                 match co.add_link("irori", &id, &p.url) {
                     Ok(t) => {
@@ -4839,6 +4864,9 @@ impl Services {
                 if wrote.is_ok() {
                     let v = self.map_desk(repo_key);
                     self.post_desk(repo_key, &v);
+                    // Merge desk §12.2 (card #1077): the PR card in a
+                    // shared space, and what GitHub says on the PR.
+                    self.pr_cards(repo_key, &v);
                     // Card #421: a PR that left the list may have merged.
                     self.settle_gone_prs(repo_key);
                 }
@@ -4874,6 +4902,16 @@ impl Services {
             let Some(p) = snap.prs.iter().find(|p| p.number == *n) else {
                 continue;
             };
+            // A shared PR card (merge desk §12.2) is nobody's to post on from
+            // here: its board takes no Irori comment from another member's
+            // device, and nobody holds it to hear one.
+            if home
+                .get(&m.task_id)
+                .and_then(|c| c.get_task(&m.task_id))
+                .is_some_and(|t| coord::pr_card(&t))
+            {
+                continue;
+            }
             let co = home
                 .get(&m.task_id)
                 .cloned()

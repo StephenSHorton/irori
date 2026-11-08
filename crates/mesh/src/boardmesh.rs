@@ -114,6 +114,14 @@ pub const CALLS_PROTOCOL: i64 = 1;
 /// (#571), which write `call.*` rows only where every device says 2.
 pub const TOLERANT_PROTOCOL: i64 = 2;
 
+/// The PR cards this build reads (merge desk §12.2, card #1077): a board
+/// hello's `reviews`. A PR card's `pr.state` carries optional fields an
+/// older Irori parks in `pr_ahead` and a card it can't tell from a plain
+/// one, so a device makes PR cards for a space only once every member
+/// device has said at least this. Built like [`SPAWNS_PROTOCOL`]: an older
+/// Irori says 0 (absent).
+pub const REVIEWS_PROTOCOL: i64 = 1;
+
 /// The longest a refused writer waits before it's tried again from a peer
 /// (no-server.md §4.3). The first wait is one vector tick, then it doubles.
 const HOLD_MAX: std::time::Duration = std::time::Duration::from_secs(3600);
@@ -174,6 +182,10 @@ pub struct BoardHello {
     /// ([`TOLERANT_PROTOCOL`]); 0 (absent) from an Irori before it.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub tolerant: i64,
+    /// The PR cards the sender reads ([`REVIEWS_PROTOCOL`]); 0 (absent)
+    /// from an Irori before them.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub reviews: i64,
 }
 
 fn is_zero(n: &i64) -> bool {
@@ -344,6 +356,7 @@ pub struct BoardReads {
     pub spaces: i64,
     pub spawns: i64,
     pub tolerant: i64,
+    pub reviews: i64,
 }
 
 impl BoardReads {
@@ -353,6 +366,7 @@ impl BoardReads {
             spaces: SPACES_PROTOCOL,
             spawns: SPAWNS_PROTOCOL,
             tolerant: TOLERANT_PROTOCOL,
+            reviews: REVIEWS_PROTOCOL,
         }
     }
 }
@@ -370,6 +384,7 @@ pub struct SavedHello {
     pub spaces: i64,
     pub spawns: i64,
     pub tolerant: i64,
+    pub reviews: i64,
     /// How many rows `device_id` had written to the board when it said
     /// this (its own entry in the hello's vector). It orders the hello
     /// against that device's `board.server` rows on its own counter, so no
@@ -386,6 +401,7 @@ impl SavedHello {
             spaces: self.spaces,
             spawns: self.spawns,
             tolerant: self.tolerant,
+            reviews: self.reviews,
         }
     }
 
@@ -396,12 +412,14 @@ impl SavedHello {
             self.spaces,
             self.spawns,
             self.tolerant,
+            self.reviews,
         ) == (
             &o.person_id,
             &o.core_version,
             o.spaces,
             o.spawns,
             o.tolerant,
+            o.reviews,
         )
     }
 }
@@ -728,6 +746,8 @@ pub struct PeerHeard {
     pub tolerant: i64,
     /// The `calls` its last hello said (card #654).
     pub calls: i64,
+    /// The `reviews` its last hello said (card #1077).
+    pub reviews: i64,
 }
 
 /// A writer this device has stopped taking rows from: what the device says
@@ -1090,6 +1110,7 @@ impl BoardMesh {
                         spaces: h.spaces,
                         spawns: h.spawns,
                         tolerant: h.tolerant,
+                        reviews: h.reviews,
                     };
                     (d, r)
                 })
@@ -2059,6 +2080,7 @@ impl Shared {
             dms: DMS_PROTOCOL,
             calls: CALLS_PROTOCOL,
             tolerant: TOLERANT_PROTOCOL,
+            reviews: REVIEWS_PROTOCOL,
             vector: self.opts.log.vector().unwrap_or_default(),
             wall_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -2199,6 +2221,7 @@ impl Shared {
             h.dms = said.dms;
             h.calls = said.calls;
             h.tolerant = said.tolerant;
+            h.reviews = said.reviews;
         }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2248,6 +2271,7 @@ impl Shared {
             spaces: h.spaces,
             spawns: h.spawns,
             tolerant: h.tolerant,
+            reviews: h.reviews,
             seq: h.vector.get(&h.device_id).copied().unwrap_or(0),
             at_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -2576,6 +2600,7 @@ mod tests {
             spaces: 1,
             spawns: 1,
             tolerant,
+            ..Default::default()
         };
         let mut w = DeviceWords::default();
         assert_eq!(w.tolerant("d"), None, "no word");
@@ -2790,6 +2815,49 @@ mod tests {
         assert_eq!(ours["v"], 1);
         let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
         assert!(none.get("tolerant").is_none(), "0 isn't sent");
+    }
+
+    /// Card #1077: an older hello parses as `reviews` 0, ours says the
+    /// level, a saved hello and a later row choose by the same rule, and
+    /// 0 isn't sent.
+    #[test]
+    fn hello_says_it_reads_pr_cards() {
+        let old: Wire = serde_json::from_str(
+            r#"{"type":"hello","v":1,"deviceId":"d","personId":"p","boardId":"b","boardEpoch":1,"coreVersion":"0.12.4","schema":1,"vector":{},"wallMs":0,"spaces":1,"spawns":1,"tolerant":2}"#,
+        )
+        .unwrap();
+        let Wire::Hello(h) = old else {
+            panic!("not a hello")
+        };
+        assert_eq!(h.reviews, 0);
+        let ours = serde_json::to_value(Wire::Hello(BoardHello {
+            v: BOARD_PROTOCOL,
+            reviews: REVIEWS_PROTOCOL,
+            ..Default::default()
+        }))
+        .unwrap();
+        assert_eq!(ours["reviews"], REVIEWS_PROTOCOL);
+        assert_eq!(ours["v"], 1);
+        let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
+        assert!(none.get("reviews").is_none(), "0 isn't sent");
+        assert_eq!(BoardReads::ours().reviews, REVIEWS_PROTOCOL);
+
+        let hello = |reviews, seq| SavedHello {
+            device_id: "d".into(),
+            core_version: "0.12.5".into(),
+            spaces: 1,
+            reviews,
+            seq,
+            ..Default::default()
+        };
+        let mut w = DeviceWords::default();
+        w.hellos.insert("d".into(), hello(0, 5));
+        assert_eq!(w.reads("d").map(|r| r.reviews), Some(0));
+        // It updated: the row came through another device, later than its hello.
+        w.rows.insert("d".into(), (BoardReads::ours(), 9));
+        assert_eq!(w.reads("d").map(|r| r.reviews), Some(REVIEWS_PROTOCOL));
+        // A hello that differs only in `reviews` is saved again.
+        assert!(w.needs_saving(&hello(REVIEWS_PROTOCOL, 12)));
     }
 
     fn refused(dev: &str, seq: i64, unread: bool, past_cut: bool) -> RefusedRow {
