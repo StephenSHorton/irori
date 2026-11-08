@@ -7,6 +7,7 @@ mod agent_starts;
 mod agentnames;
 mod ask_spawn;
 mod assistant_names;
+mod assistant_weighs;
 mod attachments;
 mod board_servers;
 mod boards;
