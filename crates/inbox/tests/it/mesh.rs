@@ -663,3 +663,81 @@ fn an_off_side_pick_is_held_here_whoever_sent_it() {
         (st::HELD, hold::OFF_SIDE)
     );
 }
+
+/// Card #787: Wind down off on another device asks the host to close a
+/// wind-down its agent hasn't been reached with; the host does, and
+/// ignores the same ask for a message that is no wind-down.
+#[test]
+fn the_host_closes_a_wind_down_another_device_turned_off() {
+    let h = Harness::with(owners2());
+    h.ros.put(&[card(KEY_B, "beta", "repo1", "")]);
+    let _f = follow(&h);
+    let mut f = Foreign { h: &h, seq: 0 };
+    let sent = h.clk.now().format_rfc3339_nano();
+    for (id, reason) in [("msg_w1", "wind_down"), ("msg_o1", "")] {
+        f.row(
+            "user",
+            kinds::MESSAGE_SENT,
+            json!({
+                "id": id, "from": {"key": "user:dev2", "name": "Stephen", "kind": "user"},
+                "to": {"kind": "agent", "value": KEY_B}, "text": "wind down", "hop": 0,
+                "trust": "user", "reason": reason, "sentAt": sent,
+            }),
+        );
+    }
+    for (did, mid) in [("dlv_w1", "msg_w1"), ("dlv_o1", "msg_o1")] {
+        f.row("user", kinds::DELIVERY_STATE, json!({"deliveryId": did, "messageId": mid, "to": KEY_B, "state": "queued", "by": "user:dev2"}));
+    }
+    eventually("both arrive", || {
+        h.ib.get("dlv_w1").is_some() && h.ib.get("dlv_o1").is_some()
+    });
+    for did in ["dlv_w1", "dlv_o1"] {
+        f.row(
+            "user",
+            kinds::DELIVERY_DECIDED,
+            json!({"deliveryId": did, "choice": "cancel", "by": "user:dev2", "atDevice": "dev2"}),
+        );
+    }
+    eventually("the wind-down closes", || {
+        h.ib.get("dlv_w1")
+            .is_some_and(|d| d.state == st::SKIPPED && d.note == inbox::NOTE_WIND_DOWN_OFF)
+    });
+    std::thread::sleep(Duration::from_millis(50));
+    h.want_state("dlv_o1", st::QUEUED);
+}
+
+/// Card #787: a wind-down another device hosts is closed by asking it.
+#[test]
+fn off_asks_the_host_for_another_devices_wind_down() {
+    let h = Harness::with(owners2());
+    let _f = follow(&h);
+    let mut f = Foreign { h: &h, seq: 0 };
+    let sent = h.clk.now().format_rfc3339_nano();
+    f.row(
+        "user",
+        kinds::MESSAGE_SENT,
+        json!({
+            "id": "msg_w2", "from": {"key": USER, "name": "Stephen", "kind": "user"},
+            "to": {"kind": "agent", "value": KEY_R}, "text": "wind down", "hop": 0,
+            "trust": "user", "reason": "wind_down", "sentAt": sent,
+        }),
+    );
+    f.row("user", kinds::DELIVERY_STATE, json!({"deliveryId": "dlv_w2", "messageId": "msg_w2", "to": KEY_R, "state": "queued", "by": USER}));
+    eventually("it arrives", || h.ib.get("dlv_w2").is_some());
+    assert!(h.ib.cancel_wind_down("dlv_w2", USER).unwrap());
+    let asked =
+        h.st.list(&Filter {
+            kinds: vec![kinds::DELIVERY_DECIDED.into()],
+            ..Default::default()
+        })
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.device_id != "dev2")
+        .any(|e| {
+            let v: Value = serde_json::from_slice(&e.payload).unwrap();
+            v["deliveryId"] == "dlv_w2" && v["choice"] == "cancel"
+        });
+    assert!(asked, "no cancel request for dev2's wind-down");
+    // Only its host closes it.
+    h.want_state("dlv_w2", st::QUEUED);
+}

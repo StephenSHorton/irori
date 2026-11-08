@@ -140,7 +140,7 @@ export function AskBox({
                 e.currentTarget.form?.requestSubmit()
               }
             }}
-            placeholder="Ask about anything…"
+            placeholder="Start a thread…"
             aria-label="Start a thread"
             className="max-h-40 min-h-9 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent"
             // readOnly, not disabled: disabling the focused box would blur it,

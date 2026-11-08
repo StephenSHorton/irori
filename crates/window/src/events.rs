@@ -57,6 +57,9 @@ pub const EVENT_TALK_CHANGED: &str = "talk:changed";
 /// Who is replying in Talk changed (card #645); the payload is the list.
 pub const EVENT_TALK_REPLYING: &str = "talk:replying";
 pub const EVENT_APP_OPEN: &str = "app:open";
+/// How often the window reads Wind down's switch for a change made on
+/// another device (card #787).
+const WIND_DOWN_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 /// From the page: it listens for app:open now (card #395: a phone
 /// notification tapped while Irori was closed opens then).
 pub const EVENT_APP_OPEN_READY: &str = "app:open-ready";
@@ -146,7 +149,14 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
         let feed = w.core.feed(&[Topic::Presence]);
         out.push(spawn("irori-window-roster", move || {
             let q = feed.queue().clone();
+            // Wind down's switch can move on another device (card #787):
+            // read it now and then, telling the window when it moved.
+            let mut wind_down_at = std::time::Instant::now();
             while !stop.is_canceled() {
+                if wind_down_at.elapsed() >= WIND_DOWN_EVERY {
+                    wind_down_at = std::time::Instant::now();
+                    w.wind_down_tick();
+                }
                 match q.recv_timeout(std::time::Duration::from_millis(200)) {
                     Ok(Some(CoreEvent::Presence(ch))) => {
                         let payload = RosterChange {

@@ -3,11 +3,12 @@
 
 use serde::Serialize;
 
+use crate::HEADER_ASSISTANT;
 use crate::attach::{HEADER_ATTACH, HEADER_MEMBER, HEADER_ORIGIN};
 use crate::backend::{Caller as ToolCaller, ToolError};
 use crate::body;
 use crate::http::{self, Resp};
-use crate::server::Handler;
+use crate::server::{AssistantHeader, Handler};
 
 /// Caps `GET /v1/inbox?limit=`.
 pub const MAX_INBOX_LIMIT: usize = 500;
@@ -129,7 +130,9 @@ fn tool_specs(h: &Handler) -> Resp {
     let client = h.r.query.get("client");
     let client = match client.as_str() {
         "" => "claude",
-        "claude" | "grok" => client.as_str(),
+        "claude" | "grok" | tools::CLIENT_ASSISTANT => client.as_str(),
+        // The assistant's client is Irori's own, so the error names only
+        // the public two (as Go's does; api golden).
         _ => return http::error(400, "client must be claude or grok"),
     };
     let specs = h.s.tools().map(|t| t.specs(client)).unwrap_or_default();
@@ -142,9 +145,28 @@ struct ToolResult {
 }
 
 fn tool(h: &Handler, name: &str) -> Resp {
-    let Some(c) = h.caller() else {
-        return forbidden(h);
+    let c = match h.assistant_header() {
+        AssistantHeader::Absent => match h.caller() {
+            Some(c) => c,
+            None => return forbidden(h),
+        },
+        AssistantHeader::Wrong => {
+            return http::error(
+                403,
+                &format!(
+                    "wrong {HEADER_ASSISTANT} secret (only the Irori app holds it; send it alone)"
+                ),
+            );
+        }
+        AssistantHeader::Ok => match h.assistant() {
+            Some(c) => c,
+            None => return forbidden(h),
+        },
     };
+    // Card #783: the window assistant only reads, whatever it asks for.
+    if c.assistant && !tools::ASSISTANT_TOOLS.contains(&name) {
+        return http::error(403, "the assistant only reads");
+    }
     let Some(ts) = h.s.tools() else {
         return http::error(503, "tools are not running");
     };

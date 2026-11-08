@@ -897,25 +897,20 @@ export function sampleCards(now: Date): CardDetail[] {
         url: "https://github.com/sample-org/example-app/pull/212",
       },
     }),
-    // Card #509: an older wait on a PR's merge is the person's merge, a
-    // Needs you row that opens the PR.
+    // Card #970: an agent's wait on a PR stays its agent's: no Needs you
+    // row, and Irori tells the agent when the PR merges.
     card({
       id: "sample-card-merge",
       short: "18",
       title: "Asks and Talk threads get their own agent",
       goal: "Each ask and Talk thread gets its own background agent that goes when the thread closes.",
       state: TaskState.Blocked,
-      working: [],
+      working: [idleHolder],
       waitingOn: 1,
       waitKind: "external",
       waitOn: "https://github.com/sample-org/example-app/pull/41",
-      waitQuestion: "Review and merge PR #41 so it lands on main",
+      waitQuestion: "PR #41 shows open on GitHub after its merge",
       updatedAt: at(2),
-      mergePr: {
-        repo: "sample-org/example-app",
-        number: 41,
-        url: "https://github.com/sample-org/example-app/pull/41",
-      },
     }),
     // A wait on that card waits on its PR, not on the person (card #471).
     card({
@@ -933,7 +928,9 @@ export function sampleCards(now: Date): CardDetail[] {
     card({
       id: "sample-ask-1",
       short: "14",
-      title: "Why does the Mac build take twice as long as the PC's?",
+      // Irori named it (card #782); Undo on its line gives the first
+      // line back.
+      title: "Mac build twice as slow as the PC",
       goal: "Why does the Mac build take twice as long as the PC's?\nIt was about the same last week. Not urgent to fix, but I want to know what changed.",
       state: TaskState.Submitted,
       working: [],
@@ -946,12 +943,57 @@ export function sampleCards(now: Date): CardDetail[] {
           who: sampleYou,
           text: "You asked the room",
         }),
+        CardThreadItem({
+          id: "sample-ask-1-named",
+          kind: "event",
+          at: at(1),
+          who: AgentRef({ key: "irori", name: "Irori", status: "irori" }),
+          text: "Irori renamed it from “Why does the Mac build take twice as long as the PC's?” to “Mac build twice as slow as the PC”",
+          undoTitle: "Why does the Mac build take twice as long as the PC's?",
+        }),
       ],
       ask: CardAsk({
         state: "open",
         told: 3,
         owner: "Macbook Pro (this one)",
         wake: false,
+        taker: null,
+        outcome: null,
+      }),
+    }),
+    // Card #739: nobody took it and Irori starts an agent for it; the
+    // ask line and the comment say so instead of warning.
+    card({
+      id: "sample-ask-3",
+      short: "15",
+      title: "Are we doing equivalent Windows shortcuts?",
+      goal: "Are we doing equivalent Windows shortcuts?",
+      state: TaskState.Submitted,
+      working: [],
+      updatedAt: at(1),
+      starting: "Macbook Pro (this one)",
+      thread: [
+        CardThreadItem({
+          id: "sample-ask-3-post",
+          kind: "event",
+          at: at(1),
+          who: sampleYou,
+          text: "You asked the room",
+        }),
+        CardThreadItem({
+          id: "sample-ask-3-c1",
+          kind: "comment",
+          at: at(1),
+          who: sampleYou,
+          text: "Ctrl in place of Cmd, and Alt+Left/Right for Back/Forward?",
+          unheard: true,
+        }),
+      ],
+      ask: CardAsk({
+        state: "unclaimed",
+        told: 0,
+        owner: "Macbook Pro (this one)",
+        wake: true,
         taker: null,
         outcome: null,
       }),
@@ -999,6 +1041,16 @@ export function sampleCards(now: Date): CardDetail[] {
     card({
       id: "sample-card-1",
       title: "Ship example-app v0.6.0",
+      // Weighed light by the person (card #963): agents can't change it.
+      weight: {
+        level: "light",
+        reason: "",
+        setBy: "person",
+        byName: "you",
+        model: "sonnet",
+        effort: "medium",
+        at: at(40),
+      },
       repoKey: "remote:github.com/sample-org/example-app",
       side: "Work",
       goal: "Tagged release with final notes and an installer on the release page.",
@@ -1738,6 +1790,17 @@ export function sampleCards(now: Date): CardDetail[] {
         at: at(6),
       }),
       title: "Pair my devices",
+      // Weighed heavy by the agent on it (card #963): its label and the
+      // model and effort its agent starts with.
+      weight: {
+        level: "heavy",
+        reason: "planning the pairing protocol",
+        setBy: "agent",
+        byName: "sample-otter",
+        model: "opus",
+        effort: "high",
+        at: at(20),
+      },
       // Pinned (board.md "Pinned cards"): in the Pinned group, first.
       pinned: true,
       pinRank: 1,
@@ -2079,6 +2142,31 @@ export function sampleCards(now: Date): CardDetail[] {
       // Blake made it (card #268).
       owner: "sample-person-0",
     }),
+    // A second open card on Netcode, for Close board's list (card #690).
+    card({
+      id: "sample-board-net-2",
+      short: "2",
+      title: "Roll back a boat when a late input arrives",
+      goal: "A late input rewinds and replays the boat, with no visible snap.",
+      scope: "board",
+      scopeLabel: "MLG · Netcode",
+      board: "sample-board-mlg",
+      tag: "net",
+      spaceBoard: "sample-board-mlg-net",
+      onBoard: CardBoard({
+        id: "sample-board-mlg",
+        name: "MLG",
+        tag: "net",
+        spaceBoard: "sample-board-mlg-net",
+        visibleTo: ["Stephen", "Blake"],
+        canWithdraw: true,
+        canTransfer: true,
+      }),
+      state: TaskState.Submitted,
+      working: [],
+      owner: "sample-me",
+      updatedAt: at(95),
+    }),
     // Blake's agent kite works Blake's card (card #268): the owner chip says
     // Blake.
     card({
@@ -2138,6 +2226,67 @@ export function sampleCards(now: Date): CardDetail[] {
       working: [],
       owner: "sample-person-left",
       updatedAt: at(300),
+    }),
+    // The closed Prototype board's cards (card #690), kept as they were.
+    card({
+      id: "sample-board-proto-1",
+      short: "1",
+      title: "Two boats on one screen",
+      goal: "Two boats race on one screen with two pads.",
+      scope: "board",
+      scopeLabel: "MLG",
+      board: "sample-board-mlg",
+      tag: "proto",
+      spaceBoard: "sample-board-mlg-proto",
+      onBoard: CardBoard({
+        id: "sample-board-mlg",
+        name: "MLG",
+        tag: "proto",
+        spaceBoard: "sample-board-mlg-proto",
+        visibleTo: ["Stephen", "Blake"],
+        canWithdraw: false,
+        canTransfer: true,
+      }),
+      state: TaskState.Completed,
+      working: [],
+      owner: "sample-me",
+      updatedAt: at(12960),
+    }),
+    card({
+      id: "sample-board-proto-2",
+      short: "2",
+      title: "Playtest the prototype with five people",
+      goal: "Notes on what was fun and what wasn't.",
+      scope: "board",
+      scopeLabel: "MLG",
+      board: "sample-board-mlg",
+      tag: "proto",
+      spaceBoard: "sample-board-mlg-proto",
+      onBoard: CardBoard({
+        id: "sample-board-mlg",
+        name: "MLG",
+        tag: "proto",
+        spaceBoard: "sample-board-mlg-proto",
+        visibleTo: ["Stephen", "Blake"],
+        canWithdraw: false,
+        canTransfer: true,
+      }),
+      state: TaskState.Completed,
+      working: [],
+      owner: "sample-person-0",
+      updatedAt: at(7200),
+    }),
+    // Personal's closed board (card #690).
+    card({
+      id: "sample-card-tax-1",
+      short: "1",
+      title: "File the 2025 return",
+      goal: "Filed, with the receipts attached.",
+      tag: "tax",
+      spaceBoard: "sample-personal-tax",
+      state: TaskState.Completed,
+      working: [],
+      updatedAt: at(60 * 24 * 13),
     }),
     // An agent Irori couldn't start: its repo isn't trusted for agents on
     // this computer (card #449), so Needs you shows Trust and start.

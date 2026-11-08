@@ -95,6 +95,31 @@ pub const MAX_RESULT: usize = 8 << 10;
 pub const CLIENT_CLAUDE: &str = "claude";
 /// The client kind of `irori mcp` (`irori_<name>`).
 pub const CLIENT_GROK: &str = "grok";
+/// The window's assistant (card #783): `irori mcp` run by a headless
+/// `claude -p` for the corner chat, reading as the person. It lists and
+/// may call only [`ASSISTANT_TOOLS`].
+pub const CLIENT_ASSISTANT: &str = "assistant";
+
+/// The tools the window's assistant may call (card #783), all read-only:
+/// the API refuses any other for its caller, and `GET
+/// /v1/tools?client=assistant` lists exactly these. None of them marks
+/// anything delivered or read (inbox and talk_* are left out for that).
+pub const ASSISTANT_TOOLS: [&str; 14] = [
+    "search",
+    "show",
+    "board",
+    "overview",
+    "agents",
+    "agents_started",
+    "commits",
+    "prs",
+    "notes_search",
+    "timeline",
+    "why",
+    "leases",
+    "waits",
+    "events",
+];
 
 /// Who is calling, established by the transport (attach secret or member
 /// secret), never by the arguments.
@@ -275,6 +300,11 @@ pub trait Backend: Send + Sync {
     fn spawn_wait(&self, _task_id: &str, _asked: bool) -> String {
         String::new()
     }
+    /// Asks GitHub now about each PR card `task_id` (in `co`) links that is
+    /// last heard open, and records a merge or a closing (card #970):
+    /// agent `caller` is setting it completed, likely just after its own
+    /// `gh pr merge`, which the poll may not have heard yet. Default: none.
+    fn recheck_prs(&self, _co: &Arc<coord::Coord>, _caller: &str, _task_id: &str) {}
     /// Asks for an agent on card `task_id` for agent `caller` (card #575):
     /// what happens next, or why not.
     fn agent_start(&self, _caller: &str, _task_id: &str) -> Result<String, String> {
@@ -385,7 +415,7 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 59] = [
+    let list: [(&'static str, Handler); 60] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -410,6 +440,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("board_unblock", board::board_unblock),
         ("board_join", board::board_join),
         ("board_leave", board::board_leave),
+        ("board_move", board::board_move),
         ("board_assign", board::board_assign),
         ("board_status", board::board_status),
         ("board_link", board::board_link),
@@ -496,8 +527,17 @@ impl Set {
     }
 
     /// The tools for a client kind (`"claude"` or `"grok"`); `""` lists
-    /// every tool.
+    /// every tool, and [`CLIENT_ASSISTANT`] lists [`ASSISTANT_TOOLS`].
     pub fn specs(&self, client: &str) -> Vec<Spec> {
+        if client == CLIENT_ASSISTANT {
+            return self
+                .inner
+                .specs
+                .iter()
+                .filter(|sp| ASSISTANT_TOOLS.contains(&sp.name.as_str()))
+                .cloned()
+                .collect();
+        }
         self.inner
             .specs
             .iter()
