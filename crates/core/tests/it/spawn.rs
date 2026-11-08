@@ -952,10 +952,12 @@ fn starting_an_agent_on_a_held_card_brings_it_back_first() {
     let e = r.core.start_agent(&t.id, "").unwrap_err();
     assert!(e.contains("switched off"), "{e}");
     assert_eq!(co.get_task(&t.id).unwrap().state, coord::BLOCKED);
-    r.core.set_spawn_setting(SpawnSetting {
+    r.core
+        .set_spawn_setting(SpawnSetting {
             on: true,
             ..SpawnSetting::default()
-        }).unwrap();
+        })
+        .unwrap();
     r.core.start_agent(&t.id, "").unwrap();
     let got = co.get_task(&t.id).unwrap();
     assert!(got.parked().is_none(), "{:?}", got.blockers);
