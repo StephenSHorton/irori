@@ -505,6 +505,18 @@ impl Window {
             .map_err(|e| e.to_string())
     }
 
+    /// BoardService.SetWeight (card #963): the person weighs a card light,
+    /// normal or heavy, with an optional line on why, or clears it with
+    /// `""`. It goes in the card's own log as the person there, so it is
+    /// theirs: agents and the assistant don't change it after.
+    pub fn set_weight(&self, id: &str, level: &str, reason: &str) -> Result<Task, String> {
+        let id = trim(id);
+        let (co, keys) = self.on(id, &[])?;
+        co.set_weight(&keys[0], id, level, reason)
+            .map(|(t, _)| t)
+            .map_err(|e| e.to_string())
+    }
+
     /// Where the person dropped a card on the Board's canvas (card #93). A
     /// shared card's spot goes in its board's log: one layout for the board.
     pub fn place(&self, id: &str, x: i64, y: i64) -> Result<(), String> {

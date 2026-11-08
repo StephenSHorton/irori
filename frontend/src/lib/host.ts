@@ -171,11 +171,12 @@ export const InboxService = {
   SetPaused: (paused: boolean) => done(commands.inboxSetPaused(paused)),
 }
 
-// Wind down all (card #220): every agent saves its place, hands back its
-// cards and stops; Pause all turns on after, if asked.
+// Wind down (cards #220, #787): a switch. All turns it on: agent starts
+// held on every device, and every agent saves its place, hands back its
+// cards and stops. Off turns it off at any time, mid-run too.
 export const WindDownService = {
-  All: (scope: string, pauseAfter: boolean) =>
-    call(commands.windDownAll(scope, pauseAfter)),
+  All: () => call(commands.windDownAll()),
+  Off: () => call(commands.windDownOff()),
   Status: () => call(commands.windDownStatus()),
   Stop: (key: string) => done(commands.windDownStop(key)),
 }
@@ -267,6 +268,9 @@ export const BoardService = {
   // Undo on Irori's name for the person's thread (card #782).
   UndoTitle: (id: string) => call(commands.boardUndoTitle(id)),
   Pin: (id: string, pinned: boolean) => done(commands.boardPin(id, pinned)),
+  // A card's weight (card #963): light, normal or heavy, or "" to clear.
+  SetWeight: (id: string, level: string, reason: string) =>
+    call(commands.boardSetWeight(id, level, reason)),
   // Pause / Resume (card #207): who was told.
   Pause: (id: string, paused: boolean, note: string) =>
     call(commands.boardPause(id, paused, note)),

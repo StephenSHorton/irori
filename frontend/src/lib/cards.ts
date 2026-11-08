@@ -49,6 +49,7 @@ import {
   type GoneWait,
   type CardSubtask,
   type CardWait,
+  type CardWeight,
   LinkKind,
   TaskState,
   type Link,
@@ -74,6 +75,7 @@ import {
   sampleHolder,
   sampleYou,
 } from "./sample-cards"
+import { sampleAgents as sampleAgentSettings } from "./agents"
 import { nameOr, unknownAgent } from "./names"
 import { pending, type Pending } from "./pending"
 import { spawnLine, type SpawnLine, type SpawnState } from "./spawn-line"
@@ -100,6 +102,7 @@ export type {
   CardLater,
   CardThreadItem,
   CardWait,
+  CardWeight,
   CommentResult,
   Link,
   Mention,
@@ -1105,6 +1108,7 @@ function summary(c: CardDetail): CardSummary {
     owner: c.owner,
     later: c.later,
     order: c.order,
+    weight: c.weight,
     // As crates/window's search_text (card #171), less the creator.
     searchText: [c.goal, c.doneWhen, ...c.steps.map((s) => s.text)]
       .map((w) => w.trim())
@@ -1317,6 +1321,42 @@ function samplePin(id: string, pinned: boolean) {
   )
   c.pinned = pinned
   c.pinRank = pinned ? top + 1 : 0
+  sampleChanged()
+}
+
+// sampleSetWeight is BoardService.SetWeight on the sample (card #963): the
+// person's weight, mapped as the preview's Settings › Agents maps it; ""
+// clears it.
+function sampleSetWeight(id: string, level: string, reason: string) {
+  const c = sampleCard(id)
+  const why = reason.trim()
+  if (why.length > 200)
+    throw new Error("coord: invalid input: a weight's reason is 200 at most")
+  if (!level) {
+    c.weight = null
+    sampleChanged()
+    return
+  }
+  const a = sampleAgentSettings()
+  const [model, effort] =
+    level === "light"
+      ? [a.lightModel, a.lightEffort]
+      : level === "heavy"
+        ? [a.heavyModel, a.heavyEffort]
+        : level === "normal"
+          ? [a.model, a.effort]
+          : ["", ""]
+  if (!model)
+    throw new Error(`coord: invalid input: weight "${level}" isn't one`)
+  c.weight = {
+    level,
+    reason: why,
+    setBy: "person",
+    byName: "you",
+    model,
+    effort,
+    at: new Date().toISOString(),
+  } satisfies CardWeight
   sampleChanged()
 }
 
@@ -2229,6 +2269,18 @@ export const cards = {
       return
     }
     samplePin(id, pinned)
+  },
+
+  // setWeight weighs card id for the person (card #963): "light", "normal"
+  // or "heavy", with an optional line on why. Theirs: agents and the
+  // assistant can't change it after. "" clears it, handing it back to the
+  // agents; until one weighs it again it runs as normal.
+  async setWeight(id: string, level: string, reason = ""): Promise<void> {
+    if (inWails()) {
+      await BoardService.SetWeight(id, level, reason)
+      return
+    }
+    sampleSetWeight(id, level, reason)
   },
 
   // pause pauses card id or resumes it (card #207): its holders are

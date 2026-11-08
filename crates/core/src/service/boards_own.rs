@@ -1550,6 +1550,10 @@ impl Services {
                 on.reference = k(&on.reference);
             }
         }
+        // Who weighed it (card #963), so the card names them.
+        if let Some(w) = t.weight.as_mut() {
+            w.by = k(&w.by);
+        }
         t
     }
 

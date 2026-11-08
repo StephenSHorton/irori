@@ -2960,6 +2960,41 @@ impl Core {
         self.s.pause_by_name(by)
     }
 
+    /// Whether device `dev` starts no agents now: its own pause, or Stop
+    /// everywhere's (card #787).
+    pub fn agents_paused_on(&self, dev: &str) -> bool {
+        self.s.agents_paused_on(dev)
+    }
+
+    /// Every device's Pause agents, by device id (card #787), and Stop
+    /// everywhere's own under [`spawn_pause::EVERYWHERE`].
+    pub fn agents_pauses(&self) -> std::collections::HashMap<String, spawn_pause::AgentsPause> {
+        self.s.agents_pauses()
+    }
+
+    /// Wind down on (card #787): Pause agents on each of `devs` (any of the
+    /// person's devices), marked as Wind down's. Devices already paused are
+    /// left as they are. Says which it paused. App only.
+    pub fn wind_down_pause(&self, devs: &[String]) -> Result<Vec<String>, String> {
+        self.s.wind_down_pause(devs)
+    }
+
+    /// Wind down off (card #787): lifts the pauses Wind down set, on every
+    /// device, and no other. Says which. App only.
+    pub fn wind_down_lift(&self) -> Result<Vec<String>, String> {
+        self.s.wind_down_lift()
+    }
+
+    /// The devices that can run agents: every device that said so (its
+    /// `spawn.host`), and this one (card #787).
+    pub fn agent_devices(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.s.hosts().into_keys().collect();
+        v.push(self.s.device.id.clone());
+        v.sort();
+        v.dedup();
+        v
+    }
+
     /// The person turns Pause agents on or off for this device, from the
     /// app (their agents use the `agents_pause` tool).
     pub fn set_agents_paused(&self, on: bool) -> Result<spawn_pause::AgentsPause, String> {

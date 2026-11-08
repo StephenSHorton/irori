@@ -794,8 +794,8 @@ fn wire_opener(app: &AppHandle, n: &notify::Notifier) {
     });
 }
 
-/// The roster line, the pause checkbox (Go `roster.trayStatus`,
-/// `tray.SetPause(.., inboxSvc.SetPaused)`), and the inbox and decide
+/// The roster line (Go `roster.trayStatus`), Stop everywhere (card #787;
+/// the old pause checkbox is gone), and the inbox and decide
 /// counts from the window's pumps (Go `inboxSvc.onCounts(tray.SetInbox)`,
 /// `board.pump(ctx, app, tray.SetDecide)`), so the tray reads each pump's
 /// own scan, never a snapshot the pump hasn't refreshed yet.
@@ -805,6 +805,12 @@ fn wire_tray(tray: &Arc<Tray>, core: &Arc<irori_core::Core>, window: &Arc<Window
         window.on_inbox_counts(Arc::new(move |c| t.set_inbox(tray_counts(c))));
         let t = tray.clone();
         window.on_decide_count(Arc::new(move |n| t.set_decide(n)));
+        // Stop everywhere's switch (card #787; Wind down in the code): the
+        // tray's line follows it, and while on, a click starts everywhere.
+        let t = tray.clone();
+        window.on_wind_down(Arc::new(move |on| t.set_wind_down(on)));
+        let w = window.clone();
+        tray.set_wind_down_off(Arc::new(move || w.wind_down_off().map(|_| ())));
     }
     {
         let tray = tray.clone();
@@ -821,13 +827,6 @@ fn wire_tray(tray: &Arc<Tray>, core: &Arc<irori_core::Core>, window: &Arc<Window
             }
         });
     }
-    // InboxService.SetPaused: drops the window's snapshot and nudges its
-    // pump, so the window's banner and the tray both follow.
-    let w = window.clone();
-    tray.set_pause(
-        &core.device().name,
-        Arc::new(move |paused| w.inbox_set_paused(paused)),
-    );
 }
 
 /// The tray's shape of the window's inbox counts.
@@ -835,7 +834,6 @@ fn tray_counts(c: irori_window::inbox::InboxCounts) -> tray_text::Counts {
     tray_text::Counts {
         unread: c.unread.max(0) as usize,
         held: c.held.max(0) as usize,
-        paused: c.paused,
     }
 }
 

@@ -52,6 +52,11 @@
 //   ?assistant-ask=<q>  opens Ask Irori on a new chat and asks q (the real
 //                   assistant in a window check); &assistant-post then posts
 //                   its drafted thread (lib/assistant.ts autoAsk)
+//   ?winddown       a finished Stop everywhere, still on; =running mid-run,
+//                   =off started again mid-run, =on on from another
+//                   machine, =device this machine's Stop here mid-run
+//                   (lib/wind-down.ts, cards #773, #787)
+//   ?agentspause=on Stop here on (lib/agents.ts, card #665)
 
 import { inWails } from "./irori"
 
