@@ -13,6 +13,19 @@ use crate::{Caller, Inner, decode, err_text, untrusted};
 const DEFAULT_EVENT_LIMIT: i64 = 20;
 const MAX_EVENT_LIMIT: i64 = 100;
 
+/// The assistant's `screen` tool (card #1009): the window's own words on
+/// what it shows, as the last ask sent them. Read-only, no pixels.
+pub(crate) fn screen(s: &Inner, _c: &Caller, raw: &[u8]) -> String {
+    if let Err(e) = decode(raw, &[]) {
+        return e;
+    }
+    let t = s.b.assistant_screen();
+    if t.trim().is_empty() {
+        return "The window has not said what is on screen.".into();
+    }
+    t
+}
+
 const AGENTS_ARGS: &[(&str, Ty)] = &[("status", Ty::Str), ("cwd", Ty::Str)];
 
 pub(crate) fn agents(s: &Inner, c: &Caller, raw: &[u8]) -> String {

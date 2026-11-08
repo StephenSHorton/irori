@@ -694,3 +694,96 @@ fn a_removed_members_waiting_rows_are_held() {
         "held twice"
     );
 }
+
+// Card #1075 (merge-desk §12.12 B8): the sticky "saw another person's
+// text" flag.
+
+#[test]
+fn a_session_that_never_read_others_text_is_clean() {
+    let h = harness();
+    assert!(!h.ib.saw_others(KEY_A));
+    // Its own person's words and a send from a clean session flag nobody.
+    h.send(&person(), &to(KEY_A), "please look at the loader");
+    h.deliver_engage(KEY_A, "turn-1");
+    let (m, _) = h.send(&claude(KEY_A, "alpha"), &to(KEY_B), "fyi");
+    assert!(!m.others);
+    h.deliver_engage(KEY_B, "turn-2");
+    assert!(!h.ib.saw_others(KEY_A));
+    assert!(!h.ib.saw_others(KEY_B));
+}
+
+#[test]
+fn a_board_row_that_reached_the_agent_sets_the_flag() {
+    let h = harness();
+    // Queued or held is not read yet: a row nobody delivered flags nobody.
+    let mut held = row(
+        from(BLAKE, CARD, row_kind::COMMENT, true, "devB/1"),
+        &[KEY_A],
+    );
+    held.hop = 1;
+    let d = one(&h, &held);
+    if d.state == st::HELD {
+        assert!(!h.ib.saw_others(KEY_A));
+    }
+    h.deliver_engage(KEY_A, "turn-1");
+    assert!(h.ib.saw_others(KEY_A));
+    // Sticky: the turn ending and a later turn change nothing.
+    assert!(h.ib.saw_others(KEY_A));
+    assert!(!h.ib.saw_others(KEY_B));
+}
+
+#[test]
+fn the_flag_rides_on_a_local_send_and_flags_the_receiver() {
+    let h = harness();
+    one(
+        &h,
+        &row(
+            from(BLAKE, CARD, row_kind::COMMENT, true, "devB/2"),
+            &[KEY_A],
+        ),
+    );
+    h.deliver_engage(KEY_A, "turn-1");
+    assert!(h.ib.saw_others(KEY_A));
+    let (m, _) = h.send(
+        &claude(KEY_A, "alpha"),
+        &to(KEY_B),
+        "blake wants the loader looked at",
+    );
+    assert!(m.others, "a flagged session's send carries the flag");
+    assert!(!h.ib.saw_others(KEY_B), "not read yet");
+    h.deliver_engage(KEY_B, "turn-2");
+    assert!(h.ib.saw_others(KEY_B), "the receiver is flagged too");
+    // And it carries on from there.
+    let (m2, _) = h.send(&claude(KEY_B, "beta"), &to(KEY_C), "pass it on");
+    assert!(m2.others);
+}
+
+#[test]
+fn a_mark_from_core_sets_the_flag_and_survives_nothing_else() {
+    let h = harness();
+    assert!(!h.ib.saw_others(KEY_C));
+    h.ib.mark_saw_others(KEY_C);
+    assert!(h.ib.saw_others(KEY_C));
+    let (m, _) = h.send(&claude(KEY_C, "gamma"), &to(KEY_A), "from a marked spawn");
+    assert!(m.others);
+}
+
+#[test]
+fn the_flag_is_rebuilt_from_the_log() {
+    let mut h = harness();
+    one(
+        &h,
+        &row(
+            from(BLAKE, CARD, row_kind::COMMENT, true, "devB/3"),
+            &[KEY_A],
+        ),
+    );
+    h.deliver_engage(KEY_A, "turn-1");
+    let (m, _) = h.send(&claude(KEY_A, "alpha"), &to(KEY_B), "relay");
+    assert!(m.others);
+    h.deliver_engage(KEY_B, "turn-2");
+    h.reopen();
+    assert!(h.ib.saw_others(KEY_A));
+    assert!(h.ib.saw_others(KEY_B));
+    assert!(!h.ib.saw_others(KEY_C));
+}

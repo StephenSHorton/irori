@@ -55,9 +55,28 @@ pub(crate) struct CleanTask {
     pub later: Option<super::later::Back>,
     /// The person named it by hand (card #779).
     pub title_by_person: bool,
+    /// Makes it a PR card (merge desk §12.2).
+    pub pr_card: Option<PrCard>,
     /// Its weight from the start and why (card #964); "" is none.
     pub weight: String,
     pub weight_reason: String,
+}
+
+/// The PR card fields of a new task, checked (merge desk §12.2): a GitHub
+/// PR URL, a repo and the author's login.
+fn pr_card_of(nt: &NewTask, repo_key: &str) -> Result<Option<PrCard>> {
+    let Some(c) = &nt.pr_card else {
+        return Ok(None);
+    };
+    let pr = trim_space(&c.pr).to_string();
+    let author = trim_space(&c.author).to_string();
+    let parsed = parse_link(&pr).ok().and_then(|l| super::links::pr_link(&l));
+    if parsed.is_none() || author.is_empty() || repo_key.is_empty() {
+        return Err(invalid(
+            "a PR card needs a GitHub pull request URL, a repo and the author's login",
+        ));
+    }
+    Ok(Some(PrCard { pr, author }))
 }
 
 /// CreateTask's checks.
@@ -115,6 +134,7 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
     check_reason(&reason, false)?;
     let mut steps = nt.steps.clone();
     check_steps(&mut steps)?;
+    let pr_card = pr_card_of(nt, &repo_key)?;
     let (weight, weight_reason) = super::weight::clean_new_weight(&nt.weight, &nt.weight_reason)?;
     Ok(CleanTask {
         weight,
@@ -133,6 +153,7 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
         after: nt.after.clone(),
         later: nt.later.clone(),
         title_by_person: nt.title_by_person,
+        pr_card,
         parent: String::new(),
         spawn: false,
         from: String::new(),
@@ -212,6 +233,11 @@ impl Fold {
                 "this space holds no boards, so it takes no card",
             ));
         }
+        // Only a person's row makes a PR card, written from their own
+        // device (merge desk §12.2): an agent's would fold as a plain card.
+        if ct.pr_card.is_some() && !self.is_owner(by) {
+            return Err(not_allowed("only a person makes a PR card"));
+        }
         if let Some(p) = self.tasks.get(&ct.parent) {
             ct.board = p.board.clone();
         }
@@ -247,6 +273,16 @@ impl Fold {
                 board: ct.board.clone(),
                 side: ct.side.clone(),
                 title_by_person: ct.title_by_person,
+                pr: ct
+                    .pr_card
+                    .as_ref()
+                    .map(|c| c.pr.clone())
+                    .unwrap_or_default(),
+                pr_author: ct
+                    .pr_card
+                    .as_ref()
+                    .map(|c| c.author.clone())
+                    .unwrap_or_default(),
                 by: by.into(),
                 at,
                 ask: None,
