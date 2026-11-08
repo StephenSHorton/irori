@@ -769,7 +769,7 @@ impl Fold {
         }
     }
 
-    fn park_item(&self, why: &str, back: &Back) -> Park {
+    pub(crate) fn park_item(&self, why: &str, back: &Back) -> Park {
         let reason = format!("{NOT_YET}: {why}");
         let (question, more) = block_question(&reason);
         let line = self.back_line(back);
@@ -1105,10 +1105,23 @@ impl Fold {
         bids: &[String],
         answer: &str,
     ) -> Result<()> {
+        self.close_items_to(by, id, bids, answer, None)
+    }
+
+    /// [`Fold::close_items`], writing state `to` back at the last close
+    /// instead of the usual restore.
+    pub(crate) fn close_items_to(
+        &mut self,
+        by: &str,
+        id: &str,
+        bids: &[String],
+        answer: &str,
+        to: Option<&str>,
+    ) -> Result<()> {
         for bid in bids {
             let t = &self.tasks[id];
             let restored = if count_open(t) == 1 {
-                self.restore_for(t).to_string()
+                to.map_or_else(|| self.restore_for(t).to_string(), str::to_string)
             } else {
                 String::new()
             };

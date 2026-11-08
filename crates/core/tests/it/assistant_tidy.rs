@@ -99,3 +99,25 @@ fn an_open_pr_is_left_alone() {
     std::thread::sleep(std::time::Duration::from_millis(600));
     assert_eq!(did(&r, &id), 0);
 }
+
+/// A change dropped from the feed arrives only as a resync, and a merged
+/// PR's row never comes again.
+#[test]
+fn a_resync_finds_a_merged_card_whose_change_was_dropped() {
+    let r = Rig::new();
+    // Off, so nothing hears the merge: the state a dropped change leaves.
+    r.core.set_tidy_on(false).unwrap();
+    let id = card_on_pr(&r, PR_MERGED);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert_eq!(did(&r, &id), 0);
+    r.core.set_tidy_on(true).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert_eq!(did(&r, &id), 0, "the switch alone doesn't look");
+    r.core.coord().refold().unwrap();
+    wait_for(10, "the card flagged after the resync", || {
+        did(&r, &id) == 1
+    });
+    r.core.coord().refold().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    assert_eq!(did(&r, &id), 1, "asked once");
+}

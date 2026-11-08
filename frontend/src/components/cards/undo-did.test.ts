@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { cards } from "@/lib/cards"
+import { cards, onCardsChanged } from "@/lib/cards"
 
 describe("Undo on what Irori did (card #786)", () => {
   // The sample reads ?empty from the address; bun has no window.
@@ -16,7 +16,11 @@ describe("Undo on what Irori did (card #786)", () => {
   })
 
   test("one click undoes it, and the Undo goes", async () => {
+    let told = 0
+    const off = onCardsChanged(() => told++)
     await cards.undoDid("sample-ask-1", "sample-did-1")
+    off()
+    expect(told).toBeGreaterThan(0)
     const d = await cards.detail("sample-ask-1")
     expect(d.thread.some((it) => it.undoDid)).toBe(false)
     expect(d.thread.some((it) => it.text.includes("(undone)"))).toBe(true)

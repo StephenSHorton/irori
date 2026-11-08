@@ -16,9 +16,9 @@ use serde::Serialize;
 use store::Event;
 use store::kinds;
 
-use super::cards::clean_options;
+use super::cards::{clean_options, count_open};
 use super::error::{Result, bad_state, not_allowed, not_found};
-use super::fold::Fold;
+use super::fold::{Fold, LeaseRec};
 use super::later::Back;
 use super::rows::{DidRow, row};
 use super::types::*;
@@ -46,6 +46,7 @@ pub const LEASE_OFFLINE_AFTER: Duration = Duration::from_secs(30 * 60);
 
 const MERGED_QUESTION: &str = "Its PRs are all merged and nobody is on it. Is this done?";
 const HANDBACK_WHY: &str = "Irori handed it back and you asked not to offer it again";
+const MERGED_WHY: &str = "Its PRs are merged and you undid Irori's question, so it isn't offered";
 
 /// One thing Irori did, as the Board keeps it (card #786).
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -271,6 +272,31 @@ impl Fold {
             // Already asked (an agent's completed asks, card #112).
             && !t.blockers.iter().any(|b| b.open() && b.done_check)
             && self.all_prs_merged(t)
+            && self.merged_since_made(t)
+    }
+
+    /// Whether some PR of t merged after t was made. One already merged
+    /// when the card was made is a link for reference, not the card's work
+    /// (#230); no field says so, so its time does. A merge with no known
+    /// time isn't held against the card.
+    fn merged_since_made(&self, t: &Task) -> bool {
+        self.pr_states_of(t)
+            .iter()
+            .any(|p| p.merged_at.is_zero() || gotime::after(&p.merged_at, &t.created_at))
+    }
+
+    /// The open cards this device would ask about now and hasn't: what a
+    /// dropped change (`RESYNC`) may have lost.
+    pub(crate) fn merged_unasked(&self) -> Vec<String> {
+        self.tasks
+            .values()
+            .filter(|t| {
+                self.may_flag_merged(t)
+                    && self.spawns_out(t)
+                    && !self.has_did(t, &did_id(JOB_MERGED, &t.id, &Self::merged_key(t)))
+            })
+            .map(|t| t.id.clone())
+            .collect()
     }
 
     /// The key that makes card t's merged record: its PRs, so a PR linked
@@ -348,6 +374,16 @@ impl Fold {
         Ok(true)
     }
 
+    /// Whether l is held by another device that has been away long enough,
+    /// and is past its `until`: the only lease Irori tells about, and the
+    /// only one a notice's Release may take.
+    fn lease_stranded(&self, l: &LeaseRec, now: &GoTime) -> bool {
+        !self.lease_local(l) && gotime::after(now, &l.lease.until) && self.live(l, now) && {
+            let dev = self.lease_dev(l);
+            dev != self.dev && self.away_for(dev, LEASE_OFFLINE_AFTER)
+        }
+    }
+
     /// Tells the person about leases held by another of their devices
     /// that has been offline past [`LEASE_OFFLINE_AFTER`] and past the
     /// lease's `until`. Never releases one (v0.4-devices: nothing is
@@ -359,16 +395,11 @@ impl Fold {
         let found: Vec<Lease> = self
             .held
             .values()
-            .filter(|l| {
-                !self.lease_local(l) && gotime::after(now, &l.lease.until) && self.live(l, now) && {
-                    let dev = self.lease_dev(l);
-                    dev != self.dev && self.away_for(dev, LEASE_OFFLINE_AFTER)
-                }
-            })
+            .filter(|l| self.lease_stranded(l, now))
             .map(|l| l.lease.clone())
             .collect();
         for l in found {
-            let key = format!("{}:{}:{}", l.resource, l.holder, l.acquired_at.unix_nano());
+            let key = lease_key(&l);
             let did = did_id(JOB_LEASE, "", &key);
             if self.loose_did.iter().any(|d| d.id == did) {
                 continue;
@@ -391,8 +422,9 @@ impl Fold {
         }
     }
 
-    /// The lease notices still in force: not undone, the lease as it was
-    /// when told about.
+    /// The lease notices still in force: not undone, the same lease as
+    /// when told about, and still stranded. One whose device came back or
+    /// whose lease was renewed goes, and returns if the lease strands again.
     pub(crate) fn lease_notices(&self) -> Vec<Did> {
         let now = self.stamp();
         self.loose_did
@@ -400,11 +432,10 @@ impl Fold {
             .filter(|d| {
                 !d.undone
                     && d.job == JOB_LEASE
-                    && self.held.values().any(|l| {
-                        l.lease.resource == d.resource
-                            && l.lease.holder == d.holder
-                            && self.live(l, &now)
-                    })
+                    && self
+                        .held
+                        .values()
+                        .any(|l| lease_key(&l.lease) == d.key && self.lease_stranded(l, &now))
             })
             .cloned()
             .collect()
@@ -442,17 +473,32 @@ impl Fold {
                 self.park(by, id, HANDBACK_WHY, Back::Word)?;
             }
             JOB_MERGED => {
-                self.close_items(
-                    by,
-                    id,
-                    std::slice::from_ref(&d.blocker_id),
-                    "the person undid Irori's question",
-                )?;
+                self.take_back_merged(by, &t, &d.blocker_id)?;
             }
             _ => return Err(bad_state("this can't be undone")),
         }
         self.write_undo(by, id, &d)?;
         Ok(Some(self.tasks[id].clone()))
+    }
+
+    /// Closes Irori's merged question and leaves the card as open as it
+    /// was, never offered: closing alone would put a card nobody holds
+    /// back to submitted, and start an agent on finished work. In review
+    /// goes back to in review; anything else is held on the person's word,
+    /// raised before the close so no device sees the card free. A holder
+    /// who joined since keeps the ordinary way back.
+    fn take_back_merged(&mut self, by: &str, t: &Task, bid: &str) -> Result<()> {
+        const ANSWER: &str = "the person undid Irori's question";
+        let bids = [bid.to_string()];
+        if !t.holders.is_empty() || !t.co_holders.is_empty() {
+            return self.close_items(by, &t.id, &bids, ANSWER);
+        }
+        if self.review_before_block.contains(&t.id) && count_open(t) == 1 {
+            return self.close_items_to(by, &t.id, &bids, ANSWER, Some(IN_REVIEW));
+        }
+        let item = self.park_item(MERGED_WHY, &Back::Word);
+        self.write_park(by, &t.id, &t.note, &item)?;
+        self.close_items(by, &t.id, &bids, ANSWER)
     }
 
     fn undo_lease_notice(&mut self, by: &str, did: &str) -> Result<Option<Task>> {
@@ -480,6 +526,11 @@ impl Fold {
             },
         )
     }
+}
+
+/// A lease notice's key: one acquisition by one holder of one resource.
+fn lease_key(l: &Lease) -> String {
+    format!("{}:{}:{}", l.resource, l.holder, l.acquired_at.unix_nano())
 }
 
 fn gocompat_cut(s: &str) -> String {

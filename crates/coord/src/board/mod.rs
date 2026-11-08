@@ -1335,6 +1335,10 @@ impl Coord {
     pub fn did_can_undo(&self, t: &Task, d: &Did) -> bool {
         self.lock().did_can_undo(t, d)
     }
+    /// The cards this device would ask about now and hasn't (card #786).
+    pub fn merged_unasked(&self) -> Vec<String> {
+        self.lock().merged_unasked()
+    }
     /// The lease notices the person still has to see.
     pub fn lease_notices(&self) -> Vec<Did> {
         self.lock().lease_notices()

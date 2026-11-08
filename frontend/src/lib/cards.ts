@@ -1465,6 +1465,7 @@ export function sampleUndoDid(id: string, did: string) {
       ? { ...it, undoDid: undefined, text: `${it.text} (undone)` }
       : it
   )
+  sampleChanged()
 }
 
 // sampleUndoTitle is BoardService.UndoTitle on the sample (card #782):

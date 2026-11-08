@@ -239,8 +239,14 @@ fn undo_of_a_merged_flag_clears_it_and_stops_it_coming_back() {
     let d = only(&got(&e, &t.id), JOB_MERGED);
     e.c.undo_did(USER, &t.id, &d.id).unwrap();
     let g = got(&e, &t.id);
-    assert!(g.blockers.iter().all(|b| !b.open()), "{:?}", g.blockers);
-    assert_eq!(g.state, SUBMITTED);
+    assert!(
+        !g.blockers.iter().any(|b| b.open() && b.done_check),
+        "{:?}",
+        g.blockers
+    );
+    assert_eq!(g.state, BLOCKED, "held, not back on the Board");
+    assert!(g.parked().is_some(), "on the person's word");
+    assert!(!e.c.needs_agent(&t.id), "no new agent on finished work");
     assert!(only(&g, JOB_MERGED).undone);
     assert!(!e.c.flag_merged(&t.id).unwrap(), "the record stops it");
     assert_eq!(only(&got(&e, &t.id), JOB_MERGED).id, d.id);
@@ -515,4 +521,154 @@ fn a_shared_board_does_nothing() {
             .unwrap();
     assert!(!a.c.flag_merged(&t.id).unwrap());
     assert!(a.c.get_task(&t.id).unwrap().did.is_empty());
+}
+
+#[test]
+fn undo_of_a_merged_flag_puts_an_in_review_card_back_in_review() {
+    let e = tidy_env();
+    let t = card(&e);
+    linked_merged(&e, &t.id, PR_OPEN);
+    e.c.set_task_state(BOB, &t.id, IN_REVIEW, "PR open")
+        .unwrap();
+    e.c.leave(BOB, &t.id, BOB).unwrap();
+    let g = got(&e, &t.id);
+    assert_eq!(g.state, IN_REVIEW);
+    assert!(g.holders.is_empty());
+    e.c.record_pr_state(
+        &t.id,
+        PrCheck {
+            pr: PR.into(),
+            state: PR_MERGED.into(),
+            ..PrCheck::default()
+        },
+    )
+    .unwrap();
+    assert!(e.c.flag_merged(&t.id).unwrap());
+    assert_eq!(got(&e, &t.id).state, BLOCKED);
+    let d = only(&got(&e, &t.id), JOB_MERGED);
+    e.c.undo_did(USER, &t.id, &d.id).unwrap();
+    let g = got(&e, &t.id);
+    assert_eq!(g.state, IN_REVIEW, "as it was before the flag");
+    assert!(g.blockers.iter().all(|b| !b.open()), "{:?}", g.blockers);
+    assert!(!e.c.needs_agent(&t.id));
+    assert!(!e.c.flag_merged(&t.id).unwrap(), "the record stops it");
+}
+
+#[test]
+fn undo_of_a_merged_flag_after_the_sweep_never_offers_the_card() {
+    let e = tidy_env();
+    let t = holderless_merged(&e);
+    assert!(e.c.flag_merged(&t.id).unwrap());
+    let d = only(&got(&e, &t.id), JOB_MERGED);
+    e.c.undo_did(USER, &t.id, &d.id).unwrap();
+    assert!(!e.c.needs_agent(&t.id));
+    e.c.sweep_notices().unwrap();
+    assert!(!e.c.needs_agent(&t.id), "a sweep doesn't offer it either");
+    assert_eq!(e.rows("assistant.did").len(), 2);
+}
+
+fn record_merged_at(e: &Env, id: &str, pr: &str, when: gocompat::time::GoTime) {
+    e.c.add_link(BOB, id, pr).unwrap();
+    e.c.record_pr_state(
+        id,
+        PrCheck {
+            pr: pr.into(),
+            state: PR_MERGED.into(),
+            merged_at: when,
+            ..PrCheck::default()
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_pr_merged_before_the_card_was_made_is_context_not_its_work() {
+    let e = tidy_env();
+    let before = e.clk.now();
+    e.clk.add(Duration::from_secs(3600));
+    let t = e.c.create_task(ALICE, nt("uses that PR")).unwrap();
+    record_merged_at(&e, &t.id, PR, before);
+    assert!(!e.c.flag_merged(&t.id).unwrap(), "only context is merged");
+    assert!(got(&e, &t.id).did.is_empty());
+
+    // Its own PR merging next to the context one does ask.
+    e.clk.add(Duration::from_secs(60));
+    record_merged_at(&e, &t.id, "https://github.com/a/b/pull/8", e.clk.now());
+    assert!(e.c.flag_merged(&t.id).unwrap());
+}
+
+/// Device b's away state, changeable while the test runs.
+fn away_env_live() -> (Env, Arc<std::sync::Mutex<AgentDevices>>) {
+    let mut e = Env::new();
+    let d = Arc::new(std::sync::Mutex::new(AgentDevices {
+        away: HashSet::from(["dev-b".to_string()]),
+        away_since: BTreeMap::from([("dev-b".to_string(), e.clk.now().unix_nano())]),
+        ..AgentDevices::default()
+    }));
+    let shared = d.clone();
+    e.c = e.reopen_with(Options {
+        agent_devices: Some(Arc::new(move || shared.lock().unwrap().clone())),
+        ..e.opts()
+    });
+    e.c.set_tidy(true);
+    (e, d)
+}
+
+fn renew_on_b(e: &Env, seq: i64, acquired_at: gocompat::time::GoTime, ttl: Duration) {
+    e.remote(
+        "dev-b",
+        seq,
+        hlc_at(e.clk.now()),
+        "dev-b/agent",
+        kinds::LEASE_ACQUIRED,
+        &LeaseAcquiredRow {
+            lease: Lease {
+                resource: "ww/slot-1".into(),
+                holder: "dev-b/agent".into(),
+                acquired_at,
+                until: plus(e.clk.now(), ttl),
+                ..Lease::default()
+            },
+            ..LeaseAcquiredRow::default()
+        },
+    );
+}
+
+fn told(e: &Env) {
+    e.clk.add(LEASE_OFFLINE_AFTER + Duration::from_secs(120));
+    e.c.sweep_notices().unwrap();
+    assert_eq!(e.c.lease_notices().len(), 1);
+}
+
+#[test]
+fn a_renewed_lease_loses_its_notice_and_regains_it_if_it_strands_again() {
+    let (e, _d) = away_env_live();
+    let got_at = e.clk.now();
+    lease_on_b(&e, "ww/slot-1", Duration::from_secs(60));
+    told(&e);
+    renew_on_b(&e, 2, got_at, Duration::from_secs(600));
+    assert!(e.c.lease_notices().is_empty(), "its time isn't up now");
+    e.clk.add(Duration::from_secs(601));
+    assert_eq!(e.c.lease_notices().len(), 1, "stranded again");
+}
+
+#[test]
+fn a_lease_taken_again_by_the_same_holder_is_not_the_one_told_about() {
+    let (e, _d) = away_env_live();
+    lease_on_b(&e, "ww/slot-1", Duration::from_secs(60));
+    told(&e);
+    // A new acquisition, itself already past its time and still away.
+    renew_on_b(&e, 2, e.clk.now(), Duration::from_secs(1));
+    e.clk.add(Duration::from_secs(5));
+    assert!(e.c.lease_notices().is_empty(), "a different lease");
+}
+
+#[test]
+fn a_device_that_comes_back_loses_the_notice_on_its_lease() {
+    let (e, d) = away_env_live();
+    lease_on_b(&e, "ww/slot-1", Duration::from_secs(60));
+    told(&e);
+    d.lock().unwrap().away.clear();
+    assert!(e.c.lease_notices().is_empty(), "it's online");
+    assert_eq!(e.c.leases().len(), 1, "the lease is untouched");
 }

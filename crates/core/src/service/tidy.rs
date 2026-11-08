@@ -8,7 +8,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use coord::{Change, TASK_CHANGED};
+use coord::{Change, RESYNC, TASK_CHANGED};
 use store::kinds;
 
 use super::Services;
@@ -70,7 +70,17 @@ impl Services {
     /// writes re-fire changes with neither, and its record stops a repeat.
     /// One device acts: the one that hands the card out.
     pub(crate) fn tidy_hear(&self, ch: &Change) {
-        if !self.tidy_on() || ch.kind != TASK_CHANGED || ch.task_id.is_empty() {
+        if !self.tidy_on() {
+            return;
+        }
+        if ch.kind == RESYNC {
+            // Changes were dropped, and a merged PR's row never comes again.
+            for id in self.coord.merged_unasked() {
+                self.names_queue_job(Job::Tidy(id));
+            }
+            return;
+        }
+        if ch.kind != TASK_CHANGED || ch.task_id.is_empty() {
             return;
         }
         if ch.reason != coord::REASON_PR_STATE && ch.holder.is_empty() {
