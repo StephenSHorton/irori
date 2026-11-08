@@ -294,11 +294,11 @@ fn opening(w: &[String]) -> (usize, bool) {
             asked = true;
         } else if at(i, "go") && at(i + 1, "ahead") {
             i += 2;
-        } else if (at(i, "i") && (at(i + 1, "want") || at(i + 1, "need")) && at(i + 2, "you"))
+        } else if ((at(i, "i") && (at(i + 1, "want") || at(i + 1, "need")))
+            || (at(i, "i'd") && at(i + 1, "like")))
+            && at(i + 2, "you")
             && at(i + 3, "to")
         {
-            i += 4;
-        } else if at(i, "i'd") && at(i + 1, "like") && at(i + 2, "you") && at(i + 3, "to") {
             i += 4;
         } else {
             return (i, asked);
