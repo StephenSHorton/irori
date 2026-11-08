@@ -360,7 +360,7 @@ export default function HuddleMock() {
   const [speed, setSpeed] = useState(1)
   const [phase, setPhase] = useState<Phase>(mode === "ended" ? "ended" : "live")
   const [names, setNames] = useState(DEFAULT_NAMES)
-  const [tab, setTab] = useState<"talk" | "canvas" | "people">("talk")
+  const [tab, setTab] = useState<"talk" | "canvas" | "people">("canvas")
   const [filter, setFilter] = useState<Kind | "all">("all")
   const [draft, setDraft] = useState("")
   const [renaming, setRenaming] = useState<string | null>(null)
@@ -497,7 +497,7 @@ export default function HuddleMock() {
       setExtra((x) => [...x, ...mine])
       setWriting([])
       setPhase("ended")
-      setTab("talk")
+      setTab("canvas")
     }, 1200 / speed)
   }
 
@@ -512,7 +512,7 @@ export default function HuddleMock() {
     setWriting([])
     setPhase("live")
     setPlaying(true)
-    setTab("talk")
+    setTab("canvas")
     setFilter("all")
   }
 
@@ -821,7 +821,7 @@ export default function HuddleMock() {
         ))}
       </nav>
 
-      <div className="grid min-h-0 flex-1 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:grid-cols-[16rem_minmax(0,1.1fr)_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 md:grid-cols-[minmax(0,1fr)_22rem] lg:grid-cols-[14rem_minmax(0,1fr)_24rem]">
         <aside
           className={cn(
             "overflow-y-auto border-border p-3 lg:block lg:border-r",
@@ -830,15 +830,6 @@ export default function HuddleMock() {
         >
           {roster}
         </aside>
-        <section
-          className={cn(
-            "min-h-0 flex-col border-border md:flex md:border-r lg:border-l-0",
-            tab === "talk" ? "flex" : "hidden"
-          )}
-        >
-          <Heading>Transcript · live</Heading>
-          {transcript}
-        </section>
         <section
           className={cn(
             "min-h-0 flex-col md:flex",
@@ -850,6 +841,15 @@ export default function HuddleMock() {
             move, scroll to zoom
           </Heading>
           {canvas}
+        </section>
+        <section
+          className={cn(
+            "min-h-0 flex-col border-border md:flex md:border-l",
+            tab === "talk" ? "flex" : "hidden"
+          )}
+        >
+          <Heading>Transcript · live</Heading>
+          {transcript}
         </section>
       </div>
     </Shell>
