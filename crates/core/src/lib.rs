@@ -76,6 +76,7 @@ pub use crate::service::calls::{
     CAN_SHARE, CallPeer, CallShare, CallShareNote, CallSnapshot, Caption, LiveCall, MyCall, Ringing,
 };
 pub use crate::service::calls_share::{ShareNow, ShareSink, ShareSource};
+pub use crate::service::assistant_chat;
 pub use crate::service::card_weights;
 pub use crate::service::freshness::{LogFreshness, PERSONAL as PERSONAL_LOG};
 pub use crate::service::huddle_packet;
