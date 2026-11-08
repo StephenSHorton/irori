@@ -1701,7 +1701,7 @@ function SendPicker({
         disabled={disabled}
         aria-label={`How it is sent: ${now.label}`}
         title={now.why}
-        className="inline-flex h-7 items-center gap-1 rounded-r-lg border border-l-0 border-border bg-background px-2 text-xs whitespace-nowrap text-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        className="inline-flex h-8 items-center gap-1 rounded-r-lg border border-l-0 border-border bg-background px-2 text-xs whitespace-nowrap text-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
       >
         {now.label}
         <ChevronDownIcon className="size-3.5" />
