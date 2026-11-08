@@ -736,10 +736,10 @@ export function App() {
     {
       id: "nav.home",
       shortcut: SectionShortcuts[0],
-      title: "Home",
+      title: "Dashboard",
       group: "Go to",
       order: 1,
-      keywords: ["my cards", "start"],
+      keywords: ["home", "my cards", "start"],
       run: () => goTo(Home),
     },
     {
@@ -904,7 +904,7 @@ export function App() {
     setDrawer(false)
   }
 
-  // A phone (card #395, mockup talk-5): Home, Talk and Boards are tabs at
+  // A phone (card #395, mockup talk-5): Dashboard, Talk and Boards are tabs at
   // the bottom (Boards the picked space's, card #689), and an open
   // conversation is the whole screen, its own header carrying Back.
   const narrow = useNarrow()
@@ -969,7 +969,7 @@ export function App() {
                                   ? "Notifications"
                                   : section.kind === "storage"
                                     ? "Storage"
-                                    : "Home"
+                                    : "Dashboard"
                 }
                 bar={
                   !open && section.kind === "board" ? (
