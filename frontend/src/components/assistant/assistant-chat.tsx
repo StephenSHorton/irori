@@ -53,7 +53,6 @@ import {
   replyText,
   dismissAway,
   setAssistantOpen,
-  splitDraft,
   splitReply,
   startAway,
   startFollowing,
