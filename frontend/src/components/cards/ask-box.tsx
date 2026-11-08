@@ -167,11 +167,11 @@ export function AskBox({
   return (
     <MentionBoard.Provider value={onBoard}>
       <form
-        className="grid gap-1"
+        className="@container grid gap-1"
         onSubmit={(e) => void submit(e)}
         {...attach.drop}
       >
-        <div className="flex items-start gap-2 p-1.5 glass-panel">
+        <div className="flex items-start gap-2 p-1.5 glass-panel @max-xl:flex-wrap">
           <MentionTextarea
             autoSize
             voice="main"
@@ -195,15 +195,16 @@ export function AskBox({
             }}
             placeholder="Start a thread…"
             aria-label="Start a thread"
-            className="max-h-40 min-h-9 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent"
+            className="max-h-40 min-h-9 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent @max-xl:basis-[calc(100%-2.75rem)]"
             // readOnly, not disabled: disabling the focused box would blur it,
             // and the next message would need a click back in.
             readOnly={busy}
             aria-busy={busy}
           />
           {/* The controls ride the box's first line (h-9, its min height)
-            whatever their own heights, and stay up top as it grows. */}
-          <div className="flex h-9 shrink-0 items-center gap-2">
+            whatever their own heights, and stay up top as it grows; in a
+            narrow box they take a line of their own (card #981). */}
+          <div className="flex h-9 shrink-0 items-center gap-2 @max-xl:w-full @max-xl:justify-end">
             <AgentsNowToggle
               on={agentsNow.on}
               onChange={agentsNow.set}
@@ -227,7 +228,7 @@ export function AskBox({
               ) : (
                 <WandSparklesIcon aria-hidden />
               )}
-              <span className="max-sm:hidden">
+              <span className="@max-xs:hidden">
                 {rewrite.running ? "Rewriting…" : "Rewrite"}
               </span>
             </Button>
