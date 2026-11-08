@@ -117,7 +117,13 @@ test("clean keeps what it knows and defaults the rest", () => {
 // Card #1067: "system" follows the computer's flip with no pane open.
 test("followSystem re-applies a system choice when the computer flips", () => {
   const g = globalThis as unknown as Record<string, unknown>
-  const saved = { window: g.window, document: g.document }
+  // Put back exactly what was there: assigning undefined to a global that
+  // was missing leaves the key behind, and `"document" in globalThis`
+  // then says yes (card #1085).
+  const saved = {
+    window: Object.getOwnPropertyDescriptor(g, "window"),
+    document: Object.getOwnPropertyDescriptor(g, "document"),
+  }
   let dark = false
   const subs = new Set<() => void>()
   const classes = new Set<string>()
@@ -156,7 +162,10 @@ test("followSystem re-applies a system choice when the computer flips", () => {
     stop()
     expect(subs.size).toBe(0)
   } finally {
-    g.window = saved.window
-    g.document = saved.document
+    for (const key of ["window", "document"] as const) {
+      const d = saved[key]
+      if (d) Object.defineProperty(g, key, d)
+      else delete g[key]
+    }
   }
 })
