@@ -2524,7 +2524,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
 
 // ---- The assistant (card #783) ----------------------------------------------
 
-/// Asks the corner chat's assistant `text` after `history`. Returns the
+/// Asks the corner chat's assistant `text` after `history`; `screen` is the
+/// window's plain-text snapshot of what is shown (card #1009; "" sends
+/// none). Returns the
 /// run's id at once; its events come on `on`, ending with one `done` or
 /// `error` (a failure to start included).
 #[tauri::command]
@@ -2533,13 +2535,19 @@ pub async fn assistant_ask(
     w: W<'_>,
     history: Vec<AssistantTurn>,
     text: String,
+    screen: String,
     on: tauri::ipc::Channel<AssistantEvent>,
 ) -> R<u32> {
     if text.trim().is_empty() {
         return Err("ask something first".into());
     }
     blocking(&w, move |w| {
-        Ok(w.assistant_ask(&history, &text, Box::new(move |e| on.send(e).is_ok())))
+        Ok(w.assistant_ask(
+            &history,
+            &text,
+            &screen,
+            Box::new(move |e| on.send(e).is_ok()),
+        ))
     })
     .await
 }

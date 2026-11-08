@@ -537,11 +537,13 @@ export const commands = {
 	 */
 	usageLimits: () => __TAURI_INVOKE<UsageLimits>("usage_limits"),
 	/**
-	 *  Asks the corner chat's assistant `text` after `history`. Returns the
+	 *  Asks the corner chat's assistant `text` after `history`; `screen` is the
+	 *  window's plain-text snapshot of what is shown (card #1009; "" sends
+	 *  none). Returns the
 	 *  run's id at once; its events come on `on`, ending with one `done` or
 	 *  `error` (a failure to start included).
 	 */
-	assistantAsk: (history: AssistantTurn[], text: string, on: Channel<AssistantEvent>) => __TAURI_INVOKE<number>("assistant_ask", { history, text, on }),
+	assistantAsk: (history: AssistantTurn[], text: string, screen: string, on: Channel<AssistantEvent>) => __TAURI_INVOKE<number>("assistant_ask", { history, text, screen, on }),
 	/**
 	 *  Stops assistant run `id`: its channel gets error "Stopped." or nothing
 	 *  more. An unknown or finished id is fine.
