@@ -405,7 +405,7 @@ function subscribe(fn: () => void): () => void {
   listeners.add(fn)
   if (inWails() && !stopHost) {
     refresh()
-    const off = Events.On("board:changed", () => refresh())
+    const off = Events.OnShown("board:changed", () => refresh())
     const id = window.setInterval(refresh, RefreshMs)
     stopHost = () => {
       off()

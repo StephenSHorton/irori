@@ -542,3 +542,9 @@ Made from branch `lemmings/439-spawned-agents-mockups` @ d0449a59 (`frontend/src
 | sa-10 | A Talk thread in the game-repo channel naming nobody, answered by an agent spawned for the thread, which posts its answer and a proposed note and goes when the thread is quiet |
 
 The mockups are static copies of the kit (the convention): the frame and small pieces come from the merge desk mockups, with only `Badge`, `Spinner` and `cn` imported from the app, and no lib/ calls. Captured with headless Chrome at 1600×900 in dark mode.
+
+## Moving a card's weight (card #966)
+
+The level an attempt starts on is `Task::run_level`: the card's weight (none is normal), one step higher per crash or Not done since that weight was written, capped at heavy. It is computed, not stored, so the person's weight is never overwritten. Each spawn request records the level, model, effort and whether `advisorModel` was set where it was asked for, and `Coord::run_tally` joins those to the person's answers on done checks.
+
+`board_move` (up or down) is for the card's holder. It writes `left_off`, a `task.weight` row with `moved`, and leaves the card, so the sweep ends the agent and the card starts again from Left off. A Not done that lifts a card past its running attempt's level ends that attempt's agent; at the same level, the agent stays and acts on the answer. See decision 61.

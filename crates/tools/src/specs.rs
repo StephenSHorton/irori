@@ -60,10 +60,11 @@ pub const BOARD_INSTRUCTIONS: &str = concat!(
     "If other cards' work is ready to land too, land it together so the checks run once: put your branch on one merge card ",
     "(start it and board_join it, or comment on the open one) and board_block your card on task #M (the merge card); ",
     "the merge card's agent combines the branches into one PR, closes the PRs it replaces and asks as above. ",
-    "Never sit on an external wait for a merge. ",
     "Once the work is on main, set it completed with proof: what changed, how you checked it, the commit, and screenshots of a UI change; ",
     "a merge card's agent does this for each card it covers. The person confirms it (Done) or says why not, and it comes back to you. ",
-    "Never set completed while its PR is open. ",
+    // Card #970: GitHub can lag a merge, and a wait raised on the PR then
+    // asked the person to merge what was already merged.
+    "Never raise a wait on a PR, nor set completed while it is open; just merged it? Retry once gh pr view says merged. ",
     "When what is left is the person's choice or action, raise a board_block for it instead of setting completed. ",
     "Post new work unheld: Irori hands it out, one free agent at a time. ",
     "Hold one card in progress at a time (board_join refuses a second). ",
