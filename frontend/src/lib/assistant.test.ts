@@ -14,7 +14,6 @@ import {
   newChat,
   postDraft,
   postsByItself,
-  replaced,
   parseHistory,
   replyText,
   sampleAnswer,
@@ -430,20 +429,6 @@ describe("the Office Assistant posts what it drafts (card #988)", () => {
     expect(postsByItself(ended(`${DraftOpen}Fix.${DraftClose}`))).toBe(false)
     expect(postsByItself(ended(`${whole}\nAnd more words.`))).toBe(false)
     expect(postsByItself(ended(`${whole}\n\n<<go card #8>>`))).toBe(true)
-  })
-  test("a newer thread retires the check-first one before it", () => {
-    const es: ChatEntry[] = [
-      { role: "assistant", text: held },
-      { role: "person", text: "Good, mention #8 too" },
-      { role: "assistant", text: held },
-      { role: "assistant", text: "Ok.", note: true },
-    ]
-    expect(replaced(es, 0)).toBe(true)
-    expect(replaced(es, 2)).toBe(false)
-    expect(
-      replaced([{ ...es[0], posted: { id: "t", short: "1" } }, es[2]], 0)
-    ).toBe(false)
-    expect(replaced([{ role: "assistant", text: whole }, es[2]], 0)).toBe(false)
   })
   test("asking for work posts one thread with no tap, and a tap adds none", async () => {
     await ask("Can you fix the lobby?")

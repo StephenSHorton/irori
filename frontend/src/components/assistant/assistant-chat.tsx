@@ -49,7 +49,6 @@ import {
   addNote,
   onGo,
   postDraft,
-  replaced,
   replyOn,
   replyText,
   setAssistantOpen,
@@ -582,7 +581,6 @@ export function AssistantPanel({
                 onPost={() => onPost(i)}
                 posting={e === autoPosting}
                 failed={autoFailed?.get(e)}
-                wasReplaced={replaced(entries, i)}
               />
             ))}
             {reply && <Answering reply={reply} />}
@@ -696,15 +694,12 @@ function Entry({
   onPost,
   posting,
   failed,
-  wasReplaced,
 }: {
   entry: ChatEntry
   // Its thread is posting by itself.
   posting: boolean
   // Why it couldn't post by itself.
   failed?: string
-  // A later reply's thread took over from this check-first one.
-  wasReplaced: boolean
   onGo: (t: GoTarget, from?: Element) => Promise<string>
   // A posted draft's thread, as last read.
   work?: WorkThread
@@ -749,9 +744,8 @@ function Entry({
             posted={entry.posted}
             posting={posting}
             failed={failed}
-            replaced={wasReplaced}
             work={work}
-            onPost={partial || wasReplaced ? undefined : onPost}
+            onPost={partial ? undefined : onPost}
             cut={partial}
           />
         )}
@@ -814,7 +808,6 @@ function DraftThread({
   posted,
   posting,
   failed,
-  replaced: wasReplaced,
   work,
   onPost,
   cut,
@@ -825,8 +818,6 @@ function DraftThread({
   posting?: boolean
   // Why it couldn't post by itself (Post thread retries).
   failed?: string
-  // A newer draft took over from it.
-  replaced?: boolean
   // What came of it since (card #785): who took it, the cards made.
   work?: WorkThread
   // Without it there is no Post thread (the draft is being written).
@@ -910,10 +901,6 @@ function DraftThread({
             </span>
           )}
         </div>
-      ) : wasReplaced ? (
-        <p className="text-[12.5px] text-muted-foreground">
-          Replaced by the newer draft below.
-        </p>
       ) : cut ? (
         <p className="text-[12.5px] text-muted-foreground">
           The draft was cut short. Ask again for the whole thread.

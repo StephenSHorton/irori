@@ -597,26 +597,6 @@ export function postsByItself(r: Reply): boolean {
   )
 }
 
-// replaced is whether the message at index holds a check-first thread
-// that a later reply's thread took over: only the newest can be posted,
-// or tapping the old one would start the same work twice.
-export function replaced(entries: readonly ChatEntry[], index: number) {
-  const e = entries[index]
-  if (!e || e.posted || e.role !== "assistant" || e.note || e.update)
-    return false
-  if (!splitDraft(e.text).check) return false
-  return entries
-    .slice(index + 1)
-    .some(
-      (x) =>
-        x.role === "assistant" &&
-        !x.note &&
-        !x.update &&
-        splitDraft(x.text).draft !== "" &&
-        !splitDraft(x.text).partial
-    )
-}
-
 // splitReply splits a reply as the chat shows it: its drafted thread
 // (splitDraft) and its go line (card #784, lib/goto.ts), taken only from
 // the text outside the draft, so the draft posts exactly as shown.
