@@ -49,7 +49,6 @@ import type { BoardSummary } from "@/lib/boards"
 import type { CardSummary } from "@/lib/cards"
 import { plainLine, type Roster } from "@/lib/irori"
 import { boardsFor, go, onBoards, type Section } from "@/lib/nav"
-import { boardsInSpace } from "@/lib/spaces"
 import { useNarrow } from "@/lib/media"
 import { previewFlag } from "@/lib/preview"
 import {
@@ -260,9 +259,6 @@ export function AppSidebar({
     const via = a.deviceVia && throughLine(a.deviceVia)
     return [w?.where, doing, via].filter(Boolean).join(" · ")
   }
-  const pinnedBoards = boardsInSpace(boards, space)
-    .filter((b) => b.pinned)
-    .sort((a, b) => (a.pinRank ?? 0) - (b.pinRank ?? 0))
   // Pinned cards in their order; a subtask shows under Pinned only on its
   // own, its parent's pin already lists the family on the board.
   const pinnedCards = cards
@@ -368,105 +364,82 @@ export function AppSidebar({
           )}
         </div>
 
-        <div className="shrink-0 px-2 pb-2">
-          <SpaceSwitcher
-            boards={boards}
-            space={space}
-            onSpace={onSpace}
-            onNewSpace={onNewSpace}
-            folded={folded}
-          />
-        </div>
-
         <nav
           aria-label="Sections"
           className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-x-hidden overflow-y-auto px-2 pb-3 mac:overscroll-none"
         >
-          <NavItem
-            icon={HomeIcon}
-            label="Home"
-            folded={folded}
-            current={here({ kind: "home" })}
-            onClick={() => go({ kind: "home" })}
-          />
-          <NavItem
-            icon={MessagesSquareIcon}
-            label="Talk"
-            folded={folded}
-            current={here({ kind: "talk", id: "" })}
-            count={talk}
-            countTone="default"
-            countTitle="Threads and DMs with replies you haven't read, and channels that mention you"
-            onClick={() => go({ kind: "talk", id: "" })}
-          />
-          {desks > 0 && (
-            <NavItem
-              icon={GitMergeIcon}
-              label="Merge desks"
+          <SpaceGroup folded={folded}>
+            <SpaceSwitcher
+              boards={boards}
+              space={space}
+              onSpace={onSpace}
+              onNewSpace={onNewSpace}
               folded={folded}
-              current={here({ kind: "desk", repo: "" })}
-              onClick={() => go({ kind: "desk", repo: "" })}
             />
-          )}
-          <NavItem
-            icon={NotebookPenIcon}
-            label="Notes"
-            folded={folded}
-            current={!openCard && section?.kind === "notes"}
-            onClick={() => go({ kind: "notes" })}
-          />
-          {/* Boards (card #689): the picked space's only, never across
-              spaces; with All spaces it asks for one. */}
-          <NavItem
-            icon={LayoutGridIcon}
-            label="Boards"
-            folded={folded}
-            current={!openCard && !!section && onBoards(section)}
-            onClick={() => go(boardsFor(space))}
-          />
-          <NavItem
-            icon={BellIcon}
-            label="Notifications"
-            folded={folded}
-            current={here({ kind: "notifications" })}
-            count={unread}
-            countTone="info"
-            countTitle="Notifications you haven't read"
-            onClick={() => go({ kind: "notifications" })}
-          />
-          {/* Storage (card #728): what Irori keeps and its size. */}
-          <NavItem
-            icon={HardDriveIcon}
-            label="Storage"
-            folded={folded}
-            current={!openCard && section?.kind === "storage"}
-            onClick={() => go({ kind: "storage", tab: "" })}
-          />
-          <NavItem
-            icon={InboxIcon}
-            label="Held"
-            folded={folded}
-            count={held}
-            countTone="warning"
-            countTitle="Messages Irori is holding back"
-            onClick={onHeld}
-          />
+            <NavItem
+              icon={HomeIcon}
+              label="Home"
+              folded={folded}
+              current={here({ kind: "home" })}
+              onClick={() => go({ kind: "home" })}
+            />
+            <NavItem
+              icon={MessagesSquareIcon}
+              label="Talk"
+              folded={folded}
+              current={here({ kind: "talk", id: "" })}
+              count={talk}
+              countTone="default"
+              countTitle="Threads and DMs with replies you haven't read, and channels that mention you"
+              onClick={() => go({ kind: "talk", id: "" })}
+            />
+            <NavItem
+              icon={LayoutGridIcon}
+              label="Boards"
+              folded={folded}
+              current={!openCard && !!section && onBoards(section)}
+              onClick={() => go(boardsFor(space))}
+            />
+          </SpaceGroup>
 
-          {pinnedBoards.length > 0 && (
-            <Group label="Pinned spaces" folded={folded}>
-              {pinnedBoards.map((b) => (
-                <PinRow
-                  key={b.boardId}
-                  mark={plainLine(b.tag).slice(0, 2)}
-                  label={plainLine(b.name) || "(unnamed)"}
-                  title={`${plainLine(b.name)} (${plainLine(b.tag)}#)`}
-                  folded={folded}
-                  current={here({ kind: "board", id: b.boardId })}
-                  onClick={() => go({ kind: "board", id: b.boardId })}
-                />
-              ))}
-            </Group>
-          )}
+          <Group label="All spaces" folded={folded}>
+            <NavItem
+              icon={BellIcon}
+              label="Notifications"
+              folded={folded}
+              current={here({ kind: "notifications" })}
+              count={unread}
+              countTone="info"
+              countTitle="Notifications you haven't read"
+              onClick={() => go({ kind: "notifications" })}
+            />
+            <NavItem
+              icon={InboxIcon}
+              label="Held"
+              folded={folded}
+              count={held}
+              countTone="warning"
+              countTitle="Messages Irori is holding back"
+              onClick={onHeld}
+            />
+            <NavItem
+              icon={NotebookPenIcon}
+              label="Notes"
+              folded={folded}
+              current={!openCard && section?.kind === "notes"}
+              onClick={() => go({ kind: "notes" })}
+            />
+            {desks > 0 && (
+              <NavItem
+                icon={GitMergeIcon}
+                label="Merge desks"
+                folded={folded}
+                current={here({ kind: "desk", repo: "" })}
+                onClick={() => go({ kind: "desk", repo: "" })}
+              />
+            )}
+          </Group>
+
           {pinnedCards.length > 0 && (
             <Group label="Pinned cards" folded={folded}>
               {pinnedCards.map((c) => (
@@ -673,6 +646,34 @@ function NavItem({
           </Badge>
         ))}
     </button>
+  )
+}
+
+// SpaceGroup is the picker and the links that follow it (#989).
+function SpaceGroup({
+  folded,
+  children,
+}: {
+  folded: boolean
+  children: ReactNode
+}) {
+  const plain = previewFlag("sidebargroup") === "plain"
+  return (
+    <div role="group" aria-label="This space" className="shrink-0">
+      {!folded && (
+        <h2 className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+          Space
+        </h2>
+      )}
+      <div
+        className={cn(
+          "grid grid-cols-[minmax(0,1fr)] gap-0.5",
+          !folded && !plain && "rounded-lg border border-border p-1"
+        )}
+      >
+        {children}
+      </div>
+    </div>
   )
 }
 
