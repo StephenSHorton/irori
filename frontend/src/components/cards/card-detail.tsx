@@ -550,7 +550,7 @@ export function CardPage({
 
                   {files.length > 0 && (
                     <Section title="Files" last>
-                      <AttachmentList attachments={files} compact />
+                      <AttachmentList attachments={files} />
                     </Section>
                   )}
                 </Card>
@@ -1322,8 +1322,8 @@ function Steps({
 }
 
 // cardFiles is every file on the card, once each: the ones on its
-// blockers and on its thread (blocker replies too). The side column lists
-// them by name only; the pictures show where they were posted.
+// blockers and on its thread (blocker replies too). The side column shows
+// pictures as thumbnails and other files as chips.
 function cardFiles(d: CardDetail): FileRef[] {
   const seen = new Set<string>()
   const out: FileRef[] = []
@@ -1495,7 +1495,9 @@ function Section({
   return (
     <section
       className={cn(
-        "grid gap-2.5 px-5 py-3.5",
+        // minmax(0,1fr): a long file name must not widen the column past the
+        // card, or the thumbnails and chips in it never wrap.
+        "grid grid-cols-[minmax(0,1fr)] gap-2.5 px-5 py-3.5",
         !last && "border-b border-border"
       )}
     >

@@ -42,23 +42,16 @@ import { FileKindIcon } from "./file-kind-icon"
 // is offline the item says so and offers Retry. Drop it under a comment:
 //
 //   <AttachmentList attachments={comment.attachments ?? []} />
-//
-// compact lists every file as a chip, pictures too: for a list of files
-// whose pictures show elsewhere (a card page's side column).
 export function AttachmentList({
   attachments,
   className,
-  compact,
 }: {
   attachments: FileRef[]
   className?: string
-  compact?: boolean
 }) {
   if (attachments.length === 0) return null
-  const images = compact ? [] : attachments.filter(looksLikeImage)
-  const files = compact
-    ? attachments
-    : attachments.filter((f) => !looksLikeImage(f))
+  const images = attachments.filter(looksLikeImage)
+  const files = attachments.filter((f) => !looksLikeImage(f))
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       {images.length > 0 && (
@@ -241,7 +234,8 @@ function FileChip({ file }: { file: FileRef }) {
         mime={file.mime}
         className="size-4 shrink-0 text-muted-foreground"
       />
-      <span className="min-w-0 truncate" title={name}>
+      {/* The name gives way first, so a long one can't push Open out. */}
+      <span className="min-w-0 shrink-[999] truncate" title={name}>
         {name}
       </span>
       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
