@@ -1669,9 +1669,12 @@ impl Fold {
             && !ask.thread
         {
             for m in &ask.mentions {
-                let here = roster
-                    .iter()
-                    .any(|a| a.key == m.key && crate::roster::answers(&a.status));
+                // The Office Assistant answers in its channel, never an ask.
+                let here = roster.iter().any(|a| {
+                    a.key == m.key
+                        && a.agent != crate::roster::ASSISTANT_KIND
+                        && crate::roster::answers(&a.status)
+                });
                 if m.gone || !here || skip.contains(&m.key) || out.contains(&m.key) {
                     continue;
                 }
@@ -1683,6 +1686,7 @@ impl Fold {
         for a in roster {
             let dev = cmp_or_dev(&a.device_id, owner::device_of(&a.key));
             if a.key.is_empty()
+                || a.agent == crate::roster::ASSISTANT_KIND
                 || a.key == SWEEPER
                 || self.is_owner(&a.key)
                 || a.status != "idle"

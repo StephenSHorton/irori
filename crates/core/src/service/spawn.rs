@@ -2017,6 +2017,7 @@ impl Services {
         if decided {
             self.publish_host(sp.as_ref(), ready);
             self.refresh_agent_devices(ready);
+            self.mint_assistant_cards();
         }
         if self.inbox.policy().paused {
             return;
