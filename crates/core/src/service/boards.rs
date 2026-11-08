@@ -432,8 +432,7 @@ pub(crate) fn each_row(st: &Store, mut f: Filter, mut fun: impl FnMut(&Event)) -
 pub(crate) fn summary_row(ev: &Event) -> bool {
     ev.seq == 0
         || (kinds::is_board_identity_kind(&ev.kind) && ev.kind != kinds::AGENT_CARD)
-        || ev.kind == kinds::SPACE_BOARD_CREATED
-        || ev.kind == kinds::SPACE_BOARD_RENAMED
+        || ev.kind.starts_with("space.board.")
 }
 
 pub(crate) fn created_task_id(ev: &Event) -> String {
@@ -1437,6 +1436,15 @@ impl Services {
                                 return true;
                             };
                             let maps = lock(&b.maps);
+                            // The Office Assistant answers in its channel;
+                            // it is never offered a card.
+                            if maps
+                                .cards
+                                .get(card)
+                                .is_some_and(|c| c.kind == coord::roster::ASSISTANT_KIND)
+                            {
+                                return false;
+                            }
                             let Some(agent) = maps.by_id.get(card).cloned() else {
                                 // Another member's agent: never one their
                                 // Irori started for a card (card #455).
@@ -1471,7 +1479,9 @@ impl Services {
                         let (st, v, id) = (Arc::downgrade(&st), v.clone(), b.id.clone());
                         Arc::new(move || {
                             let st = st.upgrade()?;
-                            super::spaces::board_list_in(&st, &id, &super::spaces::member_wrote(&v))
+                            super::spaces::with_space_rules(&v, |r| {
+                                super::spaces::board_list_in(&st, &id, r)
+                            })
                         })
                     }),
                     ..Default::default()
@@ -1887,6 +1897,88 @@ impl Services {
         Ok(format!("{AGENT_ACTOR_PREFIX}{}", m.keys[agent]))
     }
 
+    /// The id of this person's Office Assistant card on board `b`, minting it
+    /// when there is none (assistants talk, card 2). Only the assistant's
+    /// computer calls this. The card is an `agent.card` of kind `assistant`
+    /// written as itself, with no roster entry and no `board_cards` mapping,
+    /// and the person's `member.profile` then points at it. An existing
+    /// assistant card of this person's is pointed at rather than a second
+    /// minted.
+    pub(crate) fn assistant_card(&self, b: &BoardLog) -> Result<Option<String>> {
+        let me = self.person_id();
+        let v = &b.verifier;
+        let epoch = v.epoch(&me);
+        if epoch != self.ident.current().epoch
+            || !v.writable(&me)
+            || v.cert(&self.device.id).is_none()
+            || v.cut(&self.device.id).is_some()
+        {
+            return Ok(None); // not a writable member of this board yet
+        }
+        let had = v.profile_assistant_card(&me);
+        if !had.is_empty() {
+            return Ok(Some(had));
+        }
+        // Reuse a card of this person's before minting another.
+        let existing = {
+            let m = lock(&b.maps);
+            m.cards
+                .iter()
+                .filter(|(id, c)| {
+                    c.kind == coord::roster::ASSISTANT_KIND
+                        && v.card_person(id).as_deref() == Some(me.as_str())
+                })
+                .map(|(id, _)| id.clone())
+                .min()
+        };
+        let id = match existing {
+            Some(id) => id,
+            None => {
+                let id = new_board_id()?;
+                let row = BoardCard {
+                    card_id: id.clone(),
+                    name: format!("{}'s assistant", self.ident.current().name),
+                    kind: coord::roster::ASSISTANT_KIND.into(),
+                    person_id: me.clone(),
+                    status: "idle".into(),
+                    avatar: String::new(),
+                    spawned: false,
+                    device_id: self.device.id.clone(),
+                };
+                b.store.append(
+                    &format!("{AGENT_ACTOR_PREFIX}{id}"),
+                    kinds::AGENT_CARD,
+                    &row,
+                )?;
+                lock(&b.maps).cards.insert(id.clone(), row);
+                id
+            }
+        };
+        let mut prof = self.ident.member_profile_row(epoch)?;
+        prof.color = self.person_color.chosen();
+        prof.avatar = self.person_avatar.chosen();
+        prof.github_login = v.profile_github_login(&me);
+        prof.assistant_card = id.clone();
+        b.store.append("irori", kinds::MEMBER_PROFILE, &prof)?;
+        Ok(Some(id))
+    }
+
+    /// The host sweep's part: on the assistant's computer, every space the
+    /// person is in gets its assistant card once.
+    pub(crate) fn mint_assistant_cards(&self) {
+        if !self.is_assistant_home() {
+            return;
+        }
+        for b in self.visible_boards() {
+            if self.board_leaving(&b) {
+                continue;
+            }
+            if let Err(e) = self.assistant_card(&b) {
+                logf(format_args!("board {}: assistant card: {e}", b.id));
+            }
+        }
+    }
+
     /// Rewrites the agent.card of each of this device's agents on every
     /// board whose status moved (§2.4: `active`, `idle` or `gone`, written
     /// only when it changes). Only the device hosting the session writes
@@ -2147,6 +2239,7 @@ impl Services {
         let color = self.person_color.chosen();
         let avatar = self.person_avatar.chosen();
         let had = v.profile_github_login(&me.id);
+        let had_assistant = v.profile_assistant_card(&me.id);
         let login = self.own_github_login();
         if v.profile(&me.id)
             .is_none_or(|n| n != self.ident.current().name)
@@ -2158,6 +2251,8 @@ impl Services {
             prof.color = color;
             prof.avatar = avatar;
             prof.github_login = if had.is_empty() { login } else { had };
+            // The assistant pointer rides every rewrite (card 2).
+            prof.assistant_card = had_assistant;
             b.store.append("irori", kinds::MEMBER_PROFILE, &prof)?;
         }
         Ok(())

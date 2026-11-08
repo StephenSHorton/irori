@@ -18,6 +18,9 @@ describe("waitName", () => {
     expect(leaseNames(["check/macbook/slot-1", "check/macbook/slot-2"])).toBe(
       "a free check slot on macbook"
     )
+    expect(leaseNames(["heavy/3dc30c94/slot-1", "heavy/3dc30c94/slot-2"])).toBe(
+      "a free heavy slot"
+    )
   })
   test("one lease is itself", () => {
     expect(leaseNames(["ww/dolphin-slot-2"])).toBe("Dolphin slot 2")
@@ -31,6 +34,7 @@ describe("waitName", () => {
       "src/*.rs in repo abc1234"
     )
     expect(leaseNames(["check/mac/slot-3"])).toBe("check slot 3 on mac")
+    expect(leaseNames(["heavy/3dc30c94/slot-2"])).toBe("heavy slot 2")
   })
   test("free text that isn't a lease keeps its words", () => {
     expect(

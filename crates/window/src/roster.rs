@@ -52,6 +52,9 @@ pub struct GoneSession {
     pub gone_at: GoTime,
     pub reason: String,
     pub transcript: bool,
+    /// Whether Claude Code will start `claude --bg --resume` in `cwd`: the
+    /// spawn's rule ([`crate::spawn::trusted_in`]), so a git repo needs its
+    /// own entry even under a trusted parent (card #731).
     pub trusted: bool,
 }
 
@@ -228,7 +231,9 @@ impl Window {
                 gone_at: GoTime::from_system(wall),
                 reason: p.reason,
                 transcript: self.has_transcript(c),
-                trusted: trust.as_ref().is_some_and(|t| t.covers(&c.cwd)),
+                trusted: trust
+                    .as_ref()
+                    .is_some_and(|t| crate::spawn::trusted_in(t, Path::new(&c.cwd)).is_ok()),
             });
             if out.len() == limit {
                 break;
@@ -588,7 +593,9 @@ impl TrustSet {
         !dir.is_empty() && self.0.contains(&trust_key(dir))
     }
 
-    /// Whether this folder or one of its parents is trusted.
+    /// Whether this folder or one of its parents is trusted. Right only
+    /// outside git: Claude Code wants a repo's own entry, so ask
+    /// [`crate::spawn::trusted_in`], which uses this for non-git folders.
     pub(crate) fn covers(&self, dir: &str) -> bool {
         if dir.is_empty() {
             return false;

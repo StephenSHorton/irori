@@ -44,6 +44,7 @@
 
 pub mod agents;
 pub mod agents_trust;
+pub mod assistant;
 pub mod attachments;
 pub mod board;
 pub mod boards;
@@ -65,12 +66,14 @@ pub mod new_card;
 pub mod notes;
 pub mod notifications;
 pub mod ready;
+pub mod rewrite;
 pub mod roster;
 pub mod seams;
 pub mod settings;
 pub mod spawn;
 pub mod spawn_cost;
 pub mod stop;
+pub mod storage;
 pub mod sync_badge;
 pub mod talk;
 pub mod terms;
@@ -175,12 +178,20 @@ pub struct Window {
     emitter: OnceLock<EmitFn>,
     open_file: OnceLock<OpenFn>,
     on_reset: OnceLock<Box<dyn Fn() + Send + Sync>>,
-    /// The current Wind down all run (card #220).
+    /// The current Wind down run and the switch's listeners (cards #220,
+    /// #787).
     wind_down: wind_down::RunSlot,
     /// The voice input session (card #240).
     voice: voice::VoiceSlot,
     /// The hardware meters' recent samples (card #599).
     meters: meters::History,
+    /// The corner chat's headless runs (card #783).
+    assistant: assistant::Runner,
+    /// The turns that name the person's threads (card #782): their own
+    /// runner, so they never take the chat's.
+    names: assistant::Runner,
+    weighs: assistant::Runner,
+    rewrites: assistant::Runner,
 }
 
 impl Window {
@@ -201,6 +212,10 @@ impl Window {
             wind_down: Mutex::default(),
             voice: voice::VoiceSlot::default(),
             meters: meters::History::default(),
+            assistant: assistant::Runner::new(),
+            names: assistant::Runner::new(),
+            weighs: assistant::Runner::new(),
+            rewrites: assistant::Runner::new(),
         }
     }
 

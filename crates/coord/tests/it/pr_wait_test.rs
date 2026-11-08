@@ -1,6 +1,7 @@
-//! Card #509: an agent's external wait on a GitHub PR is the person's
-//! merge. It counts in their Needs you (so Home shows it and it notifies)
-//! until the PR is known merged or closed, or the wait is closed.
+//! Card #509: an agent's external wait on a GitHub PR is polled, whoever
+//! holds the card, so its holders hear the PR merge. Card #970: it stays
+//! its agent's, in Blocked: it never counts in the person's Needs you (no
+//! row asks them to merge), open, merged or closed.
 
 use crate::common;
 
@@ -54,13 +55,14 @@ fn lane(e: &Env, viewer: &str, id: &str) -> (bool, bool) {
 }
 
 #[test]
-fn a_wait_on_a_pr_is_the_persons_merge() {
+fn a_wait_on_a_pr_stays_its_agents() {
     let e = Env::new();
     let t = claimed(&e, "part 10");
     let b = external(&e, &t.id, PR, &[]);
-    assert_eq!(b.merge_wait().as_deref(), Some(PR));
-    assert_eq!(lane(&e, USER, &t.id), (true, false), "the person");
-    assert_eq!(lane(&e, "", &t.id), (true, false), "no viewer");
+    assert_eq!(b.pr_wait().as_deref(), Some(PR));
+    assert_eq!(e.c.polled_waits(&t.id), [PR]);
+    assert_eq!(lane(&e, USER, &t.id), (false, true), "the person");
+    assert_eq!(lane(&e, "", &t.id), (false, true), "no viewer");
     // Not an agent's: neither the raiser's nor another's.
     assert!(!lane(&e, ALICE, &t.id).0);
     assert!(!lane(&e, BOB, &t.id).0);
@@ -71,7 +73,8 @@ fn the_pr_may_be_only_among_the_waits_links() {
     let e = Env::new();
     let t = claimed(&e, "part 10");
     external(&e, &t.id, "PR #41 review", &[PR]);
-    assert_eq!(lane(&e, USER, &t.id), (true, false));
+    assert_eq!(e.c.polled_waits(&t.id), [PR]);
+    assert_eq!(lane(&e, USER, &t.id), (false, true));
 }
 
 #[test]
@@ -84,16 +87,20 @@ fn a_wait_on_anything_else_stays_blocked() {
         "CI on the release",
         &["https://ci.example.com/run/7"],
     );
-    assert_eq!(b.merge_wait(), None);
+    assert_eq!(b.pr_wait(), None);
+    assert!(e.c.polled_waits(&t.id).is_empty());
     assert_eq!(lane(&e, USER, &t.id), (false, true));
-    // A PR that isn't GitHub's isn't one the person merges here.
+    // A PR that isn't GitHub's isn't one Irori polls.
     let u = claimed(&e, "elsewhere");
     external(&e, &u.id, "https://gitlab.com/a/b/-/merge_requests/3", &[]);
+    assert!(e.c.polled_waits(&u.id).is_empty());
     assert_eq!(lane(&e, USER, &u.id), (false, true));
 }
 
+/// Open, merged or closed, the wait stays Blocked; a merged PR isn't asked
+/// about again, a closed one is (GitHub can reopen it, card #548).
 #[test]
-fn a_merged_or_closed_pr_leaves_needs_you() {
+fn a_pr_wait_is_polled_until_it_merges_and_never_needs_the_person() {
     for state in [PR_MERGED, PR_CLOSED] {
         let e = Env::new();
         let t = claimed(&e, "part 10");
@@ -109,7 +116,8 @@ fn a_merged_or_closed_pr_leaves_needs_you() {
             },
         )
         .unwrap();
-        assert!(lane(&e, USER, &t.id).0, "open");
+        assert_eq!(lane(&e, USER, &t.id), (false, true), "open");
+        assert_eq!(e.c.polled_waits(&t.id), [PR]);
         e.c.record_pr_state(
             &t.id,
             PrCheck {
@@ -120,6 +128,11 @@ fn a_merged_or_closed_pr_leaves_needs_you() {
         )
         .unwrap();
         assert_eq!(lane(&e, USER, &t.id), (false, true), "{state}");
+        assert_eq!(
+            e.c.polled_waits(&t.id).is_empty(),
+            state == PR_MERGED,
+            "{state}"
+        );
     }
 }
 
@@ -138,8 +151,8 @@ fn pr_row(id: &str, state: &str, error: &str, at: GoTime) -> PrStateRow {
 }
 
 /// Card #542: the phone's "can't reach GitHub" row came after MERGED and
-/// put the merge back in the person's Needs you. It holds live and on a
-/// replay, for each final state.
+/// undid what was known of the PR. It holds live and on a replay, for
+/// each final state.
 #[test]
 fn an_error_row_after_a_final_state_changes_nothing() {
     for state in [PR_MERGED, PR_CLOSED] {
@@ -193,7 +206,7 @@ fn a_known_state_beats_an_error_row_that_arrived_first() {
         &pr_row(&t.id, "", "gh isn't installed here", later),
     );
     assert_eq!(e.c.pr_state(&t.id, PR).unwrap().state, "");
-    assert_eq!(lane(&e, USER, &t.id), (true, false), "nothing known yet");
+    assert_eq!(lane(&e, USER, &t.id), (false, true), "nothing known yet");
 
     e.remote(
         "mac",
@@ -250,7 +263,7 @@ fn a_stale_open_never_replaces_a_merge() {
 }
 
 /// A phone hears a merge only as another device's row, so that row has to
-/// tell the window: nothing else redraws Needs you.
+/// tell the window: nothing else redraws the card.
 #[test]
 fn another_devices_merge_tells_subscribers() {
     let e = Env::new();
@@ -281,7 +294,8 @@ fn a_closed_wait_no_longer_counts() {
     external(&e, &t.id, PR, &[]);
     e.c.unblock(ALICE, &t.id, "merged by hand").unwrap();
     let t = e.c.get_task(&t.id).unwrap();
-    assert!(t.blockers.iter().all(|b| b.merge_wait().is_none()));
+    assert!(t.blockers.iter().all(|b| b.pr_wait().is_none()));
+    assert!(e.c.polled_waits(&t.id).is_empty());
     assert!(!lane(&e, USER, &t.id).0);
 }
 

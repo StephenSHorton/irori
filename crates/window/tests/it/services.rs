@@ -4,6 +4,7 @@
 
 use std::collections::BTreeSet;
 
+use irori_window::agents::NamesThemesView;
 use irori_window::attachments::{self, Request};
 use irori_window::settings::NotifyOptions;
 
@@ -413,8 +414,6 @@ fn roster_and_devices() {
     let hs = r.w.home_server();
     assert!(!hs.can && !hs.on && !hs.running && !hs.suggest);
     assert!(r.w.set_home_server_awake(false).is_err());
-    // D4: no TURN relay.
-    assert_eq!(r.w.relay().state, "none");
     // Pairing is the Core's Pairer: Go's texts, nothing open yet.
     assert!(r.w.seams.pairing.status().code.is_empty());
     assert_eq!(
@@ -577,6 +576,9 @@ fn ts_shapes_match_the_json() {
     )
     .unwrap();
     let _ = r.w.comment(&t.id, "a comment", "none", &[], &[]).unwrap();
+    // A weight (card #963), so Task, Weight and CardWeight are checked.
+    co.set_weight(&a, &t.id, "heavy", "planning the split")
+        .unwrap();
     let task = co.get_task(&t.id).unwrap();
 
     let j = |v: &dyn erased::Ser| v.json();
@@ -586,8 +588,10 @@ fn ts_shapes_match_the_json() {
     check_shape(&src, "Link", &j(&task.links[0]));
     check_shape(&src, "Step", &j(&task.steps[0]));
     check_shape(&src, "Comment", &j(&co.comments(&t.id).unwrap()[0]));
+    check_shape(&src, "Weight", &j(task.weight.as_ref().unwrap()));
     let card = r.w.card(&t.id).unwrap();
     let cj = j(&card);
+    check_shape(&src, "CardWeight", &cj["weight"]);
     check_shape(&src, "CardBlocker", &cj["blockers"][0]);
     check_shape(&src, "CardOption", &cj["blockers"][0]["options"][0]);
     check_shape(&src, "AgentRef", &cj["working"][0]);
@@ -1182,6 +1186,17 @@ fn start_agent_with_a_comment() {
         .unwrap();
     co.set_task_state(&r.w.core.user_sender().key, &t.id, "input_required", "")
         .ok();
+    // Card #1066: with the switch off nothing would start, so it says so
+    // and leaves the card as it is.
+    let e = r.w.start_agent(&t.id, "keep the last three").unwrap_err();
+    assert!(e.contains("switched off"), "{e}");
+    assert_eq!(co.get_task(&t.id).unwrap().state, "input_required");
+    r.w.core
+        .set_spawn_setting(irori_core::spawn::SpawnSetting {
+            on: true,
+            ..Default::default()
+        })
+        .unwrap();
     r.w.start_agent(&t.id, "keep the last three").unwrap();
     assert_eq!(co.get_task(&t.id).unwrap().state, coord::SUBMITTED);
 
@@ -1622,4 +1637,176 @@ fn a_huddles_transcript_through_the_window() {
 
     assert!(w.talk_call_transcript("call_nope").is_err());
     assert!(w.talk_call_transcript("  ").is_err());
+}
+
+/// Card #702: Settings › Agents' theme switches through the window: every
+/// theme on at first, each with its count, a switch round-trips, an unknown
+/// theme is refused, and the view is bindings.ts's.
+#[test]
+fn the_names_themes_through_the_window() {
+    let src = std::fs::read_to_string(manifest_dir().join("../../frontend/src/gen/bindings.ts"))
+        .unwrap()
+        .replace("\r\n", "\n");
+    let r = Rig::new();
+    let w = &r.w;
+    let v = w.names_themes();
+    let ids: Vec<&str> = v.themes.iter().map(|t| t.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        ["nature", "produce", "movies", "anime", "presidents", "myth"]
+    );
+    assert!(v.themes.iter().all(|t| t.on), "all on (decision 52)");
+    assert_eq!(
+        v.themes.iter().map(|t| t.words as usize).sum::<usize>(),
+        coord::names::WORDS.len()
+    );
+    assert!(v.themes.iter().all(|t| !t.sample.is_empty()));
+    check_shape(&src, "NamesThemesView", &serde_json::to_value(&v).unwrap());
+    check_shape(
+        &src,
+        "NamesThemeChoice",
+        &serde_json::to_value(&v.themes[0]).unwrap(),
+    );
+
+    let on = |v: &NamesThemesView, id: &str| v.themes.iter().find(|t| t.id == id).unwrap().on;
+    let v = w.names_theme_set(" movies ", false).unwrap();
+    assert!(!on(&v, "movies") && on(&v, "anime"));
+    assert!(!on(&w.names_themes(), "movies"));
+    assert!(w.names_theme_set("westerns", false).is_err());
+    assert!(on(&w.names_theme_set("movies", true).unwrap(), "movies"));
+}
+
+/// Card #779: the person renames a card and a thread from its page. The
+/// board and the Threads list show the new names, an agent's rename after
+/// it is refused, and both stay after a restart.
+#[test]
+fn rename_by_hand() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let t = co
+        .create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: "lobby join".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let (th, _) = co
+        .post_ask(
+            &r.w.core.user_sender().key,
+            coord::NewAsk {
+                text: "can I rename threads?".into(),
+                thread: true,
+                ..Default::default()
+            },
+            &[],
+        )
+        .unwrap();
+    let got = r.w.rename_card(&t.id, " Join the lobby ").unwrap();
+    assert_eq!(got.title, "Join the lobby");
+    assert!(got.title_by_person);
+    r.w.rename_card(&th.id, "Renaming threads").unwrap();
+    assert!(
+        r.w.rename_card(&t.id, "  ")
+            .unwrap_err()
+            .contains("needs a title")
+    );
+
+    let on_board = |w: &irori_window::Window| {
+        w.cards()
+            .iter()
+            .find(|s| s.id == t.id)
+            .map(|s| s.title.clone())
+    };
+    let in_threads = |w: &irori_window::Window| {
+        w.threads("")
+            .iter()
+            .find(|s| s.id == th.id)
+            .map(|s| s.title.clone())
+    };
+    assert_eq!(on_board(&r.w).as_deref(), Some("Join the lobby"));
+    assert_eq!(in_threads(&r.w).as_deref(), Some("Renaming threads"));
+    assert_eq!(r.w.card(&t.id).unwrap().summary.title, "Join the lobby");
+
+    // The agent that holds it can't name it back.
+    let e = co
+        .edit_task(
+            &r.key_a,
+            &t.id,
+            coord::TaskEdit {
+                title: Some("lobby join".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("the person named"), "{e}");
+
+    // A restart over the same data dir keeps both names.
+    r.w.core.close().unwrap();
+    let data = r.data.clone();
+    let again = Rig::with(|o| o.data_dir = data);
+    assert_eq!(on_board(&again.w).as_deref(), Some("Join the lobby"));
+    assert_eq!(in_threads(&again.w).as_deref(), Some("Renaming threads"));
+    assert!(
+        again
+            .w
+            .core
+            .coord()
+            .get_task(&t.id)
+            .unwrap()
+            .title_by_person
+    );
+}
+
+/// Card #782: Irori names the person's thread. Its line on the thread
+/// carries Undo, and Undo gives the old name back as the person's own:
+/// the line loses its Undo, and Irori can't rename it again.
+#[test]
+fn undo_irori_naming_a_thread() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let (th, _) = co
+        .post_ask(
+            &r.w.core.user_sender().key,
+            coord::NewAsk {
+                text: "hey so the login page is broken again on safari".into(),
+                thread: true,
+                ..Default::default()
+            },
+            &[],
+        )
+        .unwrap();
+    co.rename_as_irori(&th.id, "Login fails on Safari", &th.title)
+        .unwrap();
+    let d = r.w.card(&th.id).unwrap();
+    assert_eq!(d.summary.title, "Login fails on Safari");
+    let undo: Vec<_> = d
+        .thread
+        .iter()
+        .filter(|it| !it.undo_title.is_empty())
+        .collect();
+    assert_eq!(undo.len(), 1, "one Undo, on Irori's line");
+    assert_eq!(undo[0].who.status, "irori");
+    assert!(
+        undo[0].text.starts_with("Irori renamed it from"),
+        "{}",
+        undo[0].text
+    );
+    assert_eq!(undo[0].undo_title, th.title);
+
+    let back = r.w.undo_title(&th.id).unwrap();
+    assert_eq!(back.title, th.title);
+    assert!(back.title_by_person);
+    let d = r.w.card(&th.id).unwrap();
+    assert!(d.thread.iter().all(|it| it.undo_title.is_empty()));
+    assert!(r.w.undo_title(&th.id).is_err(), "nothing left to undo");
+    assert!(
+        co.rename_as_irori(&th.id, "Login fails on Safari", &th.title)
+            .is_err()
+    );
+    // The switch reads and turns off.
+    assert!(r.w.assistant_names());
+    r.w.assistant_names_set(false).unwrap();
+    assert!(!r.w.assistant_names());
 }

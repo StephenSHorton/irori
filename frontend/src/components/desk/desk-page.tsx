@@ -363,7 +363,7 @@ export function DeskPage({
           })}
         </nav>
       )}
-      <div className="grid min-w-0 flex-1 content-start gap-3 overflow-y-auto pb-6 mac:overscroll-none">
+      <div className="grid min-w-0 flex-1 content-start gap-3 overflow-y-auto pb-20 mac:overscroll-none">
         <DeskHeader desk={desk} onSettings={onSettings} />
         <DeskPanel
           desk={desk}

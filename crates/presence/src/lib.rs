@@ -226,6 +226,11 @@ pub struct Options {
     pub open: Option<OpenFn>,
     /// Gathers a burst of file events into one scan; zero is 100 ms.
     pub settle: Duration,
+    /// Session folders that are never agents (card #783: the window
+    /// assistant's run dir): a session whose cwd is one of these, or
+    /// inside one, is left off the roster. Compared after cleaning, and
+    /// on Windows case-insensitively with either slash.
+    pub skip_cwd: Vec<String>,
     /// How much of a transcript's end is read; zero is 256 KiB.
     #[doc(hidden)]
     pub tail_bytes: u64,
@@ -241,6 +246,7 @@ impl std::fmt::Debug for Options {
             .field("device_id", &self.device_id)
             .field("interval", &self.interval)
             .field("safety_interval", &self.safety_interval)
+            .field("skip_cwd", &self.skip_cwd)
             .finish_non_exhaustive()
     }
 }

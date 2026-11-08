@@ -269,7 +269,7 @@ function useTalkFresh(reload: () => Promise<void>) {
         sampleListeners.delete(reload)
       }
     }
-    const off = Events.On(EventTalkChanged, () => void reload())
+    const off = Events.OnShown(EventTalkChanged, () => void reload())
     const onFocus = () => void reload()
     window.addEventListener("focus", onFocus)
     return () => {
