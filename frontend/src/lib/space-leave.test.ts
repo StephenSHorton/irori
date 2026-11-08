@@ -29,7 +29,7 @@ const conversations = [
 
 const view = (over: Partial<SpaceView>): SpaceView => ({
   space: "b-a",
-  boardsLoaded: true,
+  spaceKnown: true,
   section: Home,
   open: "",
   card: null,
@@ -162,8 +162,8 @@ describe("no change of the pick", () => {
   test("a reload on a stored pick moves nothing, loaded or not", () => {
     let s = startLeave("b-a")
     for (const over of [
-      { boardsLoaded: false, threads: [], threadsLoading: true },
-      { boardsLoaded: true, threads: [], threadsLoading: true },
+      { spaceKnown: false, threads: [], threadsLoading: true },
+      { spaceKnown: true, threads: [], threadsLoading: true },
       {},
     ]) {
       const r = stepLeave(s, view({ section: talk("mine"), ...over }))
@@ -214,15 +214,26 @@ describe("a switch before the lists are in", () => {
     ).toEqual([null])
   })
 
-  test("waits for the boards before trusting a shared pick", () => {
+  test("waits until the boards hold a shared pick", () => {
     const section = talk("mine")
     expect(
       steps(
         startLeave(Personal),
-        { section, boardsLoaded: false },
-        { section, boardsLoaded: true }
+        { section, spaceKnown: false },
+        { section, spaceKnown: true }
       )
     ).toEqual([null, Landing])
+  })
+
+  test("a left space's id back from an emptied list moves nothing", () => {
+    const section = talk("mine")
+    expect(
+      steps(
+        startLeave(AllSpaces),
+        { section, spaceKnown: false, space: "b-gone" },
+        { section, spaceKnown: false, space: "b-gone" }
+      )
+    ).toEqual([null, null])
   })
 
   test("a shared pick that turns out stale falls to All: stays", () => {
@@ -230,8 +241,8 @@ describe("a switch before the lists are in", () => {
     expect(
       steps(
         startLeave(Personal),
-        { section, boardsLoaded: false, space: "b-gone" },
-        { section, boardsLoaded: true, space: AllSpaces }
+        { section, spaceKnown: false, space: "b-gone" },
+        { section, spaceKnown: true, space: AllSpaces }
       )
     ).toEqual([null, null])
   })

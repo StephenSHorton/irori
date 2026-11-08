@@ -661,9 +661,9 @@ export function App() {
       if (id === space) return
       setSpace(id)
       if (section.kind === "boards") replace(boardsFor(id))
-      else if (onBoards(section)) go(boardsFor(id))
+      else if (onBoards(section)) (open ? replace : go)(boardsFor(id))
     },
-    [space, setSpace, section]
+    [space, setSpace, section, open]
   )
   // A known space: Personal, or a shared one the boards list has. Until
   // the list loads, useSpace keeps a stored pick it can't check yet.
@@ -697,7 +697,7 @@ export function App() {
   useEffect(() => {
     const { state, changed, to } = stepLeave(leaving.current, {
       space,
-      boardsLoaded,
+      spaceKnown: knownSpace(space),
       section,
       open,
       card: cards.find((c) => c.id === open) ?? detail,
@@ -708,7 +708,8 @@ export function App() {
       conversationsLoading,
     })
     leaving.current = state
-    if (changed && leftHomeFilter(filter, space)) pickHomeFilter("all")
+    if (changed && knownSpace(space) && leftHomeFilter(filter, space))
+      pickHomeFilter("all")
     if (to) replace(to)
   })
   const onPaletteBoard = useCallback(

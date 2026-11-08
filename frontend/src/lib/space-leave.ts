@@ -8,15 +8,17 @@
 // the decision waits for them: nothing moves while membership is unknown.
 
 import { boardsFor, onBoards, type Section } from "./nav"
-import { AllSpaces, Personal, cardInSpace, convInSpace } from "./spaces"
+import { AllSpaces, cardInSpace, convInSpace } from "./spaces"
 
 type Conv = Parameters<typeof convInSpace>[0]
 
 // SpaceView is what the window shows and what it knows, at one render.
 export type SpaceView = {
   space: string
-  // The first read of the boards has ended: a shared pick can be trusted.
-  boardsLoaded: boolean
+  // The pick is one the boards list holds (or Personal). useSpace keeps a
+  // shared id it can't check while the list is empty, even a space since
+  // left, so a loaded list isn't enough to trust it.
+  spaceKnown: boolean
   section: Section
   // The open card's id, "" for none.
   open: string
@@ -96,8 +98,7 @@ export function stepLeave(
   // All spaces holds everything; a pick undone before it could act is no
   // switch at all.
   if (v.space === AllSpaces || v.space === pending.from) return done
-  const verified = v.boardsLoaded || v.space === Personal
-  const to = verified ? leaveTarget(v) : Wait
+  const to = v.spaceKnown ? leaveTarget(v) : Wait
   if (to === Wait)
     return { state: { space: v.space, pending }, changed, to: null }
   return { ...done, to }
