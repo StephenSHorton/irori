@@ -1884,7 +1884,9 @@ export function CommentBox({
             >
               {busy ? "Sending…" : "Send"}
             </Button>
-            {!reply && <SendPicker how={how} onChange={setHow} disabled={busy} />}
+            {!reply && (
+              <SendPicker how={how} onChange={setHow} disabled={busy} />
+            )}
           </span>
         </span>
       </div>
@@ -1940,7 +1942,7 @@ function SendPicker({
         disabled={disabled}
         aria-label={`How it is sent: ${now.label}`}
         title={now.why}
-        className="inline-flex h-8 items-center gap-1 box-border rounded-r-lg border border-l-0 border-border bg-transparent px-2 text-xs font-medium whitespace-nowrap text-foreground outline-none hover:bg-accent hover:text-accent-foreground aria-expanded:bg-accent focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
+        className="box-border inline-flex h-8 items-center gap-1 rounded-r-lg border border-l-0 border-border bg-transparent px-2 text-xs font-medium whitespace-nowrap text-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset disabled:opacity-50 aria-expanded:bg-accent"
       >
         {now.label}
         <ChevronDownIcon className="size-3.5" />
