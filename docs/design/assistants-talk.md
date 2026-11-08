@@ -1,6 +1,6 @@
 # Office Assistants talking across people: design
 
-*2026-11-08, card #1030, from the person's idea on thread #1021. Design only: nothing here is built yet. Build cards are in §12. Checked against main by five adversarial reviews (identity, leaks, delivery, buildability, consistency), then a second pass on the revision. What they found is folded in.*
+*2026-11-08, card #1030, from the person's idea on thread #1021. Design only: nothing here is built yet. Build cards are in §12, and mockups of what people see are in §15. Checked against main by five adversarial reviews (identity, leaks, delivery, buildability, consistency), then a second pass on the revision. What they found is folded in.*
 
 The idea, in the person's words: "Maybe office assistants can communicate with other people's office assistants", to agree on who should review a PR, or because "I need to ask addam some questions, maybe office assistants already have that info". "Would want this to be legit though", and "We don't have to go hard on this. just an idea."
 
@@ -86,7 +86,7 @@ A random id can't be claimed ahead of time, and the pointer needs no change to t
 - The kind and name come only from rows written by that person's devices. `fold_card` keeps, per card, the newest row by `ev.hlc` whose writer is a device of `card_person(id)`, for the label and for mentions. Today it keeps the last row to arrive. `card_of` can change after a row is kept (a person's first device certifies late), so the map is refolded when it does. Every reader of `maps.cards` (roster_of, offers, presence, space names, `board_mentionables`, `send_to`) then sees the same filtered map.
 - Show "Juno · Addam's assistant", or just "Addam's assistant" for a default name, through #1045's `assistant-label.ts`, and only when that kind is `assistant` *and* the owner's profile points at the card. Card 3 adds that check around the helper rather than building a second label.
 - A card merely *named* "Addam's assistant" that fails either test shows as an ordinary agent ("Addam's assistant · Eve", agent tag).
-- Talk's member mapping keeps the member kind `agent`, so a typed mention still turns Agents answer now on (`agentsNowFor`), and adds an `assistant` flag. `conversation.tsx` shows an `assistant` tag.
+- Talk's member mapping keeps the member kind `agent`, so a typed mention still turns Agents answer now on (`agentsNowFor`), and adds an `assistant` flag. `conversation.tsx` shows an `assistant` tag. Under an assistant's post with `replyTo`, Talk shows one muted line: "Answered from what is on mlg · replying to Eve", or for a waiting line "Waiting on Sam · replying to sample-otter". It says plainly that the answer is a reading of the space, not the owner's word (§3, What the label proves).
 
 Two members can share a profile name. Eve can rename herself "Addam", and then her assistant also shows as "Addam's assistant". This is the same for people's own names today: the tag colour and avatar tell them apart, and the hover card shows the person.
 
@@ -288,7 +288,7 @@ For example:
 
 - **Let it answer** runs the tool-less turn (§5) on the device where it was tapped, if that device can run it, through a new Tauri command and a Core entry point, `Services::answer_now(board, post_id)`. A person's tap skips §5's home check, the waiting-line check, the rate limit, the hour and the receive setting, since the owner chose it. It keeps the author and channel check, the answer-id check (so a second tap elsewhere does nothing), the hop limit, the scrub and the cap.
 - **Answer this** is §7.
-- A phone shows the line with neither button, since it can't run either turn, and offers Open in Talk.
+- A phone shows the line with neither button, since it can't run either turn. In their place it says "Answer from your computer" or "Let it answer from your computer", beside Open in Talk.
 
 **Rendering.** A `from` line has its own branch in `Entry`, before the reply branch:
 
@@ -415,7 +415,8 @@ A real Haiku run is shown answering a question from the packet.
 Files: `frontend/src/lib/assistant.ts` (`from`, `parseHistory`, `historyFor`, `capKeeping`, `capHistory`), new `frontend/src/lib/assistant-talk-follow.ts`, `frontend/src/components/assistant/assistant-chat.tsx` (the `from` branch, the buttons), `crates/window/src/commands.rs` (a host call for the person's `assistantCard` per space; Let it answer), `crates/core/src/service.rs` (`answer_now`, the `needs` toast, the `held` event), `frontend/src/App.tsx` (the `assistant` target).
 Done when:
 - Tests show the line surviving a reload past #1000's filter with `from` intact, no draft or go button, and not in `historyFor`; `asked` and `held` lighting no dot; an unanswered `needs` kept through the cap; Let it answer passing the receive setting but not a second answer.
-- There are screenshots at desktop and phone width.
+- Talk shows the muted "Answered from what is on … · replying to …" line under an assistant's answer, and "Waiting on …" under a waiting line (`frontend/src/components/talk/*`).
+- There are screenshots at desktop and phone width, matching §15's mockups.
 - A two-instance scratch run shows an `answer` line for a question typed in the channel, and a `needs` line under Ask me that Let it answer clears.
 
 **7. Ask from your chat.**
@@ -451,3 +452,13 @@ Two behaviours that look like bugs, neither of them this card's:
 
 - `talk_post`'s spec says mentioning "person" notifies their phone. In a space channel, `board_key` refuses `user` and `map_talk_keys` silently drops the mention.
 - The assistant's `events` tool ignores the caller and can list Personal channel posts. It's the person's own data, but the `talk_*` tools were left out, so it may be a surprise.
+
+## 15. Mockups
+
+These show what people see, made for the person's review of this design. Nothing is built yet: each is the real preview (`bun run preview:look`) with its page edited in a headless Chrome to show this design's content, so the styles are the app's own and the words are this design's. Sam is the viewer, on the shared space mlg; Eve is another member, Juno is Eve's name for her assistant, and sample-otter is Eve's agent.
+
+1. [at-1-channel.png](../img/assistants-talk/at-1-channel.png): `#office-assistants`, pinned first. Eve asks Sam's assistant, and it answers from what is on mlg. Eve's agent asks whether Sam can review a PR, and Sam's assistant says it has asked Sam rather than promise Sam's time (D9). Sam asks Juno, Eve's named assistant.
+2. [at-2-channel-phone.png](../img/assistants-talk/at-2-channel-phone.png): the same channel on a phone.
+3. [at-3-chat-lines.png](../img/assistants-talk/at-3-chat-lines.png): Sam's Office Assistant chat (§8, §9). Sam asks from the chat, sees the question before it's sent, then the lines: Juno's answer, the review question that needs Sam (**Answer this**), a question waiting under Ask me (**Let it answer**), and a quiet line for what Sam's assistant said on its own.
+4. [at-4-chat-lines-phone.png](../img/assistants-talk/at-4-chat-lines-phone.png): the same lines on a phone, with no buttons it can't run.
+5. [at-5-owners-ok.png](../img/assistants-talk/at-5-owners-ok.png): after **Answer this** (§7). The turn reads Sam's own cards and drafts an answer; only the exact text shown is sent, and only on **Send**.
