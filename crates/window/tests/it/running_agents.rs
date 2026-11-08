@@ -49,6 +49,19 @@ fn a_shared_space_agent_shows_its_card_and_model_like_a_personal_one() {
         .unwrap()
         .expect("the Personal request was written");
     assert!(co.bind_spawn(&own.id, g, &r.key_b).unwrap());
+    // A Personal card whose agent is still starting.
+    let own_waiting = co
+        .create_task(
+            &person,
+            coord::NewTask {
+                title: "Personal card starting".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    co.request_spawn(&person, ask(&own_waiting.id, &me, "delta", "opus", "max"))
+        .unwrap()
+        .expect("the Personal starting request was written");
 
     // A shared space's card whose agent is alpha: bound on the space as
     // its agent:<cardId>, marked in the person's own log with the space,
@@ -120,5 +133,17 @@ fn a_shared_space_agent_shows_its_card_and_model_like_a_personal_one() {
         "{st:?}"
     );
     assert_eq!((st.model.as_str(), st.effort.as_str()), ("haiku", "low"));
-    assert_eq!(rows.len(), 3, "{rows:?}");
+
+    let pst = row(&rows, &own_waiting.id);
+    assert_eq!(
+        (
+            pst.status.as_str(),
+            pst.card_short.as_str(),
+            pst.model.as_str(),
+            pst.effort.as_str()
+        ),
+        ("starting", "#2", "opus", "max"),
+        "{pst:?}"
+    );
+    assert_eq!(rows.len(), 4, "{rows:?}");
 }
