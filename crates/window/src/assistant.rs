@@ -1068,13 +1068,13 @@ mod tests {
         assert!(!SYSTEM.contains("ask box"));
     }
 
-    // Draft only for new work; reuse a posted thread (card #1016).
+    // A thread only for new work; reuse a posted thread (card #1016).
     #[test]
     fn system_prompt_drafts_only_new_work() {
-        assert!(SYSTEM.contains("Draft a thread only for a clear new piece of work"));
-        assert!(SYSTEM.contains("Never draft for a question, a follow-up, or a tweak"));
-        assert!(SYSTEM.contains("comment on it instead of drafting"));
-        assert!(SYSTEM.contains("ask one short question instead of drafting"));
+        assert!(SYSTEM.contains("Write a thread only for a clear new piece of work"));
+        assert!(SYSTEM.contains("Never write one for a question, a follow-up, or a tweak"));
+        assert!(SYSTEM.contains("say to comment on it instead"));
+        assert!(SYSTEM.contains("ask one short question instead"));
     }
 
     // The chat finds a go line by its start (card #784), and the settings
