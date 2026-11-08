@@ -525,11 +525,12 @@ fn plan_sweep_table() {
     let mut it = ag(st::DELIVERED, "user:dev1", "");
     it.from_person = true;
     it.wind_down = true;
+    // Not closed: a quiet one gets the usual reminder, like any message.
     add(
-        "the person's wind-down, its agent still there: stays",
+        "the person's wind-down, its agent still there: stays open",
         it,
         env(&[], around, &[]),
-        none.clone(),
+        vec![(Act::Remind, "a".into())],
     );
     let mut it = ag(st::QUEUED, "c", "task:T1");
     it.assigned_at = min(60);
