@@ -326,22 +326,13 @@ impl Services {
             self.call_end_bridge(b, ev, &r);
             return;
         }
-        if !r.agents_now || r.conv_id.is_empty() {
+        if r.conv_id.is_empty() {
             return;
         }
         let Some(person) = b.verifier.person_of(&ev.device_id) else {
             return;
         };
         if person.is_empty() || person == self.person_id() {
-            return;
-        }
-        let to: Vec<String> = r
-            .mentions
-            .iter()
-            .filter(|k| k.starts_with(AGENT_ACTOR_PREFIX))
-            .cloned()
-            .collect();
-        if to.is_empty() {
             return;
         }
         // Folded just before; none when the space is leaving Talk here. A
@@ -354,6 +345,36 @@ impl Services {
         else {
             return;
         };
+        // Two copies of one post id from two devices (both of a person's
+        // desktops answered): Talk kept one, and the other wakes nobody.
+        if self
+            .talk
+            .posts(&r.conv_id)
+            .iter()
+            .any(|p| p.post_id == r.post_id && p.device != ev.device_id)
+        {
+            return;
+        }
+        // A question to this person's assistant (assistants-talk.md §5)
+        // goes to the answering path whatever "Agents answer now" says.
+        // Its card is no agent this device hosts, so nothing is woken.
+        let mine = self.my_assistant_key(b);
+        let to: Vec<String> = r
+            .mentions
+            .iter()
+            .filter(|k| k.starts_with(AGENT_ACTOR_PREFIX) && Some(k.as_str()) != mine.as_deref())
+            .cloned()
+            .collect();
+        if let Some(me) = &mine
+            && r.mentions.contains(me)
+            && coord::talk::is_assistants_channel(&ch.id, &b.id)
+            && r.reply_to.as_deref().is_none_or(str::is_empty)
+        {
+            self.assistant_question(b, ev, &r, &person);
+        }
+        if !r.agents_now || to.is_empty() {
+            return;
+        }
         let card_id = ev
             .actor
             .strip_prefix(AGENT_ACTOR_PREFIX)
@@ -390,6 +411,12 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
         };
         let hop = coord::row_hop(&ev.payload);
         self.send_ref(b, &person, &who, hop, p, format!("talk:{}", r.conv_id));
+    }
+
+    /// The board key of this person's assistant card on `b`, if it has one.
+    fn my_assistant_key(&self, b: &BoardLog) -> Option<String> {
+        let card = b.verifier.profile_assistant_card(&self.person_id());
+        (!card.is_empty()).then(|| format!("{AGENT_ACTOR_PREFIX}{card}"))
     }
 
     /// Another person's end of a huddle with a transcript in a space's
@@ -676,7 +703,7 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
         self.inbox.current_hop(&self.private_key(actor))
     }
 
-    fn board_person_name(&self, b: &BoardLog, person: &str) -> String {
+    pub(super) fn board_person_name(&self, b: &BoardLog, person: &str) -> String {
         let mut name = b.verifier.profile(person).unwrap_or_default();
         if name.is_empty()
             && let Some(p) = b.verifier.membership().person(person)

@@ -542,6 +542,15 @@ fn start_core(
                 None => Err("Irori is closing".into()),
             },
         )));
+        // And answers other people's questions to the person's Office
+        // Assistant (assistants talk, card 4), on a runner of its own.
+        let w = Arc::downgrade(&window);
+        core.set_answerer(Some(Arc::new(
+            move |a: &irori_core::thread_names::NameAsk| match w.upgrade() {
+                Some(w) => w.answer_question(a),
+                None => Err("Irori is closing".into()),
+            },
+        )));
     }
     // Spawning is on by default for the private board where agents can
     // start (card #448, decision 1 (a)); his own switch wins.

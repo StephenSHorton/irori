@@ -1977,6 +1977,8 @@ impl Services {
                 logf(format_args!("board {}: assistant card: {e}", b.id));
             }
         }
+        // Questions that came while this wasn't the assistant's computer.
+        self.assistant_home_moved();
     }
 
     /// Rewrites the agent.card of each of this device's agents on every

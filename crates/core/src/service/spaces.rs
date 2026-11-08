@@ -1607,7 +1607,7 @@ impl Services {
     /// device): refused unless the person is an active member and every
     /// device in the space reads space rows (the version gate). A hidden
     /// space takes only what folds into its DM.
-    fn append_space_talk(
+    pub(super) fn append_space_talk(
         &self,
         space_id: &str,
         by: &str,
