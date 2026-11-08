@@ -134,6 +134,8 @@ fn the_device_shell_is_apart_from_cards() {
     r.w.core.terms().close(mine.id).unwrap();
     r.w.core.terms().close(theirs.id).unwrap();
     assert!(r.w.term_device_list().is_empty());
+    // Their bootstrap folders (rsz-zdot-*) go as they exit (card #960).
+    assert!(r.w.core.terms().settle(std::time::Duration::from_secs(20)));
     wait("the shells to leave their folder", || {
         std::fs::remove_dir_all(dir.path()).is_ok()
     });
