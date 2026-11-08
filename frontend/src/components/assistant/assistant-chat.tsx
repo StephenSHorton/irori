@@ -363,6 +363,28 @@ export function AssistantPanel({
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" })
   }, [last, growing, posted])
+  // Card chips fill in after the text lays out, growing it: while the
+  // person is at the end, it stays at the end.
+  const scroller = useRef<HTMLDivElement>(null)
+  const list = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const box = scroller.current
+    const inner = list.current
+    if (!box || !inner) return
+    let atEnd = true
+    const onScroll = () => {
+      atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 48
+    }
+    const grew = new ResizeObserver(() => {
+      if (atEnd) box.scrollTop = box.scrollHeight
+    })
+    grew.observe(inner)
+    box.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      grew.disconnect()
+      box.removeEventListener("scroll", onScroll)
+    }
+  }, [last])
 
   const busy = !!reply
   const send = (t: string) => {
@@ -428,6 +450,7 @@ export function AssistantPanel({
       </header>
 
       <div
+        ref={scroller}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3"
         aria-live="polite"
         aria-busy={busy}
@@ -435,7 +458,7 @@ export function AssistantPanel({
         {!entries.length && !reply ? (
           <Starters onPick={send} />
         ) : (
-          <div className="flex flex-col gap-4">
+          <div ref={list} className="flex flex-col gap-4">
             {entries.map((e, i) => (
               <Entry key={i} entry={e} onPost={() => onPost(i)} />
             ))}
@@ -624,7 +647,8 @@ function DraftThread({
       <p className="text-[11.5px] font-medium tracking-wide text-muted-foreground uppercase">
         Draft thread
       </p>
-      <div className="text-[13px]">
+      {/* A long draft scrolls in its box, so Post thread stays in reach. */}
+      <div className="max-h-44 overflow-y-auto overscroll-contain text-[13px]">
         <RichText text={draft} />
       </div>
       {posted ? (
