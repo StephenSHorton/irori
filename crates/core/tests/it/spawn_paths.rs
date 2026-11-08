@@ -969,3 +969,21 @@ fn an_agent_ended_without_answering_closes_its_wind_down() {
             .is_some_and(|x| x.state == inbox::st::SKIPPED)
     });
 }
+
+/// Card #787: while Stop everywhere is on, an agent's agents_pause off is
+/// refused, so its device starts nothing until the person turns it off.
+#[test]
+fn an_agent_cant_lift_stop_everywhere() {
+    let s = bound();
+    let me = s.r.core.device_id().to_string();
+    s.r.core.wind_down_pause(&[me.clone()]).unwrap();
+    let said = tool_as_a(&s, "agents_pause", serde_json::json!({ "on": false }));
+    assert!(said.contains("Stop everywhere is on"), "{said}");
+    assert!(s.r.core.agents_pause().on, "still paused");
+    assert!(s.r.core.agents_paused_on(&me));
+    // The person's Off lifts it.
+    s.r.core.wind_down_lift().unwrap();
+    assert!(!s.r.core.agents_paused_on(&me));
+    let said = tool_as_a(&s, "agents_pause", serde_json::json!({}));
+    assert!(said.contains("Pause agents is off"), "{said}");
+}

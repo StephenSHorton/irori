@@ -2831,7 +2831,14 @@ impl Core {
         self.s.pause_by_name(by)
     }
 
-    /// Every device's Pause agents, by device id (card #787).
+    /// Whether device `dev` starts no agents now: its own pause, or Stop
+    /// everywhere's (card #787).
+    pub fn agents_paused_on(&self, dev: &str) -> bool {
+        self.s.agents_paused_on(dev)
+    }
+
+    /// Every device's Pause agents, by device id (card #787), and Stop
+    /// everywhere's own under [`spawn_pause::EVERYWHERE`].
     pub fn agents_pauses(&self) -> std::collections::HashMap<String, spawn_pause::AgentsPause> {
         self.s.agents_pauses()
     }

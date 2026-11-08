@@ -117,12 +117,67 @@ fn off_leaves_a_device_that_was_paused_before() {
     let r = Rig::new();
     r.w.core.set_agents_paused(true).unwrap();
     let st = r.w.wind_down_all().unwrap();
-    // This device's pause is the person's, not Wind down's.
-    assert!(!st.on, "{st:?}");
-    r.w.wind_down_off().unwrap();
+    // Every device was paused already: the switch still reads on.
+    assert!(st.on && st.since > 0, "{st:?}");
     let p = r.w.core.agents_pause();
-    assert!(p.on, "still paused, as before Wind down");
+    assert!(
+        !irori_core::spawn_pause::by_wind_down(&p.by),
+        "kept as it was"
+    );
+    let st = r.w.wind_down_off().unwrap();
+    assert!(!st.on, "{st:?}");
+    let p = r.w.core.agents_pause();
+    assert!(p.on, "still paused, as before Stop everywhere");
     assert!(!irori_core::spawn_pause::by_wind_down(&p.by));
+}
+
+/// Start here while Stop everywhere is on: this device's pause goes, but
+/// Stop everywhere still holds it, so its wind-downs stay and nothing
+/// starts until Start everywhere.
+#[test]
+fn start_here_during_stop_everywhere_keeps_it_stopped() {
+    let r = Rig::new();
+    let ib = r.w.core.inbox();
+    let me = r.w.core.device_id().to_string();
+    let st = r.w.wind_down_all().unwrap();
+    let ids: Vec<String> = st.rows.iter().map(|x| x.delivery_id.clone()).collect();
+    assert!(!ids.is_empty(), "{st:?}");
+    r.w.agents_pause_set(false).unwrap();
+    assert!(!r.w.core.agents_pause().on, "its own pause went");
+    assert!(
+        r.w.core.agents_paused_on(&me),
+        "Stop everywhere still holds it"
+    );
+    let st = r.w.wind_down_status();
+    assert!(st.on && !st.off, "{st:?}");
+    for id in &ids {
+        assert_ne!(ib.get(id).unwrap().state, inbox::st::SKIPPED, "{id}");
+    }
+    r.w.wind_down_off().unwrap();
+    assert!(!r.w.core.agents_paused_on(&me));
+}
+
+/// Start everywhere leaves this machine's Stop here run as it is: it goes
+/// on, and only Start here ends it.
+#[test]
+fn start_everywhere_leaves_a_stop_here_run() {
+    let r = Rig::new();
+    let ib = r.w.core.inbox();
+    r.w.agents_pause_set(true).unwrap();
+    let ids: Vec<String> =
+        r.w.wind_down_status()
+            .rows
+            .iter()
+            .map(|x| x.delivery_id.clone())
+            .collect();
+    assert!(!ids.is_empty());
+    let st = r.w.wind_down_off().unwrap();
+    assert_eq!(st.scope, irori_window::wind_down::SCOPE_DEVICE);
+    assert!(!st.off, "{st:?}");
+    assert!(r.w.core.agents_pause().on);
+    for id in &ids {
+        assert_ne!(ib.get(id).unwrap().state, inbox::st::SKIPPED, "{id}");
+    }
 }
 
 #[test]

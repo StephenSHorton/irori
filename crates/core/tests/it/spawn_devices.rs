@@ -1652,3 +1652,29 @@ fn wind_down_holds_another_device_and_off_lifts_only_what_it_set() {
     );
     t2.close();
 }
+
+/// Stop here (card #787): the PC stopped starts nothing itself, and the
+/// card it would have started (one its agent left, or a new one) goes to
+/// the Mac, which has a free slot.
+#[test]
+fn a_stopped_device_hands_its_cards_to_one_with_a_free_slot() {
+    let t2 = Two::new();
+    let b_id = t2.b_id();
+    t2.spawner_b();
+    t2.spawner_a();
+    t2.a_sees_b_host(true);
+    t2.a.core.set_agents_paused(true).unwrap();
+    let t = t2.card("Moves to the Mac while the PC is stopped");
+    t2.spawning_on_a();
+    wait_for(WAIT, "the Mac starts it", || {
+        t2.a.core.set_spawn_cap(t2.a.core.spawn_cap()).unwrap();
+        t2.fb.started() == 1
+    });
+    assert_eq!(t2.fa.started(), 0, "nothing starts on the stopped PC");
+    assert!(
+        t2.on_a(&t.id)
+            .spawn_request()
+            .is_some_and(|s| s.device == b_id)
+    );
+    t2.close();
+}

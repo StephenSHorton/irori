@@ -39,8 +39,8 @@ const when = (ms: number) =>
 // Start everywhere (any time, mid-run too), and lists each agent live,
 // with Stop for one that doesn't answer. When the latest run is this
 // machine's Stop here (scope "device"), it is that run's dialog: titled
-// Stop here, with Start here while it is on, and Stop everywhere still on
-// offer.
+// Stop here with Start here while Stop here is on, and Stop everywhere
+// still on offer.
 // Its words are in lib/stop-labels.ts.
 export function WindDownDialog({
   agents,
@@ -70,7 +70,7 @@ export function WindDownDialog({
       <DialogContent className="gap-3 sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
-            {deviceRun ? L.here.name : L.everywhere.name}
+            {hereOn ? L.here.name : L.everywhere.name}
           </DialogTitle>
           <DialogDescription>{L.how}</DialogDescription>
         </DialogHeader>

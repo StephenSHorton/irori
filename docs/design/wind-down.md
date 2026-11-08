@@ -32,15 +32,15 @@ A wind-down is a person's message with reason `wind_down` (`inbox::REASON_WIND_D
 
 **On** (`Window::wind_down_all()`, no scope: every device that can run agents, and every device with a live agent):
 
-1. **Starts stop first.** Pause agents (#665, `spawn_pause.rs`) turns on for each device, written by this device for the others (the `spawn.cap` row replicates; each device reads it at its next sweep, every 5 s). Its `by` is `winddown:<this device id>` (`spawn_pause::WIND_DOWN_BY_PREFIX`), not `user:…`, so Off can tell Wind down's pauses from the person's. A device already paused keeps its pause and its `by`. So no fresh agent takes a card the wound-down agents leave, on any device: nothing starts anywhere until Off.
+1. **Starts stop first.** Stop everywhere's own pause goes on: a pause row for the reserved device `everywhere` (`spawn_pause::EVERYWHERE`, `paused:everywhere`; device ids are hex, so it names none). While it is on, no device starts an agent, whatever its own pause says: a device that joins later, or one whose own pause was lifted (Start here, or an agent's `agents_pause` off, which is refused while it is on). Then Pause agents (#665, `spawn_pause.rs`) turns on for each device, so an older Irori holds its starts too, written by this device for the others (the `spawn.cap` row replicates; each device reads it at its next sweep, every 5 s). Its `by` is `winddown:<this device id>` (`spawn_pause::WIND_DOWN_BY_PREFIX`), not `user:…`, so Off can tell Wind down's pauses from the person's. A device already paused keeps its pause and its `by`. So no fresh agent takes a card the wound-down agents leave, on any device: nothing starts anywhere until Off.
 2. **Then the wind-downs** (§1), one per live agent on every device, as a run.
 
-**The switch's state** is read from the pause rows, not kept in the window: Wind down is on while any device's Pause agents is on with a `winddown:` `by` (`WindDownStatus.on`, with `since` and the `devices` it holds). So every device shows it, and it outlives a restart (the run's rows don't: they are this device's memory).
+**The switch's state** is read from the pause rows, not kept in the window: Stop everywhere is on while its own `everywhere` pause is on, or (from an older Irori) any device's Pause agents is on with a `winddown:` `by` (`WindDownStatus.on`, with `since` and the `devices` it paused). It reads on even when every device was paused before it went on. So every device shows it, and it outlives a restart (the run's rows don't: they are this device's memory).
 
 **Off** (`Window::wind_down_off()`), at any time, including mid-run:
 
 1. Every open wind-down that hasn't reached its agent (queued or held) closes as skipped with `inbox::NOTE_WIND_DOWN_OFF` (`Inbox::cancel_wind_down`). One another device hosts is asked of its host (`delivery.decided`, choice `cancel`); an older Irori ignores the ask and winds that agent down anyway. A wind-down already delivered is left: its agent is winding down and finishes.
-2. Every pause with a `winddown:` `by` lifts, on every device: one switch for the person. A pause the person (or an agent) set stays.
+2. Every pause with a `winddown:` `by` lifts, on every device, then the `everywhere` pause: one switch for the person. A pause the person (or an agent) set stays. A Stop here run on this machine is left going: only Start here ends it.
 3. Lifting kicks the sweep: the cards the agents left start in queue order.
 
 **Pause all after is gone** (it was on by default): Pause agents on every device covers "nothing starts", and the old Pause all switch has left the app (above).

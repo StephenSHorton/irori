@@ -211,11 +211,11 @@ impl Window {
     fn cancel_unpaused(&self) -> Vec<String> {
         let ib = self.core.inbox();
         let by = self.core.user_sender().key;
-        let pauses = self.core.agents_pauses();
         let mut errs = vec![];
         for d in ib.open_wind_downs() {
             let dev = irori_identity::owner::device_of(&d.to);
-            if pauses.get(dev).is_some_and(|p| p.on) {
+            // Its own pause, or Stop everywhere's, still holds it.
+            if self.core.agents_paused_on(dev) {
                 continue;
             }
             if let Err(e) = ib.cancel_wind_down(&d.id, &by) {
@@ -243,6 +243,7 @@ impl Window {
             .unwrap_or_else(|e| e.into_inner())
             .run
             .as_mut()
+            && run.st.scope == SCOPE_ALL
         {
             run.st.off = true;
         }
@@ -297,19 +298,24 @@ impl Window {
         Ok(())
     }
 
-    /// The switch, read from every device's Pause agents (card #787).
+    /// The switch, read from Stop everywhere's own pause and every
+    /// device's Pause agents (card #787).
     fn wind_down_switch(&self, st: &mut WindDownStatus) {
-        let mut on: Vec<(String, irori_core::spawn_pause::AgentsPause)> = self
-            .core
-            .agents_pauses()
+        use irori_core::spawn_pause::{EVERYWHERE, by_wind_down};
+        let mut pauses = self.core.agents_pauses();
+        let all = pauses.remove(EVERYWHERE).filter(|p| p.on);
+        let mut on: Vec<(String, irori_core::spawn_pause::AgentsPause)> = pauses
             .into_iter()
-            .filter(|(_, p)| p.on && irori_core::spawn_pause::by_wind_down(&p.by))
+            .filter(|(_, p)| p.on && by_wind_down(&p.by))
             .collect();
         on.sort_by(|a, b| a.0.cmp(&b.0));
-        st.on = !on.is_empty();
-        st.since = on
+        // Its own pause is the switch; a device's alone is from an Irori
+        // before it (or a lift that half-failed), still lifted by Off.
+        st.on = all.is_some() || !on.is_empty();
+        st.since = all
             .iter()
-            .map(|(_, p)| p.since.unix_milli_value())
+            .chain(on.iter().map(|(_, p)| p))
+            .map(|p| p.since.unix_milli_value())
             .min()
             .unwrap_or(0);
         st.devices = on
