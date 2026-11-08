@@ -49,13 +49,30 @@ pub fn watch_power<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
         let Some(core) = core_of(&app) else { return };
         match c {
             sys::power::Change::WillSleep => {
+                core.away_blur();
                 core.sync_out(SLEEP);
             }
-            sys::power::Change::Woke => core.kick_sync(),
+            sys::power::Change::Woke => {
+                core.away_woke();
+                core.kick_sync();
+            }
         }
     }));
     if let Err(e) = r {
         irori_core::log(&format!("irori: sleep and wake: {e}"));
+    }
+}
+
+/// The person coming to or leaving the desktop window (card #786).
+#[cfg(desktop)]
+pub fn on_attention<R: tauri::Runtime>(app: &tauri::AppHandle<R>, ev: &tauri::WindowEvent) {
+    let Some(core) = core_of(app) else { return };
+    match ev {
+        tauri::WindowEvent::Focused(true) => core.away_focus(),
+        tauri::WindowEvent::Focused(false) | tauri::WindowEvent::CloseRequested { .. } => {
+            core.away_blur()
+        }
+        _ => {}
     }
 }
 

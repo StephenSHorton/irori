@@ -55,6 +55,7 @@ use crate::notice;
 use crate::timers::{self, Kick, Ticker};
 use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
+pub mod away;
 pub mod boards;
 mod boards_members;
 mod boards_own;
@@ -352,6 +353,7 @@ struct Services {
     /// Irori tidying the person's board (card #786).
     tidying: tidy::Tidying,
     /// Irori linking duplicate cards (card #786).
+    awaying: away::Awaying,
     duping: dupes::Duping,
     /// The themes new agents' names come from (card #702), shared with
     /// `names`.
@@ -1240,6 +1242,7 @@ impl Core {
         let call_settings = call_settings::CallSettings::load(&st);
         let naming = thread_names::Naming::load(&st);
         let tidying = tidy::Tidying::load(&st);
+        let awaying = away::Awaying::load(&st);
         let duping = dupes::Duping::load(&st);
         let co = Arc::new(
             Coord::new(
@@ -1597,6 +1600,7 @@ impl Core {
             call_settings,
             naming,
             tidying,
+            awaying,
             duping,
             name_themes,
             invites,
@@ -2022,6 +2026,7 @@ impl Core {
                         s.follow_names_on();
                         s.follow_tidy_on();
                         s.follow_dupes_on();
+                        s.follow_away_on();
                     } else if ev.kind == kinds::ASSISTANT_NAMES_SET {
                         // Another device's "Name new threads" (card #782).
                         s.follow_names_on();
@@ -2031,6 +2036,9 @@ impl Core {
                     } else if ev.kind == kinds::ASSISTANT_DUPES_SET {
                         // Another device's "Link duplicate cards" (card #786).
                         s.follow_dupes_on();
+                    } else if ev.kind == kinds::ASSISTANT_AWAY_SET {
+                        // Another device's "While you were away" (card #786).
+                        s.follow_away_on();
                     } else if ev.kind == kinds::TRANSCRIBE_SET {
                         // Another device's switch (card #656).
                         s.follow_call_settings();
@@ -2372,6 +2380,7 @@ impl Core {
         if self.closed.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
+        self.s.away_flush();
         if let Some(w) = self.watch.lock().unwrap_or_else(|e| e.into_inner()).take() {
             w.stop();
         }
@@ -2785,6 +2794,38 @@ impl Core {
     /// The person turns "Tidy the board" on or off, from the app only.
     pub fn set_tidy_on(&self, on: bool) -> Result<(), String> {
         self.s.set_tidy_on(on)
+    }
+
+    /// "While you were away" (card #786): on unless the person turned it
+    /// off.
+    pub fn away_on(&self) -> bool {
+        self.s.away_on()
+    }
+
+    /// Turns "While you were away" on or off on all the person's devices.
+    pub fn set_away_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_away_on(on)
+    }
+
+    /// The desktop window got the person: a focus, or a show (card #786).
+    pub fn away_focus(&self) {
+        self.s.away_focus()
+    }
+
+    /// The desktop window lost the person, or the machine is going to sleep.
+    pub fn away_blur(&self) {
+        self.s.away_blur()
+    }
+
+    /// The machine woke. Only makes the next focus a return; nobody may
+    /// be there, so it is never one by itself.
+    pub fn away_woke(&self) {
+        self.s.away_woke()
+    }
+
+    /// The summary for the newest return, once (a reload gets nothing).
+    pub fn away_take(&self) -> Option<away::AwaySummary> {
+        self.s.away_take()
     }
 
     /// "Link duplicate cards" (card #786): on unless the person turned it
@@ -4905,6 +4946,7 @@ impl Services {
     }
 
     fn sweep_coord(self: &Arc<Self>) -> Result<(), String> {
+        self.away_tick();
         check_branch_waits(&self.coord);
         self.check_board_waits();
         self.sweep_where();

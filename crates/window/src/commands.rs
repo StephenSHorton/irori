@@ -1803,6 +1803,27 @@ pub async fn assistant_tidy_set(w: W<'_>, on: bool) -> R<()> {
     blocking(&w, move |w| w.assistant_tidy_set(on)).await
 }
 
+/// "While you were away" (#786): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_away(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_away())).await
+}
+
+/// Turns "While you were away" on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_away_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_away_set(on)).await
+}
+
+/// The summary for the person's return, once (#786).
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_away_take(w: W<'_>) -> R<Option<crate::call::AwaySummary>> {
+    blocking(&w, |w| Ok(w.assistant_away_take())).await
+}
+
 /// "Link duplicate cards" (#786): on unless turned off.
 #[tauri::command]
 #[specta::specta]
@@ -2438,6 +2459,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_names_set,
             assistant_tidy,
             assistant_tidy_set,
+            assistant_away,
+            assistant_away_set,
+            assistant_away_take,
             assistant_dupes,
             assistant_dupes_set,
             board_undo_did,

@@ -6,6 +6,7 @@
 mod agent_starts;
 mod agentnames;
 mod ask_spawn;
+mod assistant_away;
 mod assistant_dupes;
 mod assistant_names;
 mod assistant_tidy;

@@ -124,7 +124,7 @@ const SINCE_GO: [&str; 29] = [
 /// history, card #377; spawned agents, card #446; the sides a device
 /// runs, card #494; spawning across the person's devices, card #455; a
 /// hidden DM space's marker, card #538; the names themes, card #702).
-const SINCE_GO_REFUSED: [&str; 31] = [
+const SINCE_GO_REFUSED: [&str; 32] = [
     kinds::AGENT_OFFER,
     kinds::SPAWN_HOST,
     kinds::SPAWN_END_REQUESTED,
@@ -160,12 +160,13 @@ const SINCE_GO_REFUSED: [&str; 31] = [
     // "Tidy the board" and what Irori did (card #786).
     kinds::ASSISTANT_TIDY_SET,
     kinds::ASSISTANT_DUPES_SET,
+    kinds::ASSISTANT_AWAY_SET,
     kinds::ASSISTANT_DID,
 ];
 
 /// Device-local kinds added after the Go port: the last hello this device
 /// heard from each other device on a board (card #577).
-const SINCE_GO_LOCAL: [&str; 1] = [kinds::BOARD_HELLO];
+const SINCE_GO_LOCAL: [&str; 2] = [kinds::BOARD_HELLO, kinds::ASSISTANT_ATTENTION];
 
 #[test]
 fn kinds_registry_matches_go() {

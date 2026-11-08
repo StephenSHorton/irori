@@ -228,6 +228,9 @@ kinds! {
     /// "Link duplicate cards" (card #786): `{on, by, at}`, actor `user`,
     /// newest wins, none means on. Set in the app only.
     ASSISTANT_DUPES_SET = "assistant.dupes.set" => Replicated, Refuses;
+    /// "While you were away" (card #786): `{on, by, at}`, actor `user`,
+    /// newest wins, none means on. Set in the app only.
+    ASSISTANT_AWAY_SET = "assistant.away.set" => Replicated, Refuses;
     /// What Irori did on the person's own board (card #786): a record the
     /// card's thread shows, with an Undo. `{id, taskId?, job, key, text,
     /// blockerId?, resource?, holder?, by, at, undo?}`. A deterministic id
@@ -395,6 +398,9 @@ kinds! {
     /// atMs}`: the last hello this device heard from `deviceId` on the
     /// board (card #577).
     BOARD_HELLO = "board.hello" => Local;
+    /// When this device last had the person's attention (card #786):
+    /// `{at}`. A return is measured from it, so a restart counts.
+    ASSISTANT_ATTENTION = "assistant.attention" => Local;
 }
 
 fn index() -> &'static HashMap<&'static str, (Side, Board)> {

@@ -238,6 +238,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
         .on_window_event(|w, ev| {
             #[cfg(mobile)]
             sync_out::on_window(w, ev);
+            // Coming back to the window (card #786): desktop only.
+            #[cfg(desktop)]
+            if w.label() == MAIN {
+                sync_out::on_attention(w.app_handle(), ev);
+            }
             // Go hooks WindowClosing: hide and cancel (gui.go:136-148).
             if w.label() == MAIN
                 && let WindowEvent::CloseRequested { api, .. } = ev
@@ -736,6 +741,11 @@ pub fn show(app: &AppHandle) {
     }
     if let Some(w) = app.get_webview_window(MAIN) {
         let _ = w.show();
+        #[cfg(desktop)]
+        if let Some(core) = app.try_state::<Arc<Core>>() {
+            // Every show is the person coming to the window (card #786).
+            core.away_focus();
+        }
         #[cfg(desktop)]
         let _ = w.unminimize();
         let _ = w.set_focus();

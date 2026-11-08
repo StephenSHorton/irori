@@ -95,6 +95,9 @@ pub(crate) enum Job {
     Tidy(String),
     /// Card #786: does this new card duplicate an open one?
     Dupes(String),
+    /// Card #786: the summary for a return, by when attention last ended
+    /// (in nanoseconds, so a job stays hashable).
+    Away(i64),
 }
 
 /// The naming's state, shared by its two loops.
@@ -356,7 +359,7 @@ impl Services {
         }
         let id = match job {
             Job::Name(id) | Job::Retitle(id) => id,
-            Job::Tidy(_) | Job::Dupes(_) => return false,
+            Job::Tidy(_) | Job::Dupes(_) | Job::Away(_) => return false,
         };
         let Some(t) = self.coord.get_task(id) else {
             return false;
@@ -365,7 +368,7 @@ impl Services {
             return false;
         }
         match job {
-            Job::Tidy(_) | Job::Dupes(_) => false,
+            Job::Tidy(_) | Job::Dupes(_) | Job::Away(_) => false,
             Job::Name(_) => {
                 let age = (self.now)().unix_nano() - t.created_at.unix_nano();
                 t.irori_titled == 0 && age < NEW_FOR_SECS * 1_000_000_000
@@ -406,6 +409,7 @@ impl Services {
                 logf(format_args!("assistant: {id}: not a naming job"));
                 return;
             }
+            Job::Away(_) => return,
             Job::Name(id) => {
                 let Some(t) = self.coord.get_task(id) else {
                     return;
@@ -455,7 +459,7 @@ impl Services {
             }
         };
         let title = match job {
-            Job::Tidy(_) | Job::Dupes(_) => None,
+            Job::Tidy(_) | Job::Dupes(_) | Job::Away(_) => None,
             Job::Name(_) => clean_title(&reply),
             Job::Retitle(_) => retitle_reply(&reply),
         };
@@ -479,6 +483,7 @@ impl Services {
             let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &job {
                 Job::Tidy(id) => self.tidy_run(id),
                 Job::Dupes(id) => self.dupes_run(id),
+                Job::Away(since) => self.away_run(*since),
                 _ => self.names_run(&job),
             }));
             if run.is_err() {

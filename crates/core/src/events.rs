@@ -49,6 +49,8 @@ pub enum Topic {
     Notifications,
     /// Claude usage left changed (`usage:changed`, card #599).
     Usage,
+    /// A coming-back summary is ready (`assistant:away`, card #786).
+    Away,
     /// A call changed: ringing, joined, left, mute, speaking, health
     /// (card #654). `Core::call_snapshot` says what is on now.
     Call,
@@ -76,6 +78,8 @@ pub enum CoreEvent {
     /// (card #599): on every one, as its observed time moves even when
     /// the figures don't.
     Usage,
+    /// A summary for a person coming back is ready to take (card #786).
+    Away,
     /// A call changed (card #654).
     Call,
     /// Events were dropped for this feed: re-read everything it shows.
@@ -95,6 +99,7 @@ impl CoreEvent {
             CoreEvent::Talk => Topic::Talk,
             CoreEvent::Notifications => Topic::Notifications,
             CoreEvent::Usage => Topic::Usage,
+            CoreEvent::Away => Topic::Away,
             CoreEvent::Call => Topic::Call,
             CoreEvent::Resync => return None,
         })

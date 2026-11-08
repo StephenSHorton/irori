@@ -303,6 +303,25 @@ impl Window {
         self.core.set_dupes_on(on)
     }
 
+    /// "While you were away" (card #786): on unless the person turned it
+    /// off.
+    pub fn assistant_away(&self) -> bool {
+        self.core.away_on()
+    }
+
+    /// Turns "While you were away" on or off on all the person's devices.
+    pub fn assistant_away_set(&self, on: bool) -> Result<(), String> {
+        self.core.set_away_on(on)
+    }
+
+    /// The summary for this return, once (a reload gets nothing).
+    pub fn assistant_away_take(&self) -> Option<AwaySummary> {
+        self.core.away_take().map(|s| AwaySummary {
+            id: s.id,
+            lines: s.lines,
+        })
+    }
+
     /// What this device can share: displays, then windows.
     pub fn share_sources(&self) -> Result<Vec<ShareSourceView>, String> {
         Ok(self
@@ -573,4 +592,12 @@ impl<'a> Names<'a> {
 
 fn person_key(id: &str) -> String {
     format!("{}{id}", store::kinds::PERSON_ACTOR_PREFIX)
+}
+
+/// What the person missed, for one return to the window (card #786).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AwaySummary {
+    pub id: String,
+    pub lines: Vec<String>,
 }

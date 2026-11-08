@@ -20,6 +20,7 @@
 //! | `voice:download` | `VoiceDownload` | the speech model's one-time download, about every 1% (#240) |
 //! | `meters:changed` | `MetersSample` | this computer's hardware meters, every 2 s, desktop only (#599, meters.rs) |
 //! | `usage:changed` | `UsageLimits` | coalesced, 250 ms: a session reported Claude usage (#599, usage.rs) |
+//! | `assistant:away` | `{}` | a coming-back summary is ready to take (#786) |
 //! | `call:state` | `CallView` | coalesced, 100 ms: every huddle change, and its health and speaking during one (#654, call.rs) |
 //!
 //! `roster:changed` follows this device's presence only, as Go's
@@ -46,6 +47,9 @@ pub use crate::notifications::EVENT_NOTIFICATIONS_CHANGED;
 pub use crate::settings::EVENT_LAUNCH_AT_LOGIN;
 pub use crate::update::EVENT_UPDATE_STATUS;
 pub use crate::usage::EVENT_USAGE_CHANGED;
+
+/// A coming-back summary is ready: the window takes it (card #786).
+pub const EVENT_ASSISTANT_AWAY: &str = "assistant:away";
 
 pub const EVENT_ROSTER_CHANGED: &str = "roster:changed";
 pub const EVENT_INBOX_CHANGED: &str = "inbox:changed";
@@ -334,6 +338,17 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
             let q = feed.queue().clone();
             coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
                 w.emit(EVENT_USAGE_CHANGED, &w.usage_limits());
+            });
+        }));
+    }
+    {
+        // A coming-back summary is ready (card #786).
+        let (w, stop) = (w.clone(), stop.clone());
+        let feed = w.core.feed(&[Topic::Away]);
+        out.push(spawn("irori-window-away", move || {
+            let q = feed.queue().clone();
+            coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
+                w.emit(EVENT_ASSISTANT_AWAY, &Empty {});
             });
         }));
     }
