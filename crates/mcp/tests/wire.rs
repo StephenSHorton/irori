@@ -496,4 +496,6 @@ fn assistant_without_a_core_offers_only_the_read_list() {
         .collect();
     want.sort();
     assert_eq!(names, want);
+    // Card #1009: the screen tool is among them.
+    assert!(names.contains(&"screen".to_string()));
 }

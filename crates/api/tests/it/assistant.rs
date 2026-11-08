@@ -131,3 +131,36 @@ fn assistant_tool_list_is_exactly_the_read_list() {
     assert_eq!(got, want);
     assert!(specs.iter().all(|s| s["readOnly"] == true), "{specs:?}");
 }
+
+/// Card #1009: `screen` returns what the window last said it shows, and
+/// says so plainly before it has said anything; no agent client lists it.
+#[test]
+fn screen_returns_the_windows_snapshot_and_only_to_the_assistant() {
+    let rig = common::Rig::new();
+    let secret = rig.core.assistant_secret().to_string();
+    let h = [(HEADER_ASSISTANT, secret.as_str())];
+
+    let (code, text) = call(&rig, &h, "screen", json!({}));
+    assert_eq!(code, 200, "{text}");
+    assert!(text.contains("has not said what is on screen"), "{text}");
+
+    rig.core
+        .set_assistant_screen("Page: Home\nIn view: #12 Rename the pineapple");
+    let (code, text) = call(&rig, &h, "screen", json!({}));
+    assert_eq!(code, 200, "{text}");
+    assert_eq!(text, "Page: Home\nIn view: #12 Rename the pineapple");
+
+    // The mod and `irori mcp` for agents never list it.
+    for client in ["claude", "grok", ""] {
+        let out = rig
+            .rt
+            .block_on(
+                rig.client
+                    .call("GET", &format!("/v1/tools?client={client}"), &[], None),
+            )
+            .unwrap();
+        let specs: Vec<Value> = serde_json::from_slice(&out).unwrap();
+        let has = specs.iter().any(|s| s["name"] == "screen");
+        assert_eq!(has, client.is_empty(), "client {client:?}");
+    }
+}

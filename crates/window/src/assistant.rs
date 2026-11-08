@@ -112,6 +112,11 @@ Look things up with the irori tools before answering; never guess. Use search to
 words, show to open one item by its ref, board for what is blocked, working or open, overview for \
 what is live now, and agents for who is running.
 
+Call screen only when the question depends on where the person is: \"this card\", \"this page\", \
+\"what am I looking at\", \"what does this need\". It tells you the page and the card or thread in view; \
+then use show on that card for its details. Never call it for a plain lookup (a search, a card named by \
+its number, who is running), and never to guess where they are.
+
 Answer in a few short sentences or a short list (lines starting with \"- \"), in plain everyday words, \
 with no jargon, ids or hashes. **Bold** is fine; no headings, tables or code blocks. Cite cards as #123 \
 (tag#123 for a space's board) so the person can click them. If nothing matches, say so plainly and \
@@ -234,11 +239,21 @@ pub fn render_prompt(history: &[AssistantTurn], text: &str) -> String {
 pub struct Parser {
     said: bool,
     broke: bool,
+    /// The screen snapshot's label (card #1009), for the `screen` status.
+    look: String,
 }
 
 impl Parser {
     pub fn new() -> Parser {
         Parser::default()
+    }
+
+    /// A parser whose `screen` status names `label` (see [`screen_label`]).
+    pub fn looking(label: &str) -> Parser {
+        Parser {
+            look: label.into(),
+            ..Parser::default()
+        }
     }
 
     /// The event one stdout line makes, if any.
@@ -278,6 +293,10 @@ impl Parser {
                 self.broke = true;
                 let name = tu.get("name").and_then(|n| n.as_str()).unwrap_or("");
                 let null = serde_json::Value::Null;
+                let bare = name.rsplit("__").next().unwrap_or(name);
+                if bare.strip_prefix("irori_").unwrap_or(bare) == "screen" {
+                    return Some(AssistantEvent::tool(&screen_status(&self.look)));
+                }
                 Some(AssistantEvent::tool(&tool_status(
                     name,
                     tu.get("input").unwrap_or(&null),
@@ -300,6 +319,38 @@ impl Parser {
             _ => None,
         }
     }
+}
+
+/// The status line for the `screen` tool (card #1009): "Looking at your
+/// screen: Home, #12 Title" (just the first part when no label is known).
+/// The frontend matches it by [`SCREEN_STATUS`].
+pub fn screen_status(label: &str) -> String {
+    if label.is_empty() {
+        SCREEN_STATUS.into()
+    } else {
+        format!("{SCREEN_STATUS}: {label}")
+    }
+}
+
+/// How the `screen` status begins; the chat keys its "Looked at" line on it.
+pub const SCREEN_STATUS: &str = "Looking at your screen";
+
+/// A snapshot's one-line label (card #1009): the values of its `Page:` and
+/// `In view:` lines, "Home, #12 Title". The snapshot is the window's own
+/// text (frontend/src/lib/assistant-screen.ts).
+pub fn screen_label(snapshot: &str) -> String {
+    let get = |key: &str| {
+        snapshot
+            .lines()
+            .find_map(|l| l.strip_prefix(key))
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    let parts: Vec<String> = [get("Page:"), get("In view:")]
+        .into_iter()
+        .flatten()
+        .collect();
+    short(&parts.join(", "), 90)
 }
 
 /// A short plain status for a tool call: `mcp__irori__irori_search` with
@@ -345,6 +396,7 @@ pub fn tool_status(name: &str, input: &serde_json::Value) -> String {
         "leases" => "Checking what is held".into(),
         "waits" => "Checking waits".into(),
         "events" => "Reading recent activity".into(),
+        "screen" => SCREEN_STATUS.into(),
         _ => "Looking things up".into(),
     }
 }
@@ -410,6 +462,9 @@ pub struct Job {
     /// Irori's read tools through `irori mcp` (the chat); `false` gives
     /// the turn no tools at all (naming a thread, card #782).
     pub tools: bool,
+    /// The screen snapshot's one-line label (card #1009), which the
+    /// "Looking at your screen" status carries; empty when none was sent.
+    pub look: String,
 }
 
 impl Job {
@@ -430,6 +485,7 @@ impl Job {
             claude_config_dir: dev_claude_config_dir(),
             timeout: TIMEOUT,
             tools: true,
+            look: String::new(),
         })
     }
 
@@ -449,6 +505,7 @@ impl Job {
             claude_config_dir: dev_claude_config_dir(),
             timeout: NAMES_TIMEOUT,
             tools: false,
+            look: String::new(),
         })
     }
 
@@ -824,6 +881,7 @@ impl Runner {
         // stdin on its own thread: a long prompt can fill the pipe before
         // the child reads it.
         let prompt = job.prompt.clone();
+        let look = job.look.clone();
         std::thread::spawn(move || {
             if let Some(mut w) = stdin {
                 let _ = w.write_all(prompt.as_bytes());
@@ -858,7 +916,7 @@ impl Runner {
             });
         }
         std::thread::spawn(move || {
-            let mut p = Parser::new();
+            let mut p = Parser::looking(&look);
             let mut ended = false;
             if let Some(out) = stdout {
                 for line in BufReader::new(out).lines() {
@@ -984,10 +1042,23 @@ impl Runner {
 impl crate::Window {
     /// Asks the assistant `text` after `history` (card #783); events come
     /// to `sink`.
-    pub fn assistant_ask(&self, history: &[AssistantTurn], text: &str, sink: Sink) -> u32 {
+    ///
+    /// `screen` is the window's plain-text snapshot of what the person is
+    /// looking at (card #1009): the Core keeps it for the `screen` tool.
+    pub fn assistant_ask(
+        &self,
+        history: &[AssistantTurn],
+        text: &str,
+        screen: &str,
+        sink: Sink,
+    ) -> u32 {
         let prompt = render_prompt(history, text);
-        self.assistant
-            .start(Job::assistant(&self.core, prompt), sink)
+        self.core.set_assistant_screen(screen);
+        let mut job = Job::assistant(&self.core, prompt);
+        if let Ok(j) = job.as_mut() {
+            j.look = screen_label(screen);
+        }
+        self.assistant.start(job, sink)
     }
 
     /// Stops assistant run `id`.
@@ -1086,6 +1157,40 @@ mod tests {
                 AssistantEvent::done(),
             ]
         );
+    }
+
+    #[test]
+    fn screen_status_names_the_page_and_card() {
+        let snap = "Page: Home\nIn view: #12 Rename the board\nOpen: a card";
+        assert_eq!(screen_label(snap), "Home, #12 Rename the board");
+        assert_eq!(screen_label("Page: Talk"), "Talk");
+        assert_eq!(screen_label(""), "");
+        assert_eq!(screen_status(""), "Looking at your screen");
+        assert_eq!(
+            screen_status("Home, #12 Rename the board"),
+            "Looking at your screen: Home, #12 Rename the board"
+        );
+        let mut p = Parser::looking(&screen_label(snap));
+        let ev = p
+            .line(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__irori__irori_screen","input":{}}]}}"#)
+            .unwrap();
+        assert_eq!(
+            ev,
+            AssistantEvent::tool("Looking at your screen: Home, #12 Rename the board")
+        );
+        // Without a label it is the bare line.
+        let evs = parse(&[
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__irori__irori_screen","input":{}}]}}"#,
+        ]);
+        assert_eq!(evs, vec![AssistantEvent::tool("Looking at your screen")]);
+    }
+
+    #[test]
+    fn the_prompt_tells_when_to_call_screen() {
+        assert!(
+            SYSTEM.contains("Call screen only when the question depends on where the person is")
+        );
+        assert!(SYSTEM.contains("Never call it for a plain lookup"));
     }
 
     #[test]
@@ -1231,6 +1336,7 @@ mod tests {
             claude_config_dir: None,
             timeout,
             tools: true,
+            look: String::new(),
         }
     }
 
@@ -1367,6 +1473,7 @@ mod tests {
             claude_config_dir: None,
             timeout: NAMES_TIMEOUT,
             tools: false,
+            look: String::new(),
         }
     }
 
