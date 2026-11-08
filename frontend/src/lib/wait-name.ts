@@ -35,6 +35,7 @@ function words(seg: string): string {
 function family(stem: string): string {
   const check = /^check\/([^/]+)\/slot$/.exec(stem)
   if (check) return `check slot on ${check[1]}`
+  if (/^heavy\/[^/]+\/slot$/.test(stem)) return "heavy slot"
   const parts = stem.split("/")
   return words(parts[parts.length - 1])
 }
@@ -54,6 +55,7 @@ function repoName(key: string): string {
 function member(stem: string, n: string): string {
   const check = /^check\/([^/]+)\/slot$/.exec(stem)
   if (check) return `check slot ${n} on ${check[1]}`
+  if (/^heavy\/[^/]+\/slot$/.test(stem)) return `heavy slot ${n}`
   return `${family(stem)} ${n}`
 }
 

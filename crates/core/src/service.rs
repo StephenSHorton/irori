@@ -421,6 +421,9 @@ impl tools::Attacher for ToolsView {
 }
 
 impl tools::Backend for ToolsView {
+    fn device_id(&self) -> String {
+        self.0.device.id.clone()
+    }
     fn agents(&self) -> Vec<presence::AgentCard> {
         self.0
             .roster
