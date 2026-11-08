@@ -22,7 +22,9 @@ pub struct Space {
 
 /// Case-insensitive order, as `localeCompare` sorts names.
 pub fn name_order(a: &str, b: &str) -> std::cmp::Ordering {
-    a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a.cmp(b))
+    a.to_lowercase()
+        .cmp(&b.to_lowercase())
+        .then_with(|| a.cmp(b))
 }
 
 /// The switcher's list: All spaces, Personal, then each shared space by name.
@@ -41,14 +43,21 @@ pub fn spaces_of(boards: &[BoardSummary]) -> Vec<Space> {
             others: vec![],
         },
     ];
-    out.extend(shared.into_iter().map(|b| Space {
-        id: b.board_id.clone(),
-        name: [&b.name, &b.tag]
-            .into_iter()
-            .find(|s| !s.is_empty())
-            .cloned()
-            .unwrap_or_else(|| "(unnamed)".into()),
-        others: b.members.iter().filter(|m| !m.me).map(|m| m.name.clone()).collect(),
+    out.extend(shared.into_iter().map(|b| {
+        Space {
+            id: b.board_id.clone(),
+            name: [&b.name, &b.tag]
+                .into_iter()
+                .find(|s| !s.is_empty())
+                .cloned()
+                .unwrap_or_else(|| "(unnamed)".into()),
+            others: b
+                .members
+                .iter()
+                .filter(|m| !m.me)
+                .map(|m| m.name.clone())
+                .collect(),
+        }
     }));
     out
 }
@@ -110,7 +119,11 @@ pub fn cards_on_personal<'a>(cards: &'a [CardSummary], board_id: &str) -> Vec<&'
         .iter()
         .filter(|c| {
             c.board.is_empty()
-                && (if c.space_board.is_empty() { PERSONAL } else { c.space_board.as_str() }) == board_id
+                && (if c.space_board.is_empty() {
+                    PERSONAL
+                } else {
+                    c.space_board.as_str()
+                }) == board_id
         })
         .collect()
 }
@@ -126,7 +139,12 @@ pub fn card_in_space(c: &CardSummary, space: &str) -> bool {
 
 /// Whether a channel, DM or thread shows in the picked space; a DM with
 /// another person shows under every pick (#538).
-pub fn conv_in_space(space_id: &str, kind: &str, members: &[(String, String)], space: &str) -> bool {
+pub fn conv_in_space(
+    space_id: &str,
+    kind: &str,
+    members: &[(String, String)],
+    space: &str,
+) -> bool {
     if space == ALL_SPACES {
         return true;
     }
@@ -144,7 +162,11 @@ pub fn conv_in_space(space_id: &str, kind: &str, members: &[(String, String)], s
 
 /// [`conv_in_space`] for a Talk conversation.
 pub fn talk_in_space(c: &TalkConversation, space: &str) -> bool {
-    let members: Vec<(String, String)> = c.members.iter().map(|m| (m.kind.clone(), m.key.clone())).collect();
+    let members: Vec<(String, String)> = c
+        .members
+        .iter()
+        .map(|m| (m.kind.clone(), m.key.clone()))
+        .collect();
     conv_in_space(&c.space_id, &c.kind, &members, space)
 }
 
@@ -159,7 +181,11 @@ pub fn boards_in_space<'a>(boards: &'a [BoardSummary], space: &str) -> Vec<&'a B
 
 /// The board id a new thread or channel starts on.
 pub fn threads_space(space: &str) -> &str {
-    if space == ALL_SPACES || space == PERSONAL { "" } else { space }
+    if space == ALL_SPACES || space == PERSONAL {
+        ""
+    } else {
+        space
+    }
 }
 
 #[cfg(test)]
@@ -220,7 +246,10 @@ mod tests {
     #[test]
     fn a_pick_of_a_space_you_left_goes_back_to_all() {
         assert_eq!(known("b-mlg", &[mlg()]), "b-mlg");
-        assert_eq!(known("b-gone", &[mlg(), b("b-gone", "Gone", true)]), ALL_SPACES);
+        assert_eq!(
+            known("b-gone", &[mlg(), b("b-gone", "Gone", true)]),
+            ALL_SPACES
+        );
         assert_eq!(known("nope", &[mlg()]), ALL_SPACES);
         assert_eq!(known(PERSONAL, &[]), PERSONAL);
     }
@@ -253,18 +282,25 @@ mod tests {
     #[test]
     fn conversations_follow_the_pick() {
         let ids = |space: &str| {
-            [("c1", "channel", ""), ("c2", "channel", "b-mlg"), ("d1", "dm", "")]
-                .iter()
-                .filter(|(_, kind, sp)| conv_in_space(sp, kind, &[], space))
-                .map(|(id, ..)| *id)
-                .collect::<Vec<_>>()
+            [
+                ("c1", "channel", ""),
+                ("c2", "channel", "b-mlg"),
+                ("d1", "dm", ""),
+            ]
+            .iter()
+            .filter(|(_, kind, sp)| conv_in_space(sp, kind, &[], space))
+            .map(|(id, ..)| *id)
+            .collect::<Vec<_>>()
         };
         assert_eq!(ids(ALL_SPACES), ["c1", "c2", "d1"]);
         assert_eq!(ids(PERSONAL), ["c1", "d1"]);
         assert_eq!(ids("b-mlg"), ["c2"]);
         assert!(ids("b-iro").is_empty());
         // Card #538: a DM with another person shows under every pick.
-        let bob = [("person".to_string(), "user".to_string()), ("person".to_string(), "person:bob".to_string())];
+        let bob = [
+            ("person".to_string(), "user".to_string()),
+            ("person".to_string(), "person:bob".to_string()),
+        ];
         for space in [ALL_SPACES, PERSONAL, "b-mlg", "b-iro"] {
             assert!(conv_in_space("", "dm", &bob, space));
         }

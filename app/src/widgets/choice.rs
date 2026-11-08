@@ -35,6 +35,8 @@ impl Choice {
 
 /// A select named `label` (its accessible name), showing `value`'s
 /// words; `on_change` gets the picked value.
+// Eight callers in other packages pass these positionally.
+#[allow(clippy::too_many_arguments)]
 pub fn choice_select(
     s: &State,
     f: &mut Frame,
@@ -47,22 +49,40 @@ pub fn choice_select(
     on_change: impl Fn(&mut State, &str) + 'static,
 ) -> El {
     let grouped = choices.iter().any(|c| !c.group.is_empty());
-    let pairs: Vec<(&str, &str)> = choices.iter().map(|c| (c.group.as_str(), c.label.as_str())).collect();
+    let pairs: Vec<(&str, &str)> = choices
+        .iter()
+        .map(|c| (c.group.as_str(), c.label.as_str()))
+        .collect();
     let labels: Vec<&str> = choices.iter().map(|c| c.label.as_str()).collect();
-    let current = choices.iter().find(|c| c.value == value).map(|c| c.label.as_str());
-    let by_label: Rc<Vec<(String, String)>> =
-        Rc::new(choices.iter().map(|c| (c.label.clone(), c.value.clone())).collect());
+    let current = choices
+        .iter()
+        .find(|c| c.value == value)
+        .map(|c| c.label.as_str());
+    let by_label: Rc<Vec<(String, String)>> = Rc::new(
+        choices
+            .iter()
+            .map(|c| (c.label.clone(), c.value.clone()))
+            .collect(),
+    );
     let on_change = Rc::new(on_change);
     let open = s.widgets.select_open.as_deref() == Some(key);
     let (k1, k2) = (key.to_string(), key.to_string());
-    let sel = if grouped { Select::grouped(key.to_string(), &pairs) } else { Select::new(key.to_string(), &labels) };
+    let sel = if grouped {
+        Select::grouped(key.to_string(), &pairs)
+    } else {
+        Select::new(key.to_string(), &labels)
+    };
     sel.label(label.to_string())
         .width(width)
         .current(current)
         .open(open)
         .disabled(disabled)
         .on_toggle(move |s: &mut State| {
-            s.widgets.select_open = if s.widgets.select_open.as_deref() == Some(k1.as_str()) { None } else { Some(k1.clone()) };
+            s.widgets.select_open = if s.widgets.select_open.as_deref() == Some(k1.as_str()) {
+                None
+            } else {
+                Some(k1.clone())
+            };
         })
         .on_close(move |s: &mut State| {
             if s.widgets.select_open.as_deref() == Some(k2.as_str()) {

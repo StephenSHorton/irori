@@ -94,14 +94,27 @@ pub fn open_logs(s: &mut State, who: AgentRef) {
 }
 
 /// The actions for `who` on card `card_id`, a subset with `only`.
-pub fn spawned_actions(s: &State, f: &mut Frame, key: &str, who: &AgentRef, card_id: &str, only: &[Action]) -> El {
+pub fn spawned_actions(
+    s: &State,
+    f: &mut Frame,
+    key: &str,
+    who: &AgentRef,
+    card_id: &str,
+    only: &[Action],
+) -> El {
     let k = f.k;
     let here = spawned_here(who);
     let where_ = plain_line(&who.where_);
     let wanted = |a: Action| only.contains(&a);
     let show = |a: Action| wanted(a) && (here || matches!(a, Action::Stop | Action::End));
     let name = display_name(who);
-    let note = |t: String| text(t).font(k.ty.text_xsmall).color(k.c.text_muted).w_full().wrap();
+    let note = |t: String| {
+        text(t)
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_muted)
+            .w_full()
+            .wrap()
+    };
     if s.widgets.ended.contains(&who.key) {
         return col().key(key.to_string()).child(note(if here {
             "Ending: it writes where it left off first.".into()
@@ -111,9 +124,15 @@ pub fn spawned_actions(s: &State, f: &mut Frame, key: &str, who: &AgentRef, card
     }
     let elsewhere = !here && (wanted(Action::Attach) || wanted(Action::Logs));
     if !here && !show(Action::Stop) && !show(Action::End) {
-        return col().key(key.to_string()).child(note(format!("Attach and Logs are on {where_}.")));
+        return col()
+            .key(key.to_string())
+            .child(note(format!("Attach and Logs are on {where_}.")));
     }
-    let mut buttons = row().key(format!("{key}/buttons")).gap(6.0).center_y().flex_wrap();
+    let mut buttons = row()
+        .key(format!("{key}/buttons"))
+        .gap(6.0)
+        .center_y()
+        .flex_wrap();
     if show(Action::Attach) {
         let (w, c) = (who.clone(), card_id.to_string());
         buttons = buttons.child(
@@ -149,11 +168,23 @@ pub fn spawned_actions(s: &State, f: &mut Frame, key: &str, who: &AgentRef, card
             let akey = who.key.clone();
             move |s| line(s, &akey, true, format!("{n} is stopped and waits for you."))
         });
-        buttons = buttons.child(confirm_button(s, f, &format!("{key}/stop"), "Stop", Some(&icons::SQUARE), false, ask));
+        buttons = buttons.child(confirm_button(
+            s,
+            f,
+            &format!("{key}/stop"),
+            "Stop",
+            Some(&icons::SQUARE),
+            false,
+            ask,
+        ));
     }
     if show(Action::End) {
         let akey = who.key.clone();
-        let far = if here { String::new() } else { format!("Irori asks {where_} to end it. ") };
+        let far = if here {
+            String::new()
+        } else {
+            format!("Irori asks {where_} to end it. ")
+        };
         let ask = Ask::new(
             format!(
                 "End {name}? {far}It writes where it left off on this card first, then Irori stops it and removes its session. The card stays open and unheld."
@@ -169,7 +200,15 @@ pub fn spawned_actions(s: &State, f: &mut Frame, key: &str, who: &AgentRef, card
                 s.widgets.ended.insert(akey.clone());
             }
         });
-        buttons = buttons.child(confirm_button(s, f, &format!("{key}/end"), "End", Some(&icons::X), false, ask));
+        buttons = buttons.child(confirm_button(
+            s,
+            f,
+            &format!("{key}/end"),
+            "End",
+            Some(&icons::X),
+            false,
+            ask,
+        ));
     }
     let mut c = col().key(key.to_string()).gap(4.0).w_full().child(buttons);
     if elsewhere {
@@ -192,7 +231,11 @@ pub fn logs_dialog(s: &State, f: &mut Frame) {
     let Some(l) = &s.widgets.logs else { return };
     let k = f.k;
     let body = if !l.error.is_empty() {
-        text(l.error.clone()).font(k.ty.mono).color(k.c.danger.fg).w_full().wrap()
+        text(l.error.clone())
+            .font(k.ty.mono)
+            .color(k.c.danger.fg)
+            .w_full()
+            .wrap()
     } else {
         let t = match &l.text {
             None => "Loading…".to_string(),
@@ -232,7 +275,11 @@ pub fn logs_dialog(s: &State, f: &mut Frame) {
                         .child(body),
                 )
                 .child(
-                    row().key("widgets-logs-foot").w_full().child(rune::el().grow(1.0)).child(
+            row()
+                .key("widgets-logs-foot")
+                .w_full()
+                .child(rune::el().grow(1.0))
+                .child(
                         Button::new("Refresh")
                             .variant(ButtonVariant::Outline)
                             .control_size(ControlSize::Small)

@@ -15,7 +15,9 @@ use base64::Engine as _;
 use irori_window::attachments::{INLINE_IMAGES, MAX_PREVIEW, ROUTE, Request};
 use irori_window::board::UploadFile;
 use rune::{El, Icon, Image, ImageCache, SurfaceFit, Tx, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButtonVariant, Spinner};
+use rune_kit::{
+    Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButtonVariant, Spinner,
+};
 use serde::Serialize;
 
 use super::icons;
@@ -70,14 +72,27 @@ fn ext(name: &str) -> String {
     }
 }
 
+/// Takes a pending file off the box by its id.
+pub type Remove = Arc<dyn Fn(&mut State, u64)>;
+
+/// Opens the file picker (the paperclip).
+pub type OnPick = Arc<dyn Fn(&mut State, &mut Tx)>;
+
 /// A file should get a thumbnail: by the attaching device's type, else
 /// its name, and no bigger than MAX_PREVIEW. The route has the last word.
 pub fn looks_like_image(f: &File) -> bool {
     if f.size > MAX_PREVIEW {
         return false;
     }
-    let m = f.mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
-    INLINE_IMAGES.contains(&m.as_str()) || (m.is_empty() && IMAGE_EXTS.contains(&ext(&f.name).as_str()))
+    let m = f
+        .mime
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    INLINE_IMAGES.contains(&m.as_str())
+        || (m.is_empty() && IMAGE_EXTS.contains(&ext(&f.name).as_str()))
 }
 
 /// Open would take a file, by its name (the backend checks the bytes too).
@@ -103,13 +118,19 @@ pub fn human_size(n: i64) -> String {
 /// type, else a plain page.
 pub fn file_kind_icon(name: &str, mime: &str) -> &'static Icon {
     let by_ext: &[(&str, &'static Icon)] = &[
-        ("png jpg jpeg gif webp bmp heic heif tif tiff svg avif ico psd", &icons::FILE_IMAGE),
+        (
+            "png jpg jpeg gif webp bmp heic heif tif tiff svg avif ico psd",
+            &icons::FILE_IMAGE,
+        ),
         ("mp4 mov m4v webm mkv avi", &icons::FILE_VIDEO),
         ("mp3 wav m4a aac flac ogg opus aiff", &icons::FILE_AUDIO),
         ("zip tar gz tgz bz2 xz 7z rar zst dmg", &icons::FILE_ARCHIVE),
         ("csv tsv xls xlsx numbers ods", &icons::FILE_SPREADSHEET),
         ("ppt pptx key odp", &icons::PRESENTATION),
-        ("txt md markdown rtf doc docx pages odt pdf log", &icons::FILE_TEXT),
+        (
+            "txt md markdown rtf doc docx pages odt pdf log",
+            &icons::FILE_TEXT,
+        ),
         ("json jsonl ndjson", &icons::FILE_JSON),
         ("yaml yml toml xml ini conf cfg plist", &icons::FILE_BRACES),
         ("sh bash zsh fish ps1 bat cmd", &icons::FILE_TERMINAL),
@@ -122,11 +143,18 @@ pub fn file_kind_icon(name: &str, mime: &str) -> &'static Icon {
     ];
     let e = ext(name);
     if !e.is_empty()
-        && let Some((_, i)) = by_ext.iter().find(|(exts, _)| exts.split(' ').any(|x| x == e))
+        && let Some((_, i)) = by_ext
+            .iter()
+            .find(|(exts, _)| exts.split(' ').any(|x| x == e))
     {
         return i;
     }
-    let m = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let m = mime
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
     if m.starts_with("image/") {
         &icons::FILE_IMAGE
     } else if m.starts_with("video/") {
@@ -151,7 +179,10 @@ pub enum Loaded {
     Image(Image),
     /// The route serves it as a download: a chip.
     File,
-    Error { message: String, offline: bool },
+    Error {
+        message: String,
+        offline: bool,
+    },
 }
 
 /// Pictures decode on Rune's workers; a load waits for its decode off the
@@ -185,7 +216,13 @@ fn fetch(w: &irori_window::Window, sha: &str) -> Loaded {
             offline: resp.status == 503,
         };
     }
-    let typ = resp.get("Content-Type").unwrap_or("").split(';').next().unwrap_or("").trim();
+    let typ = resp
+        .get("Content-Type")
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim();
     if !INLINE_IMAGES.contains(&typ) {
         return Loaded::File;
     }
@@ -206,9 +243,12 @@ pub fn load(s: &mut State, sha: &str, again: bool) {
     let sha = sha.to_string();
     s.text.files.insert(sha.clone(), Loaded::Loading);
     let id = sha.clone();
-    s.spawn(move |w| fetch(w, &id), move |s, l| {
+    s.spawn(
+        move |w| fetch(w, &id),
+        move |s, l| {
         s.text.files.insert(sha, l);
-    });
+        },
+    );
 }
 
 /// The route's offline reason for a thumbnail: the device's name when it
@@ -291,9 +331,23 @@ fn thumbnail(s: &State, f: &mut Frame, key: &str, file: &File) -> El {
             frame()
                 .fill(k.c.layer_01)
                 .help(message.clone())
-                .child(icon(if *offline { &icons::WIFI_OFF } else { &icons::IMAGE_OFF }, 16.0).color(k.c.icon_muted))
                 .child(
-                    text(if *offline { offline_line(message) } else { "Couldn't load it".into() })
+                    icon(
+                        if *offline {
+                            &icons::WIFI_OFF
+                        } else {
+                            &icons::IMAGE_OFF
+                        },
+                        16.0,
+                    )
+                    .color(k.c.icon_muted),
+                )
+                .child(
+                    text(if *offline {
+                        offline_line(message)
+                    } else {
+                        "Couldn't load it".into()
+                    })
                         .font(k.ty.small)
                         .color(k.c.text_muted)
                         .max_lines(2),
@@ -334,7 +388,13 @@ fn thumbnail(s: &State, f: &mut Frame, key: &str, file: &File) -> El {
         .w(160.0)
         .gap(4.0)
         .child(body)
-        .child(text(name.clone()).font(k.ty.small).color(k.c.text_muted).truncate().help(name))
+        .child(
+            text(name.clone())
+                .font(k.ty.small)
+                .color(k.c.text_muted)
+                .truncate()
+                .help(name),
+        )
         .on_visible(move |s: &mut State, on, _| {
             if on && wanted {
                 load(s, &load_sha, false);
@@ -357,8 +417,19 @@ fn file_chip(s: &State, f: &mut Frame, key: &str, file: &File) -> El {
         .pl(8.0)
         .pr(4.0)
         .child(icon(file_kind_icon(&file.name, &file.mime), 16.0).color(k.c.icon_muted))
-        .child(text(name.clone()).font(k.ty.ui).color(k.c.text_base).truncate().shrink().help(name))
-        .child(text(human_size(file.size)).font(k.ty.small).color(k.c.text_muted))
+        .child(
+            text(name.clone())
+                .font(k.ty.ui)
+                .color(k.c.text_base)
+                .truncate()
+                .shrink()
+                .help(name),
+        )
+        .child(
+            text(human_size(file.size))
+                .font(k.ty.small)
+                .color(k.c.text_muted),
+        )
         .child(file_actions(s, f, &format!("{key}/acts"), file, true))
 }
 
@@ -367,9 +438,18 @@ fn file_chip(s: &State, f: &mut Frame, key: &str, file: &File) -> El {
 pub fn file_actions(s: &State, f: &mut Frame, key: &str, file: &File, compact: bool) -> El {
     let k = f.k;
     let busy = s.text.busy.get(&file.sha256).copied();
-    let size = if compact { ControlSize::Small } else { ControlSize::Regular };
+    let size = if compact {
+        ControlSize::Small
+    } else {
+        ControlSize::Regular
+    };
     let save = file.sha256.clone();
-    let mut r = row().key(key.to_string()).gap(4.0).center_y().min_w(0.0).child(
+    let mut r = row()
+        .key(key.to_string())
+        .gap(4.0)
+        .center_y()
+        .min_w(0.0)
+        .child(
         Button::new("Save")
             .variant(ButtonVariant::Ghost)
             .control_size(size)
@@ -404,7 +484,11 @@ pub fn file_actions(s: &State, f: &mut Frame, key: &str, file: &File, compact: b
             line.child(
                 text(note.clone())
                     .font(k.ty.small)
-                    .color(if *error { k.c.danger.fg } else { k.c.text_muted })
+                    .color(if *error {
+                        k.c.danger.fg
+                    } else {
+                        k.c.text_muted
+                    })
                     .truncate()
                     .shrink()
                     .help(note.clone()),
@@ -443,13 +527,21 @@ fn run(s: &mut State, sha: &str, what: &'static str) {
 /// The full-size picture a thumbnail opened, over the page.
 pub fn full_view(s: &State, f: &mut Frame) {
     let Some(file) = &s.text.full else { return };
-    let Some(Loaded::Image(img)) = s.text.files.get(&file.sha256) else { return };
+    let Some(Loaded::Image(img)) = s.text.files.get(&file.sha256) else {
+        return;
+    };
     let k = f.k;
-    let (w, h) = img.size().map_or((800.0, 600.0), |[w, h]| (w as f32, h as f32));
-    let win = f.cx.window_layout("main").map_or((1100.0, 720.0), |r| (r[2], r[3]));
+    let (w, h) = img
+        .size()
+        .map_or((800.0, 600.0), |[w, h]| (w as f32, h as f32));
+    let win =
+        f.cx.window_layout("main")
+            .map_or((1100.0, 720.0), |r| (r[2], r[3]));
     // React: at most 90vw wide, the picture at most 75vh tall; the title
     // and the Save/Open row must stay on screen too.
-    let scale = ((win.0 * 0.9 - 48.0) / w).min((win.1 * 0.75 - 140.0).max(120.0) / h).min(1.0);
+    let scale = ((win.0 * 0.9 - 48.0) / w)
+        .min((win.1 * 0.75 - 140.0).max(120.0) / h)
+        .min(1.0);
     let actions = file_actions(s, f, "text-full/acts", file, false);
     Dialog::new("text-full", file.shown())
         .open(true)
@@ -465,7 +557,11 @@ pub fn full_view(s: &State, f: &mut Frame) {
                 .justify_center()
                 .radius(8.0)
                 .fill(k.c.layer_01)
-                .child(el().w(w * scale).h(h * scale).pixels_fit(img.pixels(), SurfaceFit::Fit)),
+                .child(
+                    el().w(w * scale)
+                        .h(h * scale)
+                        .pixels_fit(img.pixels(), SurfaceFit::Fit),
+                ),
         )
         .child(actions)
         .build(k, f.layer);
@@ -487,7 +583,11 @@ impl Pending {
     /// As the backend takes it: its name and base64 bytes.
     pub fn upload(&self) -> UploadFile {
         UploadFile {
-            name: if self.name.is_empty() { "pasted.png".into() } else { self.name.clone() },
+            name: if self.name.is_empty() {
+                "pasted.png".into()
+            } else {
+                self.name.clone()
+            },
             data: base64::engine::general_purpose::STANDARD.encode(&self.bytes),
         }
     }
@@ -513,7 +613,11 @@ pub fn mime_of(name: &str) -> String {
 /// `checkUploads`); a PNG or JPEG decoded for its preview.
 pub fn pending(name: &str, bytes: Vec<u8>, id: u64) -> Result<Pending, String> {
     if bytes.len() > MAX_UPLOAD {
-        let n = if name.is_empty() { "pasted image" } else { name };
+        let n = if name.is_empty() {
+            "pasted image"
+        } else {
+            name
+        };
         return Err(format!(
             "{n} is over {} MiB; ask an agent to attach it from disk",
             MAX_UPLOAD >> 20
@@ -540,7 +644,10 @@ pub fn read_files(paths: &[std::path::PathBuf], first_id: u64) -> Vec<Result<Pen
         .iter()
         .enumerate()
         .map(|(i, p)| {
-            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             if p.metadata().is_ok_and(|m| m.len() as usize > MAX_UPLOAD) {
                 return Err(format!(
                     "{name} is over {} MiB; ask an agent to attach it from disk",
@@ -561,7 +668,7 @@ pub fn pending_files(
     files: &[Pending],
     refused: Option<&str>,
     disabled: bool,
-    remove: Arc<dyn Fn(&mut State, u64)>,
+    remove: Remove,
 ) -> Option<El> {
     let k = f.k;
     if files.is_empty() {
@@ -574,9 +681,18 @@ pub fn pending_files(
                 .wrap()
         });
     }
-    let mut out = row().key(key.to_string()).gap(8.0).flex_wrap().px(4.0).label("Files to send");
+    let mut out = row()
+        .key(key.to_string())
+        .gap(8.0)
+        .flex_wrap()
+        .px(4.0)
+        .label("Files to send");
     for p in files {
-        let name = if p.name.is_empty() { "pasted image".to_string() } else { p.name.clone() };
+        let name = if p.name.is_empty() {
+            "pasted image".to_string()
+        } else {
+            p.name.clone()
+        };
         let id = p.id;
         let rm = remove.clone();
         let x = IconButton::new(&icons::X)
@@ -589,7 +705,9 @@ pub fn pending_files(
             .build(k);
         let item = match &p.preview {
             Some(img) => {
-                let (w, h) = img.size().map_or((80.0, 80.0), |[w, h]| (w as f32, h as f32));
+                let (w, h) = img
+                    .size()
+                    .map_or((80.0, 80.0), |[w, h]| (w as f32, h as f32));
                 let pw = (80.0 * w / h.max(1.0)).clamp(48.0, 160.0);
                 el().w(pw)
                     .h(80.0)
@@ -615,7 +733,14 @@ pub fn pending_files(
                 .fill(k.c.layer_02)
                 .border(1.0, k.c.border_base)
                 .child(icon(file_kind_icon(&p.name, &p.mime), 16.0).color(k.c.icon_muted))
-                .child(text(name.clone()).font(k.ty.small).color(k.c.text_base).truncate().max_w(192.0).help(name))
+                .child(
+                    text(name.clone())
+                        .font(k.ty.small)
+                        .color(k.c.text_base)
+                        .truncate()
+                        .max_w(192.0)
+                        .help(name),
+                )
                 .child(x),
         };
         out = out.child(item.key(format!("{key}/f{id}")));
@@ -625,12 +750,15 @@ pub fn pending_files(
 
 /// The clip: opens the file picker. With `why`, files are off here: the
 /// clip shows disabled with the reason.
-pub fn attach_button(f: &Frame, key: &str, why: Option<&str>, full: bool, on_pick: Arc<dyn Fn(&mut State, &mut Tx)>) -> El {
+pub fn attach_button(f: &Frame, key: &str, why: Option<&str>, full: bool, on_pick: OnPick) -> El {
     let b = IconButton::new(&icons::PAPERCLIP)
         .variant(IconButtonVariant::Ghost)
         .control_size(ControlSize::Small);
     match why {
-        Some(why) => b.label(format!("No files here: {why}")).help(why.to_string()).disabled(true),
+        Some(why) => b
+            .label(format!("No files here: {why}"))
+            .help(why.to_string())
+            .disabled(true),
         None => b
             .label("Add files")
             .help("Add files (or drop them here, or paste a screenshot or file)")
@@ -661,7 +789,10 @@ mod tests {
     #[test]
     fn file_kind_falls_back_to_the_mime_type_then_a_page() {
         assert_eq!(kind("", "image/png"), "lucide-file-image");
-        assert_eq!(kind("blob", "text/plain; charset=utf-8"), "lucide-file-text");
+        assert_eq!(
+            kind("blob", "text/plain; charset=utf-8"),
+            "lucide-file-text"
+        );
         assert_eq!(kind(".bashrc", ""), "lucide-file");
         assert_eq!(kind("thing.xyz", ""), "lucide-file");
     }
@@ -671,22 +802,38 @@ mod tests {
         assert_eq!(human_size(900), "900 B");
         assert_eq!(human_size(1536), "1.5 KB");
         assert_eq!(human_size(3 << 20), "3.0 MB");
-        let f = |name: &str, mime: &str, size: i64| File { name: name.into(), mime: mime.into(), size, ..File::default() };
+        let f = |name: &str, mime: &str, size: i64| File {
+            name: name.into(),
+            mime: mime.into(),
+            size,
+            ..File::default()
+        };
         assert!(looks_like_image(&f("a.png", "", 10)));
         assert!(looks_like_image(&f("x", "image/jpeg; q=1", 10)));
         assert!(!looks_like_image(&f("a.png", "application/pdf", 10)));
         assert!(!looks_like_image(&f("a.png", "", MAX_PREVIEW + 1)));
         assert!(can_open(&f("report.pdf", "", 1)));
         assert!(!can_open(&f("run.sh", "", 1)));
-        assert_eq!(offline_line("the file is on Mac mini, which isn't connected now"), "On Mac mini, offline");
+        assert_eq!(
+            offline_line("the file is on Mac mini, which isn't connected now"),
+            "On Mac mini, offline"
+        );
         assert_eq!(offline_line("nope"), "Its device is offline");
     }
 
     #[test]
     fn uploads_are_checked() {
-        assert!(pending("big.bin", vec![0; MAX_UPLOAD + 1], 1).err().unwrap().contains("over 32 MiB"));
+        assert!(
+            pending("big.bin", vec![0; MAX_UPLOAD + 1], 1)
+                .err()
+                .unwrap()
+                .contains("over 32 MiB")
+        );
         let p = pending("a.txt", b"hi".to_vec(), 1).ok().unwrap();
         assert_eq!(p.upload().data, "aGk=");
-        assert_eq!(pending("", vec![1], 2).ok().unwrap().upload().name, "pasted.png");
+        assert_eq!(
+            pending("", vec![1], 2).ok().unwrap().upload().name,
+            "pasted.png"
+        );
     }
 }

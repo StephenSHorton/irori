@@ -83,7 +83,12 @@ pub fn card(s: &State, f: &mut Frame) {
     let body = summary(s, f, who);
     let surface = rune_kit::popover::raised(
         k,
-        col().key("widgets-hover-body").w(288.0).padding(12.0).gap(10.0).children(body),
+        col()
+            .key("widgets-hover-body")
+            .w(288.0)
+            .padding(12.0)
+            .gap(10.0)
+            .children(body),
         k.radius.md,
     )
     .on_hover_change(|s: &mut State, inside, tx: &mut Tx| {
@@ -93,7 +98,13 @@ pub fn card(s: &State, f: &mut Frame) {
             leave(s, tx);
         }
     });
-    f.layer.push(rune_kit::popover::anchored(k, surface.key("widgets-hover"), &h.anchor, Placement::BottomStart, 6.0));
+    f.layer.push(rune_kit::popover::anchored(
+        k,
+        surface.key("widgets-hover"),
+        &h.anchor,
+        Placement::BottomStart,
+        6.0,
+    ));
 }
 
 fn summary(s: &State, f: &mut Frame, who: &AgentRef) -> Vec<El> {
@@ -104,37 +115,63 @@ fn summary(s: &State, f: &mut Frame, who: &AgentRef) -> Vec<El> {
     let mut watching: Vec<&CardSummary> = vec![];
     for c in &s.data.cards {
         if let Some(w) = c.working.iter().find(|r| r.key == who.key) {
-            if w.assigned { &mut offered } else { &mut holding }.push(c);
+            if w.assigned {
+                &mut offered
+            } else {
+                &mut holding
+            }
+            .push(c);
         } else if c.watching.iter().any(|r| r.key == who.key) {
             watching.push(c);
         }
     }
-    let spawned_for = s.data.cards.iter().find(|c| c.working.iter().any(|r| r.key == who.key && r.spawned));
+    let spawned_for = s
+        .data
+        .cards
+        .iter()
+        .find(|c| c.working.iter().any(|r| r.key == who.key && r.spawned));
     let live = s.data.agents.iter().find(|a| a.card.key == who.key);
     let spawned = spawned_for.is_some() || live.is_some_and(|l| l.spawned);
-    let device = if who.device.is_empty() { who.where_.clone() } else { who.device.clone() };
-    let st = agent_status(&Who::from(who), live.and_then(|l| ms(&l.card.status_since)), now_ms());
+    let device = if who.device.is_empty() {
+        who.where_.clone()
+    } else {
+        who.device.clone()
+    };
+    let st = agent_status(
+        &Who::from(who),
+        live.and_then(|l| ms(&l.card.status_since)),
+        now_ms(),
+    );
     let mut out = Vec::new();
 
-    let mut info = col().key("widgets-hover-info").gap(2.0).grow(1.0).min_w(0.0).child(
-        row()
-            .key("widgets-hover-name")
-            .gap(8.0)
-            .center_y()
-            .min_w(0.0)
-            .child(
-                text(display_name(who))
-                    .font(k.ty.ui_medium)
-                    .color(k.c.text_base)
-                    .max_lines(1)
-                    .shrink(),
-            )
-            .child(text(st.text.clone()).font(k.ty.text_xsmall).color(match st.tone {
-                Tone::Muted | Tone::Idle => k.c.text_muted,
-                Tone::Warn => status::decide(),
-                Tone::Working | Tone::Job => status::working(),
-            })),
-    );
+    let mut info = col()
+        .key("widgets-hover-info")
+        .gap(2.0)
+        .grow(1.0)
+        .min_w(0.0)
+        .child(
+            row()
+                .key("widgets-hover-name")
+                .gap(8.0)
+                .center_y()
+                .min_w(0.0)
+                .child(
+                    text(display_name(who))
+                        .font(k.ty.ui_medium)
+                        .color(k.c.text_base)
+                        .max_lines(1)
+                        .shrink(),
+                )
+                .child(
+                    text(st.text.clone())
+                        .font(k.ty.text_xsmall)
+                        .color(match st.tone {
+                            Tone::Muted | Tone::Idle => k.c.text_muted,
+                            Tone::Warn => status::decide(),
+                            Tone::Working | Tone::Job => status::working(),
+                        }),
+                ),
+        );
     if !device.is_empty() {
         let via = if who.device_via.is_empty() {
             String::new()
@@ -147,7 +184,10 @@ fn summary(s: &State, f: &mut Frame, who: &AgentRef) -> Vec<El> {
                 .gap(6.0)
                 .center_y()
                 .min_w(0.0)
-                .child(el().size(8.0, 8.0).fill(device_color(&who.color).unwrap_or(k.c.icon_accent)))
+                .child(
+                    el().size(8.0, 8.0)
+                        .fill(device_color(&who.color).unwrap_or(k.c.icon_accent)),
+                )
                 .child(
                     text(format!("{}{via}", plain_line(&device)))
                         .font(k.ty.text_xsmall)
@@ -161,7 +201,10 @@ fn summary(s: &State, f: &mut Frame, who: &AgentRef) -> Vec<El> {
         info = info.child(small(f, plain_line(&who.where_)));
     }
     if let Some(c) = spawned_for {
-        info = info.child(small(f, format!("Irori started it for {}", ref_text(&c.tag, &c.short))));
+        info = info.child(small(
+            f,
+            format!("Irori started it for {}", ref_text(&c.tag, &c.short)),
+        ));
     }
     out.push(
         row()
@@ -169,10 +212,18 @@ fn summary(s: &State, f: &mut Frame, who: &AgentRef) -> Vec<El> {
             .gap(12.0)
             .center_y()
             .min_w(0.0)
-            .child(identicon(&who.key, 52.0, face_color(f, &who.status, &who.color)))
+            .child(identicon(
+                &who.key,
+                52.0,
+                face_color(f, &who.status, &who.color),
+            ))
             .child(info),
     );
-    for (label, cards) in [("Holding", &holding), ("Offered", &offered), ("Watching", &watching)] {
+    for (label, cards) in [
+        ("Holding", &holding),
+        ("Offered", &offered),
+        ("Watching", &watching),
+    ] {
         if let Some(l) = card_list(f, label, cards) {
             out.push(l);
         }
@@ -181,7 +232,14 @@ fn summary(s: &State, f: &mut Frame, who: &AgentRef) -> Vec<El> {
         out.push(small(f, "No open cards.".into()));
     }
     if let Some(c) = spawned_for.filter(|_| !gone) {
-        out.push(spawned_actions(s, f, "widgets-hover-spawned", who, &c.id, &[Action::Attach, Action::Logs, Action::End]));
+        out.push(spawned_actions(
+            s,
+            f,
+            "widgets-hover-spawned",
+            who,
+            &c.id,
+            &[Action::Attach, Action::Logs, Action::End],
+        ));
     }
     if !gone && !who.offline && who.live {
         if let Some(l) = live.filter(|_| !spawned) {
@@ -200,7 +258,11 @@ fn summary(s: &State, f: &mut Frame, who: &AgentRef) -> Vec<El> {
 }
 
 fn small(f: &Frame, t: String) -> El {
-    text(t).font(f.k.ty.text_xsmall).color(f.k.c.text_muted).max_lines(1).w_full()
+    text(t)
+        .font(f.k.ty.text_xsmall)
+        .color(f.k.c.text_muted)
+        .max_lines(1)
+        .w_full()
 }
 
 fn card_list(f: &Frame, label: &str, cards: &[&CardSummary]) -> Option<El> {
@@ -208,11 +270,15 @@ fn card_list(f: &Frame, label: &str, cards: &[&CardSummary]) -> Option<El> {
         return None;
     }
     let k = f.k;
-    let mut c = col().key(format!("widgets-hover-{label}")).gap(2.0).w_full().child(
-        text(format!("{} · {}", label.to_uppercase(), cards.len()))
-            .font(rune::tok::TextStyle::new(11.0, 500.0).tracking(0.4))
-            .color(k.c.text_muted),
-    );
+    let mut c = col()
+        .key(format!("widgets-hover-{label}"))
+        .gap(2.0)
+        .w_full()
+        .child(
+            text(format!("{} · {}", label.to_uppercase(), cards.len()))
+                .font(rune::tok::TextStyle::new(11.0, 500.0).tracking(0.4))
+                .color(k.c.text_muted),
+        );
     for card in cards.iter().take(MAX_ROWS) {
         let id = card.id.clone();
         c = c.child(
@@ -263,7 +329,10 @@ fn offer_cards(s: &State, f: &Frame, who: &AgentRef, on: bool, elsewhere: &str) 
     let hint = if elsewhere.is_empty() {
         "Irori hands it unheld cards, asks and threads when it's idle. Off: it works only on what you give it.".to_string()
     } else {
-        format!("It runs on {}: turn this on or off there.", plain_line(elsewhere))
+        format!(
+            "It runs on {}: turn this on or off there.",
+            plain_line(elsewhere)
+        )
     };
     let mut c = col().key("widgets-hover-offer").w_full().gap(4.0).child(
         Switch::new(shown)
@@ -289,7 +358,13 @@ fn offer_cards(s: &State, f: &Frame, who: &AgentRef, on: bool, elsewhere: &str) 
             .build(k),
     );
     if let Some(e) = s.widgets.offer_error.get(&who.key) {
-        c = c.child(text(e.clone()).font(k.ty.text_xsmall).color(k.c.danger.fg).w_full().wrap());
+        c = c.child(
+            text(e.clone())
+                .font(k.ty.text_xsmall)
+                .color(k.c.danger.fg)
+                .w_full()
+                .wrap(),
+        );
     }
     c
 }
@@ -311,7 +386,10 @@ fn stop(s: &mut State) {
             s.widgets.stop_line = Some(match r {
                 Ok(()) => {
                     s.widgets.stop_draft = rune::TextEdit::new("");
-                    (true, format!("{} is stopped and reads this first.", display_name(&who)))
+                    (
+                        true,
+                        format!("{} is stopped and reads this first.", display_name(&who)),
+                    )
                 }
                 Err(e) => (false, e),
             });

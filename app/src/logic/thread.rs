@@ -31,7 +31,11 @@ pub fn start_agent_item(items: &[CardThreadItem]) -> String {
 
 /// A blocker as the person reads it in a line: its question, quoted.
 pub fn blocker_name(gist: &str) -> String {
-    if gist.is_empty() { "a blocker".into() } else { format!("“{gist}”") }
+    if gist.is_empty() {
+        "a blocker".into()
+    } else {
+        format!("“{gist}”")
+    }
 }
 
 /// The element key of a blocker on the card page, to scroll to it.
@@ -74,7 +78,10 @@ pub struct ThreadLabel {
 pub fn thread_label(it: &CardThreadItem, in_blocker: bool) -> ThreadLabel {
     let mut b = Vec::new();
     if !it.blocker_id.is_empty() && it.kind != KIND_EVENT && !in_blocker {
-        b.push(badge(format!("on {}", blocker_name(&it.blocker_gist)), Tone::Slate));
+        b.push(badge(
+            format!("on {}", blocker_name(&it.blocker_gist)),
+            Tone::Slate,
+        ));
     }
     if it.gone {
         b.push(badge("recipient gone", Tone::Warning));
@@ -83,14 +90,25 @@ pub fn thread_label(it: &CardThreadItem, in_blocker: bool) -> ThreadLabel {
         b.push(badge("nobody has heard this yet", Tone::Warning));
     }
     if it.held {
-        b.push(badge(if it.dismissed { "held · dismissed" } else { "held" }, Tone::Slate));
+        b.push(badge(
+            if it.dismissed {
+                "held · dismissed"
+            } else {
+                "held"
+            },
+            Tone::Slate,
+        ));
     }
     if it.edited {
         b.push(badge("edited", Tone::Slate));
     }
     if it.files > 0 {
         b.push(badge(
-            if it.files == 1 { "1 file".to_string() } else { format!("{} files", it.files) },
+            if it.files == 1 {
+                "1 file".to_string()
+            } else {
+                format!("{} files", it.files)
+            },
             Tone::Slate,
         ));
     }
@@ -105,12 +123,17 @@ pub fn thread_label(it: &CardThreadItem, in_blocker: bool) -> ThreadLabel {
 
 /// The entries to show: all, or the newest `n`.
 pub fn visible<T>(items: &[T], show_all: bool, n: usize) -> &[T] {
-    if show_all || items.len() <= n { items } else { &items[items.len() - n..] }
+    if show_all || items.len() <= n {
+        items
+    } else {
+        &items[items.len() - n..]
+    }
 }
 
 /// A message entry has more than the card shows: cut, held or with files.
 pub fn opens_in_full(it: &CardThreadItem) -> bool {
-    it.kind == KIND_MESSAGE && (it.held || it.files > 0 || it.text.ends_with(&format!("(full: msg:{})", it.id)))
+    it.kind == KIND_MESSAGE
+        && (it.held || it.files > 0 || it.text.ends_with(&format!("(full: msg:{})", it.id)))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,7 +177,11 @@ pub fn blocker_chip(b: &CardBlocker) -> Option<Badge> {
     if b.state == blocker::ANSWERED {
         let to = b.sent_to.as_ref().unwrap_or(&b.raised_by);
         return Some(badge(
-            format!("Sent to {}{}", display_name(to), if to.live { "" } else { " · session ended" }),
+            format!(
+                "Sent to {}{}",
+                display_name(to),
+                if to.live { "" } else { " · session ended" }
+            ),
             Tone::Slate,
         ));
     }
@@ -195,13 +222,22 @@ pub fn heard_line(answers: &[AgentRef], watching: &[AgentRef], mode: &str) -> St
             if answers.len() > 1 { "are" } else { "is" }
         ));
     } else if !answers.is_empty() {
-        parts.push(format!("{} and will answer here.", how(answers, mode == "wake")));
+        parts.push(format!(
+            "{} and will answer here.",
+            how(answers, mode == "wake")
+        ));
     }
     if !watching.is_empty() {
         parts.push(if !answers.is_empty() {
-            format!("{}, watching: they answer only if asked.", how(watching, false))
+            format!(
+                "{}, watching: they answer only if asked.",
+                how(watching, false)
+            )
         } else {
-            format!("{}, watching.", how(watching, mode == "wake" || mode == "stop"))
+            format!(
+                "{}, watching.",
+                how(watching, mode == "wake" || mode == "stop")
+            )
         });
     }
     parts.join(" ")
@@ -214,17 +250,7 @@ pub struct LiveAgent {
     pub updated_at: Option<i64>,
     pub status_since: Option<i64>,
     pub device_state: String,
-    #[allow(dead_code)]
-    pub device_via: String,
     pub last_tool: String,
-    // thread.ts LiveAgent's whole shape, which Talk fills too; the hover
-    // card reads these from the roster itself (widgets::agent_hover).
-    #[allow(dead_code)]
-    pub offers_cards: bool,
-    #[allow(dead_code)]
-    pub spawned: bool,
-    #[allow(dead_code)]
-    pub here: bool,
 }
 
 /// The live roster by key.
@@ -239,11 +265,7 @@ pub fn live_roster(agents: &[RosterAgent]) -> HashMap<String, LiveAgent> {
                     updated_at: ms(&a.card.updated_at),
                     status_since: ms(&a.card.status_since),
                     device_state: a.card.device_state.clone(),
-                    device_via: a.card.device_via.clone(),
                     last_tool: a.card.last_tool.clone(),
-                    offers_cards: a.offers_cards,
-                    spawned: a.spawned,
-                    here: a.here,
                 },
             )
         })
@@ -312,8 +334,12 @@ pub fn working_line(
         .iter()
         .filter(|a| a.status != "person" && a.live && !a.offline && seen.insert(a.key.clone()))
         .collect();
-    let status = |a: &AgentRef| live.get(&a.key).map_or(a.status.clone(), |l| l.status.clone());
-    let names = |rs: &[&AgentRef]| names_line(&rs.iter().map(|a| display_name(a)).collect::<Vec<_>>());
+    let status = |a: &AgentRef| {
+        live.get(&a.key)
+            .map_or(a.status.clone(), |l| l.status.clone())
+    };
+    let names =
+        |rs: &[&AgentRef]| names_line(&rs.iter().map(|a| display_name(a)).collect::<Vec<_>>());
     let busy: Vec<&AgentRef> = match working {
         Some(w) => w.iter().collect(),
         None => on.iter().copied().filter(|a| status(a) == "busy").collect(),
@@ -327,7 +353,10 @@ pub fn working_line(
         let who = names(&busy);
         let verb = if busy.len() > 1 { "are" } else { "is" };
         return Some(WorkingLine {
-            text: format!("{who} {verb} {}…", if doing.is_empty() { "working" } else { &doing }),
+            text: format!(
+                "{who} {verb} {}…",
+                if doing.is_empty() { "working" } else { &doing }
+            ),
             tone: LineTone::Working,
             who,
             verb,
@@ -337,7 +366,11 @@ pub fn working_line(
     let running: Vec<&AgentRef> = match (jobs, working) {
         (Some(j), _) => j.iter().collect(),
         (None, Some(_)) => vec![],
-        (None, None) => on.iter().copied().filter(|a| status(a) == RUNNING_JOB).collect(),
+        (None, None) => on
+            .iter()
+            .copied()
+            .filter(|a| status(a) == RUNNING_JOB)
+            .collect(),
     };
     if !running.is_empty() {
         let who = names(&running);
@@ -357,7 +390,9 @@ pub fn working_line(
         });
     }
     // The person's latest comment, and whether anyone answered it since.
-    let p = items.iter().rposition(|it| it.kind != KIND_EVENT && it.who.status == "person")?;
+    let p = items
+        .iter()
+        .rposition(|it| it.kind != KIND_EVENT && it.who.status == "person")?;
     let comment = &items[p];
     let at = ms(&comment.at)?;
     let after = &items[p + 1..];
@@ -495,20 +530,31 @@ mod tests {
         assert_eq!(l.device, "MacBook");
         assert_eq!(
             l.badges,
-            [sb("recipient gone", Tone::Warning), sb("held", Tone::Slate), sb("2 files", Tone::Slate)]
+            [
+                sb("recipient gone", Tone::Warning),
+                sb("held", Tone::Slate),
+                sb("2 files", Tone::Slate)
+            ]
         );
         let it = item("comment", |i| {
             i.to = Some(wren());
             i.blocker_id = "b2".into();
             i.blocker_gist = "Ship today, or wait…".into();
         });
-        assert_eq!(thread_label(&it, false).badges, [sb("on “Ship today, or wait…”", Tone::Slate)]);
+        assert_eq!(
+            thread_label(&it, false).badges,
+            [sb("on “Ship today, or wait…”", Tone::Slate)]
+        );
         assert_eq!(
             thread_label(&item("comment", |i| i.blocker_id = "b2".into()), false).badges,
             [sb("on a blocker", Tone::Slate)]
         );
         assert!(thread_label(&it, true).badges.is_empty());
-        assert!(thread_label(&item("event", |i| i.blocker_id = "b2".into()), false).badges.is_empty());
+        assert!(
+            thread_label(&item("event", |i| i.blocker_id = "b2".into()), false)
+                .badges
+                .is_empty()
+        );
         assert_eq!(
             thread_label(
                 &item("message", |i| {
@@ -534,10 +580,16 @@ mod tests {
     fn visible_pages() {
         let items: Vec<usize> = (0..THREAD_PAGE + 7).collect();
         let v = visible(&items, false, THREAD_PAGE);
-        assert_eq!((v.len(), v[0], v[v.len() - 1]), (THREAD_PAGE, 7, THREAD_PAGE + 6));
+        assert_eq!(
+            (v.len(), v[0], v[v.len() - 1]),
+            (THREAD_PAGE, 7, THREAD_PAGE + 6)
+        );
         assert_eq!(visible(&items, true, THREAD_PAGE).len(), items.len());
         assert_eq!(visible(&[1, 2], false, THREAD_PAGE), [1, 2]);
-        assert_eq!(visible(&items, false, 3), [THREAD_PAGE + 4, THREAD_PAGE + 5, THREAD_PAGE + 6]);
+        assert_eq!(
+            visible(&items, false, 3),
+            [THREAD_PAGE + 4, THREAD_PAGE + 5, THREAD_PAGE + 6]
+        );
     }
 
     #[test]
@@ -550,7 +602,9 @@ mod tests {
             })
         };
         assert!(!opens_in_full(&msg(&|_| {})));
-        assert!(opens_in_full(&msg(&|i| i.text = "xxx… (full: msg:msg_1)".into())));
+        assert!(opens_in_full(&msg(
+            &|i| i.text = "xxx… (full: msg:msg_1)".into()
+        )));
         assert!(opens_in_full(&msg(&|i| {
             i.text = String::new();
             i.held = true
@@ -560,7 +614,9 @@ mod tests {
             i.id = "c1".into();
             i.held = true
         })));
-        assert!(!opens_in_full(&msg(&|i| i.text = "see (full: msg:msg_2)".into())));
+        assert!(!opens_in_full(&msg(
+            &|i| i.text = "see (full: msg:msg_2)".into()
+        )));
     }
 
     #[test]
@@ -604,7 +660,10 @@ mod tests {
 
     #[test]
     fn chips() {
-        assert_eq!(blocker_chip(&bl("open", |b| b.done_check = true)), Some(sb("Ready for you", Tone::Success)));
+        assert_eq!(
+            blocker_chip(&bl("open", |b| b.done_check = true)),
+            Some(sb("Ready for you", Tone::Success))
+        );
         assert_eq!(
             blocker_chip(&bl("answered", |b| {
                 b.done_check = true;
@@ -622,8 +681,14 @@ mod tests {
             blocker_chip(&bl("answered", |b| b.sent_to = Some(wren()))),
             Some(sb("Sent to unknown agent · session ended", Tone::Slate))
         );
-        assert_eq!(blocker_chip(&bl("answered", |_| {})).unwrap().label, "Sent to sample-otter");
-        assert_eq!(blocker_chip(&bl("replied", |_| {})), Some(sb("Replied", Tone::Warning)));
+        assert_eq!(
+            blocker_chip(&bl("answered", |_| {})).unwrap().label,
+            "Sent to sample-otter"
+        );
+        assert_eq!(
+            blocker_chip(&bl("replied", |_| {})),
+            Some(sb("Replied", Tone::Warning))
+        );
         for st in ["open", "resolved", "closed", ""] {
             assert_eq!(blocker_chip(&bl(st, |_| {})), None);
         }
@@ -646,10 +711,21 @@ mod tests {
         c.kind = "comment".into();
         assert!(!is_revision(&c));
         let with = |st: &str, t: Vec<CardThreadItem>| bl(st, move |b| b.thread = t.clone());
-        assert_eq!(blocker_chip(&with("open", vec![reply.clone(), rev.clone()])), Some(sb("Revised", Tone::Warning)));
-        assert_eq!(blocker_chip(&with("", vec![rev.clone()])).unwrap().label, "Revised");
+        assert_eq!(
+            blocker_chip(&with("open", vec![reply.clone(), rev.clone()])),
+            Some(sb("Revised", Tone::Warning))
+        );
+        assert_eq!(
+            blocker_chip(&with("", vec![rev.clone()])).unwrap().label,
+            "Revised"
+        );
         assert_eq!(blocker_chip(&with("open", vec![reply.clone()])), None);
-        assert_eq!(blocker_chip(&with("answered", vec![reply, rev])).unwrap().label, "Sent to sample-otter");
+        assert_eq!(
+            blocker_chip(&with("answered", vec![reply, rev]))
+                .unwrap()
+                .label,
+            "Sent to sample-otter"
+        );
     }
 
     #[test]
@@ -663,7 +739,10 @@ mod tests {
             heard_line(&[otter(), wren()], &[], "next_turn"),
             "sample-otter and unknown agent hear it at their next turn and will answer here."
         );
-        assert_eq!(heard_line(&[], &[otter()], "wake"), "sample-otter is woken, watching.");
+        assert_eq!(
+            heard_line(&[], &[otter()], "wake"),
+            "sample-otter is woken, watching."
+        );
     }
 
     const T0: i64 = 1_793_682_000_000; // 2026-11-03T05:00:00Z
@@ -720,7 +799,15 @@ mod tests {
         let oak = agent("mac/oak", "oak");
         let elm = agent("mac/elm", "elm");
         let c = comment();
-        let l = working_line(&[oak.clone()], &[c.clone()], &roster(&[("mac/oak", "busy", 1)]), at(2), false, None, None);
+        let l = working_line(
+            std::slice::from_ref(&oak),
+            std::slice::from_ref(&c),
+            &roster(&[("mac/oak", "busy", 1)]),
+            at(2),
+            false,
+            None,
+            None,
+        );
         assert_eq!(
             l,
             Some(WorkingLine {
@@ -741,7 +828,15 @@ mod tests {
             None,
         );
         assert_eq!(l.unwrap().text, "oak and elm are working…");
-        let l = working_line(&[oak.clone()], &[c.clone()], &roster(&[("mac/oak", "idle", 20)]), at(30), false, None, None);
+        let l = working_line(
+            std::slice::from_ref(&oak),
+            std::slice::from_ref(&c),
+            &roster(&[("mac/oak", "idle", 20)]),
+            at(30),
+            false,
+            None,
+            None,
+        );
         assert_eq!(
             l.map(|l| (l.text, l.tone)),
             Some(("oak stopped without replying".into(), LineTone::Stopped))
@@ -754,13 +849,21 @@ mod tests {
             ..CardThreadItem::default()
         };
         assert!(
-            working_line(&[oak.clone()], &[c.clone(), reply], &roster(&[("mac/oak", "idle", 20)]), at(30), false, None, None)
-                .is_none()
+            working_line(
+                std::slice::from_ref(&oak),
+                &[c.clone(), reply],
+                &roster(&[("mac/oak", "idle", 20)]),
+                at(30),
+                false,
+                None,
+                None
+            )
+            .is_none()
         );
         assert!(
             working_line(
-                &[oak.clone()],
-                &[c.clone()],
+                std::slice::from_ref(&oak),
+                std::slice::from_ref(&c),
                 &roster(&[("mac/oak", "idle", 20)]),
                 at(20) + STOPPED_GRACE - 1,
                 false,
@@ -769,12 +872,45 @@ mod tests {
             )
             .is_none()
         );
-        assert!(working_line(&[oak.clone()], &[c.clone()], &roster(&[("mac/oak", "idle", -5)]), at(30), false, None, None).is_none());
+        assert!(
+            working_line(
+                std::slice::from_ref(&oak),
+                std::slice::from_ref(&c),
+                &roster(&[("mac/oak", "idle", -5)]),
+                at(30),
+                false,
+                None,
+                None
+            )
+            .is_none()
+        );
         let mut waiting = c.clone();
         waiting.pending = vec!["queued for oak".into()];
         waiting.heard_by = vec![];
-        assert!(working_line(&[oak.clone()], &[waiting], &roster(&[("mac/oak", "idle", 20)]), at(30), false, None, None).is_none());
-        assert!(working_line(&[oak.clone()], &[c.clone()], &roster(&[("mac/oak", "busy", 1)]), at(2), true, None, None).is_none());
+        assert!(
+            working_line(
+                std::slice::from_ref(&oak),
+                &[waiting],
+                &roster(&[("mac/oak", "idle", 20)]),
+                at(30),
+                false,
+                None,
+                None
+            )
+            .is_none()
+        );
+        assert!(
+            working_line(
+                std::slice::from_ref(&oak),
+                std::slice::from_ref(&c),
+                &roster(&[("mac/oak", "busy", 1)]),
+                at(2),
+                true,
+                None,
+                None
+            )
+            .is_none()
+        );
         let gone = AgentRef {
             live: false,
             ..oak.clone()
@@ -783,13 +919,34 @@ mod tests {
             offline: true,
             ..oak.clone()
         };
-        assert!(working_line(&[gone, away], &[c.clone()], &roster(&[("mac/oak", "busy", 1)]), at(2), false, None, None).is_none());
+        assert!(
+            working_line(
+                &[gone, away],
+                std::slice::from_ref(&c),
+                &roster(&[("mac/oak", "busy", 1)]),
+                at(2),
+                false,
+                None,
+                None
+            )
+            .is_none()
+        );
         let handed = AgentRef {
             assigned: true,
             ..oak.clone()
         };
         assert_eq!(
-            working_line(&[handed], &[c], &roster(&[("mac/oak", "busy", 1)]), at(2), false, None, None).unwrap().tone,
+            working_line(
+                &[handed],
+                &[c],
+                &roster(&[("mac/oak", "busy", 1)]),
+                at(2),
+                false,
+                None,
+                None
+            )
+            .unwrap()
+            .tone,
             LineTone::Working
         );
     }
@@ -799,12 +956,43 @@ mod tests {
         let oak = agent("mac/oak", "oak");
         let elm = agent("mac/elm", "elm");
         let busy = roster(&[("mac/oak", "busy", 0), ("mac/elm", "busy", 0)]);
-        let l = working_line(&[oak.clone(), elm.clone()], &[], &busy, at(0), false, Some(&[elm.clone()]), None).unwrap();
-        assert_eq!((l.tone, l.who.as_str(), l.verb), (LineTone::Working, "elm", "is"));
-        assert!(working_line(&[oak.clone()], &[], &busy, at(0), false, Some(&[]), None).is_none());
+        let l = working_line(
+            &[oak.clone(), elm.clone()],
+            &[],
+            &busy,
+            at(0),
+            false,
+            Some(std::slice::from_ref(&elm)),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            (l.tone, l.who.as_str(), l.verb),
+            (LineTone::Working, "elm", "is")
+        );
+        assert!(
+            working_line(
+                std::slice::from_ref(&oak),
+                &[],
+                &busy,
+                at(0),
+                false,
+                Some(&[]),
+                None
+            )
+            .is_none()
+        );
         let shell = roster(&[("mac/oak", "shell", 0)]);
         assert_eq!(
-            working_line(&[oak.clone()], &[], &shell, at(0), false, Some(&[]), Some(&[oak.clone()])),
+            working_line(
+                std::slice::from_ref(&oak),
+                &[],
+                &shell,
+                at(0),
+                false,
+                Some(&[]),
+                Some(std::slice::from_ref(&oak))
+            ),
             Some(WorkingLine {
                 text: "oak is running a job…".into(),
                 tone: LineTone::Working,
@@ -813,7 +1001,18 @@ mod tests {
                 doing: "running a job".into()
             })
         );
-        assert!(working_line(&[oak.clone()], &[], &shell, at(0), false, Some(&[]), Some(&[])).is_none());
+        assert!(
+            working_line(
+                std::slice::from_ref(&oak),
+                &[],
+                &shell,
+                at(0),
+                false,
+                Some(&[]),
+                Some(&[])
+            )
+            .is_none()
+        );
         let since = |s: i64| {
             HashMap::from([(
                 "mac/oak".to_string(),
@@ -826,13 +1025,31 @@ mod tests {
         };
         let now = at(12 * 60);
         assert_eq!(
-            working_line(&[oak.clone()], &[], &since(0), now, false, Some(&[]), Some(&[oak.clone()])).unwrap().text,
+            working_line(
+                std::slice::from_ref(&oak),
+                &[],
+                &since(0),
+                now,
+                false,
+                Some(&[]),
+                Some(std::slice::from_ref(&oak))
+            )
+            .unwrap()
+            .text,
             "oak is running a job · 12 min…"
         );
         assert_eq!(
-            working_line(&[oak.clone()], &[], &since(11 * 60 + 30), now, false, Some(&[]), Some(&[oak.clone()]))
-                .unwrap()
-                .text,
+            working_line(
+                std::slice::from_ref(&oak),
+                &[],
+                &since(11 * 60 + 30),
+                now,
+                false,
+                Some(&[]),
+                Some(std::slice::from_ref(&oak))
+            )
+            .unwrap()
+            .text,
             "oak is running a job…"
         );
     }
@@ -844,13 +1061,30 @@ mod tests {
         c.pending = vec![];
         let later = at(60);
         assert_eq!(
-            working_line(&[oak.clone()], &[c.clone()], &roster(&[("mac/oak", "shell", 5)]), later, false, None, None)
-                .unwrap()
-                .text,
+            working_line(
+                std::slice::from_ref(&oak),
+                &[c.clone()],
+                &roster(&[("mac/oak", "shell", 5)]),
+                later,
+                false,
+                None,
+                None
+            )
+            .unwrap()
+            .text,
             "oak is running a job…"
         );
         assert_eq!(
-            working_line(&[oak], &[c], &roster(&[("mac/oak", "idle", 5)]), later, false, None, None).map(|l| l.text),
+            working_line(
+                &[oak],
+                &[c],
+                &roster(&[("mac/oak", "idle", 5)]),
+                later,
+                false,
+                None,
+                None
+            )
+            .map(|l| l.text),
             Some("oak stopped without replying".into())
         );
     }
@@ -869,7 +1103,10 @@ mod tests {
         assert_eq!(tool_phrase("Bash"), "running a command");
         assert_eq!(tool_phrase("Edit"), "editing files");
         assert_eq!(tool_phrase("mcp__irori__board_comment"), "on the Board");
-        assert_eq!(tool_phrase("mcp__claude-in-chrome__navigate"), "using the browser");
+        assert_eq!(
+            tool_phrase("mcp__claude-in-chrome__navigate"),
+            "using the browser"
+        );
         assert_eq!(tool_phrase("mcp__blender__look"), "using blender");
         assert_eq!(tool_phrase("Frobnicate"), "using Frobnicate");
         let oak = agent("mac/oak", "oak");
@@ -882,7 +1119,9 @@ mod tests {
             },
         )]);
         assert_eq!(
-            working_line(&[oak], &[], &live, 0, false, None, None).unwrap().text,
+            working_line(&[oak], &[], &live, 0, false, None, None)
+                .unwrap()
+                .text,
             "oak is searching files…"
         );
     }

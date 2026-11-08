@@ -11,7 +11,10 @@ use irori_window::cards::{AgentRef, CardRef, CardSummary, GoneWait, Holding, Wai
 
 use super::agent_counts::NOT_ANSWERING;
 use super::agent_status::ms;
-use super::cards::{Work, ask, ask_line, busy, idle_unnamed, open_ask, over, over_label, running_job_now, state, work_label};
+use super::cards::{
+    Work, ask, ask_line, busy, idle_unnamed, open_ask, over, over_label, running_job_now, state,
+    work_label,
+};
 use super::names::display_name;
 use super::plain::plain_line;
 use super::spawn_line::{NOT_TRUSTED, SpawnState, spawn_line};
@@ -95,7 +98,11 @@ fn downed(w: &AgentRef) -> bool {
 }
 
 fn away_line(w: &AgentRef, h: Holding) -> String {
-    let name = if w.key.is_empty() { "Its agent".to_string() } else { display_name(w) };
+    let name = if w.key.is_empty() {
+        "Its agent".to_string()
+    } else {
+        display_name(w)
+    };
     if h == Holding::Silent || w.status == NOT_ANSWERING {
         return format!("{name} isn't answering");
     }
@@ -104,26 +111,37 @@ fn away_line(w: &AgentRef, h: Holding) -> String {
     }
     // An agent Irori started that ended before taking the card up died
     // (card #699): it went away, it didn't finish.
-    format!("{name} {}", if w.spawned && !w.assigned { "finished" } else { "went away" })
+    format!(
+        "{name} {}",
+        if w.spawned && !w.assigned {
+            "finished"
+        } else {
+            "went away"
+        }
+    )
 }
 
 fn row(c: &CardSummary, now: i64) -> (RowLine, bool) {
-    let r = |state: RowState, line: String| (
-        RowLine {
-            state,
-            line,
-            spin: false,
-        },
-        false,
-    );
-    let nobody = |state: RowState, line: String| (
-        RowLine {
-            state,
-            line,
-            spin: false,
-        },
-        true,
-    );
+    let r = |state: RowState, line: String| {
+        (
+            RowLine {
+                state,
+                line,
+                spin: false,
+            },
+            false,
+        )
+    };
+    let nobody = |state: RowState, line: String| {
+        (
+            RowLine {
+                state,
+                line,
+                spin: false,
+            },
+            true,
+        )
+    };
     if over(&c.state) {
         return r(RowState::Done, over_label(&c.state, c.ask.as_ref()).into());
     }
@@ -141,7 +159,14 @@ fn row(c: &CardSummary, now: i64) -> (RowLine, bool) {
             return r(RowState::Needs, format!("{} decisions", c.open_blockers));
         }
         let q = plain_line(&c.blocker_question);
-        return r(RowState::Needs, if q.is_empty() { "A question for you".into() } else { q });
+        return r(
+            RowState::Needs,
+            if q.is_empty() {
+                "A question for you".into()
+            } else {
+                q
+            },
+        );
     }
     let held: Vec<&AgentRef> = c.working.iter().filter(|w| !w.assigned).collect();
     if let Some(a) = c.ask.as_ref().filter(|_| open_ask(c.ask.as_ref())) {
@@ -181,13 +206,19 @@ fn row(c: &CardSummary, now: i64) -> (RowLine, bool) {
         return r(RowState::Needs, loop_line(&c.wait_loop));
     }
     if let Some(end) = &c.wait_stuck {
-        return r(RowState::Needs, format!("Waits on {}, which nobody is on", ref_of(end)));
+        return r(
+            RowState::Needs,
+            format!("Waits on {}, which nobody is on", ref_of(end)),
+        );
     }
     if c.waiting_on > 0 && c.wait_gone {
         let n = wait_name(&c.wait_kind, &c.wait_on);
         return r(
             RowState::Stuck,
-            format!("Waiting on {}, who is gone", if n.is_empty() { "an agent" } else { &n }),
+            format!(
+                "Waiting on {}, who is gone",
+                if n.is_empty() { "an agent" } else { &n }
+            ),
         );
     }
     if c.waiting_on > 0 {
@@ -197,13 +228,22 @@ fn row(c: &CardSummary, now: i64) -> (RowLine, bool) {
     if c.waiting > 0 && (!held.is_empty() || sp.is_none()) {
         return r(RowState::Waiting, "Your answer is with the agent".into());
     }
-    let who = held.iter().map(|w| display_name(w)).take(2).collect::<Vec<_>>().join(", ");
+    let who = held
+        .iter()
+        .map(|w| display_name(w))
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(", ");
     let w = Work::from(c);
     if busy(&w) {
         return (
             RowLine {
                 state: RowState::Working,
-                line: if who.is_empty() { "Working".into() } else { format!("{who} working") },
+                line: if who.is_empty() {
+                    "Working".into()
+                } else {
+                    format!("{who} working")
+                },
                 spin: true,
             },
             false,
@@ -216,7 +256,11 @@ fn row(c: &CardSummary, now: i64) -> (RowLine, bool) {
                 state: RowState::Working,
                 line: format!(
                     "{} running a job",
-                    job.iter().map(display_name).take(2).collect::<Vec<_>>().join(", ")
+                    job.iter()
+                        .map(display_name)
+                        .take(2)
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ),
                 spin: true,
             },
@@ -243,7 +287,11 @@ fn row(c: &CardSummary, now: i64) -> (RowLine, bool) {
             if c.working.iter().all(downed) {
                 return nobody(RowState::Stuck, away_line(&c.working[0], c.holder.state));
             }
-            let l = if work_label(&w) == "offered" { "Offered, not taken up yet" } else { "Not picked up" };
+            let l = if work_label(&w) == "offered" {
+                "Offered, not taken up yet"
+            } else {
+                "Not picked up"
+            };
             return nobody(RowState::Stuck, l.into());
         }
         if let Some(ret) = &c.returned {
@@ -264,7 +312,11 @@ fn row(c: &CardSummary, now: i64) -> (RowLine, bool) {
     if idle_unnamed(c, now) {
         return r(
             RowState::Idle,
-            if who.is_empty() { IDLE_LINE.into() } else { format!("{IDLE_LINE} ({who})") },
+            if who.is_empty() {
+                IDLE_LINE.into()
+            } else {
+                format!("{IDLE_LINE} ({who})")
+            },
         );
     }
     let there = held
@@ -276,7 +328,11 @@ fn row(c: &CardSummary, now: i64) -> (RowLine, bool) {
         .join(", ");
     r(
         RowState::Working,
-        if there.is_empty() { "Held, between turns".into() } else { format!("{there}, between turns") },
+        if there.is_empty() {
+            "Held, between turns".into()
+        } else {
+            format!("{there}, between turns")
+        },
     )
 }
 
@@ -287,12 +343,18 @@ pub fn row_state(c: &CardSummary, now: i64) -> RowLine {
 
 /// Rows split into Home's groups, in [`ROW_GROUPS`] order, each in the
 /// order given; empty groups left out.
-pub fn group_rows<T: Clone>(rows: &[T], state_of: impl Fn(&T) -> RowState) -> Vec<(RowState, Vec<T>)> {
+pub fn group_rows<T: Clone>(
+    rows: &[T],
+    state_of: impl Fn(&T) -> RowState,
+) -> Vec<(RowState, Vec<T>)> {
     let mut by: HashMap<RowState, Vec<T>> = HashMap::new();
     for r in rows {
         by.entry(state_of(r)).or_default().push(r.clone());
     }
-    ROW_GROUPS.iter().filter_map(|s| by.remove(s).map(|v| (*s, v))).collect()
+    ROW_GROUPS
+        .iter()
+        .filter_map(|s| by.remove(s).map(|v| (*s, v)))
+        .collect()
 }
 
 /// The open cards Home files under Stuck because nobody took them.
@@ -317,7 +379,10 @@ pub fn pr_chip(c: &CardSummary) -> Option<PrChip> {
     };
     Some(PrChip {
         text: format!("waits on PR #{}", pr.number),
-        title: format!("Waits on PR #{} in {}: {who}. Opens {}", pr.number, pr.repo, pr.url),
+        title: format!(
+            "Waits on PR #{} in {}: {who}. Opens {}",
+            pr.number, pr.repo, pr.url
+        ),
         url: pr.url.clone(),
     })
 }
@@ -338,7 +403,11 @@ pub fn gone_line(g: &GoneWait) -> String {
 
 /// A gone wait's Needs you title: "#73 waits on kestrel (gone)".
 pub fn gone_title(c: &CardSummary, g: &GoneWait) -> String {
-    let r = if c.short.is_empty() { plain_line(&c.title) } else { format!("#{}", plain_line(&c.short)) };
+    let r = if c.short.is_empty() {
+        plain_line(&c.title)
+    } else {
+        format!("#{}", plain_line(&c.short))
+    };
     format!("{r} waits on {} (gone)", display_name(&g.agent))
 }
 
@@ -389,7 +458,10 @@ pub fn and_list(xs: &[String]) -> String {
 
 /// A wait loop's line: "#392, #396 and #394 wait on each other".
 pub fn loop_line(ring: &[CardRef]) -> String {
-    format!("{} wait on each other", and_list(&ring.iter().map(ref_of).collect::<Vec<_>>()))
+    format!(
+        "{} wait on each other",
+        and_list(&ring.iter().map(ref_of).collect::<Vec<_>>())
+    )
 }
 
 /// A chain's that ends at a card nobody is on.
@@ -397,7 +469,13 @@ pub fn stuck_line(end: &CardRef, cards: &[&CardSummary]) -> String {
     let who = and_list(
         &cards
             .iter()
-            .map(|c| if c.short.is_empty() { plain_line(&c.title) } else { format!("#{}", plain_line(&c.short)) })
+            .map(|c| {
+                if c.short.is_empty() {
+                    plain_line(&c.title)
+                } else {
+                    format!("#{}", plain_line(&c.short))
+                }
+            })
             .collect::<Vec<_>>(),
     );
     format!(
@@ -487,10 +565,21 @@ pub fn needs_of<'a>(cards: &'a [CardSummary], held: &'a [Delivery]) -> Vec<Need<
             out.push(need(c, NeedKind::NoAgent(c)));
             continue;
         }
-        out.push(need(c, if check { NeedKind::Check(c) } else { NeedKind::Decision(c) }));
+        out.push(need(
+            c,
+            if check {
+                NeedKind::Check(c)
+            } else {
+                NeedKind::Decision(c)
+            },
+        ));
     }
     for c in cards {
-        if let Some(pr) = c.merge_pr.as_ref().filter(|_| !over(&c.state) && !needs_you(c)) {
+        if let Some(pr) = c
+            .merge_pr
+            .as_ref()
+            .filter(|_| !over(&c.state) && !needs_you(c))
+        {
             out.push(need(c, NeedKind::Merge(c, pr)));
         }
     }
@@ -512,9 +601,16 @@ pub fn needs_of<'a>(cards: &'a [CardSummary], held: &'a [Delivery]) -> Vec<Need<
             continue;
         }
         let id = if c.wait_loop.is_empty() {
-            c.wait_stuck.as_ref().map(|e| e.id.clone()).unwrap_or_default()
+            c.wait_stuck
+                .as_ref()
+                .map(|e| e.id.clone())
+                .unwrap_or_default()
         } else {
-            c.wait_loop.iter().map(|r| r.id.as_str()).collect::<Vec<_>>().join(",")
+            c.wait_loop
+                .iter()
+                .map(|r| r.id.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
         };
         let at = time(&c.updated_at);
         if let Some(&i) = at_of.get(&id) {
@@ -550,7 +646,7 @@ pub fn needs_of<'a>(cards: &'a [CardSummary], held: &'a [Delivery]) -> Vec<Need<
             kind: NeedKind::Held(d),
         });
     }
-    out.sort_by(|a, b| b.at.cmp(&a.at));
+    out.sort_by_key(|n| std::cmp::Reverse(n.at));
     if !quiet.is_empty() {
         out.push(Need {
             id: HELD_QUIET.into(),
@@ -617,7 +713,12 @@ mod tests {
         f(&mut a);
         a
     }
-    fn held(name: &str, status: &str, fc: impl FnOnce(&mut CardSummary), fw: impl Fn(&mut AgentRef)) -> CardSummary {
+    fn held(
+        name: &str,
+        status: &str,
+        fc: impl FnOnce(&mut CardSummary),
+        fw: impl Fn(&mut AgentRef),
+    ) -> CardSummary {
         let w = holder(name, status, fw);
         card(|c| {
             c.working = vec![w.clone()];
@@ -637,20 +738,31 @@ mod tests {
         }
     }
     fn kinds(n: &[Need]) -> Vec<String> {
-        n.iter().map(|n| format!("{}:{}", n.kind_name(), n.id)).collect()
+        n.iter()
+            .map(|n| format!("{}:{}", n.kind_name(), n.id))
+            .collect()
     }
 
     #[test]
     fn idle_with_no_reason_given() {
         let h = |fc: fn(&mut CardSummary)| held("orca", "idle", fc, |_| {});
-        assert_eq!(row_state(&h(|_| {}), ms_of("2026-11-02T10:10:00Z")), rl(RowState::Working, "orca, between turns"));
+        assert_eq!(
+            row_state(&h(|_| {}), ms_of("2026-11-02T10:10:00Z")),
+            rl(RowState::Working, "orca, between turns")
+        );
         assert_eq!(
             row_state(&h(|_| {}), ms_of("2026-11-02T10:15:00Z")),
             rl(RowState::Idle, &format!("{IDLE_LINE} (orca)"))
         );
         let c = h(|c| c.updated_at = GoTime::parse_rfc3339("2026-11-02T10:12:00Z").unwrap());
-        assert_eq!(row_state(&c, ms_of("2026-11-02T10:16:00Z")).state, RowState::Working);
-        assert_eq!(row_state(&c, ms_of("2026-11-02T10:22:00Z")).state, RowState::Idle);
+        assert_eq!(
+            row_state(&c, ms_of("2026-11-02T10:16:00Z")).state,
+            RowState::Working
+        );
+        assert_eq!(
+            row_state(&c, ms_of("2026-11-02T10:22:00Z")).state,
+            RowState::Idle
+        );
         let late = ms_of("2026-11-02T11:00:00Z");
         assert_eq!(
             row_state(
@@ -673,7 +785,10 @@ mod tests {
             .state,
             RowState::Needs
         );
-        assert_eq!(row_state(&held("orca", "busy", |_| {}, |_| {}), late).state, RowState::Working);
+        assert_eq!(
+            row_state(&held("orca", "busy", |_| {}, |_| {}), late).state,
+            RowState::Working
+        );
         assert_eq!(
             row_state(&held("orca", "gone", |_| {}, |a| a.live = false), late),
             rl(RowState::Stuck, "orca went away")
@@ -682,7 +797,10 @@ mod tests {
             row_state(&held("orca", "idle", |_| {}, |a| a.offline = true), late),
             rl(RowState::Stuck, "orca is on an offline device")
         );
-        assert_eq!(row_state(&h(|c| c.state = state::IN_REVIEW.into()), late).state, RowState::Waiting);
+        assert_eq!(
+            row_state(&h(|c| c.state = state::IN_REVIEW.into()), late).state,
+            RowState::Waiting
+        );
     }
 
     #[test]
@@ -697,7 +815,10 @@ mod tests {
             }
         );
         assert_eq!(
-            row_state(&held("wonton", "idle", |_| {}, |_| {}), ms_of("2026-11-02T10:06:00Z")),
+            row_state(
+                &held("wonton", "idle", |_| {}, |_| {}),
+                ms_of("2026-11-02T10:06:00Z")
+            ),
             rl(RowState::Working, "wonton, between turns")
         );
         assert_eq!(
@@ -717,10 +838,22 @@ mod tests {
             RowState::Needs
         );
         assert_eq!(
-            row_state(&held("wonton", "shell", |c| c.state = state::IN_REVIEW.into(), |_| {}), late),
+            row_state(
+                &held(
+                    "wonton",
+                    "shell",
+                    |c| c.state = state::IN_REVIEW.into(),
+                    |_| {}
+                ),
+                late
+            ),
             rl(RowState::Waiting, "In review")
         );
-        assert!(!row_state(&held("wonton", "shell", |_| {}, |a| a.offline = true), late).line.contains("background"));
+        assert!(
+            !row_state(&held("wonton", "shell", |_| {}, |a| a.offline = true), late)
+                .line
+                .contains("background")
+        );
     }
 
     #[test]
@@ -746,8 +879,14 @@ mod tests {
             .state,
             RowState::Needs
         );
-        assert_eq!(row_state(&card(|c| c.state = state::COMPLETED.into()), 0).state, RowState::Done);
-        assert_eq!(row_state(&card(|c| c.state = state::IN_REVIEW.into()), 0).line, "In review");
+        assert_eq!(
+            row_state(&card(|c| c.state = state::COMPLETED.into()), 0).state,
+            RowState::Done
+        );
+        assert_eq!(
+            row_state(&card(|c| c.state = state::IN_REVIEW.into()), 0).line,
+            "In review"
+        );
         assert_eq!(row_state(&card(|_| {}), 0).state, RowState::Stuck);
         assert!(!needs_you(&card(|c| {
             c.state = state::COMPLETED.into();
@@ -776,7 +915,10 @@ mod tests {
         let live = HashMap::from([("d/oak".to_string(), "busy".to_string())]);
         let mut now = c.clone();
         now.working = with_live(&c.working, &live).unwrap();
-        assert_ne!(row_state(&c, ms_of("2026-11-02T11:00:00Z")).state, RowState::Working);
+        assert_ne!(
+            row_state(&c, ms_of("2026-11-02T11:00:00Z")).state,
+            RowState::Working
+        );
         assert!(row_state(&now, 0).spin);
         assert!(!working_now(&Work::from(&now)).is_empty());
         let mut blocked = now.clone();
@@ -810,7 +952,10 @@ mod tests {
             d.message.from = inbox::Sender::new("user:dev", "you", "user");
         });
         let ds = [h.clone(), h];
-        assert_eq!(kinds(&needs_of(&cs, &ds)), ["check:b", "held:h", "decision:a"]);
+        assert_eq!(
+            kinds(&needs_of(&cs, &ds)),
+            ["check:b", "held:h", "decision:a"]
+        );
     }
 
     #[test]
@@ -849,9 +994,22 @@ mod tests {
             person,
         ];
         let got = needs_of(&cs, &ds);
-        assert_eq!(kinds(&got), ["decision:a", "held:mine", "held:pal", &format!("heldQuiet:{HELD_QUIET}")]);
-        let NeedKind::HeldQuiet(q) = &got[3].kind else { panic!("quiet") };
-        assert_eq!(q.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["hop", "old", "allow", "p", "ar", "mp"]);
+        assert_eq!(
+            kinds(&got),
+            [
+                "decision:a",
+                "held:mine",
+                "held:pal",
+                &format!("heldQuiet:{HELD_QUIET}")
+            ]
+        );
+        let NeedKind::HeldQuiet(q) = &got[3].kind else {
+            panic!("quiet")
+        };
+        assert_eq!(
+            q.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(),
+            ["hop", "old", "allow", "p", "ar", "mp"]
+        );
         assert!(!asks_person(&hop));
         let to_you = hd("ty", "user:dev", inbox::hold::NOT_ALLOWED, false);
         assert!(asks_person(&to_you));
@@ -862,7 +1020,10 @@ mod tests {
         let mut mq = mine.clone();
         mq.state = inbox::st::QUEUED.into();
         assert!(!asks_person(&mq));
-        assert_eq!(kinds(&needs_of(&[], std::slice::from_ref(&hop))), [format!("heldQuiet:{HELD_QUIET}")]);
+        assert_eq!(
+            kinds(&needs_of(&[], std::slice::from_ref(&hop))),
+            [format!("heldQuiet:{HELD_QUIET}")]
+        );
     }
 
     fn pr(n: i64) -> WaitPr {
@@ -892,7 +1053,10 @@ mod tests {
             c.wait_on = "#290".into();
             c.wait_you = "your answer on #290".into();
         });
-        assert_eq!(row_state(&c, 0), rl(RowState::Needs, "Waits on your answer on #290"));
+        assert_eq!(
+            row_state(&c, 0),
+            rl(RowState::Needs, "Waits on your answer on #290")
+        );
         let mut c2 = c.clone();
         c2.wait_on = "#334".into();
         c2.wait_you = String::new();
@@ -990,22 +1154,37 @@ mod tests {
             });
             c.updated_at = GoTime::parse_rfc3339("2026-11-05T05:00:00Z").unwrap();
         });
-        assert_eq!(row_state(&on_agent, 0), rl(RowState::Needs, "Waits on kestrel (gone)"));
+        assert_eq!(
+            row_state(&on_agent, 0),
+            rl(RowState::Needs, "Waits on kestrel (gone)")
+        );
         assert_eq!(
             gone_line(outside.gone_wait.as_ref().unwrap()),
             "Waits on Apple notarization; piranha (gone) raised it"
         );
-        assert_eq!(gone_title(&on_agent, on_agent.gone_wait.as_ref().unwrap()), "#73 waits on kestrel (gone)");
-        assert_eq!(gone_title(&outside, outside.gone_wait.as_ref().unwrap()), "#75 waits on piranha (gone)");
+        assert_eq!(
+            gone_title(&on_agent, on_agent.gone_wait.as_ref().unwrap()),
+            "#73 waits on kestrel (gone)"
+        );
+        assert_eq!(
+            gone_title(&outside, outside.gone_wait.as_ref().unwrap()),
+            "#75 waits on piranha (gone)"
+        );
         let both = [on_agent.clone(), outside];
         let ns = needs_of(&both, &[]);
         assert_eq!(kinds(&ns), ["gone:73", "gone:75"]);
         let mut m = on_agent.clone();
         m.merge_pr = Some(pr(41));
-        assert_eq!(kinds(&needs_of(std::slice::from_ref(&m), &[])), ["merge:73"]);
+        assert_eq!(
+            kinds(&needs_of(std::slice::from_ref(&m), &[])),
+            ["merge:73"]
+        );
         let mut d = on_agent.clone();
         d.open_blockers = 1;
-        assert_eq!(kinds(&needs_of(std::slice::from_ref(&d), &[])), ["decision:73"]);
+        assert_eq!(
+            kinds(&needs_of(std::slice::from_ref(&d), &[])),
+            ["decision:73"]
+        );
         let mut x = on_agent.clone();
         x.state = state::CANCELED.into();
         assert!(needs_of(std::slice::from_ref(&x), &[]).is_empty());
@@ -1052,7 +1231,10 @@ mod tests {
         assert_eq!(kinds(&needs_of(&cs, &[])), ["merge:454", "decision:290"]);
         let mut d = merge.clone();
         d.open_blockers = 1;
-        assert_eq!(kinds(&needs_of(std::slice::from_ref(&d), &[])), ["decision:454"]);
+        assert_eq!(
+            kinds(&needs_of(std::slice::from_ref(&d), &[])),
+            ["decision:454"]
+        );
         let mut x = merge;
         x.state = state::COMPLETED.into();
         assert!(needs_of(std::slice::from_ref(&x), &[]).is_empty());
@@ -1069,7 +1251,11 @@ mod tests {
 
     #[test]
     fn waits_nothing_will_end() {
-        let ring = vec![cref("t392", "392", "Talk 4"), cref("t396", "396", "Talk 8"), cref("t394", "394", "Talk 6")];
+        let ring = vec![
+            cref("t392", "392", "Talk 4"),
+            cref("t396", "396", "Talk 8"),
+            cref("t394", "394", "Talk 6"),
+        ];
         let cs: Vec<CardSummary> = (0..3)
             .map(|i| {
                 card(|c| {
@@ -1079,17 +1265,26 @@ mod tests {
                     c.waiting_on = 1;
                     c.wait_on = format!("#{}", ring[(i + 1) % 3].short);
                     c.wait_loop = ring.clone();
-                    c.updated_at = GoTime::parse_rfc3339(&format!("2026-11-03T1{i}:00:00Z")).unwrap();
+                    c.updated_at =
+                        GoTime::parse_rfc3339(&format!("2026-11-03T1{i}:00:00Z")).unwrap();
                 })
             })
             .collect();
         let got = needs_of(&cs, &[]);
         assert_eq!(kinds(&got), ["loop:t392,t396,t394"]);
-        let NeedKind::Loop(_, members) = &got[0].kind else { panic!("loop") };
-        assert_eq!(members.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["t392", "t396", "t394"]);
+        let NeedKind::Loop(_, members) = &got[0].kind else {
+            panic!("loop")
+        };
+        assert_eq!(
+            members.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+            ["t392", "t396", "t394"]
+        );
         assert_eq!(got[0].at, ms_of("2026-11-03T12:00:00Z"));
         assert_eq!(loop_line(&ring), "#392, #396 and #394 wait on each other");
-        assert_eq!(row_state(&cs[0], 0), rl(RowState::Needs, "#392, #396 and #394 wait on each other"));
+        assert_eq!(
+            row_state(&cs[0], 0),
+            rl(RowState::Needs, "#392, #396 and #394 wait on each other")
+        );
         let w = card(|c| {
             c.id = "t394".into();
             c.state = state::BLOCKED.into();
@@ -1113,9 +1308,17 @@ mod tests {
             .collect();
         let got = needs_of(&cs, &[]);
         assert_eq!(kinds(&got), ["stuck:t34"]);
-        let NeedKind::Stuck(e, members) = &got[0].kind else { panic!("stuck") };
-        assert_eq!(stuck_line(e, members), "#12 and #13 wait on #34, which nobody is on");
-        assert_eq!(row_state(&cs[0], 0).line, "Waits on #34, which nobody is on");
+        let NeedKind::Stuck(e, members) = &got[0].kind else {
+            panic!("stuck")
+        };
+        assert_eq!(
+            stuck_line(e, members),
+            "#12 and #13 wait on #34, which nobody is on"
+        );
+        assert_eq!(
+            row_state(&cs[0], 0).line,
+            "Waits on #34, which nobody is on"
+        );
         let done = card(|c| {
             c.id = "t392".into();
             c.state = state::COMPLETED.into();
@@ -1143,7 +1346,10 @@ mod tests {
             c.cant_start = "not trusted: /r on d".into();
             c.open_blockers = 1
         });
-        assert_eq!(kinds(&needs_of(std::slice::from_ref(&d), &[])), ["decision:t"]);
+        assert_eq!(
+            kinds(&needs_of(std::slice::from_ref(&d), &[])),
+            ["decision:t"]
+        );
         let x = card(|c| {
             c.id = "t".into();
             c.cant_start = "not trusted: /r on d".into();
@@ -1160,17 +1366,26 @@ mod tests {
                 c.blocker_question = s.into()
             }))
         };
-        assert_eq!(q("Waiting for your permission: thyme is stopped on a prompt"), Some(SpawnNeed::Permission));
+        assert_eq!(
+            q("Waiting for your permission: thyme is stopped on a prompt"),
+            Some(SpawnNeed::Permission)
+        );
         assert_eq!(q(CRASHED_QUESTION), Some(SpawnNeed::Crashed));
         assert_eq!(q(GIVEN_QUESTION), Some(SpawnNeed::Given));
-        assert_eq!(q("Its agent crashed: start another?"), Some(SpawnNeed::Crashed));
-        assert_eq!(q("Its agent crashed 5 times in a row: start another?"), Some(SpawnNeed::Crashed));
+        assert_eq!(
+            q("Its agent crashed: start another?"),
+            Some(SpawnNeed::Crashed)
+        );
+        assert_eq!(
+            q("Its agent crashed 5 times in a row: start another?"),
+            Some(SpawnNeed::Crashed)
+        );
         assert_eq!(q("Ship today?"), None);
         // A typed permission wait, whatever its question (card #682).
         let typed = card(|c| {
             c.open_blockers = 1;
             c.blocker_question = "thyme wants to use Bash: cargo test".into();
-            c.permission_wait = true;
+            c.permission_wait = true
         });
         assert_eq!(spawn_need(&typed), Some(SpawnNeed::Permission));
     }
@@ -1209,44 +1424,57 @@ mod tests {
                     ..heron()
                 }];
                 c.holder = CardHolder {
-                    state: if waiting { Holding::Waiting } else { Holding::Assigned },
+                    state: if waiting {
+                        Holding::Waiting
+                    } else {
+                        Holding::Assigned
+                    },
                     who: heron(),
                     others: 0,
                 };
             })
         };
         for (c, line) in [
-            (card(|c| c.state = state::SUBMITTED.into()), "Nobody has it yet"),
+            (
+                card(|c| c.state = state::SUBMITTED.into()),
+                "Nobody has it yet",
+            ),
             (offered(true), "Not picked up"),
             (offered(false), "Offered, not taken up yet"),
             (ask_card(|_| {}), "Told 3 agents; nobody took it yet"),
-            (ask_card(|a| a.state = "unclaimed".into()), "Nobody took this yet"),
+            (
+                ask_card(|a| a.state = "unclaimed".into()),
+                "Nobody took this yet",
+            ),
         ] {
             assert_eq!(row_state(&c, 0), rl(RowState::Stuck, line));
             assert!(nobody_took(&c, 0));
         }
-        // Card #699: an offered agent that is gone or silent says so.
-        let away_card = |f: fn(&mut AgentRef), h: Holding| {
+        // Card #699: an offered agent that died isn't a slow one.
+        let away = |f: fn(&mut AgentRef), st: Holding| {
+            let mut w = heron();
+            f(&mut w);
             card(|c| {
                 c.state = state::SUBMITTED.into();
-                let mut w = AgentRef {
+                c.working = vec![AgentRef {
                     assigned: true,
                     spawned: true,
-                    ..heron()
-                };
-                f(&mut w);
-                c.working = vec![w.clone()];
+                    ..w.clone()
+                }];
                 c.holder = CardHolder {
-                    state: h,
+                    state: st,
                     who: w,
                     others: 0,
                 };
             })
         };
         for (c, line) in [
-            (away_card(|w| w.status = NOT_ANSWERING.into(), Holding::Silent), "heron isn't answering"),
             (
-                away_card(
+                away(|w| w.status = "unresponsive".into(), Holding::Silent),
+                "heron isn't answering",
+            ),
+            (
+                away(
                     |w| {
                         w.status = "gone".into();
                         w.live = false
@@ -1255,20 +1483,26 @@ mod tests {
                 ),
                 "heron went away",
             ),
-            (away_card(|w| w.offline = true, Holding::Offline), "heron is on an offline device"),
+            (
+                away(|w| w.offline = true, Holding::Offline),
+                "heron is on an offline device",
+            ),
         ] {
             assert_eq!(row_state(&c, 0), rl(RowState::Stuck, line));
             assert!(nobody_took(&c, 0));
         }
         // Unknown here (a shared board's agent) is not dead: still offered.
-        let unknown = away_card(
+        let unknown = away(
             |w| {
                 w.status = "unknown".into();
                 w.live = false
             },
             Holding::Assigned,
         );
-        assert_eq!(row_state(&unknown, 0), rl(RowState::Stuck, "Offered, not taken up yet"));
+        assert_eq!(
+            row_state(&unknown, 0),
+            rl(RowState::Stuck, "Offered, not taken up yet")
+        );
         let taken = card(|c| {
             c.state = state::SUBMITTED.into();
             c.ask = Some(CardAsk {
@@ -1284,10 +1518,16 @@ mod tests {
             c.state = state::SUBMITTED.into();
             c.starting = "This PC".into()
         });
-        assert_eq!(row_state(&starting, 0), rl(RowState::Working, "Starting an agent on This PC"));
+        assert_eq!(
+            row_state(&starting, 0),
+            rl(RowState::Working, "Starting an agent on This PC")
+        );
         assert!(!nobody_took(&starting, 0));
 
-        assert_eq!(row_state(&card(|c| c.waiting = 1), 0), rl(RowState::Waiting, "Your answer is with the agent"));
+        assert_eq!(
+            row_state(&card(|c| c.waiting = 1), 0),
+            rl(RowState::Waiting, "Your answer is with the agent")
+        );
         assert_eq!(
             row_state(
                 &card(|c| {
@@ -1303,9 +1543,13 @@ mod tests {
             c.state = state::BLOCKED.into();
             c.waiting_on = 1;
             c.wait_kind = "lease".into();
-            c.wait_on = "ww/dolphin-slot-1 ww/dolphin-slot-2 ww/dolphin-slot-3 ww/dolphin-slot-4".into();
+            c.wait_on =
+                "ww/dolphin-slot-1 ww/dolphin-slot-2 ww/dolphin-slot-3 ww/dolphin-slot-4".into();
         });
-        assert_eq!(row_state(&lease, 0), rl(RowState::Waiting, "Waiting for a free Dolphin slot"));
+        assert_eq!(
+            row_state(&lease, 0),
+            rl(RowState::Waiting, "Waiting for a free Dolphin slot")
+        );
         let gone = card(|c| {
             c.state = state::BLOCKED.into();
             c.waiting_on = 1;
@@ -1313,7 +1557,10 @@ mod tests {
             c.wait_on = "kestrel".into();
             c.wait_gone = true;
         });
-        assert_eq!(row_state(&gone, 0), rl(RowState::Stuck, "Waiting on kestrel, who is gone"));
+        assert_eq!(
+            row_state(&gone, 0),
+            rl(RowState::Stuck, "Waiting on kestrel, who is gone")
+        );
         assert!(!nobody_took(&gone, 0));
 
         let ret = card(|c| {
@@ -1323,7 +1570,10 @@ mod tests {
                 ..heron()
             })
         });
-        assert_eq!(row_state(&ret, 0), rl(RowState::Stuck, "Nobody on it: heron went away"));
+        assert_eq!(
+            row_state(&ret, 0),
+            rl(RowState::Stuck, "Nobody on it: heron went away")
+        );
         assert!(!nobody_took(&ret, 0));
 
         let g = AgentRef {
@@ -1341,7 +1591,10 @@ mod tests {
                 others: 1,
             };
         });
-        assert_eq!(row_state(&c, ms_of("2026-11-02T10:01:00Z")), rl(RowState::Working, "heron, between turns"));
+        assert_eq!(
+            row_state(&c, ms_of("2026-11-02T10:01:00Z")),
+            rl(RowState::Working, "heron, between turns")
+        );
 
         let c = card(|c| {
             c.working = vec![AgentRef {
@@ -1349,11 +1602,17 @@ mod tests {
                 ..heron()
             }]
         });
-        assert_eq!(row_state(&c, ms_of("2026-11-02T10:01:00Z")).state, RowState::Working);
+        assert_eq!(
+            row_state(&c, ms_of("2026-11-02T10:01:00Z")).state,
+            RowState::Working
+        );
         assert!(!nobody_took(&c, 0));
 
         let c = card(|c| c.subtasks = 2);
-        assert_eq!(row_state(&c, 0), rl(RowState::Waiting, "Waiting on its subtasks"));
+        assert_eq!(
+            row_state(&c, 0),
+            rl(RowState::Waiting, "Waiting on its subtasks")
+        );
         assert!(!nobody_took(&c, 0));
 
         let oak = AgentRef {
@@ -1376,7 +1635,10 @@ mod tests {
                 others: 0,
             };
         });
-        assert_eq!(row_state(&c, 0), rl(RowState::Stuck, "oak is on an offline device"));
+        assert_eq!(
+            row_state(&c, 0),
+            rl(RowState::Stuck, "oak is on an offline device")
+        );
         assert!(!nobody_took(&c, 0));
     }
 
@@ -1411,9 +1673,15 @@ mod tests {
             c.id = "c1".into();
             c.no_agent = line.into()
         });
-        assert_eq!(kinds(&needs_of(std::slice::from_ref(&c), &[])), ["noAgent:c1"]);
+        assert_eq!(
+            kinds(&needs_of(std::slice::from_ref(&c), &[])),
+            ["noAgent:c1"]
+        );
         let mut asked = c;
         asked.open_blockers = 1;
-        assert_eq!(kinds(&needs_of(std::slice::from_ref(&asked), &[])), ["decision:c1"]);
+        assert_eq!(
+            kinds(&needs_of(std::slice::from_ref(&asked), &[])),
+            ["decision:c1"]
+        );
     }
 }

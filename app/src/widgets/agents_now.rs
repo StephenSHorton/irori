@@ -9,7 +9,13 @@ use rune_kit::{ControlSize, Switch};
 use crate::ui::theme::status;
 use crate::ui::{Frame, State};
 
-pub fn agents_now_toggle(f: &Frame, key: &str, on: bool, disabled: bool, on_change: impl Fn(&mut State, bool) + 'static) -> El {
+pub fn agents_now_toggle(
+    f: &Frame,
+    key: &str,
+    on: bool,
+    disabled: bool,
+    on_change: impl Fn(&mut State, bool) + 'static,
+) -> El {
     let k = f.k;
     let tip = if on {
         "Agents answer now: the agents it names are woken, and at once an idle agent with Offer it cards on picks it up, or Irori starts one when spawning is on"
@@ -20,7 +26,6 @@ pub fn agents_now_toggle(f: &Frame, key: &str, on: bool, disabled: bool, on_chan
         .key(key.to_string())
         .gap(6.0)
         .center_y()
-        
         .help(tip)
         .opacity(if disabled { 0.6 } else { 1.0 })
         .child(

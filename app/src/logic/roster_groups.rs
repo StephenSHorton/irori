@@ -40,7 +40,8 @@ pub struct RosterGroups<'a> {
 /// an agent spawned for two cards shows under the first.
 pub fn roster_groups<'a>(agents: &'a [RosterAgent], cards: &[CardSummary]) -> RosterGroups<'a> {
     let live: Vec<&RosterAgent> = agents.iter().filter(|a| a.card.status != "gone").collect();
-    let by_key: HashMap<&str, &RosterAgent> = live.iter().map(|a| (a.card.key.as_str(), *a)).collect();
+    let by_key: HashMap<&str, &RosterAgent> =
+        live.iter().map(|a| (a.card.key.as_str(), *a)).collect();
     let mut placed: HashSet<String> = HashSet::new();
     let mut g = RosterGroups {
         blocked: live
@@ -58,7 +59,10 @@ pub fn roster_groups<'a>(agents: &'a [RosterAgent], cards: &[CardSummary]) -> Ro
         }
         if c.open_blockers - i64::from(c.ready) > 0 {
             for w in &c.working {
-                if by_key.get(w.key.as_str()).is_some_and(|a| a.card.status == "idle") {
+                if by_key
+                    .get(w.key.as_str())
+                    .is_some_and(|a| a.card.status == "idle")
+                {
                     g.blocked.insert(w.key.clone());
                 }
             }
@@ -68,7 +72,9 @@ pub fn roster_groups<'a>(agents: &'a [RosterAgent], cards: &[CardSummary]) -> Ro
             if !w.spawned || placed.contains(&w.key) {
                 continue;
             }
-            let Some(a) = by_key.get(w.key.as_str()) else { continue };
+            let Some(a) = by_key.get(w.key.as_str()) else {
+                continue;
+            };
             placed.insert(w.key.clone());
             here.push(*a);
         }
@@ -82,7 +88,10 @@ pub fn roster_groups<'a>(agents: &'a [RosterAgent], cards: &[CardSummary]) -> Ro
             });
         }
     }
-    g.yours = live.into_iter().filter(|a| !placed.contains(&a.card.key)).collect();
+    g.yours = live
+        .into_iter()
+        .filter(|a| !placed.contains(&a.card.key))
+        .collect();
     g.spawned = placed.len();
     g
 }
@@ -127,8 +136,18 @@ pub(crate) mod tests {
 
     #[test]
     fn splits_terminal_agents_from_spawned() {
-        let agents = [agent("juniper", "idle"), agent("thyme", "busy"), agent("basil", "busy")];
-        let g = roster_groups(&agents, &[card("58", &[("thyme", true)]), card("57", &[("basil", false)])]);
+        let agents = [
+            agent("juniper", "idle"),
+            agent("thyme", "busy"),
+            agent("basil", "busy"),
+        ];
+        let g = roster_groups(
+            &agents,
+            &[
+                card("58", &[("thyme", true)]),
+                card("57", &[("basil", false)]),
+            ],
+        );
         assert_eq!(keys(&g.yours), ["juniper", "basil"]);
         assert_eq!(g.on_cards.len(), 1);
         assert_eq!(g.on_cards[0].card_id, "c58");
@@ -138,16 +157,30 @@ pub(crate) mod tests {
 
     #[test]
     fn several_on_one_card_sit_together() {
-        let agents = [agent("fern", "busy"), agent("clover", "busy"), agent("mallow", "busy")];
+        let agents = [
+            agent("fern", "busy"),
+            agent("clover", "busy"),
+            agent("mallow", "busy"),
+        ];
         let g = roster_groups(
             &agents,
-            &[card("61", &[("fern", true), ("clover", true)]), card("66", &[("mallow", true)])],
+            &[
+                card("61", &[("fern", true), ("clover", true)]),
+                card("66", &[("mallow", true)]),
+            ],
         );
-        let got: Vec<(String, Vec<String>)> = g.on_cards.iter().map(|c| (c.short.clone(), keys(&c.agents))).collect();
+        let got: Vec<(String, Vec<String>)> = g
+            .on_cards
+            .iter()
+            .map(|c| (c.short.clone(), keys(&c.agents)))
+            .collect();
         assert_eq!(
             got,
             [
-                ("61".to_string(), vec!["fern".to_string(), "clover".to_string()]),
+                (
+                    "61".to_string(),
+                    vec!["fern".to_string(), "clover".to_string()]
+                ),
                 ("66".to_string(), vec!["mallow".to_string()])
             ]
         );

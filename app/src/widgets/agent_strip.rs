@@ -62,7 +62,14 @@ pub fn strip(s: &State, f: &Frame, key: &str, agents: &[&RosterAgent]) -> Option
             .cmp(&(a.card.status == "busy"))
             .then_with(|| crate::logic::spaces::name_order(&a.card.name, &b.card.name))
     });
-    let mut r = row().key(key.to_string()).w_full().px(10.0).pt(6.0).gap(4.0).flex_wrap().center_y();
+    let mut r = row()
+        .key(key.to_string())
+        .w_full()
+        .px(10.0)
+        .pt(6.0)
+        .gap(4.0)
+        .flex_wrap()
+        .center_y();
     for a in here.iter().take(STRIP_MAX) {
         let mut tip = format!("{}: {}", a.card.name, status_text(a));
         if !a.card.device_via.is_empty() {
@@ -101,8 +108,16 @@ fn on_card_line(s: &State, card_id: &str, a: &RosterAgent) -> String {
         .and_then(|c| c.working.iter().find(|r| r.key == a.card.key))
         .map(|r| r.where_.clone())
         .unwrap_or_default();
-    let via = if a.card.device_via.is_empty() { String::new() } else { through_line(&a.card.device_via) };
-    [w, status_text(a), via].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(" · ")
+    let via = if a.card.device_via.is_empty() {
+        String::new()
+    } else {
+        through_line(&a.card.device_via)
+    };
+    [w, status_text(a), via]
+        .into_iter()
+        .filter(|x| !x.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 fn on_card_row(s: &State, f: &Frame, card_id: &str, a: &RosterAgent, tag: &str) -> El {
@@ -128,7 +143,12 @@ fn on_card_row(s: &State, f: &Frame, card_id: &str, a: &RosterAgent, tag: &str) 
             col()
                 .grow(1.0)
                 .min_w(0.0)
-                .child(text(a.card.name.clone()).font(k.ty.text_xsmall_medium).color(k.c.text_base).max_lines(1))
+                .child(
+                    text(a.card.name.clone())
+                        .font(k.ty.text_xsmall_medium)
+                        .color(k.c.text_base)
+                        .max_lines(1),
+                )
                 .child(
                     text(on_card_line(s, card_id, a))
                         .font(rune::tok::TextStyle::new(11.0, 400.0))
@@ -153,7 +173,16 @@ fn on_card_row(s: &State, f: &Frame, card_id: &str, a: &RosterAgent, tag: &str) 
 /// under the card when one card has several. A row opens its card.
 pub fn on_cards(s: &State, f: &Frame, groups: &[OnCard]) -> El {
     let k = f.k;
-    let mut c = col().key("widgets-oncards").w_full().px(4.0).gap(2.0).max_h(224.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false });
+    let mut c = col()
+        .key("widgets-oncards")
+        .w_full()
+        .px(4.0)
+        .gap(2.0)
+        .max_h(224.0)
+        .min_h(0.0)
+        .scroll(rune::ScrollSpec {
+            stick_bottom: false,
+        });
     for g in groups {
         let r = ref_text(&g.tag, &g.short);
         if g.agents.len() == 1 {
@@ -180,7 +209,11 @@ pub fn on_cards(s: &State, f: &Frame, groups: &[OnCard]) -> El {
                     .gap(6.0)
                     .cursor(rune::Cursor::Pointer)
                     .on_press(move |s: &mut State| s.open_card(&id))
-                    .child(text(r.clone()).font(rune::tok::TextStyle::new(11.0, 400.0).mono()).color(k.c.text_muted))
+                    .child(
+                        text(r.clone())
+                            .font(rune::tok::TextStyle::new(11.0, 400.0).mono())
+                            .color(k.c.text_muted),
+                    )
                     .child(
                         text(format!("{} · {} agents", g.title, g.agents.len()))
                             .font(rune::tok::TextStyle::new(11.0, 400.0))
@@ -211,9 +244,16 @@ pub fn agent_strip(s: &State, f: &mut Frame) -> El {
         .count();
     let on_cards_now = groups.spawned - blocked_on_cards;
     let blocked_now = n.blocked + blocked_on_cards;
-    let mut sec = col().key("agent-strip").w_full().pb(8.0).gap(2.0).child(label(f, "Agents"));
+    let mut sec = col()
+        .key("agent-strip")
+        .w_full()
+        .pb(8.0)
+        .gap(2.0)
+        .child(label(f, "Agents"));
     let tip = [
-        (on_cards_now > 0).then(|| format!("{on_cards_now} started by Irori for a card, each ends when its card is Done")),
+        (on_cards_now > 0).then(|| {
+            format!("{on_cards_now} started by Irori for a card, each ends when its card is Done")
+        }),
         (groups.starting > 0).then(|| format!("{} cards starting an agent", groups.starting)),
         (groups.queued > 0).then(|| {
             format!(
@@ -225,9 +265,15 @@ pub fn agent_strip(s: &State, f: &mut Frame) -> El {
         Some(format!(
             "{} working{}",
             n.working,
-            if n.running > 0 { format!(" ({} running a job)", n.running) } else { String::new() }
+            if n.running > 0 {
+                format!(" ({} running a job)", n.running)
+            } else {
+                String::new()
+            }
         )),
-        (blocked_now > 0).then(|| format!("{blocked_now} blocked: on a permission prompt, or on a card waiting for you")),
+        (blocked_now > 0).then(|| {
+            format!("{blocked_now} blocked: on a permission prompt, or on a card waiting for you")
+        }),
         (n.free + n.own_work > 0).then(|| format!("{} idle", n.free + n.own_work)),
         (n.silent > 0).then(|| format!("{} idle but not answering", n.silent)),
         (n.offline > 0).then(|| format!("{} on an offline device", n.offline)),
@@ -244,10 +290,23 @@ pub fn agent_strip(s: &State, f: &mut Frame) -> El {
         (blocked_now, "blocked", Tone::Warning),
         (n.silent, "not answering", Tone::Warning),
     ];
-    let mut counts = row().key("widgets-agent-counts").w_full().px(10.0).gap(4.0).flex_wrap().help(tip);
+    let mut counts = row()
+        .key("widgets-agent-counts")
+        .w_full()
+        .px(10.0)
+        .gap(4.0)
+        .flex_wrap()
+        .help(tip);
     for (i, (n, w, t)) in chips.into_iter().enumerate() {
         if n > 0 {
-            counts = counts.child(badge(f, &format!("widgets-agent-count-{i}"), &format!("{n} {w}"), t, false, ""));
+            counts = counts.child(badge(
+                f,
+                &format!("widgets-agent-count-{i}"),
+                &format!("{n} {w}"),
+                t,
+                false,
+                "",
+            ));
         }
     }
     sec = sec.child(counts);
@@ -261,7 +320,9 @@ pub fn agent_strip(s: &State, f: &mut Frame) -> El {
         if let Some(st) = strip(s, f, "widgets-strip-yours", &groups.yours) {
             sec = sec.child(st);
         }
-        sec = sec.child(label(f, "On cards")).child(on_cards(s, f, &groups.on_cards));
+        sec = sec
+            .child(label(f, "On cards"))
+            .child(on_cards(s, f, &groups.on_cards));
     }
     if let Some(cs) = check_slots(s, f) {
         sec = sec.child(cs);

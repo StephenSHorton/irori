@@ -89,13 +89,18 @@ pub fn agent_on_rows(cards: &[CardSummary], cands: &[Candidate], here: &str) -> 
         if c.short.is_empty() || who.key.is_empty() || who.key.starts_with("user:") {
             continue;
         }
-        if matches!(c.holder.state, Holding::Person | Holding::Gone | Holding::Nobody) {
+        if matches!(
+            c.holder.state,
+            Holding::Person | Holding::Gone | Holding::Nobody
+        ) {
             continue;
         }
         if is_gone(who) {
             continue;
         }
-        let known = cands.iter().find(|x| x.who.key == who.key && x.card.is_empty());
+        let known = cands
+            .iter()
+            .find(|x| x.who.key == who.key && x.card.is_empty());
         rows.push((
             c.id == here,
             c.short.parse().unwrap_or(0),
@@ -212,7 +217,8 @@ pub fn filter_candidates(cands: &[Candidate], query: &str) -> Vec<Candidate> {
         }
         let card = c.card.to_lowercase();
         let num = card.rsplit('#').next().unwrap_or("");
-        agent_on_label(&c.card).to_lowercase().contains(&q) || (!q.is_empty() && num.starts_with(qn))
+        agent_on_label(&c.card).to_lowercase().contains(&q)
+            || (!q.is_empty() && num.starts_with(qn))
     };
     let rank = |c: &Candidate| {
         let n = row_name(c).to_lowercase();
@@ -238,7 +244,10 @@ pub fn filter_candidates(cands: &[Candidate], query: &str) -> Vec<Candidate> {
             x.to_lowercase().cmp(&y.to_lowercase()).then(x.cmp(&y))
         })
     });
-    rows.into_iter().take(MAX_ROWS).map(|r| r.2.clone()).collect()
+    rows.into_iter()
+        .take(MAX_ROWS)
+        .map(|r| r.2.clone())
+        .collect()
 }
 
 /// The next highlighted row: -1 is none (the first row is then the
@@ -267,7 +276,11 @@ fn insert_word(text: &str, t: &Token, caret: usize, ins: &str) -> (String, usize
     }
     let rest = &text[end..];
     let space = !rest.starts_with(char::is_whitespace);
-    let ins = if space { format!("{ins} ") } else { ins.to_string() };
+    let ins = if space {
+        format!("{ins} ")
+    } else {
+        ins.to_string()
+    };
     let out = format!("{}{}{}", &text[..t.start], ins, rest);
     let caret = (t.start + ins.len() + usize::from(!space)).min(out.len());
     (out, caret)
@@ -306,7 +319,9 @@ pub fn count_mention(text: &str, name: &str, longer: &[String]) -> usize {
     text.match_indices(&needle)
         .filter(|&(i, _)| {
             mention_at(text, i, name)
-                && !over.iter().any(|o| starts_at(text, i + 1, o) && mention_at(text, i, o))
+                && !over
+                    .iter()
+                    .any(|o| starts_at(text, i + 1, o) && mention_at(text, i, o))
         })
         .count()
 }
@@ -425,7 +440,9 @@ pub fn settle_range(
         else {
             continue;
         };
-        let Some(written) = text.get(i + 1..i + 1 + n.len()) else { continue };
+        let Some(written) = text.get(i + 1..i + 1 + n.len()) else {
+            continue;
+        };
         if let Some(hit) = exact_unique(written, cands)
             && !out.iter().any(|m| m.key == hit.who.key)
         {
@@ -450,7 +467,13 @@ pub enum MenuKey {
 /// is composing. With no rows (a typo, or the list still loading) Enter is
 /// held, so it doesn't send what the person can see is unfinished; Tab
 /// moves focus as usual.
-pub fn menu_key(key: &str, shift: bool, composing: bool, open: bool, rows: usize) -> Option<MenuKey> {
+pub fn menu_key(
+    key: &str,
+    shift: bool,
+    composing: bool,
+    open: bool,
+    rows: usize,
+) -> Option<MenuKey> {
     if !open || composing {
         return None;
     }
@@ -723,7 +746,10 @@ pub fn filter_cards(cards: &[CardCandidate], query: &str) -> Vec<CardCandidate> 
         .map(|c| (rank(c), c))
         .collect();
     rows.sort_by_key(|r| r.0);
-    rows.into_iter().take(MAX_ROWS).map(|r| r.1.clone()).collect()
+    rows.into_iter()
+        .take(MAX_ROWS)
+        .map(|r| r.1.clone())
+        .collect()
 }
 
 /// Puts "#12 " (or "mlg#12 ") in place of the token and the rest of the
@@ -813,9 +839,18 @@ mod tests {
         );
         assert_eq!(
             keys(&filter_candidates(&f.all, "")),
-            sv(&["agent:boak", "agent:fern", "agent:oak", "agent:oaktree", "agent:oak-mac", "agent:cedar"])
+            sv(&[
+                "agent:boak",
+                "agent:fern",
+                "agent:oak",
+                "agent:oaktree",
+                "agent:oak-mac",
+                "agent:cedar"
+            ])
         );
-        let many: Vec<Candidate> = (0..30).map(|i| cand(&format!("k{i}"), &format!("a{i}"), "idle", "")).collect();
+        let many: Vec<Candidate> = (0..30)
+            .map(|i| cand(&format!("k{i}"), &format!("a{i}"), "idle", ""))
+            .collect();
         assert_eq!(filter_candidates(&many, "a").len(), 20);
     }
 
@@ -856,18 +891,39 @@ mod tests {
 
     #[test]
     fn insert_mention_replaces_the_query_and_word() {
-        assert_eq!(insert_mention("hi @oa", &tok(3, "oa"), 6, "oak"), ("hi @oak ".into(), 8));
-        assert_eq!(insert_mention("@f there", &tok(0, "f"), 2, "fern"), ("@fern there".into(), 6));
-        assert_eq!(insert_mention("@foak hello", &tok(0, "f"), 2, "fern"), ("@fern hello".into(), 6));
-        assert_eq!(insert_mention("@oak", &tok(0, "oa"), 3, "oak"), ("@oak ".into(), 5));
-        assert_eq!(insert_mention("@fx, hi", &tok(0, "f"), 2, "fern"), ("@fern , hi".into(), 6));
+        assert_eq!(
+            insert_mention("hi @oa", &tok(3, "oa"), 6, "oak"),
+            ("hi @oak ".into(), 8)
+        );
+        assert_eq!(
+            insert_mention("@f there", &tok(0, "f"), 2, "fern"),
+            ("@fern there".into(), 6)
+        );
+        assert_eq!(
+            insert_mention("@foak hello", &tok(0, "f"), 2, "fern"),
+            ("@fern hello".into(), 6)
+        );
+        assert_eq!(
+            insert_mention("@oak", &tok(0, "oa"), 3, "oak"),
+            ("@oak ".into(), 5)
+        );
+        assert_eq!(
+            insert_mention("@fx, hi", &tok(0, "f"), 2, "fern"),
+            ("@fern , hi".into(), 6)
+        );
     }
 
     #[test]
     fn punctuation_after_a_name() {
         let f = fx();
-        assert_eq!(settle("@fern,", 6, &[], &f.all), vec![mention("agent:fern", "fern")]);
-        assert_eq!(keys(&filter_candidates(&f.all, "fern.")), sv(&["agent:fern"]));
+        assert_eq!(
+            settle("@fern,", 6, &[], &f.all),
+            vec![mention("agent:fern", "fern")]
+        );
+        assert_eq!(
+            keys(&filter_candidates(&f.all, "fern.")),
+            sv(&["agent:fern"])
+        );
     }
 
     #[test]
@@ -889,9 +945,15 @@ mod tests {
     #[test]
     fn settle_range_records_exact_unique_names() {
         let f = fx();
-        assert_eq!(settle_range("@fern please review", 0, 19, &[], &f.all), vec![mention("agent:fern", "fern")]);
+        assert_eq!(
+            settle_range("@fern please review", 0, 19, &[], &f.all),
+            vec![mention("agent:fern", "fern")]
+        );
         assert!(settle_range("@oak @cedar", 0, 11, &[], &f.all).is_empty());
-        assert_eq!(settle_range("@fern and @boak", 6, 15, &[], &f.all), vec![mention("agent:boak", "boak")]);
+        assert_eq!(
+            settle_range("@fern and @boak", 6, 15, &[], &f.all),
+            vec![mention("agent:boak", "boak")]
+        );
         let oaktree = f.all[4].clone();
         let fern = f.all[0].clone();
         assert_eq!(
@@ -923,11 +985,17 @@ mod tests {
     #[test]
     fn exact_names() {
         let f = fx();
-        assert_eq!(exact_unique("FERN", &f.all).map(|c| c.who.key.as_str()), Some("agent:fern"));
+        assert_eq!(
+            exact_unique("FERN", &f.all).map(|c| c.who.key.as_str()),
+            Some("agent:fern")
+        );
         assert!(exact_unique("oak", &f.all).is_none());
         assert!(exact_unique("cedar", &f.all).is_none());
         assert!(exact_unique("", &f.all).is_none());
-        assert_eq!(settle("hi @Fern", 8, &[], &f.all), vec![mention("agent:fern", "Fern")]);
+        assert_eq!(
+            settle("hi @Fern", 8, &[], &f.all),
+            vec![mention("agent:fern", "Fern")]
+        );
         assert!(settle("hi @fer", 7, &[], &f.all).is_empty());
         let ms = vec![mention("agent:fern", "fern")];
         assert_eq!(settle("@fern", 5, &ms, &f.all), ms);
@@ -959,7 +1027,10 @@ mod tests {
             vec![MentionSpan::Text("hi @fern, a@oak".into())]
         );
         let none: [Nm; 0] = [];
-        assert_eq!(split_mentions("plain", &none), vec![MentionSpan::Text("plain".into())]);
+        assert_eq!(
+            split_mentions("plain", &none),
+            vec![MentionSpan::Text("plain".into())]
+        );
     }
 
     fn outcome(name: &str, state: &str) -> MentionOutcome {
@@ -973,21 +1044,32 @@ mod tests {
     #[test]
     fn lines() {
         assert_eq!(
-            not_delivered(&[outcome("oak", "woke"), outcome("fern", "gone"), outcome("cedr", "unknown")]),
+            not_delivered(&[
+                outcome("oak", "woke"),
+                outcome("fern", "gone"),
+                outcome("cedr", "unknown")
+            ]),
             "Not delivered: fern is gone; no agent named cedr."
         );
         assert_eq!(not_delivered(&[outcome("oak", "woke")]), "");
         assert_eq!(not_delivered(&[]), "");
         assert_eq!(asking_line(&[mention("a", "oak")]), "Asking @oak only");
         assert_eq!(
-            asking_line(&[mention("a", "oak"), mention("b", "fern"), mention("c", "elm")]),
+            asking_line(&[
+                mention("a", "oak"),
+                mention("b", "fern"),
+                mention("c", "elm")
+            ]),
             "Asking @oak, @fern and @elm only"
         );
     }
 
     #[test]
     fn oak_inside_a_recorded_oak_tree_doesnt_keep_oak() {
-        let ms = vec![mention("agent:oak", "oak"), mention("agent:oaktree", "oak tree")];
+        let ms = vec![
+            mention("agent:oak", "oak"),
+            mention("agent:oaktree", "oak tree"),
+        ];
         assert_eq!(keep_mentions(&ms, "@oak tree hi"), vec![ms[1].clone()]);
         assert_eq!(keep_mentions(&ms, "@oak tree and @oak"), ms);
     }
@@ -1000,11 +1082,18 @@ mod tests {
             .collect();
         assert_eq!(
             r,
-            vec![(None, "12".into()), (Some("mlg".into()), "3".into()), (None, "67".into())]
+            vec![
+                (None, "12".into()),
+                (Some("mlg".into()), "3".into()),
+                (None, "67".into())
+            ]
         );
         assert_eq!(card_token_at("hi #1", 5, &[]), t(3, "1"));
         assert_eq!(card_token_at("a#1", 3, &[]), None);
-        assert_eq!(card_token_at("#subtask lay", 12, &sv(&["Subtask layout"])), t(0, "subtask lay"));
+        assert_eq!(
+            card_token_at("#subtask lay", 12, &sv(&["Subtask layout"])),
+            t(0, "subtask lay")
+        );
         assert_eq!(card_token_at("#sub lay", 8, &sv(&["Other"])), None);
         let cc = |id: &str, short: &str, title: &str| CardCandidate {
             id: id.into(),
@@ -1012,15 +1101,27 @@ mod tests {
             short: short.into(),
             title: title.into(),
         };
-        let cs = vec![cc("a", "21", "Two"), cc("b", "3", "Has 2 in title"), cc("c", "2", "Second")];
+        let cs = vec![
+            cc("a", "21", "Two"),
+            cc("b", "3", "Has 2 in title"),
+            cc("c", "2", "Second"),
+        ];
         let ids = |v: Vec<CardCandidate>| v.into_iter().map(|c| c.id).collect::<Vec<_>>();
         assert_eq!(ids(filter_cards(&cs, "2")), sv(&["a", "c", "b"]));
         assert_eq!(ids(filter_cards(&cs, "sec")), sv(&["c"]));
-        assert_eq!(insert_card_ref("see #su", &tok(4, "su"), 7, "#12"), ("see #12 ".into(), 8));
+        assert_eq!(
+            insert_card_ref("see #su", &tok(4, "su"), 7, "#12"),
+            ("see #12 ".into(), 8)
+        );
     }
 
     fn rr<'a>(id: &'a str, short: &'a str, title: &'a str, tag: &'a str) -> RefRow<'a> {
-        RefRow { id, short, title, tag }
+        RefRow {
+            id,
+            short,
+            title,
+            tag,
+        }
     }
 
     #[test]
@@ -1031,20 +1132,34 @@ mod tests {
             rr("x7", "7", "One", ""),
             rr("y7", "7", "Two", "web"),
         ];
-        let threads = [rr("t136", "136", "A thread", ""), rr("t12", "12", "Same number", "")];
+        let threads = [
+            rr("t136", "136", "A thread", ""),
+            rr("t12", "12", "Same number", ""),
+        ];
         let r = |s: &str| card_refs(s).remove(0);
         let on_space = [rr("s9", "9", "x", "b-mlg")];
         assert_eq!(local_ref(&r("#9"), &cards, &on_space), None);
         assert_eq!(
             local_ref(&r("see #12"), &cards, &threads),
-            Some(RefHit { thread: false, id: "c12".into(), title: "Live card".into() })
+            Some(RefHit {
+                thread: false,
+                id: "c12".into(),
+                title: "Live card".into()
+            })
         );
         assert_eq!(
             local_ref(&r("mentioned this in #136"), &cards, &threads),
-            Some(RefHit { thread: true, id: "t136".into(), title: "A thread".into() })
+            Some(RefHit {
+                thread: true,
+                id: "t136".into(),
+                title: "A thread".into()
+            })
         );
         assert_eq!(local_ref(&r("mlg#136"), &cards, &threads), None);
-        assert_eq!(local_ref(&r("mlg#1"), &cards, &threads).map(|h| h.id), Some("m1".into()));
+        assert_eq!(
+            local_ref(&r("mlg#1"), &cards, &threads).map(|h| h.id),
+            Some("m1".into())
+        );
         assert_eq!(local_ref(&r("#7"), &cards, &threads), None);
         assert_eq!(local_ref(&r("#99"), &cards, &threads), None);
         assert_eq!(local_ref(&r("#1"), &cards, &threads), None);
@@ -1055,17 +1170,34 @@ mod tests {
     #[test]
     fn board_rows_filter_by_board() {
         let row = |key: &str, board: &str| Candidate {
-            who: AgentRef { key: key.into(), name: key.into(), ..AgentRef::default() },
+            who: AgentRef {
+                key: key.into(),
+                name: key.into(),
+                ..AgentRef::default()
+            },
             board: board.into(),
             ..Candidate::default()
         };
-        let rows = vec![row("d/me", ""), row("person:blake", "b1"), row("agent:c1", "b1"), row("agent:c2", "b2")];
+        let rows = vec![
+            row("d/me", ""),
+            row("person:blake", "b1"),
+            row("agent:c1", "b1"),
+            row("agent:c2", "b2"),
+        ];
         assert_eq!(keys(&board_rows(&rows, "")), sv(&["d/me"]));
-        assert_eq!(keys(&board_rows(&rows, "b1")), sv(&["d/me", "person:blake", "agent:c1"]));
+        assert_eq!(
+            keys(&board_rows(&rows, "b1")),
+            sv(&["d/me", "person:blake", "agent:c1"])
+        );
     }
 
     fn held(id: &str, short: &str, who: &AgentRef, state: Holding, tag: &str) -> CardSummary {
-        let mut c = CardSummary { id: id.into(), short: short.into(), tag: tag.into(), ..CardSummary::default() };
+        let mut c = CardSummary {
+            id: id.into(),
+            short: short.into(),
+            tag: tag.into(),
+            ..CardSummary::default()
+        };
         c.holder.who = who.clone();
         c.holder.state = state;
         c
@@ -1075,8 +1207,18 @@ mod tests {
     fn the_agent_on_n() {
         let fern = cand("dev/fern", "fern", "idle", "");
         let clover = cand("dev/clover", "clover", "idle", "");
-        let you = AgentRef { key: "user:me".into(), name: "You".into(), status: "person".into(), ..AgentRef::default() };
-        let gone = AgentRef { key: "dev/gone".into(), name: "sorrel".into(), status: "gone".into(), ..AgentRef::default() };
+        let you = AgentRef {
+            key: "user:me".into(),
+            name: "You".into(),
+            status: "person".into(),
+            ..AgentRef::default()
+        };
+        let gone = AgentRef {
+            key: "dev/gone".into(),
+            name: "sorrel".into(),
+            status: "gone".into(),
+            ..AgentRef::default()
+        };
         let cards = vec![
             held("c57", "57", &clover.who, Holding::Active, ""),
             held("c61", "61", &fern.who, Holding::Active, ""),
@@ -1086,25 +1228,49 @@ mod tests {
         ];
         let base = vec![fern.clone(), clover.clone()];
         let rows = agent_on_rows(&cards, &base, "c61");
-        assert_eq!(rows.iter().map(|r| r.card.clone()).collect::<Vec<_>>(), sv(&["#61", "#57", "wind#4"]));
+        assert_eq!(
+            rows.iter().map(|r| r.card.clone()).collect::<Vec<_>>(),
+            sv(&["#61", "#57", "wind#4"])
+        );
         assert_eq!(
             rows.iter().map(row_name).collect::<Vec<_>>(),
-            sv(&["the agent on #61", "the agent on #57", "the agent on wind#4"])
+            sv(&[
+                "the agent on #61",
+                "the agent on #57",
+                "the agent on wind#4"
+            ])
         );
         assert_eq!(rows[0].who.key, "dev/fern");
 
         let mut all = base.clone();
         all.extend(agent_on_rows(&cards, &base, "c61"));
-        assert_eq!(row_name(&filter_candidates(&all, "")[0]), "the agent on #61");
-        assert_eq!(filter_candidates(&all, "fer").iter().map(row_name).collect::<Vec<_>>(), sv(&["fern"]));
+        assert_eq!(
+            row_name(&filter_candidates(&all, "")[0]),
+            "the agent on #61"
+        );
+        assert_eq!(
+            filter_candidates(&all, "fer")
+                .iter()
+                .map(row_name)
+                .collect::<Vec<_>>(),
+            sv(&["fern"])
+        );
 
         let mut all = base.clone();
         all.extend(agent_on_rows(&cards, &base, ""));
-        let names = |q: &str| filter_candidates(&all, q).iter().map(row_name).collect::<Vec<_>>();
+        let names = |q: &str| {
+            filter_candidates(&all, q)
+                .iter()
+                .map(row_name)
+                .collect::<Vec<_>>()
+        };
         assert_eq!(names("#57"), sv(&["the agent on #57"]));
         assert_eq!(names("57"), sv(&["the agent on #57"]));
         assert_eq!(names("the agent on #6"), sv(&["the agent on #61"]));
         let rn: Vec<String> = all.iter().map(row_name).collect();
-        assert_eq!(token_at("ask @the agent on #6", 20, &rn), t(4, "the agent on #6"));
+        assert_eq!(
+            token_at("ask @the agent on #6", 20, &rn),
+            t(4, "the agent on #6")
+        );
     }
 }

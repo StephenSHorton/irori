@@ -6,7 +6,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use irori_window::cards::{AgentRef, CardAsk, CardDetail, CardHolder, CardSummary, CardWait, Holding};
+use irori_window::cards::{
+    AgentRef, CardAsk, CardDetail, CardHolder, CardSummary, CardWait, Holding,
+};
 
 use super::agent_status::{Tone as StatusTone, Who, agent_status, ms};
 use super::names::display_name;
@@ -98,7 +100,11 @@ pub fn over(state: &str) -> bool {
 fn workable(w: &Work) -> bool {
     if matches!(
         w.state,
-        state::COMPLETED | state::CANCELED | state::FAILED | state::INPUT_REQUIRED | state::IN_REVIEW
+        state::COMPLETED
+            | state::CANCELED
+            | state::FAILED
+            | state::INPUT_REQUIRED
+            | state::IN_REVIEW
     ) {
         return false;
     }
@@ -173,7 +179,10 @@ pub fn names_line<S: AsRef<str>>(names: &[S]) -> String {
         [one] => one.as_ref().to_string(),
         [rest @ .., last] => format!(
             "{} and {}",
-            rest.iter().map(|s| s.as_ref()).collect::<Vec<_>>().join(", "),
+            rest.iter()
+                .map(|s| s.as_ref())
+                .collect::<Vec<_>>()
+                .join(", "),
             last.as_ref()
         ),
     }
@@ -213,7 +222,11 @@ pub fn idle_unnamed(c: &CardSummary, now: i64) -> bool {
         return false;
     }
     let held: Vec<&AgentRef> = c.working.iter().filter(|w| !w.assigned).collect();
-    if held.is_empty() || !held.iter().all(|w| w.status == "idle" && w.live && !w.offline) {
+    if held.is_empty()
+        || !held
+            .iter()
+            .all(|w| w.status == "idle" && w.live && !w.offline)
+    {
         return false;
     }
     let since = held
@@ -233,7 +246,11 @@ pub fn work_label(w: &Work) -> &'static str {
         return "";
     }
     if w.working.iter().all(|r| r.assigned) {
-        return if w.working.iter().any(|r| r.waiting) { "not picked up" } else { "offered" };
+        return if w.working.iter().any(|r| r.waiting) {
+            "not picked up"
+        } else {
+            "offered"
+        };
     }
     if busy(w) { "working" } else { "on it" }
 }
@@ -275,7 +292,11 @@ pub fn ask_line(a: &CardAsk) -> String {
             let o = plain_line(&a.owner);
             format!(
                 "Waiting for {} to hand it out",
-                if o.is_empty() { "the device it was posted from".to_string() } else { o }
+                if o.is_empty() {
+                    "the device it was posted from".to_string()
+                } else {
+                    o
+                }
             )
         }
         ask::UNCLAIMED => "Nobody took this yet".into(),
@@ -288,14 +309,22 @@ pub fn ask_line(a: &CardAsk) -> String {
             match kind {
                 "edit" => format!(
                     "Changed {}: {note}",
-                    if a.outcome_ref.is_empty() { "a card" } else { &a.outcome_ref }
+                    if a.outcome_ref.is_empty() {
+                        "a card"
+                    } else {
+                        &a.outcome_ref
+                    }
                 ),
                 "answered" => format!("Answered: {note}"),
                 _ => format!("Closed: {note}"),
             }
         }
         _ if a.told == 0 => "Nobody was free to hear it".into(),
-        _ => format!("Told {} {}; nobody took it yet", a.told, if a.told == 1 { "agent" } else { "agents" }),
+        _ => format!(
+            "Told {} {}; nobody took it yet",
+            a.told,
+            if a.told == 1 { "agent" } else { "agents" }
+        ),
     }
 }
 
@@ -335,9 +364,17 @@ pub struct RefOf {
 
 pub fn ref_status(x: &RefOf) -> RefStatus {
     let progress = x.progress.filter(|(_, t)| !x.thread && *t > 0);
-    let s = |label, tone| RefStatus { label, tone, progress };
+    let s = |label, tone| RefStatus {
+        label,
+        tone,
+        progress,
+    };
     if x.thread {
-        return if x.done { s("Resolved", Tone::Slate) } else { s("Open thread", Tone::Info) };
+        return if x.done {
+            s("Resolved", Tone::Slate)
+        } else {
+            s("Open thread", Tone::Info)
+        };
     }
     match x.state.as_str() {
         state::COMPLETED => return s("Done", Tone::Success),
@@ -366,7 +403,8 @@ pub fn card_status(c: &CardSummary) -> RefStatus {
         thread: false,
         done: over(&c.state),
         state: c.state.clone(),
-        blocked: (c.open_blockers > 0 && !(c.ready && c.open_blockers == 1)) || c.state == state::INPUT_REQUIRED,
+        blocked: (c.open_blockers > 0 && !(c.ready && c.open_blockers == 1))
+            || c.state == state::INPUT_REQUIRED,
         ready: c.ready && c.open_blockers == 1,
         working: Some(!c.working.is_empty()),
         progress: Some((c.progress.done, c.progress.total)),
@@ -449,7 +487,12 @@ pub fn state_pill(c: &CardSummary, now: i64) -> Pill {
         );
     }
     if !c.subtask_blocked.is_empty() && !over(&c.state) {
-        return p("Subtask blocked", Tone::Warning, &plain_line(&c.subtask_blocked), false);
+        return p(
+            "Subtask blocked",
+            Tone::Warning,
+            &plain_line(&c.subtask_blocked),
+            false,
+        );
     }
     if c.waiting_on > 0 {
         let w = Wait::from(c);
@@ -477,12 +520,12 @@ pub fn state_pill(c: &CardSummary, now: i64) -> Pill {
     match c.holder.state {
         Holding::Waiting => return p("Not picked up", Tone::Warning, "", true),
         Holding::Assigned => return p("Offered", Tone::Slate, "", true),
+        // Card #699: offered to an agent that is gone, not answering or
+        // offline, nobody is working it; the holder line says which.
+        Holding::Gone | Holding::Silent | Holding::Offline if c.holder.who.assigned => {
+            return p("Not taken up", Tone::Warning, "", true);
+        }
         _ => {}
-    }
-    // Card #699: offered to an agent that is gone, not answering or
-    // offline, nobody is working it; the holder line says which.
-    if c.holder.who.assigned && matches!(c.holder.state, Holding::Gone | Holding::Silent | Holding::Offline) {
-        return p("Not taken up", Tone::Warning, "", true);
     }
     if idle_unnamed(c, now) {
         return p(
@@ -499,21 +542,39 @@ pub fn state_pill(c: &CardSummary, now: i64) -> Pill {
 /// to, or who it waits for (card #489). `status` and `since` are the live
 /// roster's when known (it wins over the card's).
 pub fn holder_text(h: &CardHolder, since: Option<i64>, status: &str, now: i64) -> String {
-    let who = if h.who.key.is_empty() { String::new() } else { display_name(&h.who) };
-    let more = if h.others > 0 { format!(" (+{} more)", h.others) } else { String::new() };
+    let who = if h.who.key.is_empty() {
+        String::new()
+    } else {
+        display_name(&h.who)
+    };
+    let more = if h.others > 0 {
+        format!(" (+{} more)", h.others)
+    } else {
+        String::new()
+    };
     match h.state {
         Holding::Nobody => "Nobody holds it yet".into(),
         Holding::Person => format!("You hold it{more}"),
         Holding::Waiting => format!("Waiting for {who}{more}: the hand-over hasn't reached it yet"),
         Holding::Assigned => format!("Offered to {who}{more}, not taken up yet"),
         Holding::Active | Holding::Idle | Holding::Silent => {
-            let st = if status.is_empty() { h.who.status.as_str() } else { status };
-            format!("{who}{more} · {}", agent_status(&Who::status(st), since, now).text)
+            let st = if status.is_empty() {
+                h.who.status.as_str()
+            } else {
+                status
+            };
+            format!(
+                "{who}{more} · {}",
+                agent_status(&Who::status(st), since, now).text
+            )
         }
         Holding::Offline => format!("{who}{more} · its device is offline"),
-        // An agent Irori started ends when its work is done: finished, not
-        // lost. One that ended before it took the card up died (card #699).
-        Holding::Gone if h.who.spawned && !h.who.assigned => format!("{who}{more} · agent finished"),
+        // An agent Irori started ends when its work is done (card #456):
+        // finished, not lost. One that ended before it took the card up
+        // died (card #699).
+        Holding::Gone if h.who.spawned && !h.who.assigned => {
+            format!("{who}{more} · agent finished")
+        }
         Holding::Gone => format!("{who}{more} · gone"),
     }
 }
@@ -529,11 +590,20 @@ pub struct HolderLine {
 
 /// The holder line for a card (bits.tsx HolderLine), with the live
 /// roster's status and when it began.
-pub fn holder_line(h: &CardHolder, returned: Option<&AgentRef>, live: Option<(&str, Option<i64>)>, now: i64) -> HolderLine {
+pub fn holder_line(
+    h: &CardHolder,
+    returned: Option<&AgentRef>,
+    live: Option<(&str, Option<i64>)>,
+    now: i64,
+) -> HolderLine {
     let (status, since) = live.unwrap_or(("", None));
     let finished = h.state == Holding::Gone && h.who.spawned && !h.who.assigned;
     let tone = matches!(h.state, Holding::Active | Holding::Idle | Holding::Silent).then(|| {
-        let st = if status.is_empty() { h.who.status.as_str() } else { status };
+        let st = if status.is_empty() {
+            h.who.status.as_str()
+        } else {
+            status
+        };
         agent_status(&Who::status(st), None, now).tone
     });
     let warn = returned.is_some_and(|r| !r.spawned)
@@ -667,7 +737,10 @@ pub fn device_chips<'a>(cards: impl IntoIterator<Item = &'a CardSummary>) -> Vec
     let mut seen: Vec<DeviceChip> = Vec::new();
     for c in cards {
         for w in &c.working {
-            if !w.device_id.is_empty() && !w.color.is_empty() && !seen.iter().any(|d| d.id == w.device_id) {
+            if !w.device_id.is_empty()
+                && !w.color.is_empty()
+                && !seen.iter().any(|d| d.id == w.device_id)
+            {
                 seen.push(DeviceChip {
                     id: w.device_id.clone(),
                     name: w.where_.clone(),
@@ -712,8 +785,16 @@ pub(crate) mod tests {
         assert!(busy(&w(state::WORKING, &[agent("busy")], 0)));
         assert!(!busy(&w(state::WORKING, &[agent("idle")], 0)));
         assert!(!busy(&w(state::WORKING, &[agent("gone")], 0)));
-        assert!(!busy(&w(state::WORKING, &[with(agent("busy"), |a| a.offline = true)], 0)));
-        assert!(!busy(&w(state::WORKING, &[with(agent("busy"), |a| a.assigned = true)], 0)));
+        assert!(!busy(&w(
+            state::WORKING,
+            &[with(agent("busy"), |a| a.offline = true)],
+            0
+        )));
+        assert!(!busy(&w(
+            state::WORKING,
+            &[with(agent("busy"), |a| a.assigned = true)],
+            0
+        )));
         assert!(!busy(&w(state::WORKING, &[], 0)));
         assert!(!busy(&w(state::INPUT_REQUIRED, &[agent("busy")], 0)));
         assert!(!busy(&w(state::BLOCKED, &[agent("busy")], 1)));
@@ -750,7 +831,10 @@ pub(crate) mod tests {
             a.assigned = true
         });
         let all = [oak.clone(), elm, ash, oak.clone()];
-        let names: Vec<String> = working_now(&w(state::WORKING, &all, 0)).into_iter().map(|a| a.name).collect();
+        let names: Vec<String> = working_now(&w(state::WORKING, &all, 0))
+            .into_iter()
+            .map(|a| a.name)
+            .collect();
         assert_eq!(names, ["oak"]);
         let o = [oak];
         assert!(working_now(&w(state::WORKING, &o, 1)).is_empty());
@@ -768,12 +852,25 @@ pub(crate) mod tests {
 
     #[test]
     fn work_labels() {
-        assert_eq!(work_label(&w(state::WORKING, &[agent("busy")], 0)), "working");
+        assert_eq!(
+            work_label(&w(state::WORKING, &[agent("busy")], 0)),
+            "working"
+        );
         assert_eq!(work_label(&w(state::WORKING, &[agent("idle")], 0)), "on it");
         assert_eq!(work_label(&w(state::BLOCKED, &[agent("busy")], 1)), "on it");
-        assert_eq!(work_label(&w(state::INPUT_REQUIRED, &[agent("busy")], 0)), "on it");
+        assert_eq!(
+            work_label(&w(state::INPUT_REQUIRED, &[agent("busy")], 0)),
+            "on it"
+        );
         assert_eq!(work_label(&w(state::COMPLETED, &[agent("busy")], 0)), "");
-        assert_eq!(work_label(&w(state::WORKING, &[with(agent("idle"), |a| a.assigned = true)], 0)), "offered");
+        assert_eq!(
+            work_label(&w(
+                state::WORKING,
+                &[with(agent("idle"), |a| a.assigned = true)],
+                0
+            )),
+            "offered"
+        );
         assert_eq!(
             work_label(&w(
                 state::WORKING,
@@ -788,7 +885,10 @@ pub(crate) mod tests {
         assert_eq!(work_label(&w(state::WORKING, &[], 0)), "");
         for st in [state::COMPLETED, state::CANCELED, state::FAILED] {
             assert_eq!(work_label(&w(st, &[agent("busy")], 0)), "");
-            assert_eq!(work_label(&w(st, &[with(agent("idle"), |a| a.assigned = true)], 0)), "");
+            assert_eq!(
+                work_label(&w(st, &[with(agent("idle"), |a| a.assigned = true)], 0)),
+                ""
+            );
             assert!(!busy(&w(st, &[agent("busy")], 0)));
         }
     }
@@ -815,11 +915,26 @@ pub(crate) mod tests {
 
     #[test]
     fn asks() {
-        assert_eq!(ask_line(&an_ask(|_| {})), "Told 3 agents; nobody took it yet");
-        assert_eq!(ask_line(&an_ask(|a| a.told = 1)), "Told 1 agent; nobody took it yet");
-        assert_eq!(ask_line(&an_ask(|a| a.told = 0)), "Nobody was free to hear it");
-        assert_eq!(ask_line(&an_ask(|a| a.state = "waiting".into())), "Waiting for MacBook to hand it out");
-        assert_eq!(ask_line(&an_ask(|a| a.state = "unclaimed".into())), "Nobody took this yet");
+        assert_eq!(
+            ask_line(&an_ask(|_| {})),
+            "Told 3 agents; nobody took it yet"
+        );
+        assert_eq!(
+            ask_line(&an_ask(|a| a.told = 1)),
+            "Told 1 agent; nobody took it yet"
+        );
+        assert_eq!(
+            ask_line(&an_ask(|a| a.told = 0)),
+            "Nobody was free to hear it"
+        );
+        assert_eq!(
+            ask_line(&an_ask(|a| a.state = "waiting".into())),
+            "Waiting for MacBook to hand it out"
+        );
+        assert_eq!(
+            ask_line(&an_ask(|a| a.state = "unclaimed".into())),
+            "Nobody took this yet"
+        );
         let heron = with(agent("idle"), |a| a.name = "sample-heron".into());
         assert_eq!(
             ask_line(&an_ask(|a| {
@@ -838,7 +953,10 @@ pub(crate) mod tests {
         assert!(open_ask(Some(&an_ask(|_| {}))));
         assert!(!open_ask(Some(&closed("none"))));
         assert!(!open_ask(None));
-        assert_eq!(over_label(state::COMPLETED, Some(&closed("answered"))), "Answered");
+        assert_eq!(
+            over_label(state::COMPLETED, Some(&closed("answered"))),
+            "Answered"
+        );
         assert_eq!(over_label(state::CANCELED, Some(&closed("none"))), "Closed");
         assert_eq!(over_label(state::COMPLETED, Some(&closed("edit"))), "Done");
         assert_eq!(over_label(state::COMPLETED, None), "Done");
@@ -856,7 +974,13 @@ pub(crate) mod tests {
         };
         assert!(!holder_line_shows(&h(Holding::Active)));
         assert!(!holder_line_shows(&h(Holding::Person)));
-        for s in [Holding::Idle, Holding::Gone, Holding::Offline, Holding::Nobody, Holding::Waiting] {
+        for s in [
+            Holding::Idle,
+            Holding::Gone,
+            Holding::Offline,
+            Holding::Nobody,
+            Holding::Waiting,
+        ] {
             assert!(holder_line_shows(&h(s)));
         }
         let c = |s: Holding, returned: Option<AgentRef>| CardSummary {
@@ -910,7 +1034,10 @@ pub(crate) mod tests {
     #[test]
     fn open_targets() {
         assert_eq!(open_target("task:t1"), Some(("t1".into(), "".into())));
-        assert_eq!(open_target("task:t1/comment:c9"), Some(("t1".into(), "c9".into())));
+        assert_eq!(
+            open_target("task:t1/comment:c9"),
+            Some(("t1".into(), "c9".into()))
+        );
         assert_eq!(open_target("msg:x"), None);
         assert_eq!(open_target("task:"), None);
         assert_eq!(open_target(""), None);
@@ -928,9 +1055,24 @@ pub(crate) mod tests {
             ref_status(&x)
         };
         let n = &|_: &mut RefOf| {};
-        assert_eq!((c(state::SUBMITTED, false, n).label, c(state::SUBMITTED, false, n).tone), ("Open", Tone::Slate));
-        assert_eq!((c(state::WORKING, false, n).label, c(state::WORKING, false, n).tone), ("Working", Tone::Info));
-        assert_eq!(c(state::WORKING, false, &|x| x.working = Some(false)).label, "Open");
+        assert_eq!(
+            (
+                c(state::SUBMITTED, false, n).label,
+                c(state::SUBMITTED, false, n).tone
+            ),
+            ("Open", Tone::Slate)
+        );
+        assert_eq!(
+            (
+                c(state::WORKING, false, n).label,
+                c(state::WORKING, false, n).tone
+            ),
+            ("Working", Tone::Info)
+        );
+        assert_eq!(
+            c(state::WORKING, false, &|x| x.working = Some(false)).label,
+            "Open"
+        );
         assert_eq!(c(state::WORKING, true, n).tone, Tone::Destructive);
         assert_eq!(c(state::INPUT_REQUIRED, false, n).label, "Blocked");
         assert_eq!(c(state::IN_REVIEW, false, n).tone, Tone::Warning);
@@ -941,8 +1083,14 @@ pub(crate) mod tests {
         assert!(!c(state::WORKING, false, n).closed());
         assert_eq!(c(state::WORKING, false, &|x| x.ready = true).label, "Ready");
         assert_eq!(c(state::COMPLETED, true, n).label, "Done");
-        assert_eq!(c(state::WORKING, false, &|x| x.progress = Some((2, 5))).progress, Some((2, 5)));
-        assert_eq!(c(state::WORKING, false, &|x| x.progress = Some((0, 0))).progress, None);
+        assert_eq!(
+            c(state::WORKING, false, &|x| x.progress = Some((2, 5))).progress,
+            Some((2, 5))
+        );
+        assert_eq!(
+            c(state::WORKING, false, &|x| x.progress = Some((0, 0))).progress,
+            None
+        );
         let t = |done: bool| {
             ref_status(&RefOf {
                 thread: true,
@@ -980,9 +1128,14 @@ pub(crate) mod tests {
         };
 
         let rows = people_rows(
-            &[otter.clone()],
+            std::slice::from_ref(&otter),
             &[],
-            &[wait("w1", &named("d/otter", ""), "branch main moves", false)],
+            &[wait(
+                "w1",
+                &named("d/otter", ""),
+                "branch main moves",
+                false,
+            )],
             steps,
         );
         assert_eq!(rows.len(), 1);
@@ -992,14 +1145,22 @@ pub(crate) mod tests {
 
         let rows = people_rows(
             &[],
-            &[wren.clone()],
-            &[wait("w1", &wren, "until done", true), wait("w2", &wren, "#3", false)],
+            std::slice::from_ref(&wren),
+            &[
+                wait("w1", &wren, "until done", true),
+                wait("w2", &wren, "#3", false),
+            ],
             steps,
         );
         assert_eq!(rows.len(), 1);
         assert_eq!((rows[0].role, rows[0].waits.len()), (Role::Watching, 2));
 
-        let rows = people_rows(&[otter.clone()], &[heron.clone()], &[wait("w1", &wren, "until done", true)], steps);
+        let rows = people_rows(
+            std::slice::from_ref(&otter),
+            std::slice::from_ref(&heron),
+            &[wait("w1", &wren, "until done", true)],
+            steps,
+        );
         let roles: Vec<Role> = rows.iter().map(|r| r.role).collect();
         assert_eq!(roles, [Role::Working, Role::Watching, Role::Waiting]);
 
@@ -1008,8 +1169,11 @@ pub(crate) mod tests {
         assert_eq!(rows[1].step_titles, ["Sync", "a step"]);
 
         let rows = people_rows(
-            &[with(otter.clone(), |a| a.assigned = true), with(otter.clone(), |a| a.steps = vec!["s1".into()])],
-            &[otter.clone()],
+            &[
+                with(otter.clone(), |a| a.assigned = true),
+                with(otter.clone(), |a| a.steps = vec!["s1".into()]),
+            ],
+            std::slice::from_ref(&otter),
             &[],
             steps,
         );
@@ -1025,16 +1189,32 @@ pub(crate) mod tests {
             state: s,
             others: 0,
         };
-        assert_eq!(holder_text(&h(Holding::Nobody, "idle"), None, "", 0), "Nobody holds it yet");
-        assert_eq!(holder_text(&h(Holding::Active, "shell"), None, "", 0), "oak · running a job");
-        assert_eq!(holder_text(&h(Holding::Idle, "idle"), None, "busy", 0), "oak · working");
-        assert_eq!(holder_text(&h(Holding::Offline, "idle"), None, "", 0), "oak · its device is offline");
+        assert_eq!(
+            holder_text(&h(Holding::Nobody, "idle"), None, "", 0),
+            "Nobody holds it yet"
+        );
+        assert_eq!(
+            holder_text(&h(Holding::Active, "shell"), None, "", 0),
+            "oak · running a job"
+        );
+        assert_eq!(
+            holder_text(&h(Holding::Idle, "idle"), None, "busy", 0),
+            "oak · working"
+        );
+        assert_eq!(
+            holder_text(&h(Holding::Offline, "idle"), None, "", 0),
+            "oak · its device is offline"
+        );
         let mut g = h(Holding::Gone, "gone");
         assert_eq!(holder_text(&g, None, "", 0), "oak · gone");
         g.who.spawned = true;
         assert_eq!(holder_text(&g, None, "", 0), "oak · agent finished");
+        assert!(!holder_line(&g, None, None, 0).warn);
+        // Card #699: a spawned agent that ended before taking the card up
+        // died; it didn't finish.
         g.who.assigned = true;
         assert_eq!(holder_text(&g, None, "", 0), "oak · gone");
+        assert!(holder_line(&g, None, None, 0).warn);
         let l = holder_line(&h(Holding::Active, "busy"), None, None, 0);
         assert!(l.dot && !l.warn);
         let r = with(agent("gone"), |a| a.name = "elm".into());
@@ -1064,7 +1244,10 @@ pub(crate) mod tests {
             .tone,
             Tone::Success
         );
-        assert_eq!(c(&|c| c.state = state::INPUT_REQUIRED.into()).label, "Needs your input");
+        assert_eq!(
+            c(&|c| c.state = state::INPUT_REQUIRED.into()).label,
+            "Needs your input"
+        );
         assert_eq!(c(&|c| c.working.clear()).label, "Open");
         assert_eq!(c(&|c| c.state = state::COMPLETED.into()).label, "Done");
         let p = c(&|c| {
@@ -1074,11 +1257,17 @@ pub(crate) mod tests {
         });
         assert_eq!((p.label.as_str(), p.round), ("Waiting on kestrel +1", true));
         assert_eq!(c(&|c| c.holder.state = Holding::Assigned).label, "Offered");
-        // Card #699: offered to an agent that died: Not taken up.
-        let dead = c(&|c| {
-            c.holder.state = Holding::Gone;
-            c.holder.who.assigned = true
-        });
-        assert_eq!((dead.label.as_str(), dead.tone), ("Not taken up", Tone::Warning));
+        // Card #699: an offered agent that is gone, silent or offline.
+        for st in [Holding::Gone, Holding::Silent, Holding::Offline] {
+            let p = c(&|c| {
+                c.holder.state = st;
+                c.holder.who.assigned = true
+            });
+            assert_eq!(
+                (p.label.as_str(), p.tone, p.round),
+                ("Not taken up", Tone::Warning, true)
+            );
+            assert_ne!(c(&|c| c.holder.state = st).label, "Not taken up");
+        }
     }
 }

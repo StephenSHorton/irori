@@ -22,7 +22,11 @@ use crate::ui::{Frame, State, icons};
 pub fn round_signs(f: &Frame, key: &str, r: &SentBack, agent: &str) -> El {
     let k = f.k;
     let sign = |i: usize, ok: bool, yes: String, no: &str| {
-        let c = if ok { status::working() } else { k.c.text_muted };
+        let c = if ok {
+            status::working()
+        } else {
+            k.c.text_muted
+        };
         row()
             .key(format!("{key}/sign{i}"))
             .gap(4.0)
@@ -30,7 +34,9 @@ pub fn round_signs(f: &Frame, key: &str, r: &SentBack, agent: &str) -> El {
             .child(if ok {
                 icon(&icons::CHECK, 12.0).color(c)
             } else {
-                text("○").font(rune::tok::TextStyle::new(11.5, 400.0)).color(c)
+                text("○")
+                    .font(rune::tok::TextStyle::new(11.5, 400.0))
+                    .color(c)
             })
             .child(
                 text(if ok { yes } else { no.to_string() })
@@ -45,11 +51,19 @@ pub fn round_signs(f: &Frame, key: &str, r: &SentBack, agent: &str) -> El {
         .gap(12.0)
         .flex_wrap()
         .child(sign(0, r.heard, format!("{agent} read it"), "Not read yet"))
-        .child(sign(1, r.answered, format!("{agent} answered"), "No answer yet"))
+        .child(sign(
+            1,
+            r.answered,
+            format!("{agent} answered"),
+            "No answer yet",
+        ))
 }
 
 fn agent_of(r: &SentBack, fallback: String) -> String {
-    r.replies.last().map(|it| display_name(&it.who)).unwrap_or(fallback)
+    r.replies
+        .last()
+        .map(|it| display_name(&it.who))
+        .unwrap_or(fallback)
 }
 
 /// On a done check the person sent back (open, waiting on the agent):
@@ -67,21 +81,40 @@ pub fn sent_back_signs(f: &Frame, key: &str, b: &CardBlocker) -> Option<El> {
 fn said(f: &Frame, key: &str, who: String, t: &str, compact: bool) -> El {
     let k = f.k;
     let body = if compact {
-        text(plain_line(t)).font(k.ty.text_small).color(k.c.text_base).w_full().max_lines(2)
+        text(plain_line(t))
+            .font(k.ty.text_small)
+            .color(k.c.text_base)
+            .w_full()
+            .max_lines(2)
     } else {
-        text(plain_block(t)).font(k.ty.text_small).color(k.c.text_base).w_full().wrap().selectable(true)
+        text(plain_block(t))
+            .font(k.ty.text_small)
+            .color(k.c.text_base)
+            .w_full()
+            .wrap()
+            .selectable(true)
     };
     col()
         .key(key.to_string())
         .w_full()
         .gap(2.0)
-        .child(text(who).font(rune::tok::TextStyle::new(11.5, 500.0)).color(k.c.text_muted))
+        .child(
+            text(who)
+                .font(rune::tok::TextStyle::new(11.5, 500.0))
+                .color(k.c.text_muted),
+        )
         .child(body)
 }
 
 /// Opens a re-raised done check: the round the person sent back.
 /// `compact` (Needs you) keeps it to a few lines.
-pub fn earlier_round(s: &State, f: &Frame, key: &str, b: &CardBlocker, compact: bool) -> Option<El> {
+pub fn earlier_round(
+    s: &State,
+    f: &Frame,
+    key: &str,
+    b: &CardBlocker,
+    compact: bool,
+) -> Option<El> {
     let k = f.k;
     let p = b.previous.as_ref()?;
     let r = sent_back(&p.thread, &p.answer)?;
@@ -90,7 +123,10 @@ pub fn earlier_round(s: &State, f: &Frame, key: &str, b: &CardBlocker, compact: 
     let mut sec = col()
         .key(key.to_string())
         .role("group")
-        .label(format!("Round {}: what you said and the agent's answer", p.round))
+        .label(format!(
+            "Round {}: what you said and the agent's answer",
+            p.round
+        ))
         .w_full()
         .gap(6.0)
         .px(12.0)
@@ -103,24 +139,43 @@ pub fn earlier_round(s: &State, f: &Frame, key: &str, b: &CardBlocker, compact: 
                 .key(format!("{key}/head"))
                 .gap(6.0)
                 .center_y()
-                .child(badge(f, &format!("{key}/round"), &format!("Round {}", p.round), Tone::Slate, false, ""))
+                .child(badge(
+                    f,
+                    &format!("{key}/round"),
+                    &format!("Round {}", p.round),
+                    Tone::Slate,
+                    false,
+                    "",
+                ))
                 .child(
                     text("You sent the last check back")
                         .font(rune::tok::TextStyle::new(11.5, 400.0))
                         .color(k.c.text_muted),
                 ),
         )
-        .child(said(f, &format!("{key}/reason"), "You said".into(), &r.reason, compact));
+        .child(said(
+            f,
+            &format!("{key}/reason"),
+            "You said".into(),
+            &r.reason,
+            compact,
+        ));
     if r.replies.is_empty() {
         sec = sec.child(
-            text(format!("{who} didn't answer your reason before asking again."))
-                .font(k.ty.text_small)
-                .color(status::decide())
-                .w_full()
-                .wrap(),
+            text(format!(
+                "{who} didn't answer your reason before asking again."
+            ))
+            .font(k.ty.text_small)
+            .color(status::decide())
+            .w_full()
+            .wrap(),
         );
     } else {
-        let shown = if compact { &r.replies[r.replies.len() - 1..] } else { &r.replies[..] };
+        let shown = if compact {
+            &r.replies[r.replies.len() - 1..]
+        } else {
+            &r.replies[..]
+        };
         for it in shown {
             sec = sec.child(said(
                 f,
@@ -146,17 +201,21 @@ pub fn earlier_round(s: &State, f: &Frame, key: &str, b: &CardBlocker, compact: 
         let open = s.widgets.round_proof.contains(key);
         let kk = key.to_string();
         sec = sec.child(
-            text(if open { "Hide the proof you sent back" } else { "The proof you sent back" })
-                .font(rune::tok::TextStyle::new(11.5, 400.0))
-                .color(k.c.text_muted)
-                .role("button")
-                .focusable(true)
-                .cursor(rune::Cursor::Pointer)
-                .on_press(move |s: &mut State| {
-                    if !s.widgets.round_proof.remove(&kk) {
-                        s.widgets.round_proof.insert(kk.clone());
-                    }
-                }),
+            text(if open {
+                "Hide the proof you sent back"
+            } else {
+                "The proof you sent back"
+            })
+            .font(rune::tok::TextStyle::new(11.5, 400.0))
+            .color(k.c.text_muted)
+            .role("button")
+            .focusable(true)
+            .cursor(rune::Cursor::Pointer)
+            .on_press(move |s: &mut State| {
+                if !s.widgets.round_proof.remove(&kk) {
+                    s.widgets.round_proof.insert(kk.clone());
+                }
+            }),
         );
         if open {
             sec = sec.child(

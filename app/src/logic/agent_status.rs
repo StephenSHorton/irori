@@ -161,7 +161,10 @@ mod tests {
         assert_eq!(t("shell"), ("running a job".into(), Tone::Job));
         assert_eq!(t("unresponsive"), ("not answering".into(), Tone::Warn));
         assert_eq!(t("idle"), ("idle".into(), Tone::Idle));
-        assert_eq!(t("waiting"), ("waiting on a permission prompt".into(), Tone::Warn));
+        assert_eq!(
+            t("waiting"),
+            ("waiting on a permission prompt".into(), Tone::Warn)
+        );
         assert_eq!(t("gone"), ("gone".into(), Tone::Muted));
         assert_eq!(t("starting"), ("starting".into(), Tone::Muted));
         assert_eq!(t("person"), ("".into(), Tone::Muted));
@@ -177,7 +180,10 @@ mod tests {
             agent_status(&x, None, NOW).text
         };
         assert_eq!(w("busy", &|x| x.offline = true), "device offline");
-        assert_eq!(w("idle", &|x| x.device_state = "offline".into()), "device offline");
+        assert_eq!(
+            w("idle", &|x| x.device_state = "offline".into()),
+            "device offline"
+        );
         assert_eq!(w("busy", &|x| x.live = Some(false)), "not running");
         assert_eq!(w("gone", &|x| x.offline = true), "gone");
         assert_eq!(

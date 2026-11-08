@@ -90,7 +90,9 @@ use irori_window::threads::RefTarget;
 use rune::{El, ScrollSpec, col, row, text};
 
 pub use attach::{File, attachment_list};
-pub use composer::{Composer, ComposerOpts, Get, GetMut, SendFn, Sent, composer, open_draft, sent, submit};
+pub use composer::{
+    Composer, ComposerOpts, Get, GetMut, SendFn, Sent, composer, open_draft, sent, submit,
+};
 pub use render::{RichOpts, code, link_chip, rich_line, rich_text, rich_with};
 
 use crate::ui::{Event, Frame, State};
@@ -143,7 +145,11 @@ fn refresh_refs(s: &mut State) {
     }
     let rev = s.text.refs_rev;
     s.spawn(
-        move |w| refs.into_iter().map(|r| (w.card_ref(&r), r)).collect::<Vec<_>>(),
+        move |w| {
+            refs.into_iter()
+                .map(|r| (w.card_ref(&r), r))
+                .collect::<Vec<_>>()
+        },
         move |s, found| {
             if s.text.refs_rev == rev {
                 for (t, r) in found {
@@ -156,7 +162,9 @@ fn refresh_refs(s: &mut State) {
 
 pub fn on_event(s: &mut State, ev: &Event) {
     match ev.name.as_str() {
-        "app:start" | EVENT_ROSTER_CHANGED | irori_window::boards::EVENT_BOARDS_CHANGED => load_cands(s),
+        "app:start" | EVENT_ROSTER_CHANGED | irori_window::boards::EVENT_BOARDS_CHANGED => {
+            load_cands(s)
+        }
         EVENT_BOARD_CHANGED => refresh_refs(s),
         _ => {}
     }
@@ -180,7 +188,9 @@ fn demo_box_mut(s: &mut State) -> &mut Composer {
 pub fn view(s: &State, f: &mut Frame) -> El {
     let k = f.k;
     let card = s.data.cards.iter().find(|c| !c.short.is_empty());
-    let r = card.map(|c| format!("#{}", c.short)).unwrap_or_else(|| "#1".into());
+    let r = card
+        .map(|c| format!("#{}", c.short))
+        .unwrap_or_else(|| "#1".into());
     let sample = format!(
         "Two things before I go on: 1) open huggingface.co/facebook/dinov3 and click Request access 2) type `! hf auth login` in the Mac session.\n\n\
          I asked @oak to check {r}, and @cedar too. See https://github.com/acme/app/pull/57, then mlg#999 for the old one.\n\
@@ -253,13 +263,31 @@ pub fn view(s: &State, f: &mut Frame) -> El {
             row()
                 .gap(8.0)
                 .flex_wrap()
-                .child(link_chip(f, "text-demo/l1", "url", "https://www.notion.so/team/plan", "The plan"))
-                .child(link_chip(f, "text-demo/l2", "path", "crates/window/src/attachments.rs", ""))
+                .child(link_chip(
+                    f,
+                    "text-demo/l1",
+                    "url",
+                    "https://www.notion.so/team/plan",
+                    "The plan",
+                ))
+                .child(link_chip(
+                    f,
+                    "text-demo/l2",
+                    "path",
+                    "crates/window/src/attachments.rs",
+                    "",
+                ))
                 .child(link_chip(f, "text-demo/l3", "commit", "305f7d75", ""))
                 .child(code(f, "text-demo/code", "sh scripts/check.sh")),
         )
         .child(section("Attachments"))
-        .child(attachment_list(s, f, "text-demo/files", &s.text.demo_files, false))
+        .child(attachment_list(
+            s,
+            f,
+            "text-demo/files",
+            &s.text.demo_files,
+            false,
+        ))
         .child(section("Composer"))
         .child(composer(
             s,
@@ -292,7 +320,9 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 .w_full()
                 .grow(1.0)
                 .min_h(0.0)
-                .scroll(ScrollSpec { stick_bottom: false })
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
                 .child(body),
         )
 }
@@ -301,7 +331,10 @@ pub fn view(s: &State, f: &mut Frame) -> El {
 fn file_refs(v: &serde_json::Value, out: &mut Vec<File>) {
     match v {
         serde_json::Value::Object(m) => {
-            if m.get("sha256").and_then(|x| x.as_str()).is_some_and(|x| !x.is_empty()) {
+            if m.get("sha256")
+                .and_then(|x| x.as_str())
+                .is_some_and(|x| !x.is_empty())
+            {
                 if let Ok(f) = serde_json::from_value::<File>(v.clone())
                     && !out.iter().any(|x| x.sha256 == f.sha256)
                 {
@@ -358,20 +391,31 @@ pub fn scene(s: &mut State) {
     }
     s.text.demo_files = files;
     // The picker's rows: the data's agents, else samples.
-    if s.text.cands.iter().filter(|c| !mentions::is_gone(&c.who)).count() < 2 {
-        let sample = |name: &str, color: &str, status: &str, device: &str, repo: &str| mentions::Candidate {
-            who: AgentRef {
-                key: format!("agent:{name}"),
-                name: name.into(),
-                status: status.into(),
-                color: color.into(),
-                where_: if device.is_empty() { "Macbook Pro (this one)".into() } else { device.into() },
-                device: device.into(),
-                ..AgentRef::default()
-            },
-            repo: repo.into(),
-            ..mentions::Candidate::default()
-        };
+    if s.text
+        .cands
+        .iter()
+        .filter(|c| !mentions::is_gone(&c.who))
+        .count()
+        < 2
+    {
+        let sample =
+            |name: &str, color: &str, status: &str, device: &str, repo: &str| mentions::Candidate {
+                who: AgentRef {
+                    key: format!("agent:{name}"),
+                    name: name.into(),
+                    status: status.into(),
+                    color: color.into(),
+                    where_: if device.is_empty() {
+                        "Macbook Pro (this one)".into()
+                    } else {
+                        device.into()
+                    },
+                    device: device.into(),
+                    ..AgentRef::default()
+                },
+                repo: repo.into(),
+                ..mentions::Candidate::default()
+            };
         s.text.cands = vec![
             sample("oak", "teal", "working", "", "irori"),
             sample("oak tree", "teal", "idle", "", "irori"),

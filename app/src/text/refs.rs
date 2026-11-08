@@ -75,7 +75,11 @@ pub fn prefetch_refs(s: &mut State, refs: Vec<String>) {
     s.text.refs_pending.extend(refs.iter().cloned());
     let rev = s.text.refs_rev;
     s.spawn(
-        move |w| refs.into_iter().map(|r| (w.card_ref(&r), r)).collect::<Vec<_>>(),
+        move |w| {
+            refs.into_iter()
+                .map(|r| (w.card_ref(&r), r))
+                .collect::<Vec<_>>()
+        },
         move |s, found| {
             for (t, r) in found {
                 s.text.refs_pending.remove(&r);

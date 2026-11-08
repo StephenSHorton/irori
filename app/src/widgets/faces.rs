@@ -41,7 +41,11 @@ fn lit(hash: u32) -> Vec<(u8, u8)> {
 pub fn cells(seed: &str) -> Vec<(u8, u8)> {
     let mut c = Vec::new();
     for salt in 0..8 {
-        let s = if salt == 0 { seed.to_string() } else { format!("{seed}#{salt}") };
+        let s = if salt == 0 {
+            seed.to_string()
+        } else {
+            format!("{seed}#{salt}")
+        };
         c = lit(fnv1a(&s));
         if c.len() >= 8 {
             break;
@@ -55,7 +59,10 @@ pub fn identicon(seed: &str, size: f32, color: Color) -> El {
     let mut sh = Shape::new().view_box(5.0, 5.0);
     for (x, y) in cells(seed) {
         let (x, y) = (f32::from(x), f32::from(y));
-        sh = sh.fill(vec![[x, y], [x + 1.0, y], [x + 1.0, y + 1.0], [x, y + 1.0]], color);
+        sh = sh.fill(
+            vec![[x, y], [x + 1.0, y], [x + 1.0, y + 1.0], [x, y + 1.0]],
+            color,
+        );
     }
     canvas(sh).size(size, size).a11y_hidden()
 }
@@ -76,7 +83,10 @@ pub const DEVICE_COLORS: &[(&str, (f32, f32, f32))] = &[
 /// A device colour's shade by its palette name; None for "" or one
 /// unknown.
 pub fn device_color(name: &str) -> Option<Color> {
-    DEVICE_COLORS.iter().find(|(n, _)| *n == name).map(|(_, (l, c, h))| rune::color::oklch(*l, *c, *h))
+    DEVICE_COLORS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, (l, c, h))| rune::color::oklch(*l, *c, *h))
 }
 
 /// An agent face's colour outside a face: amber while it isn't
@@ -106,16 +116,28 @@ pub fn face(s: &State, f: &mut Frame, key: &str, who: &AgentRef, o: FaceOpts) ->
     let k = f.k;
     let person = who.status == "person";
     let gone = who.status == "gone";
-    let tint = if o.watching { None } else { device_color(&who.color) };
+    let tint = if o.watching {
+        None
+    } else {
+        device_color(&who.color)
+    };
     let quiet = !person && !o.watching && who.status == "unresponsive";
     let name = display_name(who);
     let said = agent_status(&Who::from(who), None, now_ms()).text;
     let title = [
         name.clone(),
         who.where_.clone(),
-        if who.device.is_empty() { String::new() } else { format!("on {}", who.device) },
+        if who.device.is_empty() {
+            String::new()
+        } else {
+            format!("on {}", who.device)
+        },
         if said == "idle" { String::new() } else { said },
-        if who.conflict.is_empty() { String::new() } else { format!("lease conflict on {}", who.conflict) },
+        if who.conflict.is_empty() {
+            String::new()
+        } else {
+            format!("lease conflict on {}", who.conflict)
+        },
     ]
     .into_iter()
     .filter(|x| !x.is_empty())
@@ -136,7 +158,11 @@ pub fn face(s: &State, f: &mut Frame, key: &str, who: &AgentRef, o: FaceOpts) ->
         } else {
             identicon(&who.key, 14.0, ink)
         };
-        row().key(key.to_string()).size(14.0, 14.0).center().child(inner)
+        row()
+            .key(key.to_string())
+            .size(14.0, 14.0)
+            .center()
+            .child(inner)
     } else {
         let inner = if person {
             icon(&icons::USER, 20.0).color(ink)
@@ -146,9 +172,13 @@ pub fn face(s: &State, f: &mut Frame, key: &str, who: &AgentRef, o: FaceOpts) ->
         let mut b = el()
             .key(key.to_string())
             .size(26.0, 26.0)
-            
             .border(1.0, k.c.text_muted.alpha(0.35))
-            .child(el().absolute(2.0, 2.0).size(22.0, 22.0).center().child(inner));
+            .child(
+                el().absolute(2.0, 2.0)
+                    .size(22.0, 22.0)
+                    .center()
+                    .child(inner),
+            );
         if !who.conflict.is_empty() {
             b = b.border(2.0, status::decide());
         }
@@ -164,7 +194,10 @@ pub fn face(s: &State, f: &mut Frame, key: &str, who: &AgentRef, o: FaceOpts) ->
         }
         b
     };
-    let face = face.role("img").label(title.clone()).opacity(if faded { 0.55 } else { 1.0 });
+    let face = face
+        .role("img")
+        .label(title.clone())
+        .opacity(if faded { 0.55 } else { 1.0 });
     if o.no_hover || person {
         return face.help(title);
     }
@@ -175,9 +208,20 @@ pub fn face(s: &State, f: &mut Frame, key: &str, who: &AgentRef, o: FaceOpts) ->
 pub const FACES_MAX: usize = 5;
 
 /// A row of faces; with `max`, the rest as "+N" whose tooltip names them.
-pub fn faces(s: &State, f: &mut Frame, key: &str, who: &[AgentRef], watching: bool, max: Option<usize>) -> El {
+pub fn faces(
+    s: &State,
+    f: &mut Frame,
+    key: &str,
+    who: &[AgentRef],
+    watching: bool,
+    max: Option<usize>,
+) -> El {
     let over = max.is_some_and(|m| who.len() > m);
-    let shown = if over { max.unwrap_or(1).saturating_sub(1).max(1) } else { who.len() };
+    let shown = if over {
+        max.unwrap_or(1).saturating_sub(1).max(1)
+    } else {
+        who.len()
+    };
     let mut r = row().key(key.to_string()).gap(4.0).center_y().min_w(0.0);
     for (i, w) in who.iter().take(shown).enumerate() {
         r = r.child(face(
@@ -259,7 +303,10 @@ pub fn talk_bubble(s: &State, f: &mut Frame, key: &str, who: &[AgentRef]) -> Opt
 
 /// The green "live" dot in Who's on it.
 pub fn live_dot() -> El {
-    el().size(7.0, 7.0).radius(3.5).fill(status::working()).a11y_hidden()
+    el().size(7.0, 7.0)
+        .radius(3.5)
+        .fill(status::working())
+        .a11y_hidden()
 }
 
 /// A person's face's size (profile/face.tsx sm, md, lg, xl).
@@ -285,13 +332,19 @@ impl PersonSize {
 
 /// A person on the window (card #393): their avatar's pixels, else their
 /// initial on their colour (a device colour name), else on grey.
-pub fn person_face(f: &Frame, key: &str, name: &str, color: &str, pic: Option<&rune::Pixels>, size: PersonSize) -> El {
+pub fn person_face(
+    f: &Frame,
+    key: &str,
+    name: &str,
+    color: &str,
+    pic: Option<&rune::Pixels>,
+    size: PersonSize,
+) -> El {
     let k = f.k;
     let (side, font) = size.px();
     let base = el()
         .key(key.to_string())
         .size(side, side)
-        
         .radius(side / 2.0)
         .clip_rounded(side / 2.0)
         .role("img")
@@ -315,8 +368,19 @@ pub fn person_face(f: &Frame, key: &str, name: &str, color: &str, pic: Option<&r
 /// The person's own face: their avatar from the window (decoded in the
 /// widgets model), else their initial on their colour.
 pub fn my_face(s: &State, f: &Frame, key: &str, size: PersonSize) -> El {
-    let name = if s.data.your_name.is_empty() { "You" } else { s.data.your_name.as_str() };
-    person_face(f, key, name, &s.widgets.person_color, s.widgets.avatar.pixels.as_ref(), size)
+    let name = if s.data.your_name.is_empty() {
+        "You"
+    } else {
+        s.data.your_name.as_str()
+    };
+    person_face(
+        f,
+        key,
+        name,
+        &s.widgets.person_color,
+        s.widgets.avatar.pixels.as_ref(),
+        size,
+    )
 }
 
 #[cfg(test)]
@@ -328,7 +392,10 @@ mod tests {
         for seed in ["sample-wren", "dev/heron-key", "a", ""] {
             let c = cells(seed);
             if !seed.is_empty() {
-                assert!(c.len() >= 8 || c.len() == lit(fnv1a(&format!("{seed}#7"))).len(), "{seed}");
+                assert!(
+                    c.len() >= 8 || c.len() == lit(fnv1a(&format!("{seed}#7"))).len(),
+                    "{seed}"
+                );
             }
             for &(x, y) in &c {
                 assert!(x < 5 && y < 5);

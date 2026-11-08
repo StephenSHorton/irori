@@ -154,13 +154,20 @@ pub fn on_event(s: &mut State, ev: &Event) {
         EVENT_ROSTER_CHANGED => {
             // The roster caught up with "Offer it cards": show it again.
             let agents = &s.data.agents;
-            s.widgets
-                .offer_want
-                .retain(|k, want| !agents.iter().any(|a| a.card.key == *k && a.offers_cards == *want));
+            s.widgets.offer_want.retain(|k, want| {
+                !agents
+                    .iter()
+                    .any(|a| a.card.key == *k && a.offers_cards == *want)
+            });
             // An agent that left closes its hover card.
             if let Some(h) = &s.widgets.hover
                 && !s.data.agents.iter().any(|a| a.card.key == h.who.key)
-                && !s.data.cards.iter().any(|c| c.working.iter().chain(&c.watching).any(|w| w.key == h.who.key))
+                && !s.data.cards.iter().any(|c| {
+                    c.working
+                        .iter()
+                        .chain(&c.watching)
+                        .any(|w| w.key == h.who.key)
+                })
             {
                 s.widgets.hover = None;
             }

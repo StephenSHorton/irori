@@ -13,16 +13,20 @@ use super::plain::plain_line;
 
 /// A lease family member: a name ending in -<n>, -<lo>..<hi>, -N, -n or -*.
 static MEMBER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^([a-z0-9][a-z0-9._-]*?(?:/[a-z0-9._-]+)*?)-(\d+(?:\.\.\d+)?|[nN*])$").expect("member")
+    Regex::new(r"^([a-z0-9][a-z0-9._-]*?(?:/[a-z0-9._-]+)*?)-(\d+(?:\.\.\d+)?|[nN*])$")
+        .expect("member")
 });
 /// The same inside free text, ending where the token ends (JS's
 /// `(?![a-z0-9._/-])`, which Rust's regex has no lookahead for: the
 /// third group takes the next character, or the end).
 static IN_TEXT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b([a-z0-9][a-z0-9._-]*(?:/[a-z0-9._-]+)+)-(\d+\.\.\d+|\d+|[nN*])(?:[^a-z0-9._/-]|$)")
-        .expect("in text")
+    Regex::new(
+        r"(?i)\b([a-z0-9][a-z0-9._-]*(?:/[a-z0-9._-]+)+)-(\d+\.\.\d+|\d+|[nN*])(?:[^a-z0-9._/-]|$)",
+    )
+    .expect("in text")
 });
-static CHECK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^check/([^/]+)/slot$").expect("check"));
+static CHECK: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^check/([^/]+)/slot$").expect("check"));
 static LEASE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\blease").expect("lease"));
 static PATH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^path:(.+):([^:]+)$").expect("path"));
 static SEPS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[-_.]+").expect("seps"));
@@ -58,7 +62,12 @@ fn family(stem: &str) -> String {
 /// A repo key as people say it: "irori" for remote:github.com/sh/irori.
 fn repo_name(key: &str) -> String {
     if let Some(r) = key.strip_prefix("remote:") {
-        return r.rsplit('/').next().filter(|s| !s.is_empty()).unwrap_or(key).to_string();
+        return r
+            .rsplit('/')
+            .next()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(key)
+            .to_string();
     }
     if let Some(r) = key.strip_prefix("root:") {
         return format!("repo {}", r.chars().take(7).collect::<String>());
@@ -79,7 +88,10 @@ fn one(name: &str) -> String {
     if name.starts_with("desk/") {
         return "the merge desk".into();
     }
-    if let Some(p) = name.strip_prefix("port:").filter(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) {
+    if let Some(p) = name
+        .strip_prefix("port:")
+        .filter(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+    {
         return format!("port {p}");
     }
     if let Some(c) = PATH.captures(name) {
@@ -97,18 +109,24 @@ fn one(name: &str) -> String {
 /// The leases a wait is on: several of one family (or a range) are "a free
 /// <family>", one is itself; others are counted.
 pub fn lease_names(names: &[&str]) -> String {
-    let Some(first) = names.first() else { return String::new() };
+    let Some(first) = names.first() else {
+        return String::new();
+    };
     let mut stems: Vec<String> = Vec::new();
     let mut count: HashMap<String, usize> = HashMap::new();
     for n in names {
-        let key = MEMBER.captures(n).map_or_else(|| n.to_string(), |m| m[1].to_string());
+        let key = MEMBER
+            .captures(n)
+            .map_or_else(|| n.to_string(), |m| m[1].to_string());
         if !count.contains_key(&key) {
             stems.push(key.clone());
         }
         *count.entry(key).or_default() += 1;
     }
     let said = match MEMBER.captures(first) {
-        Some(m) if count.get(&m[1]).copied().unwrap_or(0) > 1 => format!("a free {}", family(&m[1])),
+        Some(m) if count.get(&m[1]).copied().unwrap_or(0) > 1 => {
+            format!("a free {}", family(&m[1]))
+        }
         _ => one(first),
     };
     let others = stems.len() - 1;
@@ -143,7 +161,9 @@ pub fn wait_name(kind: &str, on: &str) -> String {
     }
     let lower = on.to_lowercase();
     match lower.strip_prefix("external") {
-        Some(rest) if rest.starts_with(char::is_whitespace) => on["external".len()..].trim_start().to_string(),
+        Some(rest) if rest.starts_with(char::is_whitespace) => {
+            on["external".len()..].trim_start().to_string()
+        }
         _ => on,
     }
 }
@@ -155,7 +175,8 @@ pub fn wait_line(kind: &str, on: &str) -> String {
     if n.is_empty() {
         return "Waiting on something else".into();
     }
-    let lease = kind == "lease" || (kind != "agent" && kind != "task" && lease_in(&plain_line(on)).is_some());
+    let lease = kind == "lease"
+        || (kind != "agent" && kind != "task" && lease_in(&plain_line(on)).is_some());
     if lease {
         format!("Waiting for {n}")
     } else {
@@ -203,7 +224,11 @@ pub fn wait_label(w: &Wait) -> String {
 /// #553) and the question it was raised with.
 pub fn wait_tip(w: &Wait) -> String {
     let label = wait_label(&Wait {
-        on: if w.full.is_empty() { w.on.clone() } else { w.full.clone() },
+        on: if w.full.is_empty() {
+            w.on.clone()
+        } else {
+            w.full.clone()
+        },
         ..w.clone()
     });
     if w.question.is_empty() {
@@ -220,7 +245,12 @@ mod tests {
     #[test]
     fn a_lease_family_is_a_free_one_of_it() {
         assert_eq!(
-            lease_names(&["ww/dolphin-slot-1", "ww/dolphin-slot-2", "ww/dolphin-slot-3", "ww/dolphin-slot-4"]),
+            lease_names(&[
+                "ww/dolphin-slot-1",
+                "ww/dolphin-slot-2",
+                "ww/dolphin-slot-3",
+                "ww/dolphin-slot-4"
+            ]),
             "a free Dolphin slot"
         );
         assert_eq!(
@@ -239,7 +269,10 @@ mod tests {
             lease_names(&["path:remote:github.com/sh/irori:crates/coord/**"]),
             "crates/coord/** in irori"
         );
-        assert_eq!(lease_names(&["path:root:abc1234def:src/*.rs"]), "src/*.rs in repo abc1234");
+        assert_eq!(
+            lease_names(&["path:root:abc1234def:src/*.rs"]),
+            "src/*.rs in repo abc1234"
+        );
         assert_eq!(lease_names(&["check/mac/slot-3"]), "check slot 3 on mac");
     }
 
@@ -250,10 +283,16 @@ mod tests {
             "Waiting on deploy to aws/us-east-1 finishing"
         );
         assert_eq!(
-            wait_line("external", "external CI at https://ci.example.com/job/build-42"),
+            wait_line(
+                "external",
+                "external CI at https://ci.example.com/job/build-42"
+            ),
             "Waiting on CI at https://ci.example.com/job/build-42"
         );
-        assert_eq!(wait_line("external", "the ww/dolphin-slot-2 lease"), "Waiting for Dolphin slot 2");
+        assert_eq!(
+            wait_line("external", "the ww/dolphin-slot-2 lease"),
+            "Waiting for Dolphin slot 2"
+        );
     }
 
     #[test]
@@ -276,7 +315,10 @@ mod tests {
     fn anything_else_keeps_its_words() {
         assert_eq!(wait_line("agent", "kestrel"), "Waiting on kestrel");
         assert_eq!(wait_line("task", "#12"), "Waiting on #12");
-        assert_eq!(wait_line("external", "external CI on main"), "Waiting on CI on main");
+        assert_eq!(
+            wait_line("external", "external CI on main"),
+            "Waiting on CI on main"
+        );
         assert_eq!(
             wait_line("lease", "ww/dolphin-slot-1 ww/dolphin-slot-2"),
             "Waiting for a free Dolphin slot"
@@ -301,7 +343,10 @@ mod tests {
             }),
             "Waiting on Irori 0.12.4 +1"
         );
-        assert_eq!(wait_tip(&card), "Waiting on Irori 0.12.4 on Desktop and another device");
+        assert_eq!(
+            wait_tip(&card),
+            "Waiting on Irori 0.12.4 on Desktop and another device"
+        );
         assert_eq!(
             wait_tip(&Wait {
                 question: "After the update".into(),

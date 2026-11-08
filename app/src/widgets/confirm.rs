@@ -12,6 +12,9 @@ use rune_kit::{Button, ButtonVariant, ControlSize};
 
 use crate::ui::{Frame, State};
 
+/// A confirm step's work, off the UI thread.
+pub type Work = Arc<dyn Fn(&Window) -> Result<(), String> + Send + Sync>;
+
 /// What a confirm step asks and does.
 #[derive(Clone)]
 pub struct Ask {
@@ -24,7 +27,7 @@ pub struct Ask {
     /// The red confirm (End, Delete).
     pub danger: bool,
     /// The work, off the UI thread.
-    pub work: Arc<dyn Fn(&Window) -> Result<(), String> + Send + Sync>,
+    pub work: Work,
     /// What follows a success, on the UI thread.
     pub done: Arc<dyn Fn(&mut State) + Send + Sync>,
 }
@@ -78,7 +81,9 @@ pub fn open(s: &mut State, key: &str, ask: Ask) {
 }
 
 fn run(s: &mut State) {
-    let Some(o) = s.widgets.confirm.clone() else { return };
+    let Some(o) = s.widgets.confirm.clone() else {
+        return;
+    };
     if !s.widgets.busy.insert(o.key.clone()) {
         return;
     }
@@ -103,7 +108,15 @@ fn run(s: &mut State) {
 }
 
 /// The button: `label` (an icon optional), and its error under it.
-pub fn confirm_button(s: &State, f: &Frame, key: &str, label: &str, ic: Option<&'static rune::Icon>, disabled: bool, ask: Ask) -> El {
+pub fn confirm_button(
+    s: &State,
+    f: &Frame,
+    key: &str,
+    label: &str,
+    ic: Option<&'static rune::Icon>,
+    disabled: bool,
+    ask: Ask,
+) -> El {
     let k = f.k;
     let kk = key.to_string();
     let mut b = Button::new(label.to_string())
@@ -137,13 +150,21 @@ pub fn dialog(s: &State, f: &mut Frame) {
     // question is a wrapped body line under the confirm label, and the
     // panel fits it (a long question ran past the dialog's edge).
     let title = a.confirm_label.clone();
-    let confirm = Button::new(if busy { "Working…".to_string() } else { a.confirm_label.clone() })
-        .variant(if a.danger { ButtonVariant::Danger } else { ButtonVariant::Contrast })
-        .control_size(ControlSize::Small)
-        .disabled(busy)
-        .on_press(run)
-        .build(k)
-        .default_button();
+    let confirm = Button::new(if busy {
+        "Working…".to_string()
+    } else {
+        a.confirm_label.clone()
+    })
+    .variant(if a.danger {
+        ButtonVariant::Danger
+    } else {
+        ButtonVariant::Contrast
+    })
+    .control_size(ControlSize::Small)
+    .disabled(busy)
+    .on_press(run)
+    .build(k)
+    .default_button();
     let cancel = Button::new(a.cancel_label.clone())
         .variant(ButtonVariant::Ghost)
         .control_size(ControlSize::Small)
@@ -155,7 +176,13 @@ pub fn dialog(s: &State, f: &mut Frame) {
         .width(420.0)
         .fit()
         .on_close(move |s: &mut State| {
-            if !s.widgets.busy.contains(&s.widgets.confirm.as_ref().map(|c| c.key.clone()).unwrap_or_default()) {
+            if !s.widgets.busy.contains(
+                &s.widgets
+                    .confirm
+                    .as_ref()
+                    .map(|c| c.key.clone())
+                    .unwrap_or_default(),
+            ) {
                 s.widgets.confirm = None;
             }
         });
@@ -171,11 +198,23 @@ pub fn dialog(s: &State, f: &mut Frame) {
                 text(a.question.clone())
                     .key("widgets-confirm-question")
                     .font(if a.rich { k.ty.ui } else { k.ty.ui_medium })
-                    .color(if a.rich { k.c.text_muted } else { k.c.text_base })
+                    .color(if a.rich {
+                        k.c.text_muted
+                    } else {
+                        k.c.text_base
+                    })
                     .w_full()
                     .wrap(),
             )
-            .child(row().key("widgets-confirm-foot").w_full().gap(8.0).child(rune::el().grow(1.0)).child(cancel).child(confirm)),
+            .child(
+                row()
+                    .key("widgets-confirm-foot")
+                    .w_full()
+                    .gap(8.0)
+                    .child(rune::el().grow(1.0))
+                    .child(cancel)
+                    .child(confirm),
+            ),
     )
-        .build(k, f.layer);
+    .build(k, f.layer);
 }
