@@ -2255,6 +2255,7 @@ fn a_lines_agents_mark_folds() {
 
 // ---- who hosts a person's assistant in a huddle (card #1049) -----------------
 
+#[allow(clippy::too_many_arguments)]
 fn assist_row(
     dev: &str,
     seq: i64,
