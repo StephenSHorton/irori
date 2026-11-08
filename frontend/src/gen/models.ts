@@ -16,6 +16,8 @@ export type AgentsSettings = B.AgentsSettings
 export type AnswerResult = B.AnswerResult
 export type Ask = B.Ask
 export type AskRepo = B.AskRepo
+export type AssistantEvent = B.AssistantEvent
+export type AssistantTurn = B.AssistantTurn
 export type AttachmentInfo = B.AttachmentInfo
 export type BlockedBy = B.BlockedBy
 export type Blocker = B.Blocker
@@ -249,6 +251,16 @@ export function Ask(p: Partial<B.Ask> = {}): B.Ask {
 /** AskRepo with Go's zero values for every field left out. */
 export function AskRepo(p: Partial<B.AskRepo> = {}): B.AskRepo {
   return { "repoKey": "", "label": "", ...p } as B.AskRepo
+}
+
+/** AssistantEvent with Go's zero values for every field left out. */
+export function AssistantEvent(p: Partial<B.AssistantEvent> = {}): B.AssistantEvent {
+  return { "kind": "", "text": "", ...p } as B.AssistantEvent
+}
+
+/** AssistantTurn with Go's zero values for every field left out. */
+export function AssistantTurn(p: Partial<B.AssistantTurn> = {}): B.AssistantTurn {
+  return { "role": "", "text": "", ...p } as B.AssistantTurn
 }
 
 /** AttachmentInfo with Go's zero values for every field left out. */

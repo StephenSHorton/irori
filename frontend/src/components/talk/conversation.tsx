@@ -552,7 +552,9 @@ export function ConversationView({
         ) : narrow && showMembers && conv.kind === "channel" ? (
           <Members members={conv.members} live={live} wide />
         ) : (
-          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto px-3 py-3 mac:overscroll-none">
+          // The newest post clears Ask Irori's button, which sits above
+          // the composer (pb-16, card #783).
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto px-3 pt-3 pb-16 mac:overscroll-none">
             {error && (
               <p className="px-2 text-xs text-destructive" role="alert">
                 Could not load the posts: {error}
@@ -1074,6 +1076,8 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
   return (
     <form
       className="grid gap-1 border-t border-border px-3 py-2.5"
+      // Ask Irori's button sits above the composer, off its Send (#783).
+      data-assistant-avoid=""
       onSubmit={(e) => void submit(e)}
       {...attach.drop}
     >

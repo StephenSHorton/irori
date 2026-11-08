@@ -81,6 +81,10 @@ pub use v03::{MAX_CAPTURE_LIMIT, MAX_TIMELINE_LIMIT};
 
 /// Carries the person's per-run secret (decision D10(a)).
 pub const HEADER_PERSON: &str = "X-Irori-Person";
+/// Carries the window assistant's per-run secret (card #783): a tool call
+/// with it alone reads as the person, through `tools::ASSISTANT_TOOLS`
+/// only.
+pub const HEADER_ASSISTANT: &str = "X-Irori-Assistant";
 
 /// Who a request with no identity header reads as: an unidentified agent.
 /// It is nobody's key, so it reads no message and owns no card.

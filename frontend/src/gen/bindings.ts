@@ -500,6 +500,17 @@ export const commands = {
 	 *  left out.
 	 */
 	usageLimits: () => __TAURI_INVOKE<UsageLimits>("usage_limits"),
+	/**
+	 *  Asks the corner chat's assistant `text` after `history`. Returns the
+	 *  run's id at once; its events come on `on`, ending with one `done` or
+	 *  `error` (a failure to start included).
+	 */
+	assistantAsk: (history: AssistantTurn[], text: string, on: Channel<AssistantEvent>) => __TAURI_INVOKE<number>("assistant_ask", { history, text, on }),
+	/**
+	 *  Stops assistant run `id`: its channel gets error "Stopped." or nothing
+	 *  more. An unknown or finished id is fine.
+	 */
+	assistantStop: (id: number) => __TAURI_INVOKE<null>("assistant_stop", { id }),
 };
 
 /* Types */
@@ -797,6 +808,24 @@ export type Ask = {
 export type AskRepo = {
 	repoKey: string,
 	label: string,
+};
+
+/**
+ *  What a run says, in order: `delta`s of reply text, `tool` status lines
+ *  (each replaces the last; not part of the reply), then exactly one
+ *  `done` (text empty) or `error` (one plain sentence for the person).
+ */
+export type AssistantEvent = {
+	/**  `"delta"`, `"tool"`, `"done"` or `"error"`. */
+	kind: string,
+	text: string,
+};
+
+/**  One turn of the chat so far. */
+export type AssistantTurn = {
+	/**  `"person"` or `"assistant"`. */
+	role: string,
+	text: string,
 };
 
 /**  One comment file as the window shows it. */

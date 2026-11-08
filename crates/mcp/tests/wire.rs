@@ -10,6 +10,7 @@ mod common;
 use std::time::Duration;
 
 use common::*;
+use mcp::Options;
 use serde_json::Value;
 
 fn golden() -> Value {
@@ -444,4 +445,55 @@ fn sessionless_name_reuse_is_new_member() {
 fn manifest_dir() -> std::path::PathBuf {
     std::env::var_os("CARGO_MANIFEST_DIR")
         .map_or_else(|| env!("CARGO_MANIFEST_DIR").into(), Into::into)
+}
+
+/// Card #783: as the window assistant, `irori mcp` lists the assistant's
+/// tools, never offers irori_join, opens no member stream, and calls with
+/// `X-Irori-Assistant` and no member.
+#[test]
+fn assistant_lists_reads_and_calls_without_join() {
+    let specs = r#"[{"name":"search","description":"search","inputSchema":{"type":"object"},"readOnly":true,"clients":["claude","grok"]},{"name":"board","description":"board","inputSchema":{"type":"object"},"readOnly":true,"clients":["claude","grok"]},{"name":"send","description":"send","inputSchema":{"type":"object"},"readOnly":false,"clients":["claude","grok"]}]"#;
+    let f = FakeCore::new(Some(specs.into()));
+    let w = Wire::start(Options {
+        assistant: true,
+        ..quick(Some(f.dial_as("assist-secret")))
+    });
+    w.init();
+    let mut names = w.srv.registered();
+    names.sort();
+    // "send" is no assistant tool, and join is never added.
+    assert_eq!(names, vec!["board".to_string(), "search".to_string()]);
+    let (out, _) = w.call(1, "irori_search", r#"{"query":"x"}"#, None);
+    assert_eq!(out, "ok search");
+    let out = w.ask(
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"irori_join","arguments":{"name":"x"}}}"#,
+    );
+    assert!(out.contains("unknown tool"), "{out}");
+    let st = f.st.lock().unwrap();
+    assert!(
+        st.listed.iter().all(|c| c == "assistant"),
+        "{:?}",
+        st.listed
+    );
+    assert!(st.joins.is_empty() && st.attaches.is_empty());
+    assert_eq!(st.calls.len(), 1);
+    assert_eq!(st.calls[0].assistant, "assist-secret");
+    assert_eq!(st.calls[0].member, "");
+}
+
+#[test]
+fn assistant_without_a_core_offers_only_the_read_list() {
+    let w = Wire::start(Options {
+        assistant: true,
+        ..quick(None)
+    });
+    w.init();
+    let mut names = w.srv.registered();
+    names.sort();
+    let mut want: Vec<String> = tools::ASSISTANT_TOOLS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    want.sort();
+    assert_eq!(names, want);
 }
