@@ -143,7 +143,12 @@ function Strip({ fit }: { fit: Fit }) {
             )}
           >
             <span>Claude</span>
-            <span className="text-foreground/80">{claude.text}</span>
+            <span
+              className="text-foreground/80"
+              style={claude.color ? { color: claude.color } : undefined}
+            >
+              {claude.text}
+            </span>
           </span>
         )}
       </PopoverTrigger>

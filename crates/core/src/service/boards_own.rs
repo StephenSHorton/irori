@@ -415,8 +415,7 @@ impl Services {
                 self.fold_card_key(&ev);
             } else if ev.kind == kinds::PERSON_PROFILE {
                 self.follow_person_name();
-            } else if ev.kind == kinds::SPACE_BOARD_CREATED || ev.kind == kinds::SPACE_BOARD_RENAMED
-            {
+            } else if ev.kind.starts_with("space.board.") {
                 // Personal's boards, from another of the person's devices.
                 self.boards.moved();
             }

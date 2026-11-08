@@ -38,6 +38,11 @@ pub struct BoardInfo {
     /// The space's own name, which its first board's `name` may not be.
     /// Empty: the same as `name`.
     pub space_name: String,
+    /// The board's description (card #690); may be empty.
+    pub description: String,
+    /// Closed: read-only and out of the lists, still found by its tag so
+    /// a ref to its cards works (card #690).
+    pub closed: bool,
 }
 
 impl BoardInfo {
@@ -72,6 +77,10 @@ pub struct PersonalBoard {
     pub name: String,
     /// Its short handle; empty for the default, which has none.
     pub tag: String,
+    /// Its description (card #690); empty with none.
+    pub description: String,
+    /// Closed: it takes no cards and isn't listed (card #690).
+    pub closed: bool,
 }
 
 /// The id of Personal's default board, as Core names it
@@ -267,6 +276,9 @@ fn arg_texts(v: &serde_json::Value, key: &str, out: &mut Vec<String>) {
     }
 }
 
+/// How much of a board's description the board tool's list shows.
+const DESCRIPTION_CHARS: usize = 120;
+
 /// The refusal for a write scrub or the stricter pass blocks (§7.3).
 fn refusal(b: &BoardInfo, reasons: &[String]) -> String {
     err_text(&format!(
@@ -323,7 +335,7 @@ impl Inner {
             .unwrap_or_else(|| PersonalBoard {
                 board_id: PERSONAL_DEFAULT.into(),
                 name: "Personal".into(),
-                tag: String::new(),
+                ..Default::default()
             })
     }
 
@@ -370,7 +382,7 @@ impl Inner {
             .b
             .personal_boards()
             .into_iter()
-            .filter(|b| !b.is_default())
+            .filter(|b| !b.is_default() && !b.closed)
             .map(|b| b.tag)
             .collect();
         if tags.is_empty() {
@@ -393,7 +405,11 @@ impl Inner {
         match hits.as_slice() {
             [one] => Ok((*one).clone()),
             [] => {
-                let list: Vec<String> = all.iter().map(|b| b.tag.clone()).collect();
+                let list: Vec<String> = all
+                    .iter()
+                    .filter(|b| !b.closed)
+                    .map(|b| b.tag.clone())
+                    .collect();
                 Err(err_text(&format!(
                     "no board {} in a shared space. {}",
                     crate::format::q(v),
@@ -478,8 +494,18 @@ impl Inner {
         let all = self.b.personal_boards();
         let boards: Vec<String> = all
             .iter()
-            .filter(|b| !b.is_default())
-            .map(|b| format!("{} {}", b.tag, crate::format::q(&one_line(&b.name, 80))))
+            // A closed board takes no cards, so it isn't listed (card #690).
+            .filter(|b| !b.is_default() && !b.closed)
+            .map(|b| {
+                let mut line = format!("{} {}", b.tag, crate::format::q(&one_line(&b.name, 80)));
+                if !b.description.trim().is_empty() {
+                    line.push_str(&format!(
+                        ": {}",
+                        crate::format::q(&one_line(&b.description, DESCRIPTION_CHARS))
+                    ));
+                }
+                line
+            })
             .collect();
         if boards.is_empty() {
             return None;
@@ -505,15 +531,17 @@ impl Inner {
         let mut s = String::from(
             "Spaces you may post on (board_create board=<board tag>; anything there is seen by everyone in the space):",
         );
+        // A closed board takes no cards, so it isn't listed (card #690).
+        let live: Vec<&BoardInfo> = all.iter().filter(|b| !b.closed).collect();
         let mut seen: Vec<&str> = Vec::new();
-        for b in &all {
+        for b in &live {
             if seen.contains(&b.board_id.as_str()) {
                 continue;
             }
             seen.push(&b.board_id);
-            let boards: Vec<String> = all
+            let here: Vec<&&BoardInfo> = live.iter().filter(|x| x.board_id == b.board_id).collect();
+            let boards: Vec<String> = here
                 .iter()
-                .filter(|x| x.board_id == b.board_id)
                 .map(|x| format!("{} {}", x.tag, crate::format::q(&one_line(&x.name, 80))))
                 .collect();
             s += &format!(
@@ -523,6 +551,14 @@ impl Inner {
                 self.b.inbox().autonomy(&b.board_id),
                 boards.join(", ")
             );
+            // Each board's description, so a card goes where it fits.
+            for x in here.iter().filter(|x| !x.description.trim().is_empty()) {
+                s += &format!(
+                    "\n  {}: {}",
+                    x.tag,
+                    crate::format::q(&one_line(&x.description, DESCRIPTION_CHARS))
+                );
+            }
         }
         Some(s)
     }
@@ -660,6 +696,12 @@ pub(crate) fn create_on_board(
         Ok(b) => b,
         Err(e) => return e,
     };
+    if b.closed {
+        return err_text(&format!(
+            "{} is closed, so it takes no new cards. Reopen it in Irori first, or pick another board (the board tool lists them).",
+            b.label()
+        ));
+    }
     if !trim(a.str("parent")).is_empty() {
         return err_text("a subtask goes on its parent's board: give parent and leave out board.");
     }

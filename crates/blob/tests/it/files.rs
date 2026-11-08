@@ -276,3 +276,46 @@ fn mark_downloaded_runs() {
     fs::write(&p, b"x").unwrap();
     mark_downloaded(&p).unwrap();
 }
+
+/// The Storage page lets the person delete an attachment here (card #728):
+/// it is gone, listed as let go so the small-file pick-up leaves it, and a
+/// later fetch or attach of the same file clears that.
+#[test]
+fn files_list_remove_and_bring_back() {
+    let t = tempfile::tempdir().unwrap();
+    let f = new_files(&t);
+    let a = t.path().join("a.txt");
+    let b = t.path().join("b.txt");
+    fs::write(&a, b"first").unwrap();
+    fs::write(&b, b"second file").unwrap();
+    let ra = f.put_file(&s(&a)).unwrap();
+    let rb = f.put_file(&s(&b)).unwrap();
+    let mut want = vec![(ra.sha256.clone(), 5), (rb.sha256.clone(), 11)];
+    want.sort();
+    assert_eq!(f.list(), want);
+
+    assert_eq!(f.remove(&ra.sha256).unwrap(), 5);
+    assert!(!f.has(&ra.sha256));
+    assert!(f.dropped(&ra.sha256));
+    assert!(!f.dropped(&rb.sha256));
+    assert_eq!(f.list(), vec![(rb.sha256.clone(), 11)]);
+    assert_eq!(
+        f.remove(&ra.sha256).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+
+    // Fetched back: the partial is finished into the store.
+    let (mut part, off) = f.partial(&ra.sha256).unwrap();
+    assert_eq!(off, 0);
+    part.write_all(b"first").unwrap();
+    drop(part);
+    f.finish(&ra.sha256, 5).unwrap();
+    assert!(f.has(&ra.sha256));
+    assert!(!f.dropped(&ra.sha256), "a fetch clears the mark");
+
+    // Attached again after a delete clears it too.
+    f.remove(&rb.sha256).unwrap();
+    assert!(f.dropped(&rb.sha256));
+    f.put_file(&s(&b)).unwrap();
+    assert!(!f.dropped(&rb.sha256));
+}
