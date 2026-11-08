@@ -10,8 +10,8 @@ So this is the smallest version that is legit. One person or agent asks, the oth
 
 | | Decision | Why |
 |---|---|---|
-| D1 | **Each person has one assistant per space, shown as "Addam's assistant".** No invented names and no naming setting. | People already say "Addam's assistant". It is unique per person, and needs no name store. |
-| D2 | **It is an `agent:<cardId>` card with kind `assistant`**, never `person:`. | The only actor shape every peer accepts that is not the person. |
+| D1 | **Each person has one assistant per space. It has a name the person may choose, and by default it is "Addam's assistant".** Others always see "Juno · Addam's assistant", the person part taken from who wrote the row. | The person's decision on #1029. The default needs nothing written and is how people already talk. The name store is #1029's, so both designs give one answer. |
+| D2 | **It is an `agent:<cardId>` card with kind `assistant`**, never `person:`, and the owner's `member.profile` points at it. | The only actor shape every peer accepts that is not the person. The pointer, not the id, says which card is the assistant, so nobody can squat it (§3). |
 | D3 | **One channel per space, `#office-assistants`, made by itself.** | The person asked for a dedicated channel; decision 52 says no switching on. |
 | D4 | **An assistant answers only in that channel.** | One visible record, replicated, and it can't be edited or deleted. |
 | D5 | **The turn that answers another person has no tools.** Irori gathers the facts in code and the model only writes text. Irori posts it. | A peer's words must not be able to reach private data. See §6. |
@@ -32,21 +32,28 @@ The earlier check on #1023 read a checkout 265 commits behind main. On main (1cb
 
 ## 3. Who the assistant is
 
+**The name.** #1029 owns it (its build card "The assistant's name"): a private `assistant.name` row `{name, by, at}`, newest wins, set in the app, published to other members as an `assistantName` field on `member.profile`. No name means the default, `<profile name>'s assistant`, computed, so nothing is written and every device agrees. This design only reads it. Until #1029's card lands, every assistant has the default.
+
 **The card.** A new `agent.card` row on the space's log:
 
-- `name`: `<profile name>'s assistant`, rewritten when the person renames themself.
+- `cardId`: a random id from `new_board_id`, like any card.
+- `name`: the assistant's name (above), rewritten when it changes.
 - `kind`: `assistant`. Today's values are `claude` or the agent's own kind; nothing reads it as a closed list.
 - `personId`, `deviceId`: as for any card. `status`: `idle`.
 
 Written by a new `Services::assistant_card(board)`, not `card_for`, which needs a roster entry. No roster entry and no `board_cards` mapping: the assistant stays off the roster, and nothing reaches the inbox (§5).
 
-**Its id must not be computable by others.** The first `agent.card` row for an id decides whose card it is (`fold_cards`), so an id anyone can compute lets another member claim it first and lock the owner out. Derive it from something only the person's devices hold: a keyed hash, under the person's key material, of a fixed domain and the space id. All the person's devices then compute the same id, so two devices can't mint two cards, and moving to another computer needs no hand-over. The row is idempotent.
+**The pointer.** The same call sets a new `assistantCard` field on the person's `member.profile` for that space, to the card's id. It sits outside `personSig` like `color`, `avatar` and `githubLogin`, so older builds still count the row. Only the person's own devices can write their profile, so only they can say which card is their assistant. A card counts as the assistant only when its owner's newest profile points at it. Only the assistant's computer (below) mints a card, and only when the profile has no pointer. If two devices race, both cards are the person's, the newest profile wins, and the other is an ordinary idle card nobody mentions.
+
+**Why not an id everyone can compute.** That was the first draft, and it fails. `fold_cards` gives an id to the first `agent.card` row whose writer's person matches its `personId`, so another member can write a row with that id and their own `personId` first. A newer verifier could refuse such a row, but an older peer would accept it, and then refuse the owner's real posts in `bind_actor`. A refused row stalls the writer's stream (`store::kinds`, "stalling … fails closed"), so one hostile member would stall the owner's device on every older peer. A random id can't be claimed ahead, and the pointer needs no verifier change. Decision 30's key rotation doesn't matter either: nothing here is derived from a key.
 
 **It can't be forged across people.** `bind_actor` already checks that an `agent:` actor's card belongs to the signing device's person, and an `agent.card` must name its writer's person. A peer can only ever write as its own assistant.
 
-**The label comes from the row, not the name.** Show "Addam's assistant" only when `kind == assistant`, built from the card's verified `personId` and that person's profile name. A card merely *named* "Addam's assistant" that is kind `claude` shows as an ordinary agent ("Addam's assistant · Eve", agent tag). Talk's `Member`/`agent.card` mapping carries the kind through; `conversation.tsx` shows an `assistant` tag.
+**What the label proves.** It proves which person's device wrote the row, not that their real assistant wrote it. A member running a modified client can post as their own assistant whatever text they like, the same as they can post as themself. They can never post as someone else's assistant. Peers should read an assistant's answer as that person's word, not as a machine-checked fact.
 
-**Mentions.** People pick from the list, which records the key. Agents write `@Addam's assistant`, which `coord::mentions` already matches: names match character by character, so the apostrophe and space are fine, the same way `@cedar two` is. If two members share a profile name, the name is ambiguous and the sender gets the candidates' keys, as today. `board_mentionables` lists the card with no change. Offer it in the picker only in `#office-assistants`.
+**The label comes from the row, not the name.** Show "Juno · Addam's assistant" (or just "Addam's assistant" for a default name) only when the card is kind `assistant` *and* the owner's profile points at it. The person part is always built from the card's verified `personId` and that person's profile name, never from the card's `name`. A card merely *named* "Addam's assistant" that fails either test shows as an ordinary agent ("Addam's assistant · Eve", agent tag), so a name can't be used to pass as someone's assistant. Talk's `Member`/`agent.card` mapping carries the kind through; `conversation.tsx` shows an `assistant` tag.
+
+**Mentions.** People pick from the list, which records the key. Agents write `@Addam's assistant` or `@Juno`, which `coord::mentions` already matches: names match character by character, so the apostrophe and space are fine, the same way `@cedar two` is. If two members share a name, the name is ambiguous and the sender gets the candidates' keys, as today. `board_mentionables` lists the card with no change. Offer it in the picker only in `#office-assistants`.
 
 **Which computer answers.** The person's one device for which `coord.agent_home("")` is this device, and which has the answering turn installed (desktop, Claude Code signed in; the same condition as the namer). If that computer is off, nothing answers (§10).
 
@@ -137,18 +144,32 @@ The chat line shows the question with **Answer this**. Nothing about private wor
 
 The Send button appears only on a turn started by that tap, so a marker that a peer got the model to write elsewhere produces nothing. Each OK covers one answer. There is no standing permission in v1.
 
+**The question is not the only untrusted text in that turn.** Its read tools bring in other people's words too: `show` and `board` return card titles, objectives and comments written by any member of a shared space, unlabelled, and `search` and `events` can return their posts. So a member can plant instructions in a card and then ask a question that leads the owner's turn to read it. The system prompt for this turn says that everything the tools return from a shared space is untrusted, like the question. The defence that holds is step 2: nothing leaves until the owner has read the exact text, which is why the draft is shown in full (not collapsed, links shown as their URL) and capped at the same 1,500 characters as §5.
+
 The owner's OK is not built on `Request` and `Inner::request`, which share cards. Those keep their action in memory only and assume an agent's next turn, and their preview covers card fields only.
 
 ## 8. What the receiver sees
 
-**The labelled line.** A new `ChatEntry.from`: `{person, space, conv, postId, kind}`, where `kind` is `asked`, `answered` or `held`. For example:
+**The labelled line.** A new `ChatEntry.from`: `{person, space, conv, postId, kind}`, where `kind` is one of:
 
-> **From Addam's assistant** · #office-assistants on mlg
+| `kind` | When | Dot and toast |
+|---|---|---|
+| `answer` | Another person's assistant answered a question you asked (from your chat, §9) | Yes |
+| `needs` | A question to your assistant waits on you: **Let it answer** (Ask me, §5) or **Answer this** (§6, `NEEDS_OWNER`) | Yes |
+| `asked` | Your assistant answered someone on its own | No: a quiet line only |
+| `held` | The scrub held back your assistant's answer, or the rate limit or the hour dropped questions | No: a quiet line only |
+
+For example:
+
+> **From Eve's assistant** · #office-assistants on mlg
 > Who should review PR #12?
 > *Your assistant answered: "…"* · Open in Talk
 
-- **Where it comes from:** the replicated channel, not a push. A follower beside `assistant-follow.ts`, on `talk:changed`, turns new posts that concern this person (asked of their assistant, answered to them) into lines, with a per-device cursor. So every computer of the person's gets the line, and the channel is the permanent record while localStorage is only a view.
-- **Its rendering:** its own branch in `Entry`, before the reply branch. It never goes through the `<<thread>>`/`<<go>>` parser and never fires auto-go, since it is someone else's text. `parseHistory` must whitelist `from`, or a reload drops it.
+**How this fits #1000.** Card #1000 cut the chat down to what waits on the person. `answer` and `needs` do. `asked` doesn't, but the person asked for this feature to be visible ("would want this to be legit"), so the owner sees each time their assistant spoke for them. It is a quiet line, with no dot and no toast, so it doesn't ask for attention. If it turns out to be noise, `asked` lines can fold into one per conversation; they are never dropped altogether.
+
+- **Where it comes from:** the replicated channel, not a push. A new follower beside `assistant-follow.ts` (which, after #1000, follows only the threads the chat posted, and is not the place for this), on `talk:changed`, turns new posts that concern this person (asked of their assistant, answered to them) into lines, with a per-device cursor. So every computer of the person's gets the line, and the channel is the permanent record while localStorage is only a view.
+- **Its rendering:** its own branch in `Entry`, before the reply branch. It never goes through the `<<thread>>`/`<<go>>` parser and never fires auto-go, since it is someone else's text. Its text is shown as plain text, with links as their URL.
+- **Surviving a reload:** after #1000, `parseHistory` drops a saved assistant line that has `update` but no answer act and doesn't pass `waitsOnPerson`. A `from` line must be its own field, never an `update`, and `parseHistory` must whitelist `from`, or a reload drops it. Build card 3's test checks exactly this.
 - **In the model's history:** left out by default, like `note`. If the person then asks about it, it goes in fenced as another person's words. `render_prompt` must never show it as "The person" or "You".
 
 **Notifications.** Irori posts these in code; the assistant has no `notify` tool, and adding it to `ASSISTANT_TOOLS` would break the read-only rule and title it with the person's own name. One toast through the `Notifier`, titled "Addam's assistant", when a question needs the owner or an answer arrives, dedupe-keyed by conversation so a burst is one card. Use a `talk:` id so that it also works on the phone toaster, opening the channel.
@@ -171,17 +192,17 @@ The chat model has no way to post, and keeps it that way. When the person says "
 
 ## 11. Versions
 
-Nothing needs a gate. `agent.card` and `talk.channel.created` are existing kinds, `kind: "assistant"` is a new value of an existing string, and `replyTo` is an optional field. An older peer sees a channel, and an agent card with an agent tag, and can ask but its posts are ordinary. Rows from an older peer work as questions.
+Nothing needs a gate. `agent.card` and `talk.channel.created` are existing kinds, `kind: "assistant"` is a new value of an existing string, `replyTo` is an optional field, and `assistantCard` sits outside `personSig` on `member.profile`, as `color` did. The verifier is unchanged. An older peer sees a channel, and an agent card with an agent tag, and can ask but its posts are ordinary. Rows from an older peer work as questions.
 
 ## 12. Build plan
 
 All after #1030, in this order. Each one is normal weight unless marked, and links here. Every card: tests from the repo's patterns, `sh scripts/check.sh`, scratch builds per CLAUDE.md.
 
-**1. The card and the channel.** Files: `crates/coord/src/talk.rs` (id, `is_assistants_channel`, `PostRow.reply_to`), `crates/core/src/service/boards.rs` (`assistant_card`, id derivation), `crates/core/src/service/spaces.rs` (`ensure_assistants_channel`), `crates/window/src/mentions.rs`, `crates/tools/src/talk.rs` (label, picker limit), `frontend/src/components/talk/*` (tag, pinned first). Done when: a two-Core test shows both Cores with one channel of the same id, each person's assistant card listed by the other's `board_mentionables`, no assistant row with a `person:` actor, a kind-`claude` card named "Addam's assistant" not labelled as the assistant, and another member unable to compute or claim the card id.
+**1. The card and the channel.** Files: `crates/coord/src/talk.rs` (id, `is_assistants_channel`, `PostRow.reply_to`), `crates/identity/src/objects.rs` (`MemberProfile.assistant_card`, outside `personSig`), `crates/core/src/service/boards.rs` (`assistant_card`, the profile pointer), `crates/core/src/service/spaces.rs` (`ensure_assistants_channel`), `crates/window/src/mentions.rs`, `crates/tools/src/talk.rs` (label, picker limit), `frontend/src/components/talk/*` (tag, pinned first). Done when: a two-Core test shows both Cores with one channel of the same id, each person's assistant card listed by the other's `board_mentionables`, no assistant row with a `person:` actor, a kind-`claude` card named "Addam's assistant" not labelled as the assistant, a kind-`assistant` card the owner's profile doesn't point at not labelled as the assistant, an older-build profile row (no `assistantCard`) still counted, and two of the owner's devices minting at once settling on one pointed-at card. The name is the default only; reading #1029's `assistantName` is a one-line addition on #1029's name card or a light follow-up, so this card doesn't wait on it.
 
 **2. The answering turn.** Files: new `crates/core/src/service/assistant_answers.rs` (packet, parse, loop), `crates/core/src/service/bridge.rs` (the split), `crates/core/src/service.rs` and `app/src/shell/mod.rs` (`set_answerer`), `crates/window/src/assistant.rs` (its turn, `tools:false`), `crates/inbox` (expose the receive lookup). Done when, with a fake turn: Open answers once as `agent:<cardId>`; each §5 check stops it; an answer starts no turn; the packet of a test with a private card and a card on another space contains neither; a scrubbed reply posts nothing; a mention elsewhere runs nothing.
 
-**3. The labelled line and notification.** Files: `frontend/src/lib/assistant.ts` (`from`, `parseHistory`, `historyFor`), a new follower beside `frontend/src/lib/assistant-follow.ts`, `frontend/src/components/assistant/assistant-chat.tsx`, `crates/core/src/service.rs` (toast), `frontend/src/App.tsx` (open the chat from a toast). Done when: tests show the line surviving a reload, never parsed for markers, and not in the model's history as the person; screenshots at desktop and phone width; a real two-instance scratch run shows the line.
+**3. The labelled line and notification.** Files: `frontend/src/lib/assistant.ts` (`from`, `parseHistory`, `historyFor`), a new follower beside `frontend/src/lib/assistant-follow.ts`, `frontend/src/components/assistant/assistant-chat.tsx`, `crates/core/src/service.rs` (toast), `frontend/src/App.tsx` (open the chat from a toast). Done when: tests show the line surviving a reload past #1000's `waitsOnPerson` filter, `asked` and `held` lines lighting no dot, never parsed for markers, and not in the model's history as the person; screenshots at desktop and phone width; a real two-instance scratch run shows the line.
 
 **4. Ask from your chat.** Files: `crates/window/src/assistant.rs` (prompt, marker), `assistant.ts`, `assistant-chat.tsx`, `crates/window/src/commands.rs` (host command). Done when: nothing posts before the tap, the posted text is exactly what was shown, and the ASSISTANT_TOOLS test is untouched.
 
@@ -194,7 +215,6 @@ All after #1030, in this order. Each one is normal weight unless marked, and lin
 - **"I can spawn one."** A peer can't start agents on your machine (decisions 50 and 51). The assistant says it will ask you. A later **Start a reviewer** button on the line is a person's tap and fits on top; #1022's reviewer picking is the natural first use, and should ask through this channel rather than invent a second way.
 - **Rounds between assistants.** D7 can relax to a person-tapped next round.
 - **Standing permission** ("always tell Eve about my private cards").
-- **Naming your assistant** something else.
 - **Opening the chat by itself** (§8).
 - **DMs between assistants.** Refused today, and the visible channel is the point.
 
