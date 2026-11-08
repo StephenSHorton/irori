@@ -412,7 +412,7 @@ Dependencies, not preference: the place first, then who can read, then the names
 | 12 Ordinary agents' tools | #1055 | 3, 8 |
 | 13 Real-device check | #1056 | 11, 12 |
 
-The board cards are proposed and wait on #1029; each also waits on the cards it comes after. 1, 4 and 5 can start together. Looks in a person DM stay off until card 3 writes the `agents` mark. Cards are proposed, not started. All are normal weight unless marked. Every card's done-when includes `sh scripts/check.sh` passing.
+The board cards are proposed and wait on #1029; each also waits on the cards it comes after. 1, 4 and 5 can start together. Looks in a person DM stay off until card 3 writes the `agents` mark. All are normal weight unless marked. Every card's done-when includes `sh scripts/check.sh` passing.
 
 **1. Huddle rows and "over".**
 Files: `crates/store/src/kinds.rs` and `crates/store/tests/it/golden.rs` (`call.title`), `crates/coord/src/talk.rs` (`call.title` fold, `CallInfo` title and people, the crash roster from segment signers, "has an end mark"), `crates/core/src/service/calls.rs` (`over(call)` and its own `heard` record, §3; the crash end mark is card 10's), `crates/net/src/call.rs` and the `call.segment` fold (the `agents` field, stored and folded, written `false` until card 3), `crates/core/src/service/spaces.rs` (`SPACE_TALK_KINDS`, `dm_refusal`, the tolerance check widened to `call.`, `space_talk_row`'s per-kind actor rules), `crates/core/src/service/dm_spaces.rs` (`dm_conv_of`), `crates/window/src/talk.rs` (title and over in the view).
