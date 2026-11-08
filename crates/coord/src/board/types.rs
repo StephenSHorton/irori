@@ -331,8 +331,9 @@ impl Blocker {
 
     /// The GitHub pull request an open external wait is on (card #509):
     /// its ref when that is a PR URL, else the first PR among its links.
-    /// Such a wait is the person's merge, so it counts in Needs you.
-    pub fn merge_wait(&self) -> Option<String> {
+    /// Irori polls it so the agent hears it merge. Such a wait stays its
+    /// agent's: the person is never asked to merge (card #970).
+    pub fn pr_wait(&self) -> Option<String> {
         let on = self.on.as_ref()?;
         if !self.open() || on.kind != BLOCKED_ON_EXTERNAL {
             return None;
@@ -840,6 +841,12 @@ pub struct NewTask {
     /// The person named it by hand (card #779), on the card it comes
     /// from: a share keeps their name theirs. Only a person's row counts.
     pub title_by_person: bool,
+    /// Its weight from the start (card #964): light, normal or heavy, or
+    /// empty for none (normal). Written with the card, so it is weighed
+    /// before Irori hands it out.
+    pub weight: String,
+    /// One line on why it has that weight; an agent must give one.
+    pub weight_reason: String,
 }
 
 /// Narrows `list_tasks`; zero values mean any.
@@ -1062,7 +1069,7 @@ pub struct Card {
     /// Not part of the Go shape: the tools and the window read it.
     pub stranded: Vec<super::stranded::Stranded>,
     /// Of those, the waits only Needs you shows (card #520): on a gone
-    /// agent, or outside waits (not a PR's merge) a gone agent raised.
+    /// agent, or outside waits a gone agent raised (a PR's too, card #970).
     pub gone_waits: Vec<super::stranded::Stranded>,
 }
 
@@ -1292,6 +1299,9 @@ pub struct NewSubtask {
     pub steps: Vec<String>,
     /// Asks for a helper on this subtask (spawned agents §3).
     pub spawn: bool,
+    /// Its weight from the start (card #964), as [`NewTask::weight`].
+    pub weight: String,
+    pub weight_reason: String,
 }
 
 /// What a shared board's fold set aside: rows naming something the log

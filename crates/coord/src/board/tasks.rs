@@ -55,6 +55,9 @@ pub(crate) struct CleanTask {
     pub later: Option<super::later::Back>,
     /// The person named it by hand (card #779).
     pub title_by_person: bool,
+    /// Its weight from the start and why (card #964); "" is none.
+    pub weight: String,
+    pub weight_reason: String,
 }
 
 /// CreateTask's checks.
@@ -112,7 +115,10 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
     check_reason(&reason, false)?;
     let mut steps = nt.steps.clone();
     check_steps(&mut steps)?;
+    let (weight, weight_reason) = super::weight::clean_new_weight(&nt.weight, &nt.weight_reason)?;
     Ok(CleanTask {
+        weight,
+        weight_reason,
         by: by.into(),
         title,
         obj,
@@ -218,6 +224,7 @@ impl Fold {
         }
         // All of it before the first row (card #570).
         let waits = self.new_waits(&ct, bb.as_ref())?;
+        self.check_new_weight(by, &ct.weight, &ct.weight_reason)?;
         let at = self.stamp();
         let id = new_id(&at);
         let num = self.next_short(&ct.board);
@@ -284,6 +291,8 @@ impl Fold {
             )?;
         }
         if self.tasks.contains_key(&id) {
+            // Weighed with the card (card #964): before anyone is handed it.
+            self.write_new_weight(by, &id, &ct.weight, &ct.weight_reason)?;
             self.write_new_waits(by, &id, waits)?;
         }
         // The fold can set the row aside (a writer the board doesn't count).

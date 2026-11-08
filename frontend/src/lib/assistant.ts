@@ -11,26 +11,49 @@
 // preview) a stand-in streams a canned answer that cites sample cards.
 
 import type { AssistantEvent, AssistantTurn } from "../gen/bindings"
-import { threads } from "./cards"
+import {
+  createFollower,
+  finished,
+  listenCards,
+  parseSeen,
+  readWork,
+  type Act,
+  type Fact,
+  type Follower,
+  type SeenStore,
+  type WorkThread,
+} from "./assistant-follow"
+import { cards, threads } from "./cards"
 import { goesByItself, splitGo, type GoTarget } from "./goto"
 import { AssistantService } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
 
 export type { AssistantEvent, AssistantTurn }
+export type { Act, WorkThread }
 
 // ChatEntry is one message in the chat. A note is a plain line of the
 // chat's own (an error, "Stopped."): shown, kept, never sent as history.
 // posted is the thread an assistant message's draft became, once the
 // person tapped Post thread (so it is never posted twice).
+//
+// Card #785: an update is a line the chat says about a thread it posted
+// (its id): an agent took it, a card was made, it needs you, it is done.
+// It goes to the assistant as its own words, so "how's that going?"
+// knows. act is what the line lets the person do: answer the card's
+// question, or reply on the thread. A person's message with to was a
+// reply sent on that thread (its #ref) from the chat, not a question.
 export type ChatEntry = {
   role: "person" | "assistant"
   text: string
   note?: boolean
   posted?: Posted
+  update?: string
+  act?: Act
+  to?: string
 }
 
-export type Posted = { id: string; short: string }
+export type Posted = { id: string; short: string; tag?: string }
 
 // Reply is the answer being written: its text so far, what it is looking
 // at now (the "tool" status line), and how it ended.
@@ -89,11 +112,40 @@ export function capHistory<T>(entries: readonly T[], n = HistoryCap): T[] {
 }
 
 // historyFor is the conversation as the host takes it: the person's and
-// the assistant's own words, without the chat's notes.
+// the assistant's own words, without the chat's notes. A posted draft
+// says which thread it became, and a reply sent on a thread says where,
+// so the assistant can look them up (card #785).
+// The chat's own lines on the work it follows go in as one turn per run,
+// marked as the chat's, so they don't crowd out the conversation.
 export function historyFor(entries: readonly ChatEntry[]): AssistantTurn[] {
-  return capHistory(
-    entries.filter((e) => !e.note).map((e) => ({ role: e.role, text: e.text }))
-  )
+  const out: AssistantTurn[] = []
+  let ups: string[] = []
+  const flush = () => {
+    if (ups.length)
+      out.push({
+        role: "assistant",
+        text: `(The chat's own lines on the work it follows:)\n${ups.map((u) => `- ${u}`).join("\n")}`,
+      })
+    ups = []
+  }
+  for (const e of entries) {
+    if (e.note) continue
+    if (e.update) {
+      ups.push(e.text)
+      continue
+    }
+    flush()
+    out.push({ role: e.role, text: turnText(e) })
+  }
+  flush()
+  return capHistory(out)
+}
+
+function turnText(e: ChatEntry): string {
+  if (e.to) return `(My reply on ${e.to}) ${e.text}`
+  if (e.posted)
+    return `${e.text}\n\n(The person posted this draft as thread ${e.posted.tag ?? ""}#${e.posted.short}.)`
+  return e.text
 }
 
 // parseHistory reads saved history back, keeping only well-formed entries
@@ -110,7 +162,10 @@ export function parseHistory(raw: string | null): ChatEntry[] {
   const out: ChatEntry[] = []
   for (const x of v) {
     if (!x || typeof x !== "object") continue
-    const { role, text, note, posted } = x as Record<string, unknown>
+    const { role, text, note, posted, update, act, to } = x as Record<
+      string,
+      unknown
+    >
     if ((role !== "person" && role !== "assistant") || typeof text !== "string")
       continue
     if (!text.trim()) continue
@@ -124,15 +179,63 @@ export function parseHistory(raw: string | null): ChatEntry[] {
       typeof p.id === "string" &&
       p.id &&
       typeof p.short === "string"
-    )
+    ) {
       e.posted = { id: p.id, short: p.short }
+      if (typeof p.tag === "string" && p.tag) e.posted.tag = p.tag
+    }
+    if (role === "assistant" && typeof update === "string" && update) {
+      e.update = update
+      const a = parseAct(act)
+      if (a) e.act = a
+    }
+    if (role === "person" && typeof to === "string" && to) e.to = to
     out.push(e)
   }
   return capHistory(out)
 }
 
+function parseAct(v: unknown): Act | undefined {
+  if (!v || typeof v !== "object") return undefined
+  const a = v as Record<string, unknown>
+  const str = (k: string) => (typeof a[k] === "string" ? (a[k] as string) : "")
+  if (a.kind === "answer" && str("card") && str("blocker"))
+    return { kind: "answer", card: str("card"), blocker: str("blocker") }
+  if (a.kind === "reply" && str("thread"))
+    return { kind: "reply", thread: str("thread"), to: str("to") }
+  return undefined
+}
+
 export function serializeHistory(entries: readonly ChatEntry[]): string {
-  return JSON.stringify(capHistory(entries))
+  return JSON.stringify(capKeeping(entries, live))
+}
+
+// live is the threads the chat still follows (card #785): their posted
+// messages stay through the cap, or following would stop while the work
+// goes on (the follower's own lines would push them out).
+const live = new Set<string>()
+
+// capKeeping is capHistory that drops the oldest messages other than the
+// posted ones of threads in keep.
+export function capKeeping(
+  entries: readonly ChatEntry[],
+  keep: ReadonlySet<string>,
+  n = HistoryCap
+): ChatEntry[] {
+  let drop = entries.length - n
+  if (drop <= 0) return [...entries]
+  const out: ChatEntry[] = []
+  for (const e of entries) {
+    if (drop > 0 && !(e.posted && keep.has(e.posted.id))) {
+      drop--
+      continue
+    }
+    out.push(e)
+  }
+  return out
+}
+
+function capChat(entries: readonly ChatEntry[]): ChatEntry[] {
+  return capKeeping(entries, live)
 }
 
 const storeKey = "irori.assistant.history"
@@ -164,6 +267,9 @@ export type AssistantState = {
   reply: Reply | null
   // A reply ended while the panel was closed.
   unread: boolean
+  // The work of each thread the chat posted, as last read (card #785):
+  // the posted draft lists the cards made from it. Not kept: read again.
+  work: Record<string, WorkThread>
 }
 
 let state: AssistantState | null = null
@@ -173,8 +279,27 @@ const subs = new Set<() => void>()
 // ?assistant=busy with a reply half written (lib/preview.ts).
 function initial(): AssistantState {
   const flag = typeof window === "undefined" ? null : previewFlag("assistant")
+  const base = { work: {} }
+  // ?assistant=follow: a thread the chat posted, sample #20, followed
+  // from nothing said, so the first read says how its work went (#785).
+  if (flag === "follow")
+    return {
+      ...base,
+      open: true,
+      entries: [
+        { role: "person", text: "Is #3 still moving? Get someone on it." },
+        {
+          role: "assistant",
+          text: `#3 is waiting on a call about the lobby list. I drafted a thread.\n\n${DraftOpen}\nIs #3 still moving? And did anyone finish the release notes (#8)?\n${DraftClose}`,
+          posted: { id: "sample-thread-1", short: "20" },
+        },
+      ],
+      reply: null,
+      unread: false,
+    }
   if (flag === "open" || flag === "busy")
     return {
+      ...base,
       open: true,
       entries: sampleHistory,
       reply:
@@ -189,6 +314,7 @@ function initial(): AssistantState {
     }
   if (flag === "go")
     return {
+      ...base,
       open: true,
       entries: [
         { role: "person", text: "Where do I turn off pausing agents?" },
@@ -198,9 +324,10 @@ function initial(): AssistantState {
       unread: false,
     }
   if (flag === "new")
-    return { open: true, entries: [], reply: null, unread: false }
+    return { ...base, open: true, entries: [], reply: null, unread: false }
   if (flag === "draft")
     return {
+      ...base,
       open: true,
       entries: [
         sampleHistory[2],
@@ -217,7 +344,13 @@ function initial(): AssistantState {
       reply: null,
       unread: false,
     }
-  return { open: false, entries: loadHistory(), reply: null, unread: false }
+  return {
+    ...base,
+    open: false,
+    entries: loadHistory(),
+    reply: null,
+    unread: false,
+  }
 }
 
 export function assistantState(): AssistantState {
@@ -243,10 +376,12 @@ export function setAssistantOpen(open: boolean) {
   set(open ? { open, unread: false } : { open })
 }
 
-// newChat clears the conversation (stopping a reply being written).
+// newChat clears the conversation (stopping a reply being written). The
+// threads it posted are no longer followed.
 export function newChat() {
   stopAsking()
-  set({ entries: [], reply: null })
+  set({ entries: [], reply: null, work: {} })
+  follower?.poke()
 }
 
 // ---- asking --------------------------------------------------------------------
@@ -263,7 +398,7 @@ function finish(r: Reply) {
   run = null
   const s = assistantState()
   set({
-    entries: capHistory([...s.entries, ...settled(r)]),
+    entries: capChat([...s.entries, ...settled(r)]),
     reply: null,
     unread: !s.open,
   })
@@ -304,7 +439,7 @@ export async function ask(text: string): Promise<void> {
   const token = ++tokens
   run = { token, id: null }
   set({
-    entries: capHistory([...s.entries, { role: "person", text: body }]),
+    entries: capChat([...s.entries, { role: "person", text: body }]),
     reply: freshReply,
   })
   const onEvent = (ev: AssistantEvent) => {
@@ -438,6 +573,7 @@ export function postDraft(index: number): Promise<Posted> {
     .start(draft)
     .then((res) => {
       const posted: Posted = { id: res.task.id, short: res.task.short ?? "" }
+      if (res.task.tag) posted.tag = res.task.tag
       // The chat may have moved on while it posted: find the message again.
       const now = assistantState().entries
       const i = now[index] === entry ? index : now.indexOf(entry)
@@ -445,12 +581,135 @@ export function postDraft(index: number): Promise<Posted> {
         const entries = [...now]
         entries[i] = { ...entry, posted }
         set({ entries })
+        follower?.follow(posted.id)
       }
       return posted
     })
     .finally(() => posting.delete(entry))
   posting.set(entry, p)
   return p
+}
+
+// ---- following the work it posted (card #785) -------------------------------------
+
+// The chat follows each thread it posted (lib/assistant-follow.ts) and
+// says in the chat, as updates, when the work moves. What it has said is
+// kept on this device beside the history.
+const seenKey = "irori.assistant.follow"
+let follower: Follower | null = null
+
+// postedIds is the threads the chat's messages posted, oldest first.
+export function postedIds(entries: readonly ChatEntry[]): string[] {
+  const out: string[] = []
+  for (const e of entries)
+    if (e.posted && !out.includes(e.posted.id)) out.push(e.posted.id)
+  return out
+}
+
+// updateEntries is a thread's new lines as the chat's messages.
+export function updateEntries(id: string, lines: readonly Fact[]): ChatEntry[] {
+  return lines.map((f) => {
+    const e: ChatEntry = { role: "assistant", text: f.text, update: id }
+    if (f.act) e.act = f.act
+    return e
+  })
+}
+
+function said(id: string, lines: Fact[], work: WorkThread | null) {
+  const s = assistantState()
+  // The chat may have moved on (New chat) while it read.
+  if (!postedIds(s.entries).includes(id)) return
+  const next: Partial<AssistantState> = {}
+  if (work && !finished(work)) live.add(id)
+  else live.delete(id)
+  if (work) {
+    if (JSON.stringify(s.work[id]) !== JSON.stringify(work))
+      next.work = { ...s.work, [id]: work }
+  } else if (s.work[id]) {
+    const w = { ...s.work }
+    delete w[id]
+    next.work = w
+  }
+  if (lines.length) {
+    next.entries = capChat([...s.entries, ...updateEntries(id, lines)])
+    if (!s.open) next.unread = true
+  }
+  if (Object.keys(next).length) set(next)
+}
+
+// startFollowing starts the follower for the window's life (the chat's
+// corner button mounts once); it returns its stop.
+export function startFollowing(): () => void {
+  if (follower) return () => {}
+  const flag = previewFlag("assistant")
+  // The preview's chats are samples: what they said is never kept.
+  let mem: SeenStore =
+    flag === "follow" ? { "sample-thread-1": { said: [] } } : {}
+  const kept = flag === null
+  follower = createFollower({
+    ids: () => postedIds(assistantState().entries),
+    read: readWork,
+    listen: listenCards,
+    load: () => {
+      if (!kept) return mem
+      try {
+        return parseSeen(localStorage.getItem(seenKey))
+      } catch {
+        return {}
+      }
+    },
+    save: (st) => {
+      if (!kept) {
+        mem = st
+        return
+      }
+      try {
+        if (Object.keys(st).length)
+          localStorage.setItem(seenKey, JSON.stringify(st))
+        else localStorage.removeItem(seenKey)
+      } catch {
+        // Blocked storage: it may say a line again after a restart.
+      }
+    },
+    say: said,
+  })
+  const f = follower
+  return () => {
+    f.stop()
+    if (follower === f) follower = null
+  }
+}
+
+// replyOn sends the person's reply on a thread the chat posted, as the
+// thread's own reply box does (its agents hear it), and shows it in the
+// chat. ref is the thread's #ref.
+export async function replyOn(
+  thread: string,
+  ref: string,
+  text: string
+): Promise<void> {
+  const body = text.trim()
+  if (!body) return
+  await cards.comment(thread, body)
+  const s = assistantState()
+  set({
+    entries: capChat([
+      ...s.entries,
+      { role: "person", text: body, to: ref || "the thread" },
+    ]),
+  })
+}
+
+// answerAsk answers a card's open item from the chat, as its card page
+// does: option is an index into its options, or -1 with the person's own
+// words.
+export async function answerAsk(
+  card: string,
+  blocker: string,
+  option: number,
+  text = ""
+): Promise<void> {
+  await cards.answer(card, blocker, option, text.trim())
 }
 
 // ---- the window check's question -------------------------------------------------

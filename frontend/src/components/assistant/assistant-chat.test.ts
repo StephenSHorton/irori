@@ -51,10 +51,10 @@ function render(p: { entries?: ChatEntry[]; reply?: Reply | null }) {
 }
 
 describe("Ask Irori's panel (card #783)", () => {
-  test("a non-modal dialog named Ask Irori, with New chat and Close", () => {
+  test("a non-modal dialog named Office Assistant, with New chat and Close", () => {
     const html = render({})
     expect(html).toContain('role="dialog"')
-    expect(html).toContain('aria-label="Ask Irori"')
+    expect(html).toContain('aria-label="Office Assistant"')
     expect(html).not.toContain("aria-modal")
     expect(html).toContain('aria-label="New chat"')
     expect(html).toContain('aria-label="Close"')

@@ -86,7 +86,53 @@ fn clean_reason(reason: &str) -> Result<String> {
     Ok(r)
 }
 
+/// A new card's weight (card #964): its level, lowercased and checked,
+/// and its reason, one line. ("", "") is none.
+pub(crate) fn clean_new_weight(level: &str, reason: &str) -> Result<(String, String)> {
+    let level = trim_space(level).to_lowercase();
+    check_weight(&level)?;
+    if level.is_empty() {
+        return Ok((String::new(), String::new()));
+    }
+    Ok((level, clean_reason(reason)?))
+}
+
 impl Fold {
+    /// Checks a new card's weight against who makes it (card #964): an
+    /// agent gives one line on why, as with [`Self::set_weight`].
+    pub(crate) fn check_new_weight(&self, by: &str, level: &str, reason: &str) -> Result<()> {
+        if !level.is_empty() && reason.is_empty() && !self.is_person(by) {
+            return Err(invalid("give a weight with one line on why"));
+        }
+        Ok(())
+    }
+
+    /// Writes a new card's weight row (card #964), right after its
+    /// task.created, so it is weighed before Irori hands it out.
+    pub(crate) fn write_new_weight(
+        &mut self,
+        by: &str,
+        id: &str,
+        level: &str,
+        reason: &str,
+    ) -> Result<()> {
+        if level.is_empty() {
+            return Ok(());
+        }
+        let at = self.stamp();
+        self.write(
+            by,
+            kinds::TASK_WEIGHT,
+            &TaskWeightRow {
+                task_id: id.to_string(),
+                level: level.to_string(),
+                reason: reason.to_string(),
+                by: by.to_string(),
+                at,
+            },
+        )
+    }
+
     /// Weighs card `id` (card #963): `level` is light, normal or heavy, or
     /// "" to clear it. A person may always; an agent or Irori's office
     /// assistant only while the person hasn't set it, and with a reason.

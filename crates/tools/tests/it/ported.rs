@@ -610,7 +610,10 @@ fn test_specs() {
             "“Can I merge PR #N (covers #a, #b)?”",
             "options Merge it (recommended) and Not yet",
             "merge it yourself",
-            "Never sit on an external wait for a merge",
+            // Card #970: never a wait on a PR; a refused completed after a
+            // merge is retried once GitHub says merged.
+            "Never raise a wait on a PR, nor set completed while it is open",
+            "Retry once gh pr view says merged",
         ],
     );
     has(&desc("reply"), &["also goes on that card's thread"]);
