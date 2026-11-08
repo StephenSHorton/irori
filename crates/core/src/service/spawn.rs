@@ -3273,6 +3273,11 @@ impl Services {
         if !t.holders.is_empty() {
             return Err(format!("{} has an agent on it", t.short_ref()));
         }
+        // The switch is off: no sweep starts an agent, so say so rather
+        // than queue the card and claim one is starting (card #1066).
+        if !self.spawn.setting("").on {
+            return Err(SWITCH_OFF_LINE.into());
+        }
         // His words wait for the brief on the device that hands the card
         // out; another device's request carries them there (card #455).
         if !note.trim().is_empty() && self.coord.hands_out_here(id) {
@@ -3330,6 +3335,10 @@ impl Services {
             .map_err(|e| e.to_string())
     }
 }
+
+/// What "Start an agent with this" says when the board's switch is off
+/// (card #1066): nothing was queued.
+pub const SWITCH_OFF_LINE: &str = "No agent started: Agents is switched off for this board. Turn it on in Settings › Agents and ask again.";
 
 /// What a card says when its agent couldn't start because Claude Code on
 /// `device` doesn't trust `folder` (card #699).

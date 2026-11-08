@@ -1003,6 +1003,12 @@ fn a_start_sent_to_a_device_on_a_usage_limit_still_stands() {
     *t2.fb.fail.lock().unwrap() =
         Some("Claude usage limit reached. Your limit will reset at 3pm".into());
     let asked = t2.card("He asked for this one");
+    t2.a.core
+        .set_spawn_setting(irori_core::spawn::SpawnSetting {
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
     t2.a.core.start_agent(&asked.id, "").unwrap();
     let co = t2.a.core.coord();
     assert!(co.spawn_asked_now(&asked.id));
