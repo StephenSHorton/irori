@@ -383,6 +383,46 @@ fn undo_clears_it_and_irori_does_not_weigh_it_again() {
 }
 
 #[test]
+fn undo_of_a_weight_that_repeats_the_hint_still_makes_it_the_persons() {
+    let s = Setup::new();
+    s.weigher("looks small\nlight");
+    let t = s.make(
+        &s.r.key_a,
+        NewTask {
+            title: "Small".into(),
+            objective: "small".into(),
+            weight: "light".into(),
+            weight_reason: "looks small".into(),
+            ..NewTask::default()
+        },
+    );
+    wait_for(10, "the card weighed", || {
+        s.weight(&t.id).is_some_and(|w| w.by_assistant())
+    });
+    let w = s.weight(&t.id).unwrap();
+    // What the window's Undo writes.
+    s.r.core
+        .coord()
+        .set_weight(&s.person, &t.id, &w.was_level, &w.was_reason)
+        .unwrap();
+    wait_for(10, "the weight the person's", || {
+        s.weight(&t.id).is_some_and(|w| w.by_person())
+    });
+}
+
+#[test]
+fn irori_weighs_a_card_once_even_after_an_undo() {
+    let s = Setup::new();
+    s.weigher("A design call.\nheavy");
+    let t = s.card("Design the sync");
+    wait_for(10, "the card weighed", || s.weight(&t.id).is_some());
+    let co = s.r.core.coord();
+    co.set_weight(&s.person, &t.id, "", "").unwrap();
+    assert!(co.weigh_as_irori(&t.id, "light", "again").is_err());
+    assert_eq!(s.weight(&t.id), None);
+}
+
+#[test]
 fn a_thread_is_not_weighed() {
     let s = Setup::new();
     s.weigher("A design call.\nheavy");

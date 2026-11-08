@@ -169,7 +169,9 @@ impl Fold {
             }
         }
         let same = match &now {
-            Some(w) => w.level == level && w.reason == reason,
+            // The person's write over Irori's weight always counts, even
+            // word for word: it makes the weight theirs (Undo, card #965).
+            Some(w) => w.level == level && w.reason == reason && !(person && w.by_assistant()),
             None => level.is_empty(),
         };
         if same {
@@ -208,11 +210,24 @@ impl Fold {
         }
         let t = self.open_task(id)?.clone();
         let now = self.weight_of(id);
+        // Its own row outlives the person's Undo, so once holds on any
+        // device.
+        let weighed = self
+            .weights
+            .get(id)
+            .and_then(|s| s.other.as_ref())
+            .is_some_and(|(w, _)| w.by_assistant());
+        if weighed {
+            return Err(not_allowed(format!(
+                "{}: Irori weighs a card once",
+                t.short_ref()
+            )));
+        }
         if let Some(w) = &now
-            && (w.by_person() || w.by_assistant())
+            && w.by_person()
         {
             return Err(not_allowed(format!(
-                "{}'s weight ({}) stays: Irori weighs a card once, and never over the person",
+                "{}'s weight ({}) is the person's: Irori leaves it",
                 t.short_ref(),
                 w.level
             )));

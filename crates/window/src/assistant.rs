@@ -930,6 +930,7 @@ impl crate::Window {
     pub fn assistant_shutdown(&self) {
         self.assistant.shutdown();
         self.names.shutdown();
+        self.weighs.shutdown();
     }
 
     /// One turn that names a thread (card #782), on its own runner so it
@@ -939,9 +940,10 @@ impl crate::Window {
             .run_once(find_claude(), Job::namer(&self.core, ask))
     }
 
-    /// One turn that weighs a card (card #965); the Core's weigher.
+    /// One turn that weighs a card (card #965), on its own runner so it
+    /// and naming never take each other's slots; the Core's weigher.
     pub fn weigh_card(&self, ask: &NameAsk) -> Result<String, String> {
-        self.names
+        self.weighs
             .run_once(find_claude(), Job::weigher(&self.core, ask))
     }
 }

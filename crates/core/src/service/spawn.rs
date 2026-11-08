@@ -1957,6 +1957,10 @@ impl Services {
             if self.weigh_holds(&t) {
                 continue;
             }
+            // The weight may have landed since this sweep's list was read,
+            // and the model comes from the card. After the hold's check:
+            // the weight is written before the hold lets go.
+            let t = self.coord.get_task(&t.id).unwrap_or(t);
             // Which of the person's devices starts it (card #455, decision
             // 7 (a)); None waits for the machine it needs or for the retry.
             let Some(dev) = self.spawn_device(&t) else {

@@ -156,6 +156,7 @@ pub fn weigh_reply(reply: &str) -> Option<(String, String)> {
     let i = lines.iter().rposition(|l| level_of(l).is_some())?;
     let level = level_of(lines[i])?;
     let why = *lines.get(i.checked_sub(1)?)?;
+    let why = why.trim_start_matches(|c| matches!(c, '"' | '`' | '*' | '“' | '”'));
     let lower = why.to_ascii_lowercase();
     let why = ["line 1:", "reason:"]
         .iter()
@@ -375,6 +376,10 @@ mod tests {
                 .unwrap()
                 .0,
             "heavy"
+        );
+        assert_eq!(
+            weigh_reply("**Reason:** Deciding how to split the import.\nheavy"),
+            want
         );
         assert_eq!(weigh_reply("light"), None, "no reason");
         assert_eq!(weigh_reply("something\nmedium"), None, "no such weight");

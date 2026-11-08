@@ -105,6 +105,8 @@ pub enum Why {
     NoOrigin,
     /// Nothing in the way.
     NextPass,
+    /// Irori's assistant is weighing the new card (card #965).
+    Weighing,
 }
 
 /// `a`, `a and b`, `a, b and c`.
@@ -235,6 +237,10 @@ impl fmt::Display for Why {
                 "no device hands this card out: take it up with board_join"
             ),
             Why::NextPass => write!(f, "Irori starts one at its next pass"),
+            Why::Weighing => write!(
+                f,
+                "Irori is weighing this new card; its agent starts right after"
+            ),
         }
     }
 }
@@ -367,6 +373,9 @@ impl Services {
         let trusted = |f: &str| (sp.trusted)(Path::new(f));
         if let Some(why) = self.folder_why(t, private, &trusted) {
             return why;
+        }
+        if private && self.weigh_holds(t) {
+            return Why::Weighing;
         }
         let ahead = self.ahead_here(t, board_id, &trusted);
         queued(self.named_device(&me), running, cap, ahead).unwrap_or(Why::NextPass)
@@ -603,12 +612,17 @@ impl Services {
             // until then the asked device counts that request as running,
             // so a full device or nowhere to start it is about this request.
             (
-                Why::NextPass | Why::AtCap { .. } | Why::Queued { .. } | Why::NoDevice { .. },
+                Why::NextPass
+                | Why::Weighing
+                | Why::AtCap { .. }
+                | Why::Queued { .. }
+                | Why::NoDevice { .. },
                 Some(s),
             ) => Some(Why::NoShow {
                 device: self.named_device(&s.device),
             }),
             (Why::NextPass, None) => asked.then_some(Why::NextPass),
+            (Why::Weighing, None) => asked.then_some(Why::Weighing),
             (why, _) => Some(why),
         }
     }
@@ -711,6 +725,7 @@ mod tests {
             ),
             (Why::Elsewhere { device: dev() }, "Mac starts it"),
             (Why::NextPass, "next pass"),
+            (Why::Weighing, "weighing this new card"),
         ] {
             let s = why.to_string();
             assert!(s.contains(words), "{s:?} lacks {words:?}");
