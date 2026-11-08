@@ -885,6 +885,11 @@ pub const BUILD_OUTPUT: &str = "Build output stays in your worktree's target/, s
 /// checkout's HEAD, which Irori never fetches.
 pub const BASE_CHECK: &str = "Your worktree starts from the main checkout's last commit, which can be far behind: git fetch and compare with origin/main before you rely on it.";
 
+/// What every spawned agent is told about the room left on this computer
+/// (card #1035, docs/design/device-free.md §4). It names no repo's scripts:
+/// it goes to agents in every repo.
+pub const DEVICE_FREE: &str = "This computer is shared, and what you run can fill it. Before anything big (a full build or test run, a large download, generating data, a program that needs a lot of memory), call device_free and compare what it says you can use with a rough estimate of the need. If it won't fit with room to spare, don't start it and hope: wait and check again, or ask the person on your card or thread. For a heavy job, take this device's heavy slot first, as device_free shows; if they're taken, it says who holds them, so message them or check again later. Treat a timeout, out-of-memory or disk-full failure as a reason to check device_free, not to retry in a loop.";
+
 /// What every spawned agent is told about notes (§13.6, card #454).
 pub const PROPOSE_NOTE: &str = "If you learned something about this repo that the next agent needs, write it as a note (notes_propose) before you go.";
 
@@ -1203,6 +1208,8 @@ pub(crate) fn build_brief(
     b.push(' ');
     b.push_str(BASE_CHECK);
     b.push_str("\n\n");
+    b.push_str(DEVICE_FREE);
+    b.push_str("\n\n");
     weight_words(&mut b, t, &short);
     // Card #496: which side this device runs, and that other sides' cards
     // are only read. The card it was started for is the person's ask.
@@ -1479,6 +1486,8 @@ pub(crate) fn build_ask_brief(
         ));
     }
     b.push_str(BUILD_OUTPUT);
+    b.push_str("\n\n");
+    b.push_str(DEVICE_FREE);
     b.push_str("\n\n");
     b.push_str(SPLIT_WORK);
     b.push_str("\n\n");
