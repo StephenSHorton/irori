@@ -52,6 +52,9 @@ pub enum Topic {
     /// A call changed: ringing, joined, left, mute, speaking, health
     /// (card #654). `Core::call_snapshot` says what is on now.
     Call,
+    /// The Office Assistant's computer changed (`assistant:home`, one-assistant
+    /// card 1).
+    AssistantHome,
 }
 
 /// One change.
@@ -78,6 +81,8 @@ pub enum CoreEvent {
     Usage,
     /// A call changed (card #654).
     Call,
+    /// The recorded assistant's computer changed, here or synced.
+    AssistantHome,
     /// Events were dropped for this feed: re-read everything it shows.
     Resync,
 }
@@ -96,6 +101,7 @@ impl CoreEvent {
             CoreEvent::Notifications => Topic::Notifications,
             CoreEvent::Usage => Topic::Usage,
             CoreEvent::Call => Topic::Call,
+            CoreEvent::AssistantHome => Topic::AssistantHome,
             CoreEvent::Resync => return None,
         })
     }

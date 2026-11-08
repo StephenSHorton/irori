@@ -45,6 +45,7 @@
 pub mod agents;
 pub mod agents_trust;
 pub mod assistant;
+pub mod assistant_home;
 pub mod attachments;
 pub mod board;
 pub mod boards;

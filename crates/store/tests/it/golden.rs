@@ -162,6 +162,8 @@ const SINCE_GO_REFUSED: [&str; 30] = [
     kinds::ASSISTANT_NAMES_SET,
     // "Weigh new cards" (card #965).
     kinds::ASSISTANT_WEIGHS_SET,
+    // The Office Assistant's computer (one-assistant card 1).
+    kinds::ASSISTANT_HOME,
 ];
 
 /// Device-local kinds added after the Go port: the last hello this device

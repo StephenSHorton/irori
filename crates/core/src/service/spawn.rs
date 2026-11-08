@@ -2051,6 +2051,9 @@ impl Services {
         if decided {
             self.publish_host(sp.as_ref(), ready);
             self.refresh_agent_devices(ready);
+            // One assistant's computer: claim it when nothing is recorded,
+            // before the cards are minted on it (one-assistant card 1).
+            self.claim_assistant_home();
             self.mint_assistant_cards();
         }
         if self.inbox.policy().paused {

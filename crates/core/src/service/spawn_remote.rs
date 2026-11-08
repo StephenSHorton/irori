@@ -79,10 +79,16 @@ pub struct SpawnHost {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub held_until: Option<GoTime>,
     /// This desktop can run the Office Assistant's answering turn (a desktop
-    /// with Claude Code signed in; assistants talk, card 2). Older rows have
-    /// none, so such a device is never the assistant's computer.
+    /// where the `claude` command is found; assistants talk, card 2). That
+    /// is not "signed in": nothing checks that. Older rows have none, so
+    /// such a device is never the assistant's computer.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub assistant_turn: bool,
+    /// This desktop answers the one assistant's chat for the person's other
+    /// devices (one-assistant card 3). Read only until then: nothing writes
+    /// it, so no row says it yet.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub assistant_chat: bool,
 }
 
 impl SpawnHost {
@@ -266,8 +272,8 @@ impl Services {
         }
         let moves = coord::HOST_MOVES;
         let held = self.usage_held();
-        // A desktop with Claude Code signed in can answer for the assistant;
-        // a phone never can.
+        // A desktop where the `claude` command is found can answer for the
+        // assistant; a phone never can.
         let assistant_turn = ready && os != "android";
         if last.as_ref()
             == Some(&(
@@ -290,6 +296,7 @@ impl Services {
             at: now,
             held_until: held,
             assistant_turn,
+            assistant_chat: false,
         };
         match self.store.append(SWEEPER, kinds::SPAWN_HOST, &row) {
             Ok(_) => *last = Some((os, repos, no_agents, moves, held, assistant_turn)),

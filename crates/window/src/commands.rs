@@ -1778,6 +1778,21 @@ pub async fn assistant_names_set(w: W<'_>, on: bool) -> R<()> {
     blocking(&w, move |w| w.assistant_names_set(on)).await
 }
 
+/// Where the one assistant runs and whether that computer can be reached
+/// (one-assistant card 1).
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_home_status(w: W<'_>) -> R<crate::assistant_home::AssistantHomeStatus> {
+    blocking(&w, |w| Ok(w.assistant_home_status())).await
+}
+
+/// The person picks which computer runs the assistant, from any device.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_home_set(w: W<'_>, device: String) -> R<()> {
+    blocking(&w, move |w| w.assistant_home_set(&device)).await
+}
+
 /// Rewords the Start a thread box's draft (#981). The draft itself is
 /// never touched here: the window shows the wording and the person chooses.
 #[tauri::command]
@@ -2473,6 +2488,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             call_agents_ready,
             assistant_names,
             assistant_names_set,
+            assistant_home_status,
+            assistant_home_set,
             assistant_rewrite,
             assistant_weighs,
             assistant_weighs_set,

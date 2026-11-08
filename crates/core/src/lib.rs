@@ -76,6 +76,7 @@ pub use crate::service::calls::{
     CAN_SHARE, CallPeer, CallShare, CallShareNote, CallSnapshot, Caption, LiveCall, MyCall, Ringing,
 };
 pub use crate::service::calls_share::{ShareNow, ShareSink, ShareSource};
+pub use crate::service::assistant_home;
 pub use crate::service::card_weights;
 pub use crate::service::freshness::{LogFreshness, PERSONAL as PERSONAL_LOG};
 pub use crate::service::huddle_packet;
@@ -96,6 +97,7 @@ pub use crate::service::spawn_limits;
 pub use crate::service::spawn_pause;
 pub use crate::service::spawn_permissions;
 pub use crate::service::spawn_stop;
+pub use crate::service::spawn_remote::SpawnHost;
 pub use crate::service::spawn_waiting;
 pub use crate::service::spawn_why;
 pub use crate::service::storage::{BuildTree, LIVE_TREE};

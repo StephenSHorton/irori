@@ -321,6 +321,36 @@ async fn forged_rows_are_refused_even_with_the_cert_check_off() {
     forged_rows_refused(true).await;
 }
 
+/// One-assistant card 1: a device is caught up when it holds every row the
+/// devices it is connected to say they hold. Alone, or with a peer whose
+/// rows it holds, it is; while a peer's rows wait (a clock ahead), it isn't;
+/// a peer's rows it will never get (a stopped writer) don't count.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn caught_up_means_holding_what_the_connected_devices_hold() {
+    let net = FakeNet::new();
+    let (mut a, mut b) = (Dev::new(&net, "pc"), Dev::new(&net, "mac"));
+    assert!(a.node.is_none());
+    b.join(&a).await;
+    a.start();
+    b.start();
+    eventually("converge", || converged(&[&a, &b])).await;
+    eventually("a is caught up with b", || a.node().caught_up()).await;
+    b.clk.set(Duration::from_secs(600));
+    let ahead = b.append(store::kinds::AGENT_SEEN, seen(&b, "ahead"));
+    eventually("a shows b's rows waiting", || a.peer(&b.id()).ahead).await;
+    assert!(!a.has(&ahead));
+    // b says what it holds when it takes rows from a.
+    a.append(store::kinds::AGENT_SEEN, seen(&a, "reply"));
+    eventually("a is behind: b holds a row a holds back", || {
+        !a.node().caught_up()
+    })
+    .await;
+    assert!(b.node().caught_up(), "b holds everything a holds");
+    a.clk.set(Duration::from_secs(600));
+    eventually("the row lands", || a.has(&ahead)).await;
+    eventually("a is caught up again", || a.node().caught_up()).await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn catch_up_through_the_node_with_the_mac_gone() {
     let net = FakeNet::new();

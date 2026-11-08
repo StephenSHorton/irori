@@ -370,6 +370,13 @@ export const commands = {
 	/**  Turns "Name new threads" on or off, on all the person's devices. */
 	assistantNamesSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_names_set", { on }),
 	/**
+	 *  Where the one assistant runs and whether that computer can be reached
+	 *  (one-assistant card 1).
+	 */
+	assistantHomeStatus: () => __TAURI_INVOKE<AssistantHomeStatus>("assistant_home_status"),
+	/**  The person picks which computer runs the assistant, from any device. */
+	assistantHomeSet: (device: string) => __TAURI_INVOKE<null>("assistant_home_set", { device }),
+	/**
 	 *  Rewords the Start a thread box's draft (#981). The draft itself is
 	 *  never touched here: the window shows the wording and the person chooses.
 	 */
@@ -906,6 +913,29 @@ export type AssistantEvent = {
 	/**  `"delta"`, `"tool"`, `"changed"`, `"done"` or `"error"`. */
 	kind: string,
 	text: string,
+};
+
+/**  `assistant_home_status`, and the `assistant:home` payload. */
+export type AssistantHomeStatus = {
+	/**  The assistant's computer, "" when none is recorded yet. */
+	device: string,
+	/**  What it is called, "" with none. */
+	name: string,
+	/**  This device is it. */
+	here: boolean,
+	/**  `connected`, `recent` or `offline`; "" with none. */
+	state: string,
+	/**  When it was last heard from, Unix ms; 0 for never. */
+	lastSeenMs: number,
+	/**  Its newest `spawn.host` says it can find Claude Code. */
+	claude: boolean,
+	/**  Its newest `spawn.host` says it answers the chat for other devices. */
+	chat: boolean,
+	/**
+	 *  With none recorded: `setting_up`, `needs_update` or `no_claude`.
+	 *  "" otherwise.
+	 */
+	none: string,
 };
 
 /**  One turn of the chat so far. */

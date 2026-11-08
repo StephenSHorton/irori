@@ -1811,3 +1811,37 @@ fn undo_irori_naming_a_thread() {
     r.w.assistant_names_set(false).unwrap();
     assert!(!r.w.assistant_names());
 }
+
+/// One assistant, card 1: the chat and Settings read where the assistant
+/// runs. A lone Core with no Claude Code has none and says why; the person
+/// can't pick a device that isn't theirs.
+#[test]
+fn assistant_home_status_and_set() {
+    let r = Rig::new();
+    let s = r.w.assistant_home_status();
+    assert_eq!(s.device, "");
+    assert!(!s.here);
+    assert_eq!(s.none, "no_claude");
+    assert!(r.w.assistant_home_set("not-a-device").is_err());
+    // The shape the TS binding promises.
+    let j = serde_json::to_value(&s).unwrap();
+    for k in [
+        "device",
+        "name",
+        "here",
+        "state",
+        "lastSeenMs",
+        "claude",
+        "chat",
+        "none",
+    ] {
+        assert!(j.get(k).is_some(), "{k} missing from {j}");
+    }
+    // Picking this device is allowed, and it becomes the answer.
+    r.w.assistant_home_set(r.w.core.device_id()).unwrap();
+    let s = r.w.assistant_home_status();
+    assert_eq!(s.device, r.w.core.device_id());
+    assert!(s.here);
+    assert_eq!(s.state, "connected");
+    assert_eq!(s.none, "");
+}
