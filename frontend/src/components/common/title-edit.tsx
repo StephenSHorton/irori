@@ -40,6 +40,7 @@ export function TitleEdit({
   oneLine,
   formClassName,
   label = "Title",
+  editing = false,
   children,
 }: {
   title: string
@@ -54,10 +55,14 @@ export function TitleEdit({
   // Where the field sits while it is open (a row of its own on a phone).
   formClassName?: string
   label?: string
+  // Opens with the field showing (the preview's ?rename=<id>).
+  editing?: boolean
   // Shown in place of the title text (the "(untitled)" fallback).
   children?: ReactNode
 }) {
-  const [draft, setDraft] = useState<string | null>(null)
+  const [draft, setDraft] = useState<string | null>(() =>
+    editing ? plainLine(title) : null
+  )
   // The name just saved, shown until the card says it too.
   const [saved, setSaved] = useState<{ was: string; now: string } | null>(null)
   const [error, setError] = useState("")

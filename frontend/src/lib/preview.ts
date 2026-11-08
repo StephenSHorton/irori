@@ -10,6 +10,8 @@
 //   ?share=<card>   opens Share to board on that card's page
 //   ?transfer=<card> opens Transfer ownership (or Ask to own it) there
 //   ?move=<card>    opens Move to another board there
+//   ?rename=<card>  opens the title's rename field on that card's or
+//                   thread's page (card #779)
 //   ?update=ready   shows the update card (also downloading, installing)
 //   ?voice=ready    shows the mic on the text boxes (also needs-model, denied);
 //                   pressing it hears a sample sentence (lib/voice.ts)

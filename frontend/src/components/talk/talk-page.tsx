@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button"
 import { Face } from "@/components/cards/faces"
 import { cards, type ThreadSummary } from "@/lib/cards"
 import { TitleEdit } from "@/components/common/title-edit"
+import { previewFlag } from "@/lib/preview"
 import {
   dmGone,
   dmPerson,
@@ -1134,6 +1135,7 @@ function Conversation({
           title={t.title}
           save={(title) => cards.rename(t.id, title)}
           label="Thread title"
+          editing={previewFlag("rename") === t.id}
           className="flex-1 text-[15px] font-semibold text-ink"
           oneLine
           formClassName="max-md:order-last max-md:basis-full"

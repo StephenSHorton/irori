@@ -1057,6 +1057,7 @@ function PageHeader({
           title={card.title}
           save={(t) => cards.rename(card.id, t)}
           label="Card title"
+          editing={previewFlag("rename") === card.id}
           inputClassName="text-base"
           className="text-2xl leading-tight font-semibold tracking-tight text-balance text-ink"
         >
