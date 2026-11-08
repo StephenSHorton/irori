@@ -39,14 +39,14 @@ tokio = { workspace = true }
 png = { workspace = true }
 libc = { workspace = true }
 # Rune (github.com/StephenSHorton/rune, the person's fork), pinned: Rune is
-# pre-release and asks for a rev of dev. d0ffeb2 is the fork branch card-674-gaps:
+# pre-release and asks for a rev of dev. fdaed5f is the fork branch card-674-gaps:
 # dev 064a411 plus the gap fixes for the port (caret popups, multi-file picks,
 # dialogs that wrap, kit widgets, dashes, mono, WebP, tray checks). 064a411 is 5fd9bfa plus the Android
 # shell and its on-screen keyboard (#677, #679). Its ogg-audio (symphonia) and
 # native-file-dialog stay off.
-rune = { git = "https://github.com/StephenSHorton/rune", rev = "d0ffeb298113f2ad99353836e77cbceefe999e41", default-features = false, features = ["accessibility", "dbus", "embedded-fonts", "metal-backend", "native-file-dialog", "svg"] }
+rune = { git = "https://github.com/StephenSHorton/rune", rev = "fdaed5f2e167cea3ceb0f184721dae8193b98a19", default-features = false, features = ["accessibility", "dbus", "embedded-fonts", "metal-backend", "native-file-dialog", "svg"] }
 # Rune's components (dialogs, menus, sidebar, toasts, markdown), same rev.
-rune-kit = { git = "https://github.com/StephenSHorton/rune", rev = "d0ffeb298113f2ad99353836e77cbceefe999e41", features = ["markdown"] }
+rune-kit = { git = "https://github.com/StephenSHorton/rune", rev = "fdaed5f2e167cea3ceb0f184721dae8193b98a19", features = ["markdown"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # The text package (app/src/text): rich text's links (regex, and url for
