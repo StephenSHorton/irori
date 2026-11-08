@@ -108,8 +108,8 @@ pub use owner::{OWNER_ACCEPT, OWNER_DECLINE};
 pub use placed::MAX_PLACE;
 pub use presence::{NOTICE_PRESENCE, PRESENCE_GRACE};
 pub use prstate::{
-    DESK_PR_CARD_MARK, NOTICE_PR, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED, PR_OPEN,
-    PR_REVIEW_REQUIRED, PrCheck, PrNews, PrState, desk_pr_card,
+    DESK_PR_CARD_MARK, NOTICE_PR, PR_CARD_CLOSED, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED,
+    PR_OPEN, PR_REVIEW_REQUIRED, PrCheck, PrNews, PrState, desk_pr_card,
 };
 pub use resource::{
     DESK_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key, is_desk,

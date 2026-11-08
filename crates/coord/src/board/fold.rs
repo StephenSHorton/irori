@@ -708,6 +708,12 @@ impl Fold {
         if self.on_board && ev.actor == SWEEPER && !self.sweeper_ok(ev) {
             return false;
         }
+        // What GitHub said of a PR counts on a board only as Irori's row
+        // (merge desk §12.2): a member's modified client could otherwise
+        // end claims or feed fake reviews as an agent or a person.
+        if self.on_board && ev.kind == kinds::PR_STATE && ev.actor != SWEEPER {
+            return false;
+        }
         match ev.kind.as_str() {
             kinds::LEASE_ACQUIRED => match row::<LeaseAcquiredRow>(&ev.payload) {
                 Some(r) => self.may_write(&r.lease.holder, &ev.device_id),
@@ -1307,6 +1313,11 @@ impl Fold {
             self.claim_short(&p.task_id, RowPos::of(ev), p.num, &p.board);
             return;
         }
+        // A PR card is fixed by its creation row: a second `task.created`
+        // for its id (anyone's) changes nothing (merge desk §12.2).
+        if self.tasks.get(&p.task_id).is_some_and(pr_card) {
+            return;
+        }
         let t = at(p.at);
         if !self.tasks.contains_key(&p.task_id) {
             self.next_order += 1;
@@ -1322,7 +1333,20 @@ impl Fold {
             }
         }
         let title_by_person = p.title_by_person && self.person_row(ev, &p.by);
+        // A PR card: a person row of its creator that names the PR, the
+        // repo and the author's login. An agent's row with the same fields
+        // is a plain card.
+        let pr_card = (!p.pr.is_empty()
+            && !p.pr_author.is_empty()
+            && !p.repo_key.is_empty()
+            && p.ask.is_none()
+            && self.person_row(ev, &p.by))
+        .then(|| PrCard {
+            pr: p.pr.clone(),
+            author: p.pr_author.clone(),
+        });
         let mut task = Task {
+            pr_card,
             id: p.task_id.clone(),
             title: p.title.clone(),
             title_by_person,
