@@ -70,6 +70,7 @@ pub mod card_weights;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
+mod huddle_rules;
 mod liveness;
 mod mirror;
 pub mod name_themes;
