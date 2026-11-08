@@ -50,11 +50,13 @@ The huddle is identified by its `callId`, as now. It stays in its conversation (
 
 **"Over" needs its own definition.** Today a huddle is live while it has no end mark, so a call whose last device crashed stays "live" for ever. But `Live` is per-device memory, filled only by `ring`/`join` frames (a heartbeat every 15 s, `HEARTBEAT`) and empty after a restart, so "absent from `Live`" alone can't mean over: a device that just started or woke reads every running huddle as absent. One function on Core, `over(call)`, answers for every rule that says "after the call":
 - **Over** if an end mark is in the rows.
-- **Over** if this device heard the huddle in `Live`, then heard nothing for `LIVE_FOR` (50 s) while it still had other devices of that space connected, and no `call.segment` for it is newer than 2 minutes.
+- **Over** if this device heard the huddle live, then heard nothing for `LIVE_FOR` (50 s) while this device stayed online, and no `call.segment` for it is newer than 2 minutes. (Online means its own network was up, not that another member device was connected: in a two-device space the survivor of a crash has nobody else to see.)
 - **Over** if this device never heard it live and the huddle's newest row (start mark, line or `call.assist`) is older than 10 minutes.
 - **Otherwise live.** Not knowing counts as live, so the after-call steps (L4, Divide, Make cards) stay off.
 
-When `over` holds without an end mark, the note-taker's host (§6) writes the end mark, with the people from the roster row above, so every device then agrees from the rows. `call_snapshot` prunes `Live` only when it runs, so `over` compares `Live.heard` with `LIVE_FOR` itself. A display-only "probably over" (absent from `Live`) may grey the page's Join button, but nothing else uses it.
+When `over` holds without an end mark, the note-taker's host (§6) writes the end mark, with the people from the roster row above, so every device then agrees from the rows. If none appears within 3 minutes of `over`, the next connected assistant's host writes it; with no assistant at all, any member device that judges `over` does. The fold keeps the first end mark.
+
+`Live` forgets a huddle as soon as it goes quiet: the expiry timer fires `CoreEvent::Call`, the window reads `call_snapshot`, which drops entries older than `LIVE_FOR`, and a `leave` from the last device or an `end` frame removes the entry outright. So `over` keeps its own per-device record, `heard: callId → last ring or join time`, written beside `Live` in the frame handler and never pruned by those. A display-only "probably over" (absent from `Live`) may grey the page's Join button, but nothing else uses it.
 
 **The page.**
 - Route `#huddle/<callId>` (`frontend/src/lib/nav.ts`, a new `Section` kind).
@@ -90,7 +92,7 @@ When `over` holds without an end mark, the note-taker's host (§6) writes the en
 
 **Storage.**
 - `assistant.name` private row: `{name, by, at}`, actor `user`, newest wins, `Replicated, Refuses`, set in the app only (the shape of `assistant.names.set`).
-- Other people's devices need the name to display and match it, so it also rides `member.profile` as an unsigned field (`assistantName`, outside `personSig`), as colour, avatar and GitHub login do. The profile refresh (`keep_current` in `boards.rs`) compares it with the private row and rewrites the profile on a difference. A person's older device that refreshes its profile writes it without the field, so members may lose a chosen name until a newer device rewrites it.
+- Other people's devices need the name to display and match it, so it also rides `member.profile` as an unsigned field (`assistantName`, outside `personSig`), as colour, avatar and GitHub login do. The profile refresh (`keep_current` in `boards.rs`) compares it with the private row and rewrites the profile on a difference. `assistant.name` isn't a `person.*` kind, so the board-identity thread won't run `keep_current` for it: the private-log follow (`service.rs`) runs `keep_current` on every board when an `assistant.name` row arrives, as `check_desks` does for the GitHub login. A person's older device that refreshes its profile writes it without the field, so members may lose a chosen name until a newer device rewrites it.
 - **No row means the default, "\<profile name\>'s assistant"** ("Addam's assistant"). It is computed, so nothing is written. It uses the profile name, else the membership name, as `space_names` does, so devices agree once the newest `member.profile` has reached them. It's one per person, it follows a rename of the person, and it's how people already talk. #1030 uses the same default and the same row: there is one name store for both designs, owned by card 4 here.
 - A chosen name is 1 to 24 characters, letters and spaces. Set in Settings › Agents. The chat header and the assistant's system prompt use it.
 - **Shown as "Juno · Addam's assistant"** wherever others see it (canvas, roster). "Addam" comes from the person who signed the row, through their `member.profile`, never from the row's text. So nobody can write under someone else's assistant's name, and a chosen name can't pose as a person. With no chosen name it's just "Addam's assistant".
@@ -144,7 +146,8 @@ L4 runs off `over`, apart from #656's end wake (`call_end_bridge`, `tell_call_en
 
 **Ambient fill: one note-taker, not everyone.** The thread's lean was every assistant on, posting only about what it knows. This design picks **only one assistant, the note-taker**. Join order isn't recorded anywhere replicated (`Live.devices` is an in-memory map keyed by device id), so the role comes from rows:
 - The starter's assistant takes it (the start mark's author), if it's connected. Its host writes `call.assist` with `notes: true`.
-- Otherwise, or when its person leaves, or its `call.assist` is off, or its host has been away in presence for 60 s: the next connected assistant in the order of their first `call.assist on` row for this huddle (ties by person id) takes it, and writes `notes: true`.
+- Otherwise, or when its person leaves while others are still in the call, or its `call.assist` is off, or its host has been away in presence for 60 s: the next connected assistant in the order of their first `call.assist on` row for this huddle (ties by person id) takes it, and writes `notes: true`.
+- If two connected assistants both hold `notes: true`, the one earlier in that order keeps it; the other's host writes `notes: false` and stops digesting.
 - If no `summary` item appears within 3 minutes of `over`, the next connected assistant in that order writes it.
 - If no assistant is connected at all, there are no notes, and the page says so.
 
@@ -168,6 +171,7 @@ It's the Office Assistant, not an agent: still off the roster, not counted again
 - It has its own pool, not `MAX_RUNS`.
 - Each look writes one user message and reads until `result`, with a 60 s watchdog per look. The process stays up after `result`, unlike today's `Runner`, which closes stdin, ends at the first `result` and kills the run at `job.timeout`.
 - If it dies, or its context passes about 60k tokens, the next look starts a new one seeded with the title, the canvas, the last 5 minutes and the current packet.
+- **When it closes** (`close`, `call.assist off`): when its person leaves the call. The note-taker's stays open until L4 has written its summary, or 5 minutes after `over`; a person leaving at the very end doesn't hand the role on.
 - An assistant with no look for a long time (not the note-taker) gets at most the last 10 minutes of lines and the canvas in its next look, not everything since it joined.
 - **Where it lives.** The process side goes in `crates/window/src/assistant.rs` (reusing `prepare`, `command`, `kill_tree` and `Parser`), behind a new Core trait, `HuddleRunner { open, look, close }`, installed from `app/src/shell/mod.rs` on desktops, as `set_namer` is. The packet, the block parser and the rows stay in Core.
 - Model and effort: the chat's, once #1014 lands (`spawn_setting("").assistant_model()` and `assistant_effort()`, default Sonnet low, passed as `--model` and `--effort`). Until then `assistant::MODEL` (Haiku).
@@ -200,7 +204,7 @@ Each later look carries the lines since the last look, plus cards that changed s
 | Huddle in | The packet comes from |
 |---|---|
 | A shared space's channel | That space's log |
-| A Personal channel | The person's Personal boards and their spaces: only the person is there, so nobody else's words are in the turn |
+| A Personal channel | The person's Personal boards and their spaces: only the person sees the canvas, so nothing read reaches anyone else |
 | A person DM | The spaces both people are members of (a hidden DM space has no boards of its own) |
 
 Compared with #1030 §6 ("on its own, only this space's cards; other shared spaces and private work need the owner's OK"):
@@ -216,7 +220,7 @@ It's also faster: no tool round trips (§12).
 <<title>>Release planning and the call canvas<</title>>
 ```
 
-A block has no status: the Core writes every assistant item as `open` (§8).
+A block has no status: the Core writes every assistant item as `open` (§8), except `summary` and `note`, which have none. A `summary` block may carry `refs="id,id"`: the open items it judges answered or superseded.
 
 **The firm rule, in the code.** No block makes a card, task or anything else, because no such block exists, and the look has no tools. The Office Assistant's corner chat can still draft a thread for the person to post, on their own tap, as today.
 
@@ -226,11 +230,11 @@ A block has no status: the Core writes every assistant item as `open` (§8).
 
 ## 8. Rows
 
-All four are `call.*`, `Replicated, Accepts` (a `call.*` kind must never be `Refuses`). Older devices store them unread (`call.` is a tolerated family since `tolerant` 2), so no protocol bump is needed. Each new kind is registered in: the `kinds!` table (`crates/store/src/kinds.rs`), `coord::talk::KINDS`, `SPACE_TALK_KINDS`, `dm_conv_of` (`dm_spaces.rs`) and `dm_refusal`'s kind list (`spaces.rs`), the fold, and the golden test.
+All four are `call.*`, `Replicated, Accepts` (a `call.*` kind must never be `Refuses`). Older devices store them unread (`call.` is a tolerated family since `tolerant` 2), so no protocol bump is needed. Each new kind is registered in: the `kinds!` table (`crates/store/src/kinds.rs`), `coord::talk::KINDS`, `SPACE_TALK_KINDS`, `dm_conv_of` (`dm_spaces.rs`) and `dm_refusal`'s kind list (`spaces.rs`), the fold, and the golden test. `map_talk_keys` (`spaces.rs`) maps `call.item`'s `asker` between this device's key form and the space log's, as it maps `by`; it carries only people, as `call.people` does.
 
 ```json
 call.title    {"callId","convId","title","assistant":false,"by","at"}
-call.item     {"itemId","callId","convId","kind","text","status","reply":"<itemId>?","asker":"<person key>?","why":"name|own|digest|end|ask?","assistant":false,"by","at"}
+call.item     {"itemId","callId","convId","kind","text","status","reply":"<itemId>?","refs":["<itemId>"]?,"asker":"<person key>?","why":"name|own|digest|end|ask?","assistant":false,"by","at"}
 call.item.set {"itemId","callId","convId","text?","status?","x?","y?","card?","assistant":false,"by","at"}
 call.assist   {"callId","convId","device","state":"on|off","notes":false,"by","at"}
 ```
@@ -238,6 +242,7 @@ call.assist   {"callId","convId","device","state":"on|off","notes":false,"by","a
 - **`kind`:** `question`, `answer`, `decision`, `task`, `note`, `summary`.
 - **`status`:** `open`, `settled`, `dropped`, `carded`, shown by kind (a question reads open or answered, a decision proposed or agreed). `summary` and `note` have none.
 - **`asker` and `why`:** who started the look and what woke it, filled by the Core from the line or Ask that started it (empty for a digest). When Addam calls Stephen's assistant, the row is signed by Stephen, so without `asker` nothing records Addam. Display only, never authority. The canvas groups items under `asker`, else the signer.
+- **`refs`:** on a `summary`, the open items it judges answered or superseded (§6 L4). §9 hands them to the person to settle.
 - **`call.item.set`** folds per field, newest wins. Only the writer's person edits `text`, and an assistant's set edits only its own `assistant: true` item's text.
 - **The fold binds each `callId` to its conversation**, as the `call.segment` fold does (`call_idx`), and drops a `call.*` row whose `convId` isn't the huddle's. `space_may_touch` alone checks only that the conversation belongs to the carrying space, so without this a row in one space could add items to another conversation's huddle.
 - **New kinds, read only by this fold.** No other fold reads them: a `task` item is never a board task, and nothing on the Board, in agent starts or in the inbox looks at canvas rows.
@@ -262,7 +267,7 @@ call.assist   {"callId","convId","device","state":"on|off","notes":false,"by","a
 - That is as provable as the alternative. Any of a person's devices can already sign as any of their agent cards, so an `agent:<card>` actor proves nothing more.
 - It keeps the person-DM door nearly closed: `dm_conv_of` keeps "written by one of the pair under their own key" and only gains kinds, with no agent identity in hidden spaces and no new mint path around `card_for`'s roster check.
 - It's shown on every item, always, as "Juno · Addam's assistant" with an agent mark. An item with `assistant: true` is never shown as the person's own words.
-- **#1030 differs on purpose.** There, the same assistant posts in `#office-assistants` as an `agent:<card>` card of kind `assistant`, pointed at by `member.profile.assistantCard`. Huddle rows don't use that card: a hidden DM space and the private log hold no cards, and one rule then covers all three places. Both label the same way, from the verified signer's profile and `assistantName`; card 9 renders both through one label helper. #1030's "never `person:`" covers its channel posts only.
+- **#1030 differs on purpose.** There, the same assistant posts in `#office-assistants` as an `agent:<card>` card of kind `assistant`, pointed at by `member.profile.assistantCard`. Huddle rows don't use that card: a hidden DM space and the private log hold no cards, and one rule then covers all three places. Both label the same way, from the verified signer's profile and `assistantName`; card 4 adds one label helper, and the canvas and #1030's posts both use it. #1030's "never `person:`" covers its channel posts only.
 - Ordinary agents write with their own `agent:<card>` actor (§11), in shared spaces and Personal channels only.
 
 **The gate.** Today `append_space_talk` refuses a `call.segment` while `Core::space_tolerance(space).ready()` fails, on every append, and a call reads it once on entering (`Script.rows`) to choose rows or posts. Widen that tolerance check (not `space_talk_row`'s) to the `call.` prefix. Personal channels have no gate. The consequences in a space that isn't ready:
@@ -281,7 +286,7 @@ call.assist   {"callId","convId","device","state":"on|off","notes":false,"by","a
 
 Promotion is one step, and only after the huddle is over.
 
-1. The page's canvas becomes **the finished canvas**: items grouped by kind, open questions and proposed tasks first, with the note-taker's summary on top (what looks answered or superseded, and the action items).
+1. The page's canvas becomes **the finished canvas**: items grouped by kind, open questions and proposed tasks first, with the note-taker's summary on top (the action items, and the items its `refs` judge answered or superseded, with **Settle these**, which writes the person's own `settled` sets after they've seen the list).
 2. **Divide with my assistant** opens the Office Assistant chat with this huddle in context (any person can, whether or not they were in the call). They talk it through: merge these, split that, this one's Addam's. This chat keeps its person-level reads while holding other people's words, which §7's rule allows only because the person is there: the canvas and transcript go in fenced as untrusted data (as `inbox::fence` does), and nothing leaves the chat until the person taps Make cards, seeing the exact text first.
    - The chat keeps no session: each turn re-renders the history (`render_prompt`), and `ASSISTANT_TOOLS` has no `talk_read`. So `assistant_ask` takes an optional `callId`, and the host puts the fenced huddle context into every turn while the chat is on that huddle: the title, the canvas with item ids, and the transcript cut to the last 20 minutes when it's longer.
    - The chat needs Claude Code, so Divide is hidden on a phone (§2).
@@ -344,7 +349,7 @@ During the call the "Transcript on" badge titles add "Agents hear this huddle", 
 
 Nothing is pushed. They reach for these when they need them.
 
-- `talk_read conv=call:<id>`: as today, with speakers named (it prints another person's raw `person:<id>` today; fix it). While the huddle is live, its result ends with: "This huddle is still going. What's said may change: don't start work from it until it ends."
+- `talk_read conv=call:<id>`: as today, with speakers named. Another person prints today as "Addam (person:…, gone)", because `Names::who` (`crates/tools/src/lib.rs`) treats any key off the agent roster as a gone agent: name people without the "gone" tag. While the huddle is live, its result ends with: "This huddle is still going. What's said may change: don't start work from it until it ends."
 - `huddle_status {call}`: title, live or over, people, whose assistant is connected, line and item counts. Read-only.
 - `huddle_canvas {call}`: the items, paged. Read-only.
 - Both end with the same "still going" line while the huddle is live.
@@ -394,60 +399,65 @@ Dependencies, not preference: the place first, then who can read, then the names
 | 4 The assistant's name | — |
 | 5 Held run and the packet | — |
 | 6 Matcher and layer rules | 4 |
-| 7 Feed, host, L1 and L2 | 1, 5, 6 |
-| 8 Canvas rows and writes | 7 |
-| 9 Canvas UI | 2, 8 |
-| 10 Note-taker: L3 and L4 | 8 |
+| 7a Host and `call.assist` | 1, 5 |
+| 7b Feed, L1 and L2 | 6, 7a |
+| 8 Canvas rows and writes | 7b |
+| 9 Canvas UI and the roster | 2, 8 |
+| 10 Note-taker: L3 and L4 | 8, and the person's note-taker answer (§6) |
 | 11 After-call: divide into cards | 9, 10 |
 | 12 Ordinary agents' tools | 3, 8 |
 | 13 Real-device check | 11, 12 |
 
-1, 4 and 5 can start together. Cards are proposed, not started. All are normal weight unless marked. Every card's done-when includes `sh scripts/check.sh` passing.
+1, 4 and 5 can start together. Looks in a person DM stay off until card 3 writes the `agents` mark. Cards are proposed, not started. All are normal weight unless marked. Every card's done-when includes `sh scripts/check.sh` passing.
 
 **1. Huddle rows and "over".**
-Files: `crates/store/src/kinds.rs` and `crates/store/tests/it/golden.rs` (`call.title`), `crates/coord/src/talk.rs` (`call.title` fold, `CallInfo` title and people, the crash roster from segment signers, "has an end mark"), `crates/core/src/service/calls.rs` (`over(call)` from §3, the end mark written by the note-taker's host), `crates/core/src/service/spaces.rs` (`SPACE_TALK_KINDS`, `dm_refusal`, the tolerance check widened to `call.`, `space_talk_row`'s per-kind actor rules), `crates/core/src/service/dm_spaces.rs` (`dm_conv_of`), `crates/window/src/talk.rs` (title and over in the view).
-Done when: a title set by a person in a channel, a DM and a Personal channel reaches every member device, and beats an assistant-flagged one; tests show `over` true after an end mark, true for a call whose last device crashed within about 3 minutes, and never true on a device that starts or reconnects mid-call; a `call.title` whose `convId` isn't the huddle's is dropped; in a space that isn't ready, the title write is refused and logged.
+Files: `crates/store/src/kinds.rs` and `crates/store/tests/it/golden.rs` (`call.title`), `crates/coord/src/talk.rs` (`call.title` fold, `CallInfo` title and people, the crash roster from segment signers, "has an end mark"), `crates/core/src/service/calls.rs` (`over(call)` and its own `heard` record, §3; the crash end mark is card 10's), `crates/net/src/call.rs` and the `call.segment` fold (the `agents` field, stored and folded, written `false` until card 3), `crates/core/src/service/spaces.rs` (`SPACE_TALK_KINDS`, `dm_refusal`, the tolerance check widened to `call.`, `space_talk_row`'s per-kind actor rules), `crates/core/src/service/dm_spaces.rs` (`dm_conv_of`), `crates/window/src/talk.rs` (title and over in the view).
+Done when: a title set by a person in a channel, a DM and a Personal channel reaches every member device, and beats an assistant-flagged one; tests show `over` true after an end mark, true for a call whose last device crashed within about 3 minutes (in a two-device space too), and never true on a device that starts or reconnects mid-call; a `call.title` whose `convId` isn't the huddle's is dropped; in a space that isn't ready, the title write is refused and logged.
 
 **2. Huddle page and list.**
 Files: `frontend/src/lib/nav.ts` (`#huddle/<callId>`), a new `frontend/src/components/talk/huddle-page.tsx`, `huddles-list.tsx`, `talk-page.tsx` (mounts the list), `huddle.tsx` (`HuddleStarted`, `HuddleEnded` show the title and open the page), `conversation.tsx` (`PostRow` passes the title), `transcript-pane.tsx` (a variant that fills its column, live reload), `App.tsx` (render branch, header title, phone full screen, `PhoneCallBar`'s `here`), `phone-tabs.tsx`, `app-sidebar.tsx` (`here()`, `CallBar` opens the page).
 Done when: the page shows title (editable), place, live or length, Join, roster and transcript for a live and an ended huddle; the transcript follows new lines while live; the Talk list shows huddles newest first with titles; the sidebar lights Talk and the phone keeps the Talk tab; screenshots at desktop and phone width (`bun run preview:look`), light and dark, on the card.
 
 **3. Access, names in reads, the notice.** Waits on the person's DM answer (§10); the files below are for the design as drawn.
-Files: `crates/tools/src/talk.rs` (`call_parent` lets either person's agents read `agents: true` lines of a DM huddle, bypassing `posts`; `huddles()`; speaker names), `crates/coord/src/talk.rs` and `crates/net/src/call.rs` (the `agents` mark), `crates/core/src/service/calls.rs`, `frontend/src/lib/call.ts` (`transcriptNotice`, `whoCanRead`), `frontend/src/components/talk/huddle.tsx`, `conversation.tsx` (`askJoin`'s kind), `crates/window/src/call.rs` (`Names::conv`), `crates/window/src/talk.rs` (transcript `conv_kind`), `docs/design/call-transcripts.md`.
-Done when: an agent of either person reads a new DM huddle, is refused an older one, and is still refused `talk_read` on the DM itself; `talk_list` shows every huddle in its spaces, with titles; speakers print as names; no new wake happens; the notice and "who can read" read as §10 for a channel, a DM and a Personal channel, on both Start and Join; tests cover each.
+Files: `crates/tools/src/talk.rs` (`call_parent` lets either person's agents read `agents: true` lines of a DM huddle, bypassing `posts`; `huddles()`), `crates/tools/src/lib.rs` (`Names::who`: a `person:` key isn't a gone agent), `crates/core/src/service/calls.rs` (writing the `agents` mark `true` under the new notice), `frontend/src/lib/call.ts` (`transcriptNotice`, `whoCanRead`), `frontend/src/components/talk/huddle.tsx`, `conversation.tsx` (`askJoin`'s kind), `crates/window/src/call.rs` (`Names::conv`), `crates/window/src/talk.rs` (transcript `conv_kind`), `docs/design/call-transcripts.md`.
+Done when: an agent of either person reads a new DM huddle, is refused an older one, and is still refused `talk_read` on the DM itself; `talk_list` shows every huddle in its spaces, with titles; speakers print as names; no new wake happens; the notice and "who can read" read as §10 for a channel, a DM and a Personal channel, on both Start and Join; in a space that isn't ready, the start notice says agents and the canvas are off; tests cover each.
 
 **4. The assistant's name.**
-Files: `crates/store/src/kinds.rs` and `crates/store/tests/it/golden.rs` (`assistant.name` in `SINCE_GO_REFUSED`), a new `crates/core/src/service/assistant_name.rs`, `crates/core/src/service.rs` (the private-log follow, as `assistant.names.set` has), `crates/identity/src/objects.rs` (`MemberProfile.assistant_name`, outside `personSig`), `crates/identity/src/board.rs` (`MemberFold` field, `profile_assistant_name`), `crates/identity/src/person.rs` (the row builder), `crates/core/src/service/boards.rs` (`keep_current` compares the name), `crates/window/src/assistant.rs` (prompt and header), Settings › Agents, `frontend/src/components/assistant/assistant-chat.tsx`. #1030 reads the same name, and adds its own optional `assistantCard` field on `member.profile` beside `assistantName`; whichever card builds first adds only its own field.
+Files: `crates/store/src/kinds.rs` and `crates/store/tests/it/golden.rs` (`assistant.name` in `SINCE_GO_REFUSED`), a new `crates/core/src/service/assistant_name.rs`, `crates/core/src/service.rs` (the private-log follow, as `assistant.names.set` has, calling `keep_current` on every board), `crates/identity/src/objects.rs` (`MemberProfile.assistant_name`, outside `personSig`), `crates/identity/src/board.rs` (`MemberFold` field, `profile_assistant_name`), `crates/identity/src/person.rs` (the row builder), `crates/core/src/service/boards.rs` (`keep_current` compares the name), `crates/window/src/assistant.rs` (prompt and header), Settings › Agents, `frontend/src/components/assistant/assistant-chat.tsx`, a new `frontend/src/lib/assistant-label.ts` (one label helper: the signer's profile plus `assistantName`, used by the canvas and #1030's posts). #1030 reads the same name, and adds its own optional `assistantCard` field on `member.profile` beside `assistantName`; whichever card builds first adds only its own field.
 Done when: a person can set a name and see it on all their devices and on another member's, shown as "Juno · Addam's assistant" with the person taken from the row's signer; a person who hasn't reads as "Addam's assistant" everywhere with nothing written, and follows a rename; #1030's agent has this card's number (its label reads `assistantName` as a one-line follow-up).
 
 **5. Held run and the packet.**
-Files: `crates/window/src/assistant.rs` (the held process: `job_args` with `tools: false` plus `--input-format stream-json`, stdin held open, a watchdog per look, no end at `result`), `crates/core/src/service.rs` (the `HuddleRunner` trait and its setter), `crates/core/src/service/thread_names.rs` (the seam it copies), a new `crates/core/src/service/huddle_packet.rs` (the packet from a space's folded log; share the space-cards reader with #1030's `assistant_answers.rs` if that lands first, keeping each design's selection), `app/src/shell/mod.rs` (installing it on desktops).
+Files: `crates/window/src/assistant.rs` (the held process: `job_args` with `tools: false` plus `--input-format stream-json`, stdin held open, a watchdog per look, no end at `result`), `crates/core/src/service.rs` (the `HuddleRunner` trait and its setter), `crates/core/src/service/thread_names.rs` (the seam it copies), a new `crates/core/src/service/huddle_packet.rs` (the packet from a space's folded log, taking the title and canvas as inputs, empty until cards 1 and 8 land; share the space-cards reader with #1030's `assistant_answers.rs` if that lands first, keeping each design's selection), `app/src/shell/mod.rs` (installing it on desktops).
 Done when: a held session takes a priming turn and several looks, and restarts from the seed (packet included) after being killed or past the context limit; its arguments carry no `--mcp-config` and no secret; a packet test with a private card, a Personal card and a card on a space the other person isn't in contains none of them, for a channel and a DM huddle; packet text goes in fenced; time and cost per look are recorded in §7 for Haiku and Sonnet low with a 40-card packet, and for a one-hour run.
 
 **6. Matcher and layer rules.** Pure Rust, no I/O.
 Files: a new `crates/core/src/service/huddle_rules.rs` (the §5 matcher, the §6 layers, skips, throttles, hold, freshness, cap, the note-taker order from rows).
 Done when: tests cover each §5 form (chosen name, "Addam's assistant", "my assistant" only from its own person, "Stephen's Juno"), near-spellings ("Adam's"), position, the vocative rule and its negatives ("My assistant said…", "I'll ask my assistant later", "June third…", "John, can you…" beside a Juno), collisions; L2's skips (short lines, tag questions, a question to a named person); one look at a time, the hold, other callers' throttle, the cap, and stale lines triggering nothing.
 
-**7. Feed, host, L1 and L2.**
-Files: `crates/core/src/service/calls.rs`, `boards.rs` and `service.rs` (`huddle_line` on the three live paths), a new `crates/core/src/service/huddle_feed.rs` (host pick from `AgentDevices.homes` and `agents_paused_on`, `call.assist` arbitration, per-huddle buffer, dedupe, the DM `agents: true` filter, placeholders), `call.assist` registration (`kinds.rs`, golden test, `coord/src/talk.rs` fold, `spaces.rs`, `dm_spaces.rs`), and the roster state in `crates/window/src/talk.rs` and `huddle-page.tsx`.
-Done when: in a two-Core test a line calling an assistant gets a look and a mid-line mention doesn't; another person's question wakes nothing; a refold at start and a burst of old rows after a reconnect run no look; an unmarked DM line reaches no look; two devices of one person end with one host; an assistant connecting shows on the roster of a channel, DM and Personal huddle; a person with no computer on shows "not connected".
+**7a. Host and `call.assist`.**
+Files: a new `crates/core/src/service/huddle_host.rs` (the pick from `AgentDevices.homes` and `agents_paused_on`, `call.assist` arbitration, away after 60 s, re-pick after sleep, when a session opens and closes, §7), `call.assist` registration (`crates/store/src/kinds.rs`, golden test, `crates/coord/src/talk.rs` fold, `spaces.rs`, `dm_spaces.rs`), the roster state in `crates/window/src/talk.rs`.
+Done when: two devices of one person end with one host, in a two-Core test that starts with both picking themselves; a host away for 60 s hands over; the host opens a held session (card 5) when its person joins and closes it when they leave; an assistant connecting shows in the roster state of a channel, DM and Personal huddle; a person with no computer on reads as "not connected"; a signed-out Claude Code reads as "not connected" after its first look fails.
+
+**7b. Feed, L1 and L2.**
+Files: `crates/core/src/service/calls.rs`, `boards.rs` and `service.rs` (`huddle_line` on the three live paths), a new `crates/core/src/service/huddle_feed.rs` (per-huddle buffer, dedupe by line id, freshness, the DM `agents: true` filter, firing looks through `huddle_rules.rs`).
+Done when: in a two-Core test a line calling an assistant gets a look and a mid-line mention doesn't; another person's question wakes nothing; a refold at start and a burst of old rows after a reconnect run no look; an own write seen again by the follow feeds once; an unmarked DM line reaches no look.
 
 **8. Canvas rows and writes.**
-Files: `crates/store/src/kinds.rs` and golden test (`call.item`, `call.item.set`), `crates/coord/src/talk.rs` (fold, `callId` binding, actor rules), `crates/core/src/service/dm_spaces.rs`, `spaces.rs`, `huddle_feed.rs` (block to row, `asker` and `why`, de-dupe), `crates/window/src/talk.rs`.
-Done when: blocks become items on all members' devices in a channel, a DM and a Personal channel; `dm_conv_of` still refuses anything not by the pair; an assistant-flagged or agent row's status, card or position is ignored, tested for both; a row whose `convId` isn't the huddle's is dropped; the write path refuses `carded` while `over` is false, and the fold accepts it after; no fold but this one reads the new kinds.
+Files: `crates/store/src/kinds.rs` and golden test (`call.item`, `call.item.set`), `crates/coord/src/talk.rs` (fold, `callId` binding, actor rules), `crates/core/src/service/dm_spaces.rs`, `spaces.rs` (actor rules; `asker` in `map_talk_keys`), `huddle_feed.rs` (block to row, `asker`, `why` and `refs`, placeholders, de-dupe), `huddle_packet.rs` (title and canvas in the packet and seed; each look carries cards changed and items added since the last), `crates/window/src/commands.rs` and the generated bindings (`huddle_title_set`, `huddle_item_add`, `huddle_item_set`, `huddle_ask`, with the write path's `over` check), `crates/window/src/talk.rs`.
+Done when: blocks become items on all members' devices in a channel, a DM and a Personal channel; an item asked by another person groups under them on every member's device; an L1 match shows a placeholder before the look, the answer replaces it, a timeout turns it into "couldn't answer", and a new host closes the old host's; Ask gets a look and an item; `dm_conv_of` still refuses anything not by the pair; an assistant-flagged or agent row's status, card or position is ignored, tested for both; a row whose `convId` isn't the huddle's is dropped; the write path refuses `carded` while `over` is false, and the fold honours a person's `carded` row whenever it arrives, with no liveness check; no fold but this one reads the new kinds.
 
-**9. Canvas UI.**
-The board canvas assumes cards at every layer, so either open these up or (simpler, recommended) make `canvas/huddle.tsx` its own React Flow view with its own node types and layout, reusing only `flow.css` and `KeepCenter`, and leaving the board's `data.ts`, `elk.ts` and `weights.ts` alone. If shared: the `GraphNode`, `EdgeKind` and `GroupNode.by` unions, `NodeSize[kind]`, `toElk`'s card-only filter, `layoutKey`'s fallthrough, `toNodes`'s position filter, `withPlaced`/`followers`/`groupRects`, `onNodesChange`'s card-only `onPlace`, `node.tsx`'s bodies and `openTarget`.
-Files: a new `frontend/src/components/canvas/huddle.tsx` (and `huddle-elk.ts` if separate), `huddle-page.tsx`, `docs/canvas-layout.md` (a "Huddle canvas" section).
+**9. Canvas UI and the roster.**
+The board canvas assumes cards at every layer, so either open these up or (simpler, recommended) make `canvas/huddle.tsx` its own React Flow view with its own node types and layout, reusing only `canvas/reactflow/flow.css` and `KeepCenter` (private in `canvas/reactflow/index.tsx` today: export it), and leaving the board's `data.ts`, `elk.ts` and `weights.ts` alone. If shared: the `GraphNode`, `EdgeKind` and `GroupNode.by` unions, `NodeSize[kind]`, `toElk`'s card-only filter, `layoutKey`'s fallthrough, `toNodes`'s position filter, `withPlaced`/`followers`/`groupRects`, `onNodesChange`'s card-only `onPlace`, `node.tsx`'s bodies and `openTarget`.
+Files: a new `frontend/src/components/canvas/huddle.tsx` (and `huddle-elk.ts` if separate), `canvas/reactflow/index.tsx` (export `KeepCenter`), `huddle-page.tsx` (canvas, roster with each assistant's state, the Ask box, person writes), `docs/canvas-layout.md` (a "Huddle canvas" section).
 Three traps on main that the card must avoid: `FitWhileUntouched` refits whenever its area count changes, and a drag doesn't count as touching; `LaidOut` resets all node state at render time when the graph object changes; a new node id changes the layout key and lays out again at once. So: build the graph from the items alone, memoized on their content, never on transcript lines; no render-time reset while a node is dragged; lay out append-stable (time order, existing items keep their spot). Item text runs to 2000 characters and a placeholder grows: clamp shown text to a few lines and expand on click.
-Done when: people and their connected assistants head the canvas; items group under who asked and show the assistant's label; a test appends items during a simulated drag and the dragged node and the viewport are unchanged; it works at phone width and in light and dark; screenshots on the card.
+Done when: people and their connected assistants head the canvas; items group under who asked and show the assistant's label; a person adds an item, settles or drops one, and a drag saves its position, all seen on another member's device; the Ask box shows only while the viewer's assistant is connected; the roster shows connected, taking notes, reconnecting, not connected, the cap, "lines reach assistants only at the end" and "older Irori"; the page says when there are no notes, and when agents and the canvas are off in a space that isn't ready; a test appends items during a simulated drag and the dragged node and the viewport are unchanged; it works at phone width and in light and dark; screenshots on the card.
 
-**10. Note-taker: L3 and L4.**
-Files: `huddle_feed.rs`, `huddle_rules.rs`, `crates/core/src/service/calls.rs` (hand-on, the end mark after a crash), `crates/store/src/kinds.rs` (the two settings rows), `frontend/src/components/settings/` (Settings › App).
-Done when: only one assistant digests per huddle, chosen from rows, and it passes on when its person leaves or its host goes away; no digest runs without new talk; a title appears after a couple of minutes and doesn't replace a person's; the end produces one summary with action items and an answered-or-superseded list, and changes no status; if the note-taker's host is gone at the end, the next writes it within 3 minutes; a crashed huddle gets an end mark; both settings turn off what they say.
+**10. Note-taker: L3 and L4.** Waits on the person's yes to one note-taker (§6).
+Files: `huddle_feed.rs`, `huddle_rules.rs`, `crates/core/src/service/calls.rs` (hand-on, the end mark after a crash), `crates/store/src/kinds.rs` and `crates/store/tests/it/golden.rs` (the two settings rows, in `SINCE_GO_REFUSED`), `frontend/src/components/settings/` (Settings › App).
+Done when: only one assistant digests per huddle, chosen from rows, and two that both claim it settle on one; it passes on when its person leaves mid-call or its host goes away; no digest runs without new talk; a title appears after a couple of minutes and doesn't replace a person's; the end produces one summary with action items and `refs`, and changes no status; if the note-taker's host is gone at the end, the next writes it within 3 minutes; a crashed huddle gets one end mark, from an assistant's host or else any member device; both settings turn off what they say.
 
 **11. After-call: divide into cards.**
-Files: `huddle-page.tsx` (finished canvas, Divide), `frontend/src/lib/assistant.ts` (`splitReply` takes `<<cards>>` and `<<settle>>` out before `splitGo`), `assistant-chat.tsx` (drafts, Make cards, Apply), `crates/window/src/assistant.rs` (huddle context, fenced, cut to 20 minutes), `crates/window/src/commands.rs` and the generated bindings (`assistant_ask` takes `callId`), `crates/window/src/new_card.rs`.
+Files: `huddle-page.tsx` (finished canvas, Settle these from the summary's `refs`, Divide), `frontend/src/lib/assistant.ts` (`splitReply` takes `<<cards>>` and `<<settle>>` out before `splitGo`), `assistant-chat.tsx` (drafts, Make cards, Apply), `crates/window/src/assistant.rs` (huddle context, fenced, cut to 20 minutes), `crates/window/src/commands.rs` and the generated bindings (`assistant_ask` takes `callId`), `crates/window/src/new_card.rs`.
 Done when: from a finished canvas a person gets card drafts and a settle list with their assistant; Make cards makes them on the board the picker shows; Apply settles and drops in one tap; items show as carded (a link where the viewer can open the card, else "carded by Addam (Personal)"); nothing can be made while `over` is false; Divide is hidden on a phone; an agent starts only by the normal rules.
 
 **12. Ordinary agents' tools (light).**
@@ -455,7 +465,7 @@ Files: `crates/tools/src/specs.json`, `specs.rs`, `talk.rs`, `crates/api/src/bac
 Done when: `huddle_status`, `huddle_canvas` and `huddle_note` work with §11's refusals; `huddle_note` items are open and can't settle or move anything; the live-huddle line appears on all three read tools; `huddle_canvas` budgets before its cursor advances.
 
 **13. Real-device check. (needs:mac and a phone)**
-Done when: a real huddle between a Mac and the Pixel, with a third person's assistant on a computer outside the call, has each assistant answer by name; §12's table is filled in with measured numbers, Mac and PC finals and the row hop included; a live frame source is added only if the row hop is over 2 s.
+Done when: a real huddle between a Mac and the Pixel, with the Pixel person's assistant hosted on a computer that isn't in the call, has each assistant answer by name; §12's table is filled in with measured numbers, Mac and PC finals and the row hop included; a live frame source is added only if the row hop is over 2 s.
 
 ## 14. Not in this design
 
