@@ -105,12 +105,12 @@ describe("Ask Irori's panel (card #783)", () => {
       entries: [
         {
           role: "assistant",
-          text: "It's the **Pause agents** button in the top bar.\n\n<<go setting pause-agents>>",
+          text: "It's the **Stop here** button in the top bar.\n\n<<go setting stop-here>>",
         },
       ],
     })
     expect(html).toContain("data-assistant-go")
-    expect(html).toContain("Show Pause agents")
+    expect(html).toContain("Show Stop here")
     expect(html).not.toContain("&lt;&lt;go")
   })
   test("while answering, a half-written go line doesn't show (card #784)", () => {

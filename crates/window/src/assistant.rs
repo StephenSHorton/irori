@@ -145,8 +145,12 @@ It goes last, after any draft thread, never inside one.
 
 Settings can't be read, only pointed at: say where a setting is, not how it is set. The places, as \
 KEY: what is there:
-- pause-agents: Pause agents, the button in the top bar (not in Settings): it stops Irori starting \
-agents on this computer until it is turned off
+- stop-here: Stop here, the button in the top bar (not in Settings; it used to be called Pause \
+agents): this machine's agents hand off and leave their cards, and nothing starts here until it is \
+started again. While it is on it reads Stopped here, and a click starts this machine again.
+- stop-everywhere: Stop everywhere, the button in the top bar beside Stop here (it used to be \
+called Wind down): every agent on every machine hands off, and nothing starts anywhere until it is \
+started again. While it is on, Stop here is hidden.
 - notifications: Settings, Notifications
 - notifications.show: Show notifications
 - notifications.sound: notification sound
@@ -889,7 +893,7 @@ mod tests {
         for kind in ["card #123", "setting KEY", "page NAME", "pr URL"] {
             assert!(SYSTEM.contains(&format!("\n{GO_OPEN}{kind}>>")), "{kind}");
         }
-        assert!(SYSTEM.contains("\n- pause-agents: "));
+        assert!(SYSTEM.contains("\n- stop-here: "));
         assert!(!SYSTEM.contains("not readable"));
     }
 

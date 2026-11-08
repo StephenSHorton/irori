@@ -20,9 +20,9 @@ describe("Ask Irori's go lines (card #784)", () => {
       ref: "suzuri#12",
     })
     expect(parseGo("thread #5")).toEqual({ kind: "card", ref: "#5" })
-    expect(parseGo("setting pause-agents")).toEqual({
+    expect(parseGo("setting stop-here")).toEqual({
       kind: "setting",
-      key: "pause-agents",
+      key: "stop-here",
     })
     expect(parseGo("setting agents.model")).toEqual({
       kind: "setting",
@@ -55,10 +55,10 @@ describe("Ask Irori's go lines (card #784)", () => {
   })
   test("the line comes out of the text; the first that names something wins", () => {
     const s = splitGo(
-      "It's in the top bar.\n\n<<go setting nope>>\n<<go setting pause-agents>>\n<<go card #1>>"
+      "It's in the top bar.\n\n<<go setting nope>>\n<<go setting stop-here>>\n<<go card #1>>"
     )
     expect(s.text).toBe("It's in the top bar.")
-    expect(s.go).toEqual({ kind: "setting", key: "pause-agents" })
+    expect(s.go).toEqual({ kind: "setting", key: "stop-here" })
   })
   test("a line mid-reply comes out too, and the paragraphs close up", () => {
     const s = splitGo("That's #779.\n<<go card #779>>\n\nIt's working.")
@@ -109,9 +109,7 @@ describe("Ask Irori's go lines (card #784)", () => {
     const l = (t: GoTarget) => goLabel(t)
     expect(l({ kind: "card", ref: "#779" })).toBe("Open #779")
     expect(l({ kind: "page", page: "held" })).toBe("Open Held messages")
-    expect(l({ kind: "setting", key: "pause-agents" })).toBe(
-      "Show Pause agents"
-    )
+    expect(l({ kind: "setting", key: "stop-here" })).toBe("Show Stop here")
     expect(l({ kind: "setting", key: "agents" })).toBe("Open Settings › Agents")
     expect(l({ kind: "setting", key: "agents.model" })).toBe(
       "Show Settings › Agents › What a new agent starts with"

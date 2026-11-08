@@ -78,8 +78,8 @@ export async function goThere(t: GoTarget, deps: GoDeps): Promise<string> {
         if (!s) return "That setting isn't one the chat knows."
         deps.before?.()
         if (!s.section) {
-          // The top bar's Pause agents: a phone's open conversation hides
-          // the top bar, so Home first.
+          // The top bar's Stop here or Stop everywhere: a phone's open
+          // conversation hides the top bar, so Home first.
           jump()
           const sel = `[data-spot="${CSS.escape(s.key)}"]`
           if (!document.querySelector(sel) && !runCommand("nav.home"))

@@ -45,7 +45,8 @@ export const pageLabels: Record<GoPage, string> = {
 
 // SettingSpot is a place the assistant can point at: a Settings section,
 // or one control in it (data-setting="<key>" on the control's row), or
-// the top bar's Pause agents (section null: it isn't in Settings).
+// a top bar switch, Stop here or Stop everywhere (section null, data-spot
+// on the button: they aren't in Settings).
 export type SettingSpot = {
   key: string
   section: SettingsSection | null
@@ -67,7 +68,8 @@ const sectionSpots: SettingSpot[] = (
 ).map((s) => ({ key: s, section: s, label: sectionLabels[s] }))
 
 export const settingSpots: SettingSpot[] = [
-  { key: "pause-agents", section: null, label: "Pause agents" },
+  { key: "stop-here", section: null, label: "Stop here" },
+  { key: "stop-everywhere", section: null, label: "Stop everywhere" },
   ...sectionSpots,
   {
     key: "notifications.show",

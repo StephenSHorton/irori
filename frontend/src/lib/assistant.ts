@@ -541,10 +541,10 @@ export function sampleAnswer(q: string): { tools: string[]; text: string } {
   )
     return { tools: [`Searching for “${q.trim()}”`], text: sampleWork(q) }
   // Take me there (card #784).
-  if (/paus/.test(s))
+  if (/paus|stop/.test(s))
     return {
       tools: ["Reading the agents"],
-      text: "Pausing agents is the **Pause agents** button in the top bar, not in Settings. One click stops Irori starting agents on this computer; running ones keep going.\n\n<<go setting pause-agents>>",
+      text: "Pausing agents is now **Stop here**, the button in the top bar, not in Settings. While it's on it reads Stopped here; one click starts this machine again.\n\n<<go setting stop-here>>",
     }
   if (/\b(model|effort)\b/.test(s))
     return {
