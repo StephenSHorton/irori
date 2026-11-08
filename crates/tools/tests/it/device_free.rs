@@ -70,7 +70,11 @@ fn test_device_free_says_not_available_here() {
     let out = h.okj(&call_a(), "device_free", json!({}));
     has(
         &out,
-        &["Memory: not available here.", "CPU: not available here.", "Disk (C:\\p): 200 GB free"],
+        &[
+            "Memory: not available here.",
+            "CPU: not available here.",
+            "Disk (C:\\p): 200 GB free",
+        ],
     );
     *h.b.free.lock().unwrap() = None;
     h.failsj(&call_a(), "device_free", json!({}), &["can't be read here"]);
@@ -101,7 +105,12 @@ fn test_device_free_names_each_kind_of_holder() {
     // device is dev1, so this device is too for its holders.
     *h.b.device.lock().unwrap() = "dev1".into();
     h.b.co
-        .acquire_slot("dev1/run-check-card-9-4411", "check/mac", 2, Duration::from_secs(600))
+        .acquire_slot(
+            "dev1/run-check-card-9-4411",
+            "check/mac",
+            2,
+            Duration::from_secs(600),
+        )
         .unwrap();
     // Another device's run is not this device's.
     let out = h.okj(&call_c(), "device_free", json!({}));
@@ -127,7 +136,10 @@ fn test_device_free_path_default_and_relative() {
     let asked = h.b.free_asked.lock().unwrap().clone();
     assert_eq!(asked[0], "C:\\src\\alpha");
     assert_eq!(asked[1], "/abs/dir");
-    assert!(asked[2].starts_with("C:\\src\\alpha") && asked[2].ends_with("rel"), "{asked:?}");
+    assert!(
+        asked[2].starts_with("C:\\src\\alpha") && asked[2].ends_with("rel"),
+        "{asked:?}"
+    );
     // A caller with no known folder: no path means the data dir (""), and a
     // relative path is refused.
     let lost = claude("dev1/zzzzzzzz-9999-4999-8999-999999999999", "lost");

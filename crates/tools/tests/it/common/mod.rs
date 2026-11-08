@@ -173,7 +173,11 @@ pub const DEVICE_ID: &str = "3dc30c94c6a74af3c59d39f4ca02d6f1";
 impl Backend for TestBackend {
     fn device_id(&self) -> String {
         let d = self.device.lock().unwrap();
-        if d.is_empty() { DEVICE_ID.into() } else { d.clone() }
+        if d.is_empty() {
+            DEVICE_ID.into()
+        } else {
+            d.clone()
+        }
     }
     fn device_free(&self, path: &str) -> Option<tools::DeviceFree> {
         self.free_asked.lock().unwrap().push(path.to_string());

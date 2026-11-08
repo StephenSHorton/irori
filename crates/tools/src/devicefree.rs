@@ -61,7 +61,9 @@ pub(crate) fn device_free(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         cwd
     } else if Path::new(given).is_absolute() || cwd.is_empty() {
         if !Path::new(given).is_absolute() {
-            return err_text("give an absolute path: your working folder isn't known to resolve it.");
+            return err_text(
+                "give an absolute path: your working folder isn't known to resolve it.",
+            );
         }
         given.to_string()
     } else {
@@ -123,7 +125,9 @@ fn slots(s: &Inner) -> String {
     // script run as "script <run> (no card)".
     let holder = |h: &str| -> String {
         if coord::is_run_holder(h) {
-            let run = h.split_once('/').map_or(h, |(_, r)| &r[coord::RUN_HOLDER.len()..]);
+            let run = h
+                .split_once('/')
+                .map_or(h, |(_, r)| &r[coord::RUN_HOLDER.len()..]);
             return format!("script {} (no card)", one_line(run, MAX_FIELD_RUNES));
         }
         let name = n.who(h);
@@ -152,7 +156,11 @@ fn slots(s: &Inner) -> String {
                 None => parts.push(format!("slot-{i} free")),
             }
         }
-        out += &format!("Heavy slots ({}): {}.\n", crate::HEAVY_SLOTS, parts.join("; "));
+        out += &format!(
+            "Heavy slots ({}): {}.\n",
+            crate::HEAVY_SLOTS,
+            parts.join("; ")
+        );
         // When every slot is taken, name the one to free soonest.
         let held: Vec<_> = (1..=crate::HEAVY_SLOTS)
             .filter_map(|i| {
