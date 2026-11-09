@@ -3194,6 +3194,34 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     b
 }
 
+// --- board_give ---
+
+/// A task `board_give` makes: a board_split subtask without the fields that
+/// aim it at an agent (`assign_to`, `spawn`): it goes to a person.
+const GIVE_TASK_FIELDS: &[(&str, Ty)] = &[
+    ("title", Ty::Str),
+    ("objective", Ty::Str),
+    ("done_when", Ty::Str),
+    ("steps", Ty::Strs),
+    ("weight", Ty::Struct(WEIGHT_FIELDS)),
+];
+
+const GIVE_ARGS: &[(&str, Ty)] = &[
+    ("to", Ty::Str),
+    ("board", Ty::Str),
+    ("tasks", Ty::Structs(GIVE_TASK_FIELDS)),
+    ("task_ids", Ty::Strs),
+    ("note", Ty::Str),
+];
+
+pub(crate) fn board_give(s: &Inner, c: &Caller, raw: &[u8]) -> String {
+    let a = match decode(raw, GIVE_ARGS) {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
+    crate::shared::give_on_board(s, c, &a)
+}
+
 /// A card's weight as the board shows it (card #963): "heavy, set by the
 /// person: planning the split".
 pub(crate) fn weight_text(w: &coord::Weight, n: &Names<'_>) -> String {

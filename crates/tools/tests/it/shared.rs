@@ -80,6 +80,14 @@ impl Fake {
                     person: ME.into(),
                     is_owner: Some(Arc::new(|k: &str| k == ME)),
                     tag: Some(Arc::new(|| "mlg".to_string())),
+                    // This device is Stephen's: a give from it is a give to a person.
+                    device_person: Some(Arc::new(|d: &str| {
+                        if d == "dev1" {
+                            "pStephen".into()
+                        } else {
+                            String::new()
+                        }
+                    })),
                     // Whose a board key is (card #264: who decides).
                     key_person: Some(Arc::new(|k: &str| match k {
                         ME => "pStephen".into(),
@@ -1194,4 +1202,254 @@ fn a_shared_boards_card_takes_the_weight() {
         (w.level.as_str(), w.reason.as_str(), w.set_by.as_str()),
         ("light", "a known pattern", coord::SET_BY_AGENT)
     );
+}
+
+// --- board_give (decision 69, §6.3) ---
+
+impl Rig {
+    /// The cards on the board, newest last.
+    fn cards(&self) -> Vec<Task> {
+        self.fake.co.list_tasks(&coord::TaskFilter::default())
+    }
+}
+
+#[test]
+fn board_give_gives_new_tasks_to_a_member_by_name() {
+    let r = rig();
+    r.autonomy("trusted");
+    let out = r.h.okj(
+        &call_a(),
+        "board_give",
+        json!({
+            "to": "blake",
+            "board": "mlg",
+            "note": "the loader work, in three parts",
+            "tasks": [
+                {"title": "Profile the loader", "steps": ["run it", "read the trace"]},
+                {"title": "Cache the decoder", "objective": "decode once", "weight": {"level": "heavy", "why": "design"}},
+                {"title": "Write the benchmark"},
+            ],
+        }),
+    );
+    has(
+        &out,
+        &[
+            "Gave 3 new tasks to ",
+            "on MLG farming (mlg) as one batch",
+            "mlg#1",
+            "mlg#2",
+            "mlg#3",
+            "Profile the loader",
+        ],
+    );
+    let cards = r.cards();
+    assert_eq!(cards.len(), 3);
+    let mut batches = std::collections::BTreeSet::new();
+    for t in &cards {
+        let g = t
+            .given
+            .as_ref()
+            .unwrap_or_else(|| panic!("{} not given", t.title));
+        assert_eq!(g.person, "pBlake");
+        assert_eq!(g.note, "the loader work, in three parts");
+        assert!(!g.assistant);
+        batches.insert(g.batch.clone());
+        // The giver is an agent: it watches the card.
+        assert!(
+            t.assigned == vec!["person:pBlake".to_string()],
+            "{:?}",
+            t.assigned
+        );
+    }
+    assert_eq!(batches.len(), 1, "one batch id");
+    assert!(!batches.contains(""));
+    assert_eq!(
+        cards
+            .iter()
+            .find(|t| t.title == "Profile the loader")
+            .unwrap()
+            .steps
+            .len(),
+        2
+    );
+    assert_eq!(
+        cards
+            .iter()
+            .find(|t| t.title == "Cache the decoder")
+            .unwrap()
+            .weight
+            .as_ref()
+            .unwrap()
+            .level,
+        "heavy"
+    );
+    assert!(out.ends_with("\nVisible to: Stephen, Blake"), "{out}");
+}
+
+#[test]
+fn board_give_gives_existing_cards() {
+    let r = rig();
+    r.autonomy("trusted");
+    let a = created_id(&r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Loader", "board": "mlg"}),
+    ));
+    let b = created_id(&r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Saver", "board": "mlg"}),
+    ));
+    let out = r.h.okj(
+        &call_a(),
+        "board_give",
+        json!({"to": "person:pBlake", "task_ids": ["mlg#1", format!("task:{b}")], "note": "yours"}),
+    );
+    has(&out, &["Gave 2 cards to ", "mlg#1", "mlg#2"]);
+    let ga = r.fake.co.get_task(&a).unwrap().given.unwrap();
+    let gb = r.fake.co.get_task(&b).unwrap().given.unwrap();
+    assert_eq!(ga.batch, gb.batch);
+    assert!(!ga.batch.is_empty());
+    assert_eq!(ga.note, "yours");
+    assert!(out.ends_with("\nVisible to: Stephen, Blake"), "{out}");
+    // Giving them again is refused, and nothing changes.
+    r.h.failsj(
+        &call_a(),
+        "board_give",
+        json!({"to": "blake", "task_ids": ["mlg#1"]}),
+        &["already"],
+    );
+}
+
+#[test]
+fn board_give_refuses_what_is_not_a_person_on_a_shared_board() {
+    let r = rig();
+    r.autonomy("trusted");
+    let t = json!([{"title": "One"}]);
+    // A non-member.
+    r.h.failsj(
+        &call_a(),
+        "board_give",
+        json!({"to": "nobody-here", "board": "mlg", "tasks": t}),
+        &["nobody-here", "board_assign"],
+    );
+    // An agent, by name or key.
+    r.h.failsj(
+        &call_a(),
+        "board_give",
+        json!({"to": "mlg-lead", "board": "mlg", "tasks": t}),
+        &["mlg-lead", "board_assign"],
+    );
+    r.h.failsj(
+        &call_a(),
+        "board_give",
+        json!({"to": "agent:cb1", "board": "mlg", "tasks": t}),
+        &["board_assign"],
+    );
+    // A board that isn't a shared space's, and a private card.
+    r.h.failsj(
+        &call_a(),
+        "board_give",
+        json!({"to": "blake", "board": "nowhere", "tasks": t}),
+        &["no board"],
+    );
+    let p = r.h.new_card(&call_a(), json!({"title": "mine"}));
+    r.h.failsj(
+        &call_a(),
+        "board_give",
+        json!({"to": "blake", "task_ids": [p]}),
+        &["isn't on a shared board"],
+    );
+    // New tasks need a board; tasks and task_ids are not both.
+    r.h.failsj(
+        &call_a(),
+        "board_give",
+        json!({"to": "blake", "tasks": t}),
+        &["board"],
+    );
+    r.h.failsj(
+        &call_a(),
+        "board_give",
+        json!({"to": "blake", "board": "mlg", "tasks": t, "task_ids": ["mlg#1"]}),
+        &["one of them"],
+    );
+    // More than 20.
+    let many: Vec<_> = (0..21).map(|i| json!({"title": format!("T{i}")})).collect();
+    r.h.failsj(
+        &call_a(),
+        "board_give",
+        json!({"to": "blake", "board": "mlg", "tasks": many}),
+        &["at most 20"],
+    );
+    assert!(r.cards().is_empty(), "nothing was written");
+}
+
+#[test]
+fn board_give_scrubs_every_text_before_writing() {
+    let r = rig();
+    r.autonomy("trusted");
+    let bad = [
+        json!({"to": "blake", "board": "mlg", "tasks": [{"title": "Fine"}, {"title": "Logs", "objective": "see /Users/fixture/proj/out.log"}]}),
+        json!({"to": "blake", "board": "mlg", "tasks": [{"title": "Fine"}], "note": "use ghp_0123456789abcdefghijklmnopqrstuvwxyz12"}),
+        json!({"to": "blake", "board": "mlg", "tasks": [{"title": "Fine", "steps": ["open /Users/fixture/x"]}]}),
+    ];
+    for a in bad {
+        r.h.failsj(
+            &call_a(),
+            "board_give",
+            a,
+            &["nothing was written", "MLG farming (mlg) is shared"],
+        );
+    }
+    assert!(r.cards().is_empty());
+    // Cards already there: only the note is new text.
+    r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Loader", "board": "mlg"}),
+    );
+    r.h.failsj(
+        &call_a(),
+        "board_give",
+        json!({"to": "blake", "task_ids": ["mlg#1"], "note": "it is in /Users/fixture/proj"}),
+        &["nothing was written"],
+    );
+    assert!(
+        r.fake
+            .co
+            .get_task(&r.cards()[0].id)
+            .unwrap()
+            .given
+            .is_none()
+    );
+}
+
+#[test]
+fn board_give_under_ask_me_refuses_new_tasks_but_gives_cards() {
+    let r = rig();
+    r.autonomy("trusted");
+    r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Loader", "board": "mlg"}),
+    );
+    r.autonomy("ask");
+    r.h.failsj(
+        &call_a(),
+        "board_give",
+        json!({"to": "blake", "board": "mlg", "tasks": [{"title": "New"}]}),
+        &[
+            "your autonomy on mlg is Ask me",
+            "ask your person to give them",
+        ],
+    );
+    assert_eq!(r.cards().len(), 1, "nothing was written");
+    assert!(r.book.open().is_empty(), "no request was raised either");
+    let out = r.h.okj(
+        &call_a(),
+        "board_give",
+        json!({"to": "blake", "task_ids": ["mlg#1"]}),
+    );
+    has(&out, &["Gave 1 cards to "]);
+    assert!(r.cards()[0].given.is_some());
 }

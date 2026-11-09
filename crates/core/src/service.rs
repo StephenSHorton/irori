@@ -1472,6 +1472,17 @@ impl Core {
                                 .unwrap_or(false)
                         })
                     }),
+                    // Context and budget per local agent (card #1213).
+                    reusable: Some({
+                        let reuse = spawn_state.reuse.clone();
+                        Arc::new(move |key: &str| {
+                            reuse
+                                .read()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .get(key)
+                                .copied()
+                        })
+                    }),
                     // A working card on a shared board counts here too:
                     // one card at a time across logs (card #422).
                     busy_elsewhere: Some({
