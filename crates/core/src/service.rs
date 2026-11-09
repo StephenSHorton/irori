@@ -72,6 +72,7 @@ pub mod card_weights;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
+pub mod huddle_feed;
 pub mod huddle_host;
 pub mod huddle_packet;
 mod huddle_rules;
@@ -375,6 +376,8 @@ struct Services {
     held: huddle_session::HeldSessions,
     /// Which device hosts each person's assistant per huddle (card #1049).
     hosting: huddle_host::Hosting,
+    /// The live lines of the huddles this device serves (card #1050).
+    feed: huddle_feed::Feed,
     /// The themes new agents' names come from (card #702), shared with
     /// `names`.
     name_themes: Arc<name_themes::NameThemes>,
@@ -1704,6 +1707,7 @@ impl Core {
             asst: Default::default(),
             held: Default::default(),
             hosting: Default::default(),
+            feed: Default::default(),
             name_themes,
             invites,
         });
@@ -2150,6 +2154,8 @@ impl Core {
                         if ev.kind == kinds::TALK_POST {
                             s.talk_note(&ev);
                         }
+                        // A live line feeds the assistant (card #1050).
+                        s.huddle_line_row(&ev);
                     } else if ev.kind == kinds::MESSAGE_SENT {
                         // Agents' messages show as DMs (card #389); a
                         // notice, a stop or a mention's wake never does,

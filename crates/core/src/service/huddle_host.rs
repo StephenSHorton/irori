@@ -31,7 +31,7 @@ use std::time::{Duration, SystemTime};
 use coord::talk::{AssistInfo, is_person_key};
 
 use super::Services;
-use super::huddle_session::{HuddleSeed, LookError};
+use super::huddle_session::LookError;
 use crate::events::CoreEvent;
 
 /// `logf` with format arguments.
@@ -312,6 +312,15 @@ impl Services {
         !wanted.is_empty() || !lock(&self.hosting.calls).is_empty()
     }
 
+    /// Whether this device hosts `call` (it wrote `on`), as the last sweep
+    /// left it: cheap, for each line. The
+    /// full pick runs before each look ([`Services::huddle_hosting`]).
+    pub(crate) fn huddle_in(&self, call: &str) -> bool {
+        lock(&self.hosting.calls)
+            .get(call)
+            .is_some_and(|h| h.wrote_on && h.signed_out.is_none())
+    }
+
     /// Runs the pick for `call` now, and says whether this device hosts it:
     /// what a look asks before it runs (a host that woke from sleep finds
     /// out here that another took over).
@@ -368,11 +377,7 @@ impl Services {
                     }
                 }
                 if !self.huddle_is_open(call) {
-                    let seed = HuddleSeed {
-                        call_id: call.to_string(),
-                        conv_id: h.conv.clone(),
-                        ..HuddleSeed::default()
-                    };
+                    let seed = self.huddle_seed(call, &h.conv);
                     if let Err(e) = self.huddle_open(&seed) {
                         logf!("huddle {call}: the assistant didn't connect: {e}");
                         if looks_signed_out(&e) {
@@ -414,6 +419,7 @@ impl Services {
                     // The person left, or the call is over: nothing to
                     // keep, and a rejoin starts clean.
                     lock(&self.hosting.calls).remove(call);
+                    self.huddle_feed_forget(call);
                 }
             }
         }

@@ -1808,6 +1808,19 @@ impl Services {
             ) {
                 Ok(_) => {
                     self.hub.publish(CoreEvent::Talk);
+                    // The follows hear this row too; the feed drops the
+                    // second sighting by the line's id.
+                    self.huddle_line(&super::huddle_feed::Heard {
+                        call_id: call_id.to_string(),
+                        conv_id: conv.to_string(),
+                        device: self.device.id.clone(),
+                        seg: seq as i64,
+                        start_ms,
+                        end_ms,
+                        text: text.clone(),
+                        agents: true,
+                        by: self.user_sender().key,
+                    });
                     return;
                 }
                 // Kept for the fallback post, so nothing is lost (the gate
@@ -2345,6 +2358,13 @@ impl Core {
     /// reconnected mid-call and hasn't the rows to say so.
     pub fn call_over(&self, call_id: &str) -> bool {
         self.s.call_over(call_id)
+    }
+
+    /// How many lines the assistant feed holds for huddle `call_id` (for
+    /// tests: a line seen twice counts once).
+    #[doc(hidden)]
+    pub fn huddle_fed(&self, call_id: &str) -> usize {
+        self.s.huddle_fed(call_id)
     }
 
     /// Each person's assistant in huddle `call_id`, as the roster shows it
