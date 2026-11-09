@@ -347,7 +347,7 @@ fn write_agent(
 pub(crate) fn last_activity(c: &presence::AgentCard, now: &GoTime) -> String {
     let in_turn = !matches!(
         c.status.as_str(),
-        "" | "idle" | "gone" | coord::roster::NOT_ANSWERING
+        "" | "idle" | "gone" | coord::roster::NOT_ANSWERING | coord::roster::RESTING
     );
     if in_turn {
         let mut s = "in a turn now".to_string();

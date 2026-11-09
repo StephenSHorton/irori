@@ -1632,13 +1632,7 @@ fn an_old_process_stays_resting_and_a_revive_ends_the_rest() {
         !s.r.core.local_agents().iter().any(|a| a.key == k)
     });
     // Its own process, started before the rest, is listed again.
-    write_session(
-        &sessions,
-        "910001.json",
-        &sess(1),
-        "old",
-        s._work.path(),
-    );
+    write_session(&sessions, "910001.json", &sess(1), "old", s._work.path());
     wait_for(60, "stopped again", || {
         s.fake.stopped.lock().unwrap().len() >= 2
     });
@@ -1649,7 +1643,13 @@ fn an_old_process_stays_resting_and_a_revive_ends_the_rest() {
         !s.r.core.local_agents().iter().any(|a| a.key == k)
     });
     let f = sessions.join("910001.json");
-    write_session(&sessions, "910001.json", &sess(1), "revived", s._work.path());
+    write_session(
+        &sessions,
+        "910001.json",
+        &sess(1),
+        "revived",
+        s._work.path(),
+    );
     let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&f).unwrap()).unwrap();
     let later = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1661,4 +1661,37 @@ fn an_old_process_stays_resting_and_a_revive_ends_the_rest() {
     v["startedAt"] = later.into();
     std::fs::write(&f, serde_json::to_vec(&v).unwrap()).unwrap();
     wait_for(60, "the revive ended the rest", || !s.r.core.resting(&k));
+}
+
+/// The scratch run of card #1215: an Irori notice queued before the rest
+/// (here, the change that settled its card) is something it handed off,
+/// not something new for it: the agent stays resting.
+#[test]
+fn an_irori_notice_from_before_the_rest_doesnt_retire_it() {
+    let s = at_done_check();
+    let k = s.first();
+    past_grace(&s);
+    wait_for(60, "the rest asked for its hand-off", || rest_asked(&s, &k));
+    s.r.core
+        .inbox()
+        .send_with(
+            &inbox::system_sender(),
+            &inbox::Address::new(inbox::addr::AGENT, &k),
+            "Update on Fix the save: the person set it to canceled.",
+            inbox::SendOptions {
+                mode: inbox::mode::WAKE.into(),
+                reason: "watched".into(),
+                notice: true,
+                ..inbox::SendOptions::default()
+            },
+        )
+        .unwrap();
+    wait_rested(&s, 1, "it rested");
+    for _ in 0..5 {
+        s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    assert!(!ended(&s, 1), "a notice from before its rest retired it");
+    assert!(s.r.core.resting(&k));
+    assert!(rows_about(&s, store::kinds::AGENT_RETIRE, &k).is_empty());
 }

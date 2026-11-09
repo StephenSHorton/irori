@@ -655,11 +655,26 @@ impl Services {
     /// may start agents" is on. Never another member's text, which waits
     /// for its next turn as on any agent.
     fn came_for(&self, key: &str) -> bool {
+        let rested = self
+            .spawn
+            .resting
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(key)
+            .map(|c| c.status_since)
+            .unwrap_or_default();
         self.inbox
             .for_agent(key, false, usize::MAX)
             .iter()
             .any(|d| {
                 if d.mode == inbox::mode::NEXT_TURN || !d.hold.is_empty() {
+                    return false;
+                }
+                // Irori's notices from before the rest are about what it
+                // handed off as it rested (the change that settled its card,
+                // say), not something new for it. A person's own message
+                // still counts, whenever it came.
+                if d.message.notice && before(&d.created_at, &rested) {
                     return false;
                 }
                 let r = d.message.reason.as_str();
