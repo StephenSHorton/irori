@@ -23,6 +23,8 @@ export type AssistantAskSent = B.AssistantAskSent
 export type AssistantChatAct = B.AssistantChatAct
 export type AssistantChatActIn = B.AssistantChatActIn
 export type AssistantChatDraft = B.AssistantChatDraft
+export type AssistantChatFrom = B.AssistantChatFrom
+export type AssistantChatFromIn = B.AssistantChatFromIn
 export type AssistantChatItem = B.AssistantChatItem
 export type AssistantChatPage = B.AssistantChatPage
 export type AssistantChatPosted = B.AssistantChatPosted
@@ -325,6 +327,16 @@ export function AssistantChatActIn(p: Partial<B.AssistantChatActIn> = {}): B.Ass
 /** AssistantChatDraft with Go's zero values for every field left out. */
 export function AssistantChatDraft(p: Partial<B.AssistantChatDraft> = {}): B.AssistantChatDraft {
   return { "request": "", "post": "", "space": "", "asker": "", "text": "", "device": "", "at": 0, ...p } as B.AssistantChatDraft
+}
+
+/** AssistantChatFrom with Go's zero values for every field left out. */
+export function AssistantChatFrom(p: Partial<B.AssistantChatFrom> = {}): B.AssistantChatFrom {
+  return { "name": "", "words": "", ...p } as B.AssistantChatFrom
+}
+
+/** AssistantChatFromIn with Go's zero values for every field left out. */
+export function AssistantChatFromIn(p: Partial<B.AssistantChatFromIn> = {}): B.AssistantChatFromIn {
+  return { "name": "", "words": "", ...p } as B.AssistantChatFromIn
 }
 
 /** AssistantChatItem with Go's zero values for every field left out. */
