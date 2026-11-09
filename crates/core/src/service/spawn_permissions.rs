@@ -96,9 +96,13 @@ pub struct Spawn {
     pub prs: Vec<String>,
     /// "Review without asking" is on at spawn (merge-desk §12.8).
     pub reviews: bool,
+    /// A review card (merge-desk §12.10): never Bypass, its own short list,
+    /// none of the board's build or test rules, and no merge or push.
+    pub review: bool,
 }
 
 pub const SHARED_BOARD: &str = "bypass is never used in a shared space";
+pub const REVIEW_CARD: &str = "a review card never uses bypass and has its own short list";
 pub const OTHERS_TEXT: &str = "bypass is never used when the brief has another person's text";
 
 /// The permissions for `spawn` under the board's `p`.
@@ -110,6 +114,13 @@ pub fn spawn_permissions(p: &BoardPermissions, spawn: Spawn) -> SpawnPermissions
     } else {
         None
     };
+    if spawn.review {
+        return SpawnPermissions {
+            mode: ACCEPT_EDITS,
+            settings: Some(settings(&review_allow(&spawn), &review_deny(p))),
+            fell_back: (p.choice == Choice::Bypass).then_some(REVIEW_CARD),
+        };
+    }
     match (p.choice, refused) {
         (Choice::Bypass, None) => SpawnPermissions {
             mode: BYPASS,
@@ -179,6 +190,58 @@ fn allow_rules(p: &BoardPermissions, spawn: &Spawn) -> Vec<String> {
         }
     }
     for r in &p.allow {
+        let r = r.trim();
+        if !r.is_empty() && !out.iter().any(|o| o == r) {
+            out.push(r.to_string());
+        }
+    }
+    out
+}
+
+/// A review card's short list (merge-desk §12.8, §12.10): the irori tools,
+/// reading git, and `gh pr` reading, commenting and (while the setting is
+/// on) reviewing, each bound to its PR's URL. Nothing from the board's
+/// build or test rules, and no `git add`, `commit`, `rebase` or `push`.
+fn review_allow(spawn: &Spawn) -> Vec<String> {
+    let mut out: Vec<String> = [
+        "mcp__irori",
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git log:*)",
+        "Bash(git fetch:*)",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    for url in &spawn.prs {
+        let mut verbs = vec!["view", "diff", "checks", "comment"];
+        if spawn.reviews {
+            verbs.push("review");
+        }
+        for verb in verbs {
+            out.push(format!("Bash(gh pr {verb} {url})"));
+            out.push(format!("Bash(gh pr {verb} {url} *)"));
+        }
+    }
+    out
+}
+
+/// What a review card never runs: merging, checking out and pushing, and
+/// the board's own deny rules.
+fn review_deny(p: &BoardPermissions) -> Vec<String> {
+    let mut out: Vec<String> = [
+        "Bash(gh pr merge:*)",
+        "Bash(gh pr checkout:*)",
+        "Bash(git push:*)",
+        "Bash(git merge:*)",
+        "Bash(git checkout:*)",
+        "Bash(rm -rf:*)",
+        "Bash(rm -fr:*)",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    for r in &p.deny {
         let r = r.trim();
         if !r.is_empty() && !out.iter().any(|o| o == r) {
             out.push(r.to_string());

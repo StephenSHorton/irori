@@ -130,7 +130,10 @@ impl Services {
                     coord::CANCELED,
                     "couldn't start on their computer; trying the next person",
                 ) {
-                    logf(format_args!("desk: PR #{}: cancel review card: {e}", p.number));
+                    logf(format_args!(
+                        "desk: PR #{}: cancel review card: {e}",
+                        p.number
+                    ));
                     pending = true;
                 }
             } else {

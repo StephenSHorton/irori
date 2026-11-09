@@ -186,7 +186,11 @@ impl Services {
                  comments, and never merges, pushes or runs its code. You can turn the \
                  question off in Settings › Agents (Start a reviewer on this machine when \
                  nobody else fits).",
-                repo = if t.repo_key.is_empty() { "this repo" } else { &t.repo_key },
+                repo = if t.repo_key.is_empty() {
+                    "this repo"
+                } else {
+                    &t.repo_key
+                },
             );
         }
         format!(
@@ -374,12 +378,35 @@ impl Services {
             BriefMore::default(),
         );
         let setting = self.spawn_setting(&b.id);
+        // A review card's rules bind to its PR card's PR alone, whatever
+        // else its links name: the card's links are the author's to edit
+        // (merge-desk §12.10).
+        let rt;
+        let perm_card = if t.review_of.is_empty() {
+            t
+        } else {
+            let pr = log
+                .co
+                .get_task(&t.review_of)
+                .and_then(|c| c.pr_card.map(|k| k.pr))
+                .unwrap_or_default();
+            rt = Task {
+                links: t
+                    .links
+                    .iter()
+                    .filter(|l| l.reference == pr)
+                    .cloned()
+                    .collect(),
+                ..t.clone()
+            };
+            &rt
+        };
         let perms = spawn_permissions(
             &setting,
             &b.id,
             &repo_key,
             &brief,
-            t,
+            perm_card,
             self.reviews_unasked(),
         );
         let ask = SpawnAsk {
