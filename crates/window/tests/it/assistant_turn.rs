@@ -70,6 +70,7 @@ fn job(turn: &str) -> ChatJob {
         grants: Vec::new(),
         cancel: Arc::new(AtomicBool::new(false)),
         kind: ChatKind::Chat,
+        files: Vec::new(),
     }
 }
 

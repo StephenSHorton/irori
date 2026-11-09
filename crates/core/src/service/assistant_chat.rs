@@ -92,6 +92,9 @@ pub struct ChatJob {
     /// run ends at once.
     pub cancel: Arc<AtomicBool>,
     pub kind: ChatKind,
+    /// The files that came with the question: the window reads them from
+    /// its store, fetching from the device that holds them if need be.
+    pub files: Vec<AskedFile>,
 }
 
 /// How a run ended.
@@ -124,6 +127,8 @@ pub const MAX_TEXT: usize = inbox::MAX_PERSON_TEXT;
 /// The most of the asking device's screen a question carries, in
 /// characters, as the window sends today.
 pub const MAX_SCREEN_CHARS: usize = 4000;
+/// The most files one question carries.
+pub const MAX_FILES: usize = 10;
 /// A page of the list when the caller names no size.
 pub const PAGE: usize = 50;
 /// The most one page holds.
@@ -141,6 +146,25 @@ pub fn actor_of(kind: &str) -> Option<&'static str> {
 
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+/// A file that came with a question (card #999, one-assistant card 4): a
+/// reference only. The bytes stay on the device that holds them (`device`),
+/// which offers them to the person's other devices; the assistant's computer
+/// fetches them when it runs the turn.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AskedFile {
+    pub sha256: String,
+    pub name: String,
+    pub size: i64,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub mime: String,
+    /// The device that holds the bytes.
+    pub device: String,
+    /// The window checked, when it took the file in, whether the assistant
+    /// can read this kind of file.
+    pub can_read: bool,
 }
 
 /// A question the person typed (`assistant.chat.asked`).
@@ -166,6 +190,9 @@ pub struct Asked {
     /// The huddle it was asked from (call-agents card 11, Divide).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub call_id: String,
+    /// The files that came with it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<AskedFile>,
 }
 
 /// A thread a reply posted, or the person posted from its draft.
@@ -323,6 +350,9 @@ impl ChatRow {
     /// Refuses a row the fold would never show: one with no id to fold by.
     fn check(&self) -> Result<(), String> {
         let (what, id) = match self {
+            ChatRow::Asked(r) if r.files.len() > MAX_FILES => {
+                return Err(format!("at most {MAX_FILES} files"));
+            }
             ChatRow::Asked(r) => ("turn", &r.turn),
             ChatRow::Said(r) => ("turn", &r.turn),
             ChatRow::Posted(r) if r.posted.id.trim().is_empty() => {
@@ -349,6 +379,9 @@ impl ChatRow {
         match self {
             ChatRow::Asked(r) => {
                 text(&mut r.text);
+                for file in &mut r.files {
+                    text(&mut file.name);
+                }
                 r.screen = f(&r.screen).chars().take(MAX_SCREEN_CHARS).collect();
             }
             ChatRow::Said(r) => {
@@ -519,6 +552,9 @@ impl Place {
 #[derive(Debug, Default)]
 pub struct Fold {
     m: Mutex<State>,
+    /// Held across an import's check and its writes, so two calls can't
+    /// both pass the check.
+    import_gate: Mutex<()>,
 }
 
 impl Fold {
@@ -736,6 +772,15 @@ impl Fold {
         self.turn_at(id).map(|t| t.turn)
     }
 
+    /// Whether any imported row is held, hidden by New chat or not: the
+    /// import happens once.
+    pub(crate) fn has_imported(&self) -> bool {
+        let st = self.lock();
+        st.asked.values().any(|a| a.row.imported)
+            || st.said.values().any(|a| a.row.imported)
+            || st.updates.values().any(|a| a.row.imported)
+    }
+
     /// The questions with no reply that New chat doesn't hide, imported
     /// ones left out, in store order: each with its turn and whether the
     /// person stopped it.
@@ -805,7 +850,7 @@ impl Fold {
                         continue;
                     }
                     flush(&mut out, &mut ups);
-                    out.push((false, t.asked.text.clone()));
+                    out.push((false, with_files(&t.asked)));
                     out.push((true, reply_text(&said.text, t.posted.as_ref())));
                 }
                 ChatEntry::Update(u) => ups.push(u.text),
@@ -817,6 +862,29 @@ impl Fold {
         out.drain(..skip);
         out
     }
+}
+
+/// A question's words for the history, with a line naming its files, those
+/// read and those not (so the model never answers as if it had read one).
+fn with_files(a: &Asked) -> String {
+    let names = |can_read: bool| -> Vec<String> {
+        a.files
+            .iter()
+            .filter(|f| f.can_read == can_read)
+            .map(|f| format!("{:?}", f.name))
+            .collect()
+    };
+    let (read, unread) = (names(true), names(false));
+    let mut out = a.text.trim().to_string();
+    for (head, list) in [("attached", read), ("attached, not readable", unread)] {
+        if !list.is_empty() {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&format!("[{head}: {}]", list.join(", ")));
+        }
+    }
+    out
 }
 
 fn decode<T: for<'de> Deserialize<'de>>(ev: &Event) -> Option<T> {
@@ -891,8 +959,39 @@ impl Core {
         screen: &str,
         again: &str,
     ) -> Result<String, String> {
-        if text.trim().is_empty() {
+        self.assistant_chat_ask_from(text, screen, again, "", Vec::new())
+    }
+
+    /// [`Self::assistant_chat_ask`] with the files that go with the
+    /// question. A question may be files and no words.
+    pub fn assistant_chat_ask_with(
+        &self,
+        text: &str,
+        screen: &str,
+        again: &str,
+        files: Vec<AskedFile>,
+    ) -> Result<String, String> {
+        self.assistant_chat_ask_from(text, screen, again, "", files)
+    }
+
+    /// [`Self::assistant_chat_ask_with`] from a huddle (Divide with my
+    /// assistant, call-agents §9): `call_id` is the huddle, or "". The
+    /// assistant's computer then puts the huddle in the prompt, fenced.
+    /// Refused when the huddle isn't here or isn't over.
+    pub fn assistant_chat_ask_from(
+        &self,
+        text: &str,
+        screen: &str,
+        again: &str,
+        call_id: &str,
+        files: Vec<AskedFile>,
+    ) -> Result<String, String> {
+        if text.trim().is_empty() && files.is_empty() {
             return Err("ask something first".into());
+        }
+        let call_id = call_id.trim();
+        if !call_id.is_empty() {
+            self.s.huddle_divide_context(call_id)?;
         }
         let now = (self.s.now)();
         let turn = coord::new_id(&now);
@@ -903,6 +1002,8 @@ impl Core {
             device: self.s.device.id.clone(),
             at: now.unix_milli_value(),
             again: again.trim().to_string(),
+            call_id: call_id.to_string(),
+            files,
             ..Asked::default()
         }))?;
         Ok(turn)
@@ -922,10 +1023,220 @@ impl Core {
         Ok(())
     }
 
+    /// Now, in unix milliseconds, as the rows stamp `at`.
+    pub fn assistant_chat_now(&self) -> i64 {
+        (self.s.now)().unix_milli_value()
+    }
+
+    /// Brings this computer's old chat history in, once (one-assistant §10,
+    /// card #1105): refused unless this device is the assistant's computer
+    /// and no imported row is held yet. The rows are `imported`, scrubbed
+    /// like any row, written in the history's order, and never run.
+    pub fn assistant_chat_import(&self, entries: &[ImportEntry]) -> Result<Imported, String> {
+        let _gate = self
+            .s
+            .assistant_chat
+            .import_gate
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if !self.s.is_assistant_home() {
+            return Err("only the assistant's computer imports its history".into());
+        }
+        if self.s.assistant_chat.has_imported() {
+            return Err(ALREADY_IMPORTED.into());
+        }
+        if entries.len() > MAX_IMPORT {
+            return Err(format!("at most {MAX_IMPORT} entries"));
+        }
+        let now = (self.s.now)();
+        let mut new_turn = || coord::new_id(&now);
+        let rows = import_rows(
+            entries,
+            &self.s.device.id,
+            now.unix_milli_value(),
+            &mut new_turn,
+        );
+        let mut done = Imported::default();
+        for row in rows {
+            match &row {
+                ChatRow::Asked(_) => done.turns += 1,
+                ChatRow::Update(_) => done.updates += 1,
+                _ => {}
+            }
+            self.s.write_chat(row)?;
+        }
+        Ok(done)
+    }
+
     /// Turn `turn` as the fold has it, hidden by New chat or not.
     pub fn assistant_chat_turn(&self, turn: &str) -> Option<ChatTurn> {
         self.s.assistant_chat.turn(turn)
     }
+}
+
+// ---- moving today's history (card #1105, one-assistant.md §10) ---------------
+
+/// The refusal for a second import. The chat treats it as done.
+pub const ALREADY_IMPORTED: &str = "the history was already imported";
+
+/// The most entries one import takes: the old chat kept 50.
+pub const MAX_IMPORT: usize = 500;
+
+/// The words on a person's question the old history has no reply for.
+pub const NO_REPLY: &str = "(no reply)";
+
+/// One entry of the old localStorage history, as `parseHistory` read it
+/// (`frontend/src/lib/assistant.ts`'s `ChatEntry`).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct ImportEntry {
+    /// `person` or `assistant`.
+    pub role: String,
+    pub text: String,
+    /// A plain line of the chat's own (an error, "Stopped.").
+    pub note: bool,
+    /// A note saying what the chat changed.
+    pub changed: bool,
+    pub posted: Option<Posted>,
+    /// The thread an assistant line follows: the entry is a follow-up line.
+    pub update: String,
+    pub act: Option<Act>,
+    /// A reply sent on a thread by an older build: not a question.
+    pub to: String,
+    /// The label of the screen the reply looked at.
+    pub looked: String,
+}
+
+/// What an import wrote.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Imported {
+    pub turns: usize,
+    pub updates: usize,
+}
+
+/// A reply being gathered from the assistant entries after one question.
+#[derive(Default)]
+struct Gathered {
+    texts: Vec<String>,
+    changed: Vec<String>,
+    errors: Vec<String>,
+    posted: Option<Posted>,
+    looked: String,
+}
+
+impl Gathered {
+    fn into_said(self, turn: &str, device: &str, at: i64) -> Said {
+        let none = self.texts.is_empty() && self.changed.is_empty() && self.errors.is_empty();
+        Said {
+            turn: turn.into(),
+            text: self.texts.join("\n\n"),
+            changed: self.changed,
+            posted: self.posted,
+            looked: self.looked,
+            error: if none {
+                NO_REPLY.into()
+            } else {
+                self.errors.join("\n")
+            },
+            device: device.into(),
+            at,
+            imported: true,
+            ..Said::default()
+        }
+    }
+}
+
+/// Maps the old history to rows (§10), in the order they must be written;
+/// every row is `imported`. `new_turn` makes a turn id.
+///
+/// - A person's entry becomes an `asked` row.
+/// - The assistant entries after it, up to the next person's entry, become
+///   its `said` row: the text, its `posted`, its `changed` notes, and an
+///   error note as `error`. `looked` keeps only the label.
+/// - A question with no reply gets a `said` row whose `error` is
+///   "(no reply)", so nothing imported is left unanswered.
+/// - `update` entries become `update` rows keyed by thread and text.
+/// - Assistant entries before the first question (the 50-line cap cut it),
+///   and old `to` entries (and the assistant entries after them), are
+///   dropped.
+pub fn import_rows(
+    entries: &[ImportEntry],
+    device: &str,
+    at: i64,
+    new_turn: &mut dyn FnMut() -> String,
+) -> Vec<ChatRow> {
+    let mut rows = Vec::new();
+    // The open question and its gathered reply.
+    let mut open: Option<(String, Gathered)> = None;
+    let close = |open: &mut Option<(String, Gathered)>, rows: &mut Vec<ChatRow>| {
+        if let Some((turn, g)) = open.take() {
+            rows.push(ChatRow::Said(g.into_said(&turn, device, at)));
+        }
+    };
+    for e in entries {
+        let text = e.text.trim();
+        match e.role.as_str() {
+            "person" => {
+                close(&mut open, &mut rows);
+                if !e.to.is_empty() {
+                    continue;
+                }
+                let turn = new_turn();
+                rows.push(ChatRow::Asked(Asked {
+                    turn: turn.clone(),
+                    text: if text.is_empty() {
+                        "(attachment)"
+                    } else {
+                        text
+                    }
+                    .into(),
+                    device: device.into(),
+                    at,
+                    imported: true,
+                    ..Asked::default()
+                }));
+                open = Some((turn, Gathered::default()));
+            }
+            "assistant" if !e.update.is_empty() => {
+                if text.is_empty() {
+                    continue;
+                }
+                rows.push(ChatRow::Update(Update {
+                    key: format!("{}:{}", e.update, text),
+                    thread: e.update.clone(),
+                    text: text.into(),
+                    act: e.act.clone(),
+                    at,
+                    imported: true,
+                    ..Update::default()
+                }));
+            }
+            "assistant" => {
+                let Some((_, g)) = open.as_mut() else {
+                    continue;
+                };
+                if text.is_empty() {
+                    continue;
+                }
+                if e.note && e.changed {
+                    g.changed.push(text.into());
+                } else if e.note {
+                    g.errors.push(text.into());
+                } else {
+                    g.texts.push(text.into());
+                    if g.posted.is_none() {
+                        g.posted = e.posted.clone().filter(|p| !p.id.is_empty());
+                    }
+                    if g.looked.is_empty() {
+                        g.looked = e.looked.trim().into();
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    close(&mut open, &mut rows);
+    rows
 }
 
 #[cfg(test)]

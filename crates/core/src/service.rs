@@ -77,6 +77,7 @@ mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
 pub mod huddle_canvas;
+mod huddle_divide;
 mod huddle_end;
 pub mod huddle_feed;
 pub mod huddle_host;

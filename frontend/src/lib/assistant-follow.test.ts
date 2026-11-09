@@ -5,7 +5,9 @@ import {
   facts,
   finished,
   news,
+  isSilentKey,
   parseSeen,
+  silentOnly,
   quiet,
   workThread,
   type Fact,
@@ -593,5 +595,70 @@ describe("the follower's minimum gap (card #1136)", () => {
     expect(starts.length).toBe(2)
     expect(starts[1] - starts[0]).toBeGreaterThanOrEqual(95)
     f.stop()
+  })
+})
+
+describe("the follower on rows (one-assistant card 4)", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 0))
+  const withAsk = thread({
+    asks: [
+      {
+        id: "b1",
+        question: "Ship?",
+        by: "otter",
+        doneCheck: false,
+        permission: false,
+      },
+    ],
+  })
+
+  test("a line another device already said is not said again", async () => {
+    const said: string[][] = []
+    const f = createFollower({
+      ids: () => ["t1"],
+      read: async () => new Map([["t1", withAsk]]),
+      listen: () => () => {},
+      load: () => ({}),
+      shown: () => ["ask:t1:b1"],
+      save: () => {},
+      say: (_id, lines) => said.push(keys(lines)),
+      delayMs: 0,
+    })
+    await flush()
+    expect(said.flat()).toEqual([])
+    f.stop()
+  })
+  test("a thread with no local entry says what waits and the rows lack", async () => {
+    const said: string[][] = []
+    const f = createFollower({
+      ids: () => ["t1"],
+      read: async () => new Map([["t1", withAsk]]),
+      listen: () => () => {},
+      load: () => ({}),
+      shown: () => [],
+      save: () => {},
+      say: (_id, lines) => said.push(keys(lines)),
+      delayMs: 0,
+    })
+    await flush()
+    expect(said.flat()).toEqual(["ask:t1:b1"])
+    f.stop()
+  })
+  test("only the facts never said are kept on this device", () => {
+    expect(
+      ["taken", "made:c1", "start:c1", "done:c1", "closed"].every(isSilentKey)
+    ).toBe(true)
+    expect(
+      ["cant", "perm:c:b", "ready:c:b", "ask:c:b:r2"].some(isSilentKey)
+    ).toBe(false)
+    expect(
+      silentOnly({
+        t1: { said: ["taken", "ask:t1:b1", "cant", "made:c1"], done: true },
+        t2: { said: null },
+      })
+    ).toEqual({
+      t1: { said: ["taken", "made:c1"], done: true },
+      t2: { said: null },
+    })
   })
 })
