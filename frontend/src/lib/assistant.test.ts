@@ -302,6 +302,10 @@ describe("Ask Irori's drafted thread (card #783)", () => {
         check: true,
         space: "mlg",
       })
+    // The line is matched exactly, as the Rust side matches it.
+    expect(splitDraft(`<<Thread in:mlg>>\nFix it.\n${DraftClose}`).draft).toBe(
+      ""
+    )
     // Not a tag: no draft.
     expect(splitDraft(`<<thread in:#5 x>>\nFix it.\n${DraftClose}`).draft).toBe(
       ""

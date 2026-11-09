@@ -630,8 +630,14 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     };
     let me = &c.sender.key;
     let mut v = s.board_view(&repo, me, done_limit);
+    // With a space, only the done cards read can be counted: a log with
+    // more than MAX_DONE_CARD says so with "+".
+    let mut done_more = "";
     if let Some(sp) = &space {
-        sp.keep(&mut v);
+        if (v.done.len() as i64) < v.done_total {
+            done_more = "+";
+        }
+        s.keep_space(sp, &mut v);
         v.done_total = v.done.len() as i64;
         v.done.truncate(coord::DEFAULT_DONE_CARD as usize);
     }
@@ -661,7 +667,7 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         + v.open.len()
         + v.later.len();
     let head = format!(
-        "Board for {where_}: {open} open cards, {} done",
+        "Board for {where_}: {open} open cards, {}{done_more} done",
         v.done_total
     );
     if open == 0 && v.leases.is_empty() && (!done || v.done_total == 0) {
@@ -677,9 +683,11 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     const HINT_ROOM: usize = 200;
     // The list of spaces that follows the cards (around_board) must
     // survive the clip: it is how a caller finds another space (#1198).
+    // Its room covers the hint lines written after the cards too.
+    const TAIL_HINTS: usize = 300;
     let tail = s
         .boards_section(c)
-        .map_or(0, |t| (t.len() + 1).min(MAX_RESULT / 3));
+        .map_or(0, |t| (t.len() + 1 + TAIL_HINTS).min(MAX_RESULT / 2));
     let budget = MAX_RESULT - HINT_ROOM - tail;
     let mut cut = 0;
     // Card #570: where each card sits in its order, found once.

@@ -83,35 +83,13 @@ pub struct PersonalBoard {
     pub closed: bool,
 }
 
-/// One space the board tool lists by itself (card #1198): its cards are
-/// the ones on its boards' tags. Personal's are the ones on no shared
-/// space's tag, so `tags` there are the ones to leave out.
+/// One space the board tool lists by itself (card #1198), by the log its
+/// cards are on: a shared space's id, or `None` for Personal. A tag alone
+/// can't say, as a space joined later may share a tag with Personal's.
 #[derive(Debug, Clone)]
 pub(crate) struct SpaceFilter {
     pub(crate) label: String,
-    tags: Vec<String>,
-    personal: bool,
-}
-
-impl SpaceFilter {
-    fn has(&self, t: &coord::Task) -> bool {
-        self.tags.contains(&t.tag.to_lowercase()) != self.personal
-    }
-
-    /// Keeps only this space's cards in `v`.
-    pub(crate) fn keep(&self, v: &mut coord::BoardView) {
-        for g in [
-            &mut v.needs_you,
-            &mut v.blocked,
-            &mut v.working,
-            &mut v.open,
-            &mut v.later,
-            &mut v.done,
-        ] {
-            g.retain(|cd| self.has(&cd.task));
-        }
-        v.leases.clear();
-    }
+    space: Option<String>,
 }
 
 /// The id of Personal's default board, as Core names it
@@ -608,6 +586,23 @@ impl Inner {
         Some(s)
     }
 
+    /// Keeps only space `sp`'s cards in `v` (card #1198).
+    pub(crate) fn keep_space(&self, sp: &SpaceFilter, v: &mut coord::BoardView) {
+        let sb = self.shared();
+        let on = |t: &Task| sb.and_then(|sb| sb.board_of(&t.id)).map(|b| b.board_id);
+        for g in [
+            &mut v.needs_you,
+            &mut v.blocked,
+            &mut v.working,
+            &mut v.open,
+            &mut v.later,
+            &mut v.done,
+        ] {
+            g.retain(|cd| on(&cd.task) == sp.space);
+        }
+        v.leases.clear();
+    }
+
     /// The space `named` names for the board tool's `space` (card #1198):
     /// "personal", a space's name, or the tag of any board in it. `None`
     /// for an empty name; an unknown one is refused with the spaces there
@@ -618,47 +613,64 @@ impl Inner {
             return Ok(None);
         }
         let shared: Vec<BoardInfo> = self.shared().map(|sb| sb.boards()).unwrap_or_default();
-        let space_tags: Vec<String> = shared.iter().map(|b| b.tag.to_lowercase()).collect();
-        let personal = self.b.personal_boards();
-        if want == PERSONAL_DEFAULT
-            || personal.iter().any(|b| {
-                b.tag.to_lowercase() == want || b.name.to_lowercase() == want
-            })
-        {
-            return Ok(Some(SpaceFilter {
-                label: "Personal".into(),
-                tags: space_tags,
-                personal: true,
-            }));
-        }
-        let hit = shared.iter().find(|b| {
-            b.tag.to_lowercase() == want
+        let personal = PERSONAL_DEFAULT == want
+            || self
+                .b
+                .personal_boards()
+                .iter()
+                .any(|b| b.tag.to_lowercase() == want || b.name.to_lowercase() == want);
+        let mut hits: Vec<&BoardInfo> = Vec::new();
+        for b in &shared {
+            let named = b.tag.to_lowercase() == want
                 || b.space().to_lowercase() == want
-                || b.name.to_lowercase() == want
-        });
-        let Some(hit) = hit else {
-            let mut names: Vec<String> = vec!["personal".into()];
-            for b in &shared {
+                || b.name.to_lowercase() == want;
+            if named && !hits.iter().any(|h| h.board_id == b.board_id) {
+                hits.push(b);
+            }
+        }
+        let spaces = |only: &[&BoardInfo]| -> Vec<String> {
+            let mut names: Vec<String> = Vec::new();
+            for b in only {
                 let n = format!("{} ({})", q(&one_line(b.space(), 80)), b.tag);
                 if !b.closed && !names.contains(&n) {
                     names.push(n);
                 }
             }
-            return Err(err_text(&format!(
-                "no space here is called {}: give personal, a space's name or one of its board tags: {}.",
-                q(&one_line(named, 80)),
-                names.join(", ")
-            )));
+            names
         };
-        let tags = shared
-            .iter()
-            .filter(|b| b.board_id == hit.board_id)
-            .map(|b| b.tag.to_lowercase())
-            .collect();
+        // "personal" is always Personal; another name for two spaces is
+        // asked again by a tag, never picked.
+        match (personal, hits.as_slice()) {
+            (true, []) => {}
+            (true, _) if want == PERSONAL_DEFAULT => {}
+            (false, [hit]) => {
+                return Ok(Some(SpaceFilter {
+                    label: format!("space {}", q(&one_line(hit.space(), 80))),
+                    space: Some(hit.board_id.clone()),
+                }));
+            }
+            (false, []) => {
+                let mut names = vec!["personal".to_string()];
+                names.extend(spaces(&shared.iter().collect::<Vec<_>>()));
+                return Err(err_text(&format!(
+                    "no space here is called {}: give personal, a space's name or one of its board tags: {}.",
+                    q(&one_line(named, 80)),
+                    names.join(", ")
+                )));
+            }
+            (p, many) => {
+                let mut names = if p { vec!["personal".to_string()] } else { vec![] };
+                names.extend(spaces(many));
+                return Err(err_text(&format!(
+                    "{} names more than one space: {}; give the board tag of the one you mean.",
+                    q(&one_line(named, 80)),
+                    names.join(", ")
+                )));
+            }
+        }
         Ok(Some(SpaceFilter {
-            label: format!("space {}", q(&one_line(hit.space(), 80))),
-            tags,
-            personal: false,
+            label: "Personal".into(),
+            space: None,
         }))
     }
 

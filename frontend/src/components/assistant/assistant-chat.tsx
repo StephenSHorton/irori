@@ -1177,7 +1177,7 @@ function DraftThread({
       {space && (
         <p className="text-[12px] text-muted-foreground" data-draft-space="">
           {where
-            ? `For the shared space “${where.name}”: everyone in it sees it.`
+            ? `For the shared space “${where.name}”.`
             : `For a space tagged ${space}, which isn't here.`}
         </p>
       )}

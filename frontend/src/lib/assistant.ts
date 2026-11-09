@@ -1257,7 +1257,8 @@ export const DraftClose = "<</thread>>"
 // "<<thread check in:mlg>>") with one of the space's board tags. Everyone
 // there sees it, so it always waits for Post thread
 // (crates/core/src/assistant_draft.rs, find_open).
-const draftOpen = /<<thread( check)?(?: in:([a-z][a-z0-9-]{0,15}))?>>/i
+// Matched as Rust matches it: the line exactly, only the tag in any case.
+const draftOpen = /<<thread( check)?(?: in:([A-Za-z][A-Za-z0-9-]{0,15}))?>>/
 
 export type Split = {
   // The reply without the draft.

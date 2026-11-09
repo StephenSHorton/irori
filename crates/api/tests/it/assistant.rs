@@ -565,6 +565,15 @@ fn assistant_finds_and_lists_cards_in_another_space() {
     assert!(!text.contains("lobby lighting"), "{text}");
     let (_, text) = call(&rig, &h, "board", json!({ "space": "nope" }));
     assert!(text.starts_with("Error") && text.contains("(mlg)"), "{text}");
+    // A name two spaces share is asked again by tag, never picked.
+    rig.core.create_board("mlg farming", "farm").unwrap();
+    let (_, text) = call(&rig, &h, "board", json!({ "space": "mlg farming" }));
+    assert!(
+        text.starts_with("Error") && text.contains("more than one space"),
+        "{text}"
+    );
+    let (_, text) = call(&rig, &h, "board", json!({ "space": "farm" }));
+    assert!(!text.contains("lobby lighting"), "{text}");
     // Every space, then how to open one: not board_create, which the
     // assistant doesn't have.
     let (_, text) = call(&rig, &h, "board", json!({}));

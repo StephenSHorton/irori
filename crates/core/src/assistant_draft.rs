@@ -341,6 +341,9 @@ mod tests {
             assert!(!posts_by_itself(&raw), "{open}");
             assert_eq!(has_draft(&raw), Some(true), "{open}");
         }
+        // The line is matched exactly, as the chat matches it.
+        let raw = format!("<<Thread in:mlg>>\nFix it.\n{DRAFT_CLOSE}");
+        assert_eq!(split_draft_done(&raw).draft, "");
         // Not a tag: no draft at all, so nothing to post anywhere.
         let raw = format!("<<thread in:#5 x>>\nFix it.\n{DRAFT_CLOSE}");
         assert_eq!(split_draft_done(&raw).draft, "");
