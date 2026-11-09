@@ -1,6 +1,6 @@
 # Event-driven window: signals that say what changed: design
 
-*2026-11-08, card #1138. It comes from the person's question on #1134: "I don't know why we update that many times when we're just looking at it… Can we get more event driven?" Design only: nothing here is built yet. The build cards are in §9. Checked against main at `3f8d9224` (after #1136) by ten readers: five mapped the code and five checked the design's inputs. Line numbers are approximate, so go by the names.*
+*2026-11-08, card #1138. It comes from the person's question on #1134: "I don't know why we update that many times when we're just looking at it… Can we get more event driven?" Design only: nothing here is built yet. The build cards are in §9. Checked against main at `3f8d9224` (after #1136) by ten readers (five mapped the code, five checked the design's inputs), then by four adversarial reviews (staleness, core correctness, the frontend, buildability), each finding checked by a skeptic. The 23 findings that held are folded in. Line numbers are approximate, so go by the names.*
 
 Irori's devices already push changes to each other. A row written on one device reaches the others over the mesh with no polling, which is the "webhook-like system" the person asked about. The waste is inside each device. The Core tells its window only that *something* changed. `board:changed`, `talk:changed`, `notifications:changed`, `devices:changed`, `boards:changed` and `assistant:changed` all carry `{}`, so on each one the window reads its whole lists again:
 
@@ -20,10 +20,10 @@ This design gives each signal the ids it touched and a sequence number. Each lis
 | D1 | **Every list signal carries `seq`, `all` and the ids it touched** (§4). `all: true` means "read everything", as today. | The ids are already in the coalesced batch (`irori_core::events::coalesce` hands the pump a `Vec<CoreEvent>`); the pumps throw them away (`|_|`). |
 | D2 | **When in doubt, `all`.** A kind the pump can't attribute to ids, any `Resync` in the batch, a whole-table change and any lost event set `all`. | Patching is only safe when the ids are complete. A wrong `all` costs one full read (today's cost); a missing id costs a stale row. |
 | D3 | **Every hop that drops events silently gets a lost flag, so a drop becomes `all`** (§3.1). | Today a dropped event is harmless because the next one re-reads everything. Once events carry ids, it is a stale row that nothing brings back. |
-| D4 | **`seq` is counted per event name on `Window`, when the event is sent. A gap at the page means `all`.** The page takes the first `seq` it sees as its starting point. | Events from the pump to the page arrive in order. A gap means the page didn't hear one: a held `OnShown`, a late listener, a reloaded webview. One shared listener module, attached before the first read, makes "the first seq seen is the start" sound (§5). |
+| D4 | **`seq` is counted per event name on `Window`, when the event is sent. A gap at the page means `all`.** The page takes the first `seq` it sees as its starting point. | Events from the pump to the page arrive in order. A gap means the page didn't hear one: a held `OnShown`, a late listener, a reloaded webview. Tauri's `listen` goes live some time after it is called, so a list's first notice after it mounts is always `all` (§5). That rule, not the order things attach in, is what makes "the first seq seen is the start" safe. |
 | D5 | **The window expands the touched ids to every card or thread whose row shows them** (§3.3). The page asks for exactly the ids it is sent. | A row shows other cards: parent, subtasks, followers, wait chains, made cards. Only the window has the graph. It needs the expansion for the tray count anyway (§6.1). |
 | D6 | **The card grid keeps its order in Rust**: a summary cache in the window, a patch read that returns the changed rows and the whole order (§6.1). | The TypeScript port of the sort used by the sample already differs from Rust in four ways (ms vs ns times, no id tiebreak, kids by `parseInt(short)`, kids by `parent.id`). Two copies of the sort would drift apart without anyone noticing. |
-| D7 | **A slow full read while shown checks the patches.** Every 5 minutes, each patched list does one full read and logs how many rows differed (`drift`). | It is the test for "lists never go stale", and it catches what a patch missed. A bug in the expansion shows up in the log, not in the person's view. |
+| D7 | **A slow full read while shown checks the patches** (§5). Every 5 minutes, each patched list does one full read and logs how many rows differed (`drift`). For the grid that read is **cold**: it is built without the summary cache, so a cache bug shows up too (`drift cards-cache`). | It is the test for "lists never go stale", and it catches what a patch missed. A bug in the expansion shows up in the log and heals within 5 minutes; the person doesn't see it. |
 | D8 | **Measure first** (§8, card 1). Every signal is counted, every list named, every read path counted, and IPC is counted per command, all in the per-minute `window: lists` line. | Today the line counts 3 of 7 signals and names 3 lists, and the card store, desk, boards, refs, freshness and follower reads don't show. The Mac log's slowest read on 11/08 was 209 s, logged as "a list". A before/after needs names. |
 | D9 | **No setting.** It is how the window reads. | Decision 52. |
 
@@ -97,13 +97,15 @@ Each of these becomes `all` instead of a lost event:
 
 | Hop | Today | Change |
 |---|---|---|
-| Shared board changes: the "changes" thread in `start_board` → `Boards::tell` → window relay → the board feed's queue | `Boards::tell` ignores `push`'s result. The relay pushes straight into the hub feed's queue, bypassing `Hub::publish`'s lost flag. | **Reroute**: the changes thread calls `s.hub.publish(CoreEvent::Board(ch))`. Delete the relay's `board_q` push. `Boards::tell`/`moved()` stay for `boards:changed` only, and `moved()`'s zero `Change` stops going into the card feed. Then one producer path feeds the Board topic and the hub's existing lost flag covers private and shared alike. |
+| Shared board changes: the "changes" thread in `start_board` → `Boards::tell` → window relay `irori-window-boards` → the board feed's own queue | `Boards::tell` ignores `push`'s result. The relay pushes straight into the hub feed's queue, so `Hub::publish`'s lost flag never covers these changes. | **Reroute card changes through the hub.** In the changes thread, `s.hub.publish(CoreEvent::Board(ch))` replaces `s.boards.tell(ch)` inside the not-DM arm. The `is_dm_space` skip, `asks_kick` before it and `settle_notifications` after it stay as they are. The relay stops pushing real changes into `board_q`. **A board opening, being left, forgotten, renamed, changing members or a DM space being hidden** (`Boards::moved()`'s zero `Change`, about 30 sites) still has to reach the card lists. Today it does so only through this relay: an opened board's cards arrive by replay, and `Fold::note` sends nothing while replaying. So the relay keeps one job: on a zero `Change` it pushes to `moved_q` (`boards:changed`) **and** pushes `CoreEvent::Resync` into the board feed, which the pump turns into `board:changed{all}`. |
+| `Boards::tell` (now only zero changes) | ignores `push` | a lost flag per subscriber. A lost one sends a zero `Change` next, so both `boards:changed` and `board:changed{all}` follow. |
 | Inbox fan-out, `Inner::unlock` (`inbox/src/state.rs`) | `let _ = q.push(c)` | a lost flag per subscriber, and a new `ChangeKind::Resync` swapped in while it is set |
-| `Kick::notify` (window `events.rs`) | ignores `push` | an `AtomicBool` the inbox pump reads and clears, so a kick can't be lost |
-| `Boards::tell` (now only `boards:changed`) | ignores `push` | a lost flag, so a lost one still sends `boards:changed` |
-| approvals `Book::flush` | ignores `push` | not needed: no window list reads asks except through `settle_notifications`, which is idempotent. Left as is. |
+| `Kick::notify` (window `events.rs`) | ignores `push` | keep the push, which wakes the pump, and also set an `AtomicBool`. The pump reads and clears it every batch and treats it as `all`, so a kick still counts when the queue was full. |
+| approvals `Book::flush` → `feed-asks` | ignores `push`. A `Book` refold re-queues **every** ask key at once, so everything past 64 is dropped. | a lost flag per subscriber. `feed-asks` turns it into `CoreEvent::Asks("")` (the empty id means all). A refold sends that one marker instead of every key. The notifications pump maps an empty ask id to `all` (§4). |
 
-Both resync forms must mean `all` in the pump: `CoreEvent::Resync` (the hub lost one) and `Change{kind: "resync"}` (coord's `Fold::flush` lost one, `refold`, `catch_up`).
+Both resync forms must mean `all` in the board pump: `CoreEvent::Resync` (the hub lost one, or the relay's board-set change) and `Change{kind: "resync"}` (coord's `Fold::flush` lost one, `refold`, `catch_up`).
+
+The test `five_cores.rs` `nothing_of_a_dm_space_shows_anywhere` reads card changes from `subscribe_boards()`. It moves to `core.feed(&[Topic::Board])` and matches `CoreEvent::Board(ch)`. It keeps both the wait for the shared card's id and the check that hidden card and ask ids never show.
 
 ### 3.2 Every change names its ids
 
@@ -111,99 +113,152 @@ Both resync forms must mean `all` in the pump: `CoreEvent::Resync` (the hub lost
 
 | Where | Change |
 |---|---|
-| `mention_cards` (`fold.rs`) adds "mentioned this in #X" to card Y's activity | note `TASK_CHANGED` for each Y |
+| `mention_cards` (`fold.rs`) adds "mentioned this in #X" to card Y's activity | note `TASK_CHANGED` for each Y (collect the ids first, for the borrow) |
 | `fold_wait` (`waits.rs`): no note at all for created, fired or canceled | note `w.task_id`, and each open card whose holders include `w.by` (read the wait before removing it) |
 | `Coord::spawn_now` (`asked_now` feeds `cant_start`) | note the card |
 | `fold_desk` (`desk.rs`) | note a new kind `desk`, so the desk can listen for it (§6.6) |
 | `devcolor` rows (`service.rs`) | `hub.publish(CoreEvent::Devices)` |
-| a usage hold set, released or expired (`spawn_limits.rs`) | `AGENTS_CHANGED` (→ `all`) |
+| a usage hold set, released or expired (`spawn_limits.rs` `hold_usage`, `release_usage_hold`, and the clock expiry in `usage_held`) | publish `AGENTS_CHANGED` (→ `all`) |
+| a board's spawn setting (`SPAWN_SET`, here or synced) changes every card's weight line | publish `AGENTS_CHANGED` (→ `all`) |
 
-**Talk.** `CoreEvent::Talk` becomes `Talk(TalkChange{convs, calls, all})`.
-- Every `talk.*` row names its conversation (`convId` or `channelId`) except `talk.card`, which is rare and becomes `all`.
-- A thread's read cursor is `convId = <thread task id>`, so thread ids appear in `convs`.
-- Whole-table sites set `all`: `talk.load()` on a store resync, `drop_space`, `dm_refold`.
-- A DM mirrored from an agent's message: the conv id is `dm_id(from, delivery.to)`. The store follower sees `message.sent` before the inbox has folded the delivery, so publish it from `feed-inbox` on the delivery's change instead, and drop the follower's `message.sent` path.
-- The pump takes the union over the batch, which also folds away the double publishes.
+**Talk.** `CoreEvent::Talk` becomes `Talk(TalkChange{convs, calls, all})`. It has **no empty `Default`**. Its constructors are `TalkChange::all()`, `::convs(..)` and `::calls(..)`, and the pump treats a change with no convs, no calls and no `all` as `all`. A site nobody converted then reads everything instead of nothing. Every one of the ~25 `CoreEvent::Talk` publishes is checked, not only the row-driven ones:
+- **Rows.** Every `talk.*` row names its conversation (`convId` or `channelId`). `talk.card` carries only a post id, is rare and becomes `all`.
+- **Calls.** Every `call.*` row (`call.segment`, `call.title`, `call.assist`, `call.item`, `call.item.set`) adds its `callId` to `calls` and its `convId` to `convs`. A `talk.post` with a call mark (a huddle's start or end, `post_call_mark`) adds that call to `calls` as well as its conv to `convs`.
+- **Thread read cursors.** The window marks a thread read on `convId = "thread:<task id>"` (`threads.rs` `read_conv`). Talk's own thread cursor uses the bare task id. The pump strips `thread:`, so `convs` always holds bare thread ids.
+- **Publishes with no row:**
 
-**Notifications.** `CoreEvent::Notifications(NotifChange{keys, all})`.
+  | Site | Gives |
+  |---|---|
+  | `talk_dm` (a draft DM) | `convs: [id]` |
+  | `talk_dm_leave` / `drop_draft` | `convs: [conv]` |
+  | huddle_host's hosting changes, `write_assist` | `calls: [call]` |
+  | `DmHooks::hello` (an old peer: only `waiting` changes) | `all` |
+  | `fold_space_talk` (a space opened, a member re-added, `dm_refold`) | `all` |
+  | `talk.load()` on a store resync, `drop_space` | `all` |
+
+- **A DM mirrored from an agent's message.** Its conv id is `dm_id(m.from.key, d.to)`, from the delivery. The store follower sees `message.sent` before the inbox has folded the delivery, so `feed-inbox` publishes it instead. It looks up `ch.delivery_id`, and publishes `Talk(convs: [dm_id(..)])` **only** when the change is the delivery's creation and `tools::talk::mirrors(&message)` holds. A `MovedAway` changes `to`, so it names both the old and the new DM. No other delivery change publishes Talk. The follower's `message.sent` path is dropped. The test `test_only_messages_that_show_as_dms_change_talk` (`core/tests/it/core.rs`) still expects exactly one Talk for one agent message among 20 notices and a stop.
+- The pump takes the union over the batch, which also folds away the double publishes (a direct write, then its follower).
+
+**Notifications.** `CoreEvent::Notifications(NotifChange{keys, all})`, built the same way: no empty `Default`, and empty means `all`.
 - The keys are in scope at every site: `r.key`, `row.keys`, `keys`, the synced row's `key`/`keys`.
 - A store resync sets `all`.
 
-**Inbox.** `inbox::Change` already has `delivery_id`. Changes with an empty one (wake issued, turn engaged/ended, receive settings) touch no delivery. `POLICY_SET`, the mesh re-fold and the new `Resync` set `all`.
+**Inbox.** `inbox::Change` already has `delivery_id`. Wake issued, turn engaged/ended and the route settings carry a non-empty `to` and touch no delivery. `POLICY_SET`, the mesh re-fold and the receive/autonomy/threads settings all send `Updated` with **both** `to` and `delivery_id` empty. The pump treats exactly that shape as `all`, since they are rare, and treats the new `Resync` as `all`.
 
 ### 3.3 The window expands ids
 
-The board pump folds a batch into a set of touched task ids **T**, then expands it into the ids it sends:
+The board pump subscribes to Board, Presence, Roster and Inbox. It folds a batch into a set of touched task ids **T**:
+- `task_id` of each card change;
+- the cards of each inbox change (§4 says how a delivery maps to a card), because a queued assignment notice shows on the card as "waiting".
+
+It then expands T into the ids it sends:
 
 1. **Threads that made a card in T.** There is no reverse index from a made card to its thread today: `Task.from` is not set when a thread changes an existing card, only `th.made` is. Build `made_by: HashMap<card, Vec<thread>>`, kept in `fold_made`, or scanned from threads once per batch.
-2. **Cards whose row shows a card in T.** For the grid this is the summary cache's dependency index (§6.1). Before that card lands: parent, subtasks, `after_cards` neighbours, and blocked-on cards, one hop.
-3. **Cards whose queue words moved.** Diff `spawn_queue().places` and `no_agent()` before and after the batch, and add the ids that changed. One card starting moves every queued card's place.
-4. **Cards due by the clock.** `stale`, `talking`, a spawn's grace and a usage limit all end at known times. The summary cache keeps the earliest `due_at`, and the pump wakes then and sends those ids. Today nothing ticks, so this is better than now.
-5. **A cap.** More than 200 ids means `all`. A catch-up folds thousands of rows, and reading them one by one would be slower than one full read.
+2. **Cards whose row shows a card in T.** This is the summary cache's dependency index (§6.1, card 6). Before card 6 lands: parent, subtasks, `after_cards` neighbours and blocked-on cards, one hop.
+3. **Cards whose agents moved.** For the agent keys in a Presence or Roster change, or a lease's holder, add the cards whose rows show them (the same index).
+4. **Cards whose queue words moved.** Diff `spawn_queue().places` and `no_agent()` before and after the batch, and add the ids that changed. One card starting moves every queued card's place.
+5. **Cards and threads due by the clock.** `stale`, `talking`, a spawn's grace (cards and threads) and a usage limit all end at known times. The window keeps the earliest `due_at`, wakes then, and sends those ids. Today nothing ticks, so this is better than now.
+6. **A cap.** More than 200 ids means `all`. A catch-up folds thousands of rows, and reading them one by one would be slower than one full read.
+
+A batch with only Presence or Roster changes that dirties no row sends nothing.
 
 ## 4. The wire contract
 
-One envelope per signal. Each is a struct deriving `Serialize, Type`, registered with `.typ::<T>()` in `commands.rs`, followed by `cargo xtask bindings`. The `seq` is minted by `Window::emit_change(name, …)`, never inside `coalesce`, because `boards:changed` is also sent from `Window::boards_pin`.
+One envelope per signal. Each is a struct deriving `Serialize, Type`, registered with `.typ::<T>()` in `commands.rs`, followed by `cargo xtask bindings`.
+
+`Window::emit_change(name, …)` mints `seq`, never `coalesce`, because `boards:changed` is also sent from `Window::boards_pin` and from three threads. It holds one mutex across minting and the emitter call, so the page never sees seq 8 before 7.
+
+**The board pump's kind map.** Card 4 writes it as a table in `events.rs`. Anything not in it is `all`.
+
+| Change kind | Goes to |
+|---|---|
+| `task`, `comment` | `cards` ← `task_id` |
+| `note` | `notes` ← `resource` (the note id) |
+| `board_pin` | `boards:changed` only, not `cards` (its `task_id` is `board:<id>`) |
+| `desk` (new) | `desk: true` |
+| `lease`, `lease_expired`, `lease_refused` | the holder's cards through the index (§3.3 step 3). `all` until card 6 has it. |
+| `resync`, `agents.changed`, an empty kind | `all` |
 
 | Event | Payload | `all` when |
 |---|---|---|
-| `board:changed` | `CardsChange{seq, all, cards: [task id], notes: [note id], desk: bool}`. `cards` includes thread ids and is already expanded (§3.3). | a `Resync` of either form; `AGENTS_CHANGED`; `LEASE_*` (until card 6 maps holders to cards); a usage hold; a zero `Change`; any kind not in the table in `events.rs`; more than 200 ids |
-| `talk:changed` | `TalkChange{seq, all, convs, calls}` | `Resync`; `talk.load`; `drop_space`; `dm_refold`; `talk.card` |
-| `notifications:changed` | `NotifChange{seq, all, keys, asks}`. `asks` comes from adding `Topic::Asks` to this pump. | `Resync`; store resync |
-| `inbox:changed` | `InboxCounts` plus `seq, all, deliveries, cards`. `cards` is resolved in the pump: `message.ref_` `task:` → id, `comment:` → its task, a message recorded on a card → the comment with that `msg_id`. | `Resync`; `POLICY_SET`; mesh re-fold |
+| `board:changed` | `CardsChange{seq, all, cards: [task id], notes: [note id], desk: bool}`. `cards` includes thread ids and is already expanded (§3.3). It is also sent for Presence, Roster, lease and inbox batches that dirty rows. | a `Resync` of either form; a board opened, left, forgotten, renamed, its members or owner changed, or a DM space hidden (`Boards::moved`, via the relay); `AGENTS_CHANGED` (also a usage hold, a spawn setting); `LEASE_*` until card 6; an unmapped kind; more than 200 ids |
+| `talk:changed` | `TalkChange{seq, all, convs, calls}`: conv ids (bare thread ids for thread cursors), call ids | `Resync`; `talk.load`; `drop_space`; `fold_space_talk`; `dm_refold`; `DmHooks::hello`; `talk.card`; an empty change |
+| `notifications:changed` | `NotifChange{seq, all, keys, asks}`. `asks` comes from adding `Topic::Asks` to this pump. | `Resync`; store resync; an empty ask id (asks lost or refolded); an empty change |
+| `inbox:changed` | `InboxCounts` plus `seq, all, deliveries, cards`. `cards` is resolved in the pump: `message.ref_` `task:` → id, `comment:` → its task, a message recorded on a card → the comment with that `msg_id`. | `Resync`; `Updated` with empty `to` and `delivery_id`; a kick |
 | `devices:changed` | `{seq, all: true}` | always: rare, and names, colours and faces show on every row |
 | `boards:changed` | `{seq}` | its lists are small and always read whole |
 | `assistant:changed` | `{seq, all}` now. Later `turns: [said turn id]` for one-assistant.md §5's rule that `<<go>>` fires only for a reply that arrives live. | `Resync` |
 
 The Core events change shape (`Talk`, `Notifications`), but nothing else consumes them: the window is the only `Core::feed` caller. The phone runs the same pumps and emitter, so there is no second transport to change. `crates/api`'s `/v1/events` serves store rows, not window events.
 
-Pinned today and to update: `pumps.rs` `board_pump_forwards_and_coalesces` asserts `== json!({})`. `docs/port/surface.md` §2.10 and the table at the top of `events.rs` list `{}`. The doc comment on `Empty` says only `board:changed` and `boards:changed` use it, but six events do.
+Pinned today and to update:
+- `pumps.rs` `board_pump_forwards_and_coalesces` asserts `== json!({})`.
+- `docs/port/surface.md` §2.10 and the table at the top of `events.rs` list `{}`.
+- The doc comment on `Empty` says only `board:changed` and `boards:changed` use it, but six events do.
 
 ## 5. The page side: one listener module
 
-A new `frontend/src/lib/changes.ts` replaces the per-hook listeners: `cards.ts` `subscribe`/`useFresh`/`cardEvents`, `desk.ts`, `notes.ts`, `notifications.ts`, `conversations.ts` `useTalkFresh`, `huddles.ts`, `transcript-pane.tsx` and `freshness.ts`.
+A new `frontend/src/lib/changes.ts` takes over **every `Events.On`/`OnShown` of `board:changed`, `talk:changed`, `notifications:changed`, `inbox:changed`, `devices:changed`, `boards:changed` and `assistant:changed` in `frontend/src`**, except `window-log.ts`, which only counts. At `3f8d9224` that is:
+- `cards.ts`: `subscribe`, `useFresh`, `cardEvents` and `useAllThreads`' talk listener;
+- `talk.ts`: `useInbox`, `useHeld`, `useRepoNames`;
+- `desk.ts`, `notes.ts`, `storage.ts` `useStorageFresh`, `notifications.ts`;
+- `conversations.ts` `useTalkFresh`, `huddles.ts`, `transcript-pane.tsx`;
+- `boards.ts` `onBoardsMoved`, `freshness.ts`, `devices.ts`, `profile.ts` `useMe`, `irori.ts` (the header's device read).
 
-- **One `Events.On` per signal, for the whole window**, attached when the module loads, before any list's first read. It keeps the last `seq` per event.
-- It hands each list a notice: `{all: true}` or `{ids}` for the buckets that list follows. These turn a notice into `{all: true}`:
+`OnShown`/`whileShown` take `() => void` and drop the payload. So the module uses `Events.On` with its own `appPage()` hidden check. It keeps counting `seq` while hidden and only holds the reload.
+
+- **One listener per signal for the whole window.** It keeps the last `seq` per event.
+- **It hands each list a notice**: `{all: true}` or `{ids}` for the buckets that list follows. These turn a notice into `{all: true}`:
   - a seq gap;
   - `all` in the payload;
   - the page showing again after it was hidden. Today's `OnShown` merges a hidden stretch into one run, and this keeps that: one full read per hidden stretch;
-  - the first notice after a list mounts (its mount read is a full read).
+  - the first notice after a list mounts, or after its load key (conversation, board) changes. Its mount read is a full read.
+- **A hook's own `reload()`** stays a full read: the one callers `await` after an action (held-dialog `act`, card-grid `done.reload`, `ClearDone`, the transcript's reload). That keeps `latestReads`' promise that "`await reload()` after an action sees the action". Only notices from the module trigger patch reads.
 - **Focus** stays a full read, but at most once a minute per list. Alt-tabbing shouldn't re-read everything.
-- **The drift check (D7).** Every 5 minutes while shown, each patched list does one full read. The module compares it with the list as patched and counts rows that differ (`drift <list> <n>` in the lists line). The full read wins.
-- **Reads in flight.** `latestReads` already queues one follow-up read behind a running one. A patch list merges the ids of every notice that came while a read ran into that one follow-up, so no id is lost.
+- **Reads in flight: new code, not something `latestReads` gives.**
+  - `latestReads` queues a follow-up only for the **same** load function. A different function starts beside the running read and drops its answer. A read stuck past 15 s also gets a second read beside it, and the late answer is dropped.
+  - So each patch list has **one stable load**. It never closes over a notice's ids. When `latestReads` starts it, it takes everything pending for that list from the module (`{all, ids}`).
+  - Notices, focus and the drift check only add to that pending state and call `reload()` with the same load.
+  - A read whose answer errors or is dropped puts its ids back (or marks the next read `all`). A retry after a failure reads `all`.
+  - The patch is merged into the rows on screen when the answer is shown, not inside the load. This is a small hook built on `latestReads`, next to `useLatest`.
+- **The drift check (D7).** Every 5 minutes while shown, staggered across lists, each patched list does one full read **through its own queue**, so it never runs beside a patch of the same list.
+  - The module notes each followed signal's `seq` when the read starts. If any notice for that list's buckets arrived before the answer, or a patch read is waiting, it drops the sample without comparing. It counts the drops.
+  - Otherwise it compares the id set, the order, and each row as the page stores it (serialized), and logs `drift <list> <n>` (and `dropped <n>`). Then the full read replaces the list.
+  - Card 5 builds the check, but it does nothing until a list patches.
+  - **The grid's drift read is cold.** The host builds `cards_in("")` without the summary cache, diffs it with the cached rows, logs `drift cards-cache <n>` with the ids, and replaces the cache with it. Otherwise a missed invalidation would serve the same stale row to the patch and to the check. One cold read every 5 minutes is far less than today's read on every change.
 
 ## 6. Each list
 
 ### 6.1 The grid (`useCards`): a summary cache in the window
 
 `Window` keeps `HashMap<card id, Aux>` for scope "", plus the order.
-- **`Aux` holds what comes from the logs:** `last_at`, the talk lines inside `TALK_WINDOW_MS`, `family_of`'s outputs (later card, order steps, `wait_pr`, raw `gone_wait`, `wait_you`, part lead, `wait_stuck`, wait name, parent / from-thread / blocked-subtask refs), `pos`, `ours`, `given_no`, the pin, place and owner. It also keeps `deps`, every card id and agent key read while computing it, and `due_at`.
-- **What it doesn't cache:** the fields built from `people()` (holder state, agent status and names, leases, queue words, `accent`, `no_agent`, inbox `waiting`). These are rebuilt on each read with one fresh `people()`. They are cheap lookups. Caching them is how a cache goes wrong on every roster change.
+- **`Aux` holds what comes from the logs:** `last_at`, the talk lines inside `TALK_WINDOW_MS`, `family_of`'s outputs (later card, order steps, `wait_pr`, raw `gone_wait`, `wait_you`, part lead, `wait_stuck`, wait name, parent / from-thread / blocked-subtask refs), `pos`, `ours`, `given_no`, the pin, place and owner. It also keeps `deps` and `due_at`.
+  - `deps` is every card id passed to `get_task` and every agent key passed to `p.ref_`/`name_of` while computing the row.
+- **What it doesn't cache:** the fields built from `people()`: holder state, agent status and names, leases, queue words, `accent`, `no_agent`, inbox `waiting`. Any row that is read is rebuilt with one fresh `people()`; these are cheap lookups, and caching them is how a cache goes wrong on every roster change. But **only rows in `ids` are read**, so every input to these fields needs its own wake: §3.3 steps 3 and 4 and the inbox cards in T.
 - **Dirty rows** for a batch:
-  - **T**;
+  - T, which includes the inbox cards;
   - `deps⁻¹(T)`;
   - `deps⁻¹` of the old and new refs of each card in T (its `after_cards`, waits, parent, from-thread, later card, subtasks). This catches a new edge that extends someone else's chain;
   - cards whose loop ring changed: `order_loops` once per batch, diffed;
   - rows past `due_at`;
-  - the rows whose agent keys appear in a Presence or Roster change, or a lease holder. The board pump subscribes to those topics too, and the cache's `deps` maps keys to cards. This keeps holder and agent status current without a full read. Today it is current only because every board change re-reads every card.
+  - rows whose agent keys appear in a Presence or Roster change, or a lease holder (`deps` maps keys to cards). Today these stay current only because every board change re-reads every card.
   - `all` clears the cache.
 - **`board_cards_patch(ids) → CardsPatch{rows, order}`**:
   - `rows` are the live rows among `ids`, freshly built;
-  - `order` is every live id in grid order, **always sent**, about 36 B × 830 ≈ 30 KB against several hundred KB for every summary. Order, pins and families stay in Rust, unchanged, running over the cache;
-  - a card that closed is simply missing from `order`.
-- The full `board_cards` read stays, now built from the cache, and serves `all`.
-- **`pending.ts` stays as it is**, because the page always builds the whole merged list (upsert rows, order by `order`, drop what isn't in it) before `observeSummaries`. Being absent from that list still means gone. If `order` is ever left out, `observeSummaries` must be told the read was partial, and never count a missing card as agreeing.
-- **`decide_count` counts over the cache.** The pump applies the batch, recomputes dirty rows, counts `open_blockers > 0 || gone_wait` and shares the work with the page's next read. Until this card lands, card 3 gives a cheaper count on its own (§9).
-- **Test:** after every batch in a test, the cache equals a cold `cards_in("")`.
+  - `order` is every live id in grid order, **always sent**: about 36 B × 830 ≈ 30 KB, against several hundred KB for every summary. Order, pins and families stay in Rust, unchanged, running over the cache;
+  - a card that closed is simply missing from `order`;
+  - an id in `order` that the page holds no row for and that isn't in `rows` is skipped. It comes from a batch whose notice is still on its way, and that notice's patch brings the row.
+- The full `board_cards` read stays, now built from the cache, and serves `all`. The drift read is cold (§5).
+- **`pending.ts` stays as it is**, because the page always builds the whole merged list (upsert rows, order by `order`, drop what isn't in it) before `observeSummaries`. Being absent from that list still means gone. If `order` is ever left out, `observeSummaries` must be told the read was partial, and must never count a missing card as agreeing.
+- **`decide_count` counts over the cache.** The pump applies the batch, recomputes dirty rows, counts `open_blockers > 0 || gone_wait` and shares the work with the page's next read. Until card 6 lands, card 3 gives a cheaper count on its own (§9).
+- **Test:** after every batch in a randomized test, the cache equals a cold `cards_in("")`.
 
 ### 6.2 The card store (`useCard`)
 
-On `{ids}`, read only `ids ∩ watched`, with #1136's rev gate as now. On `all`, read every watched id. The pump's `cards` covers a watched card's family. Thread items' agent status already follows `roster:changed` through `LiveRoster`.
-
-Inbox: it follows `inbox:changed.cards` instead of reading everything on every inbox change.
-
-On the host, `cards_by_id` builds `people()`, `Followers` and `order_loops` once per call, not once per id. That is the part #1136 left: it cut the bytes but not the building.
+- On `{ids}`, read only `ids ∩ watched`, with #1136's rev gate as now. On `all`, read every watched id.
+- A card page shows chains several cards long (`wait_stuck` walks the whole wait graph; `order` walks up to 24 cards each way). So the store depends on card 6's dependency index and agent mapping; with one hop, it would miss them. Thread items' agent status already follows `roster:changed` through `LiveRoster`.
+- **Inbox:** it follows `inbox:changed.cards` instead of reading everything on every inbox change.
+- **On the host,** `cards_by_id` builds `people()`, `Followers` and `order_loops` once per call, not once per id. That is the part #1136 left: it cut the bytes but not the building.
 
 ### 6.3 Threads (`useAllThreads`, `useThreads`, the follower)
 
@@ -211,10 +266,10 @@ On the host, `cards_by_id` builds `people()`, `Followers` and `order_loops` once
   - one `people()`, slimmed: thread rows never read the inbox parts;
   - per id: route, task, comments, rests, cursor and made cards;
   - the bucket worked out per id: a shared board's log; Personal; a space about it; or left.
-- **The page** upserts the rows, drops `gone`, re-sorts `(resolved, updated_at desc, id)` in nanoseconds, and cuts each bucket to 20 resolved. A thread leaving resolved (reopened, withdrawn, cleared) can't bring back the 21st, so the host sets `all` for those.
+- **The page** upserts the rows, drops `gone`, re-sorts `(resolved, updated_at desc, id)` in nanoseconds (not `Date.parse`), and cuts each bucket to 20 resolved. Add the same id tiebreak to Rust's `threads_all` and `thread_rows` sorts, so both sides order exact ties alike. A thread leaving resolved (reopened, withdrawn, cleared) can't bring back the 21st, so the host sets `all` for those.
 - **Wakes:**
-  - thread ids in `board:changed.cards`;
-  - thread ids in `talk:changed.convs` (the read cursor; this fixes `useThreads`' stale `unread`);
+  - thread ids in `board:changed.cards`, which includes queue moves and spawn-grace timers (§3.3);
+  - thread ids in `talk:changed.convs`, i.e. the read cursor. This fixes `useThreads`' stale `unread`;
   - `devices:changed` (names → `all`);
   - **drop `inbox:changed`**, since nothing in a thread row comes from the inbox. `useAllThreads`' `talk:changed` listener moves into the module, held while hidden.
 - **The follower** skips a round unless the batch touches its followed, made or known ids, or says `all`.
@@ -222,9 +277,10 @@ On the host, `cards_by_id` builds `people()`, `Followers` and `order_loops` once
 ### 6.4 Talk
 
 - **`talk_conversations_by_id(convs)`**: split the per-kind bodies of `tools::talk::conversations` into `channel_row`, `dm_row` and `thread_row`. A DM row still scans the inbox for `mirrored()`, filtered inside the scan.
-- Add a flag that leaves out the thread rows, which the window never shows (check `talk-page.tsx` and `space-leave.ts`, which fall back to them).
+- Add a flag that leaves out the thread rows, which the window never shows. Check `talk-page.tsx` and `space-leave.ts` first: they fall back to those rows.
 - **The page** re-reads the rows in `convs` and keeps its `listed()` sort.
-- **`usePosts(conv)`** reloads only when its conv is in `convs`. The huddles and transcript lists only for their `calls`.
+- **`usePosts(conv)`** reloads only when its conv is in `convs`.
+- **The huddles list** re-reads in full whenever `calls` is non-empty. It must not filter to the huddles already shown, because new ones arrive this way. **The transcript pane** re-reads only when its own call is in `calls`.
 - **Members' status** in a conversation row comes from board agents and the roster, and goes stale today too. It isn't made worse here.
 
 ### 6.5 Notifications
@@ -233,7 +289,7 @@ On the host, `cards_by_id` builds `people()`, `Followers` and `order_loops` once
   - the keys in `notifications:changed`;
   - the rows whose `taskId` is in `board:changed.cards` (card titles);
   - the rows whose ask is in `asks`.
-- **Drop the full re-list on `inbox:changed`.** `DeliveryLive` re-fetches its delivery only when that `deliveryId` is in `inbox:changed.deliveries` or the change says `all`.
+- **Drop the full re-list on `inbox:changed`.** `DeliveryLive` re-fetches its delivery only when that `deliveryId` is in `inbox:changed.deliveries`, or the change says `all`.
 - **The unread badge** reads its count only on `notifications:changed`, as now.
 
 ### 6.6 The small lists (no by-id reads)
@@ -241,22 +297,23 @@ On the host, `cards_by_id` builds `people()`, `Followers` and `order_loops` once
 | List | Change |
 |---|---|
 | desk | reload only on `board:changed.desk`, a card in its verdicts, or `all`. The 30 s poll stays (poll times are per device). |
-| notes | reload only on `board:changed.notes` non-empty or `all`; upsert by id is optional |
+| notes | reload on `board:changed.notes` non-empty, on a card in `cards` that a note names (`taskId`, for "Still true?"), or `all`. Check files again on show and focus, since files have no event. |
 | idle line | at most one read per 5 s, trailing |
-| `#ref` chips | drop the cached refs whose card id is in `cards`. `all` clears them all. A new card or a renumber notes every card it touches, so their ids arrive. |
+| `#ref` chips | each entry remembers the card id it resolved to. A notice with ids drops the entries whose id is in `cards`, **plus every entry that resolved to nothing or is still pending**, then bumps `refGen` (keeping the 1.5 s burst wait). Null entries are few, and a new card or a renumber always comes with ids. `all` clears everything. |
 | closed tab | re-read the shown page only when an id in `cards` is on it or now closed |
 | boards, personal boards | one shared store each, read once per `boards:changed` and once on first mount, not on every reader mount. `OwnerChip` stops starting reads. |
-| devices | one shared store. Ignore `roster:changed` unless its device state changed. Keep the 5 s poll only while the devices panel is open. |
-| inbox, held | upsert by `deliveries` with `InboxService.Get`. `all` re-reads the list. |
+| devices | one shared store. Ignore `roster:changed` unless its device state changed. Keep the 5 s poll only while the devices panel is open (it also covers a revoke, which has no event). |
+| inbox, held | upsert by `deliveries` with `InboxService.Get`. Held drops a row whose new state isn't held or whose `Get` fails, and the inbox drops rows past its 200 that aren't held. `all` re-reads the list. |
+| repo names, storage (cleared list), `useMe`, the header's device read | full read on every notice of their signal, through the module, so they are held while hidden |
 
 ## 7. Fallback rules, per signal
 
 | Signal | Patched with | Full read when |
 |---|---|---|
-| `board:changed` | `cards` (grid patch, card store, threads, refs, closed tab, notification titles), `notes`, `desk` | `all`, a seq gap, shown again, the first notice after mount, focus (at most once a minute), the 5-minute drift check |
-| `talk:changed` | `convs` (conversations, posts, thread unread), `calls` (huddles, transcript) | same |
+| `board:changed` | `cards` (grid patch, card store, threads, refs, closed tab, notification titles, notes), `notes`, `desk` | `all` (§4), a seq gap, shown again, the first notice after mount, focus (at most once a minute), the 5-minute drift check (cold for the grid) |
+| `talk:changed` | `convs` (conversations, posts, thread unread), `calls` (huddles in full, transcript by its call) | same |
 | `notifications:changed` | `keys`, `asks` | same |
-| `inbox:changed` | `deliveries` (inbox, held, delivery outcomes), `cards` (card store) | same |
+| `inbox:changed` | `deliveries` (inbox, held, delivery outcomes), `cards` (card store; the grid gets them through `board:changed`) | same |
 | `devices:changed` | — | always |
 | `boards:changed` | — | always (small lists) |
 | `assistant:changed` | — | always (no list yet) |
@@ -276,26 +333,27 @@ Card 1 comes before any behaviour change.
   - answer `board_cards_by_id` with `rev`/`unchanged`;
   - answer the new by-id commands;
   - let a talk event change a conversation.
-- **Baseline:** a scratch copy (`IRORI_HOME` copy, empty `CLAUDE_CONFIG_DIR`, `IRORI_DEV_PORT_OFFSET`) with agents working for 30 minutes. Record the lists lines and the IPC counts on #1138. The last card repeats it.
+- **Baseline:** a scratch copy (`IRORI_HOME` copy, empty `CLAUDE_CONFIG_DIR`, `IRORI_DEV_PORT_OFFSET`) with agents working for 30 minutes. Record the lists lines and the IPC counts on #1138. It must be recorded **before card 2 merges**: card 2's new `note()`s and publishes add signals, and today each signal is a full read. The last card repeats it.
+- **Forcing the fallbacks:** card 4 adds two debug-build-only switches, read from the environment at start: one skips a `seq` now and then, and one shrinks the feed queues so they overflow. A release build ignores them, like `IRORI_DEV_PORT_OFFSET`. Card 12 uses them on the scratch copy.
 
 ## 9. Build cards
 
-Each is a subtask of #1138, in this order (`after`). Cards 6–11 can run side by side once card 5 lands. File names are the main ones, not every file.
+Each is a subtask of #1138, in this order (`after`). Cards 7–11 can run side by side once card 5 lands, and card 7 waits for card 6 too. File names are the main ones, not every file.
 
 | # | Card | Weight | After | Done when |
 |---|---|---|---|---|
-| 1 | **Measure: every signal, list, read and IPC command in the lists line** (§8) | normal | — | the lists line names every list and counts every signal and IPC by command (`window-log.test.ts` updated); the harness takes payloads; a baseline from a scratch copy with busy agents is on #1138 |
-| 2 | **Core: no silent drops, every change names its ids** (§3.1, §3.2): reroute shared-board changes through the hub; inbox lost flag + `Resync`; `Kick` atomic; `Boards::tell` lost flag; the coord `note()` gaps (mentions, waits, `spawn_now`, desk kind); `devcolor` publishes; `CoreEvent::Talk(TalkChange)` and `Notifications(NotifChange)`; the mirrored DM published from `feed-inbox` | normal | — | tests: a full queue gives `Resync` at each hop; each coord gap notes the right ids; talk/notification sites carry their ids (core and coord `tests/it`). The window's payloads are still `{}` |
-| 3 | **Tray count without the full shared-board scan**: `decide_count` builds `card_summary` per task plus `gone_waits`, no `board_cards`, and counts what it counts today | normal | — | same counts in a test across private, shared and thread cards; no `board_cards` call left in `decide_count` |
-| 4 | **Window: payloads with ids and seq** (§3.3, §4): the envelopes, `emit_change` + per-name `seq`, the batch → ids fold with the `all` rules, the made-card index, one-hop family, queue diff, the 200 cap, `inbox:changed.cards`, `Topic::Asks` in the notifications pump, bindings, the `events.rs` table and surface.md | normal | 2 | `pumps.rs`: payload ids for each kind; `all` for each `all` rule; `seq` counts up per name, including `boards_pin` |
-| 5 | **Page: one listener module** (§5): `changes.ts`, seq tracking, gap/shown/mount → `all`, focus once a minute, the drift check; every list moved onto it, **still reading everything** | normal | 4 | tests: gap → `all`, out of order → `all`, a hidden stretch → one `all`, ids merge into an in-flight follow-up; no list behaves differently yet (harness counts equal before and after) |
-| 6 | **Grid: summary cache and patch read** (§6.1), including `decide_count` from the cache, the `deps` index for agent keys and leases, `due_at` timers | heavy (the cache's invalidation and dependency index are the hard part) | 5, 3 | the cache equals a cold `cards_in("")` after every batch in a randomized test; `useCards` patches; `board_cards` reads per minute drop to drift checks and `all`s |
-| 7 | **Card store by id** (§6.2): `ids ∩ watched`; inbox cards; `people()`/`Followers`/`order_loops` once per call | normal | 5 | `card-store.test.ts`: a notice reads only the watched ids in it; harness: CardsById ids per notice = touched ∩ watched |
-| 8 | **Threads by id** (§6.3): real `threads_by_id` → `{rows, gone}`; the page's upsert, sort and cap; drop inbox; talk convs; the follower's skip | normal | 5 | a test: by-id rows equal `threads_all`'s for those ids; a reopened thread sends `all`; `useAllThreads` no longer reads on `inbox:changed` |
-| 9 | **Talk by conversation** (§6.4): `talk_conversations_by_id`, the thread-rows flag, posts/huddles/transcript filtered by `convs`/`calls` | normal | 5 | a test: by-id rows equal the full list's; a post in conv A doesn't re-read conv B's posts |
-| 10 | **Notifications by key** (§6.5): `notifications_by_key`, title rows by `taskId`, asks, `DeliveryLive` by `deliveries` | normal | 5 | `notifications.test.ts`; no full re-list on `inbox:changed` |
-| 11 | **Small lists and shared stores** (§6.6): desk, notes, idle, refs, closed tab, boards/personal boards stores, devices store, inbox/held upsert | normal | 5 | each list's trigger is in a test; `boards_list` reads on Home's first load = 1 (not one per tile) |
-| 12 | **Check it end to end**: the baseline again on a scratch copy with busy agents (lists line and IPC by command, before/after); drift 0 over 30 minutes; a forced seq gap and a forced queue overflow each give one full read | normal | 6–11 | numbers on #1138: about one small by-id read per real change, `drift 0`, the fallback cases shown |
+| 1 | **Measure: every signal, list, read and IPC command in the lists line** (§8) | normal | — | the lists line names every list and counts every signal and IPC by command (`window-log.test.ts` updated); the harness takes payloads, rev-gated `board_cards_by_id` and by-id commands; a baseline from a scratch copy with busy agents is on #1138 |
+| 2 | **Core: no silent drops, every change names its ids** (§3.1, §3.2): card changes rerouted through the hub, with the relay keeping board-set changes as `Resync`; lost flags on `Boards::tell`, the inbox fan-out and `Book::flush` (refold sends one marker); `Kick` push + atomic; the coord `note()` gaps (mentions, waits, `spawn_now`, desk kind); `devcolor` publishes Devices; usage hold and `SPAWN_SET` publish `AGENTS_CHANGED`; `CoreEvent::Talk(TalkChange)` and `Notifications(NotifChange)` with no empty default, at every publish site; the mirrored DM from `feed-inbox` | normal | 1 | tests: a full queue gives a resync at each hop; opening, leaving, forgetting, renaming a shared board and hiding a DM space each reach the Board feed as `Resync`; each coord gap notes the right ids; every Talk/Notifications site carries its ids or `all`; `nothing_of_a_dm_space_shows_anywhere` moved to `core.feed(&[Topic::Board])`; `test_only_messages_that_show_as_dms_change_talk` still counts 1. The window's payloads are still `{}` |
+| 3 | **Tray count without the full shared-board scan**: `decide_count` builds `card_summary` per task plus `gone_waits`, no `board_cards`, and counts what it counts today (private threads with open blockers included, as now) | normal | — | same counts in a test across private, shared and thread cards; no `board_cards` call left in `decide_count` |
+| 4 | **Window: payloads with ids and seq** (§3.3, §4): the envelopes; `emit_change` with `seq` under one mutex; the kind map in `events.rs`; the board pump on Board + Presence + Roster + Inbox; the made-card index, one-hop family, queue diff, due timers, the 200 cap; `thread:` stripped from convs; empty changes → `all`; `inbox:changed.cards`; `Topic::Asks` in the notifications pump; the debug switches (§8); bindings, the `events.rs` table and surface.md | normal | 2 | `pumps.rs`: payload ids for each kind; `all` for each `all` rule (including a remote `POLICY_SET`, a re-fold, an empty ask id, a board-set `Resync`); `seq` counts up per name, including `boards_pin` |
+| 5 | **Page: one listener module** (§5): `changes.ts` over every list-signal listener, seq tracking, gap/shown/mount/load-key → `all`, a hook's own `reload()` stays full, focus once a minute, the pending-ids patch hook on `latestReads`, the drift check (does nothing until a list patches); every list moved onto it, **still reading everything** | normal | 4, 1 | tests: gap → `all`, out of order → `all`, a hidden stretch → one `all`; notices during a read go into one follow-up with no read beside it; a dropped (stuck) and an errored patch answer each lead to a read covering their ids; a drift sample with a notice during it is dropped. The only intended changes: focus at most once a minute, and the talk listener held while hidden (each tested). Harness counts otherwise equal before and after |
+| 6 | **Grid: summary cache and patch read** (§6.1): `Aux` + `deps`, dirty rows, `board_cards_patch`, the cold drift read on the host, the agent/lease index (§3.3 step 3 and the lease kinds), `decide_count` from the cache | heavy (the cache's invalidation and dependency index are the hard part) | 5, 3 | the cache equals a cold `cards_in("")` after every batch in a randomized test; a queued→delivered assignment notice re-reads that card's row; the drift read bypasses the cache and logs `drift cards-cache`; `useCards` patches; `board_cards` reads per minute drop to drift checks and `all`s |
+| 7 | **Card store by id** (§6.2): `ids ∩ watched`; inbox cards; `people()`/`Followers`/`order_loops` once per call | normal | 6 | `card-store.test.ts`: a notice reads only the watched ids in it; harness: CardsById ids per notice = touched ∩ watched |
+| 8 | **Threads by id** (§6.3): real `threads_by_id` → `{rows, gone}`; the page's upsert, sort and cap; the id tiebreak in Rust's sorts; drop inbox; talk convs; the follower's skip | normal | 5 | a test: by-id rows equal `threads_all`'s for those ids; a reopened thread sends `all`; marking a thread read patches its `unread`; `useAllThreads` no longer reads on `inbox:changed` |
+| 9 | **Talk by conversation** (§6.4): `talk_conversations_by_id`, the thread-rows flag, posts by `convs`, huddles on any `calls`, transcript by its call | normal | 5 | a test: by-id rows equal the full list's; a post in conv A doesn't re-read conv B's posts; a huddle's start mark shows the new huddle |
+| 10 | **Notifications by key** (§6.5): `notifications_by_key`, title rows by `taskId`, asks, `DeliveryLive` by `deliveries` | normal | 5 | `notifications.test.ts`; no full re-list on `inbox:changed`; an ask answered elsewhere updates its row |
+| 11 | **Small lists and shared stores** (§6.6): desk, notes, idle, refs (with nulls), closed tab, boards/personal boards stores, devices store, inbox/held upsert, the full-read-only lists | normal | 5 | each list's trigger is in a test; a chip for an unknown ref shows the card after the notice that creates it; `boards_list` reads on Home's first load = 1 (not one per tile) |
+| 12 | **Check it end to end**: the baseline again on a scratch copy with busy agents (lists line and IPC by command, before/after); drift over 30 minutes; the debug switches force a seq gap and a queue overflow | normal | 1, 6–11 | numbers on #1138: about one small by-id read per real change; `drift 0` and `drift cards-cache 0` over the compared samples, with the dropped samples reported; each forced fallback gives one full read |
 
 ## 10. Open questions
 
