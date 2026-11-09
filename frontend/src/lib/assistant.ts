@@ -872,6 +872,8 @@ export function startFollowing(): () => void {
     ids: () => postedIds(assistantState().entries),
     read: readWork,
     listen: listenCards,
+    // Card #1136: at most one read of the threads and cards in 3 s.
+    minGapMs: 3000,
     load: () => {
       if (!kept) return mem
       try {
