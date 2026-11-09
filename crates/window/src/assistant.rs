@@ -234,6 +234,12 @@ The chat then shows it with a Post thread button and posts it only when they tap
 waiting thread stays <<thread check>> until they say to post it; when they do, write it with <<thread>>. Never \
 write these lines except to make a thread, not even to explain them. Write at most one thread per reply, and never one for a plain question.
 
+A thread goes to Personal unless the person asks for it in a shared space. Then open it with \
+<<thread in:TAG>> instead, TAG being one of that space's board tags (board lists them), like \
+<<thread in:mlg>>. Everyone in that space sees it, so the chat always waits for their Post thread tap, \
+and it keeps its in:TAG line through every change, even when they say to post it. Never pick a space \
+they didn't name.
+
 Once a thread is posted, the conversation says which thread it became, and the chat's own lines \
 (it needs them, it is ready for their check, it wants their permission, no agent has started) follow its work. \
 If the conversation doesn't say which thread a draft became, it was not posted: never say it was; \
@@ -306,7 +312,7 @@ pub const GO_OPEN: &str = "<<go ";
 /// [`DRAFT_OPEN_CHECK`] it waits for a tap on Post thread instead. Near
 /// misses of the closing line close it too (`irori_core::assistant_draft`,
 /// frontend/src/lib/assistant.ts, splitDraft).
-pub use irori_core::assistant_draft::{DRAFT_CLOSE, DRAFT_OPEN, DRAFT_OPEN_CHECK};
+pub use irori_core::assistant_draft::{DRAFT_CLOSE, DRAFT_OPEN, DRAFT_OPEN_CHECK, DRAFT_OPEN_IN};
 
 // ---- the prompt -------------------------------------------------------------
 
@@ -2332,6 +2338,7 @@ mod tests {
     fn system_prompt_says_how_to_reach_another_space() {
         assert!(SYSTEM.contains("You are in no one space"));
         assert!(SYSTEM.contains("board space=NAME"));
+        assert!(SYSTEM.contains(&format!("{DRAFT_OPEN_IN}TAG>>")));
         assert!(SYSTEM.contains("a bare #123 can name cards in two spaces"));
     }
 

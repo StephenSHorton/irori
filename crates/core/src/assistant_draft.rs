@@ -17,6 +17,10 @@ pub const DRAFT_OPEN: &str = "<<thread>>";
 pub const DRAFT_OPEN_CHECK: &str = "<<thread check>>";
 /// The line a drafted thread ends with.
 pub const DRAFT_CLOSE: &str = "<</thread>>";
+/// How a thread for a shared space starts (card #1198): `<<thread in:mlg>>`
+/// (or `<<thread check in:mlg>>`) with one of the space's board tags.
+/// Everyone in the space sees it, so it always waits for Post thread.
+pub const DRAFT_OPEN_IN: &str = "<<thread in:";
 
 /// A reply split around its drafted thread (the chat's `Split`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -27,8 +31,76 @@ pub struct Split {
     pub draft: String,
     /// The draft is still being written, or was cut off.
     pub partial: bool,
-    /// The person asked to check it first: only a tap posts it.
+    /// The person asked to check it first, or it is for a shared space:
+    /// only a tap posts it.
     pub check: bool,
+    /// The board tag of the shared space it is for (card #1198), lower
+    /// case; "" for Personal.
+    pub space: String,
+}
+
+/// A drafted thread's opening line found in a reply: where it starts, its
+/// length, whether it waits for a tap, and the space's tag.
+struct Open {
+    at: usize,
+    len: usize,
+    check: bool,
+    space: String,
+}
+
+/// The first opening line in `raw`: `<<thread>>`, `<<thread check>>`, or
+/// either with ` in:TAG` before its `>>` (the tag as a ref's: a letter,
+/// then up to 15 of `a-z 0-9 -`).
+fn find_open(raw: &str) -> Option<Open> {
+    let mut from = 0;
+    while let Some(i) = raw[from..].find("<<thread") {
+        let at = from + i;
+        from = at + 1;
+        let rest = &raw[at + "<<thread".len()..];
+        let Some(end) = rest.find(">>") else {
+            continue;
+        };
+        let inner = &rest[..end];
+        let (check, tail) = match inner.strip_prefix(" check") {
+            Some(t) => (true, t),
+            None => (false, inner),
+        };
+        let space = match tail.strip_prefix(" in:") {
+            Some(tag) if valid_tag(tag) => tag.to_ascii_lowercase(),
+            Some(_) => continue,
+            None if tail.is_empty() => String::new(),
+            None => continue,
+        };
+        return Some(Open {
+            at,
+            len: "<<thread".len() + end + ">>".len(),
+            check: check || !space.is_empty(),
+            space,
+        });
+    }
+    None
+}
+
+fn valid_tag(t: &str) -> bool {
+    let b = t.as_bytes();
+    !b.is_empty()
+        && b.len() <= 16
+        && b[0].is_ascii_alphabetic()
+        && b[1..]
+            .iter()
+            .all(|c| c.is_ascii_alphanumeric() || *c == b'-')
+}
+
+/// `s` without an opening line still being written at its end
+/// ("…<<thread in:ml"), so it never flashes in the chat.
+fn cut_open_tail(s: &str) -> &str {
+    if let Some(i) = s.rfind("<<thread")
+        && !s[i..].contains(">>")
+        && !s[i..].contains('\n')
+    {
+        return &s[..i];
+    }
+    s
 }
 
 /// `s` without a start of `marker` at its end ("…<<thr").
@@ -115,20 +187,25 @@ pub fn split_draft_done(raw: &str) -> Split {
 }
 
 fn split_draft_as(raw: &str, ended: bool) -> Split {
-    let open = [(DRAFT_OPEN, false), (DRAFT_OPEN_CHECK, true)]
-        .into_iter()
-        .filter_map(|(m, check)| raw.find(m).map(|i| (i, m, check)))
-        .min_by_key(|(i, ..)| *i);
-    let Some((at, marker, check)) = open else {
+    let Some(Open {
+        at,
+        len,
+        check,
+        space,
+    }) = find_open(raw)
+    else {
         return Split {
-            text: cut_marker_tail(cut_marker_tail(raw, DRAFT_OPEN), DRAFT_OPEN_CHECK)
-                .trim()
-                .to_string(),
+            text: cut_open_tail(cut_marker_tail(
+                cut_marker_tail(raw, DRAFT_OPEN),
+                DRAFT_OPEN_CHECK,
+            ))
+            .trim()
+            .to_string(),
             ..Split::default()
         };
     };
     let before = raw[..at].trim();
-    let rest = &raw[at + marker.len()..];
+    let rest = &raw[at + len..];
     let Some((end, close_end)) = find_close(rest, 0) else {
         // Ended, the draft stops before a last go line, which stays in
         // the text so it still goes.
@@ -147,6 +224,7 @@ fn split_draft_as(raw: &str, ended: bool) -> Split {
                 .to_string(),
             partial: !ended,
             check,
+            space,
         };
     };
     let after = rest[close_end..].trim();
@@ -159,6 +237,7 @@ fn split_draft_as(raw: &str, ended: bool) -> Split {
         draft: rest[..end].trim().to_string(),
         partial: false,
         check,
+        space,
     }
 }
 
@@ -239,7 +318,33 @@ mod tests {
             draft: draft.into(),
             partial,
             check,
+            space: String::new(),
         }
+    }
+
+    /// Card #1198: a thread for a shared space names its board tag, and
+    /// only a tap posts it, whatever its opening line says.
+    #[test]
+    fn a_space_thread_waits_for_a_tap() {
+        for open in ["<<thread in:MLG>>", "<<thread check in:mlg>>"] {
+            let raw = format!("Posting it in mlg.\n{open}\nFix the lobby.\n{DRAFT_CLOSE}");
+            let s = split_draft_done(&raw);
+            assert_eq!(s.draft, "Fix the lobby.", "{open}");
+            assert_eq!(s.text, "Posting it in mlg.", "{open}");
+            assert!(s.check, "{open}");
+            assert_eq!(s.space, "mlg", "{open}");
+            assert!(!posts_by_itself(&raw), "{open}");
+            assert_eq!(has_draft(&raw), Some(true), "{open}");
+        }
+        // Not a tag: no draft at all, so nothing to post anywhere.
+        let raw = format!("<<thread in:#5 x>>\nFix it.\n{DRAFT_CLOSE}");
+        assert_eq!(split_draft_done(&raw).draft, "");
+        // Being written, the opening line never shows.
+        assert_eq!(split_draft("Posting it.\n<<thread in:ml").text, "Posting it.");
+        // Personal's drafts are as before.
+        let raw = format!("{DRAFT_OPEN}\nFix it.\n{DRAFT_CLOSE}");
+        assert_eq!(split_draft_done(&raw).space, "");
+        assert!(posts_by_itself(&raw));
     }
 
     const BAD_CLOSES: [&str; 8] = [

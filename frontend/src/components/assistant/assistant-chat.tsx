@@ -65,6 +65,7 @@ import {
   replyText,
   setAssistantOpen,
   setHome,
+  spaceOfTag,
   splitReply,
   startFollowing,
   stopTurn,
@@ -87,6 +88,7 @@ import {
 import { goLabel, type GoTarget } from "@/lib/goto"
 import { stopDivide, takeDrafts, useDivide } from "@/lib/huddle-divide"
 import { DivideDrafts } from "./divide-drafts"
+import { useBoards } from "@/lib/boards"
 import { BlockerState, useCard } from "@/lib/cards"
 import { useDraft } from "@/lib/drafts"
 import { GIVEN_QUESTION } from "@/lib/needs"
@@ -989,7 +991,7 @@ function Entry({
   // A draft cut short (Stopped, or a failure before it closed) shows with
   // no Post thread: it isn't the whole thread. A reply that ended by itself
   // without closing it has the whole draft.
-  const { text, draft, partial, go, cards, settle } = splitReply(
+  const { text, draft, partial, go, cards, settle, space } = splitReply(
     entry.text,
     false,
     entry.cutOff
@@ -1012,6 +1014,7 @@ function Entry({
             work={work}
             onPost={partial ? undefined : onPost}
             cut={partial}
+            space={space}
           />
         )}
       </MessageContent>
@@ -1121,6 +1124,7 @@ function DraftThread({
   work,
   onPost,
   cut,
+  space,
 }: {
   draft: string
   posted?: Posted
@@ -1134,8 +1138,13 @@ function DraftThread({
   onPost?: () => Promise<void>
   // The draft was cut short.
   cut?: boolean
+  // The board tag of the shared space it is for (card #1198); "" or
+  // none: Personal.
+  space?: string
 }) {
   const [busy, setBusy] = useState(false)
+  const { boards } = useBoards()
+  const where = space ? spaceOfTag(space, boards) : null
   const [error, setError] = useState("")
   const cards = useContext(AgentCards)
   const post = async () => {
@@ -1158,6 +1167,13 @@ function DraftThread({
       <p className="text-[11.5px] font-medium tracking-wide text-muted-foreground uppercase">
         {posted ? "Thread" : "Draft thread"}
       </p>
+      {space && (
+        <p className="text-[12px] text-muted-foreground" data-draft-space="">
+          {where
+            ? `For the shared space “${where.name}”: everyone in it sees it.`
+            : `For a space tagged ${space}, which isn't here.`}
+        </p>
+      )}
       {/* A long draft scrolls in its box, so Post thread stays in reach. */}
       <div className="max-h-44 overflow-y-auto overscroll-contain text-[13px]">
         <RichText text={draft} />

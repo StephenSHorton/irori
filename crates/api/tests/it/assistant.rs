@@ -472,6 +472,130 @@ fn a_write_reaches_a_card_in_another_space() {
     assert!(lines[0].contains(&o), "{lines:?}");
 }
 
+/// Card #1198: the assistant finds a shared space's cards and comments by
+/// words, and lists one space's cards by its name or tag.
+#[test]
+fn assistant_finds_and_lists_cards_in_another_space() {
+    let rig = common::Rig::new();
+    let secret = rig.core.assistant_secret().to_string();
+    let me = format!("user:{}", rig.core.device_id());
+    let h = [(HEADER_ASSISTANT, secret.as_str())];
+    let mine = rig
+        .core
+        .coord()
+        .create_task(
+            &me,
+            coord::NewTask {
+                title: "kitchen lighting".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let board = rig.core.create_board("mlg farming", "mlg").unwrap();
+    let co = rig.core.board_coord(&board).unwrap();
+    let actor = rig.core.board_key(&board, &me).unwrap();
+    let theirs = co
+        .create_task(
+            &actor,
+            coord::NewTask {
+                title: "lobby lighting".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    co.add_comment(&actor, &theirs.id, "the dimmer buzzes at night", false)
+        .unwrap();
+    let s = theirs.short_ref();
+
+    // Words find the space's card, its comment, and both boards' cards.
+    let (code, text) = call(&rig, &h, "search", json!({ "query": "lobby" }));
+    assert_eq!(code, 200, "{text}");
+    assert!(text.contains(&s) && text.contains("lobby lighting"), "{text}");
+    let (code, text) = call(
+        &rig,
+        &h,
+        "search",
+        json!({ "query": "dimmer", "kinds": ["comment"] }),
+    );
+    assert_eq!(code, 200, "{text}");
+    assert!(text.contains("comment:") && text.contains("buzzes"), "{text}");
+    let (_, text) = call(&rig, &h, "search", json!({ "query": "lighting" }));
+    assert!(
+        text.contains("lobby lighting") && text.contains("kitchen lighting"),
+        "{text}"
+    );
+    // Paged as one list: the second page holds the other card.
+    let (_, first) = call(
+        &rig,
+        &h,
+        "search",
+        json!({ "query": "lighting", "kinds": ["task"], "limit": 1 }),
+    );
+    let (_, second) = call(
+        &rig,
+        &h,
+        "search",
+        json!({ "query": "lighting", "kinds": ["task"], "limit": 1, "offset": 1 }),
+    );
+    assert!(first.contains("offset=1"), "{first}");
+    assert_ne!(
+        first.contains("lobby lighting"),
+        second.contains("lobby lighting"),
+        "{first}\n{second}"
+    );
+    // Other kinds don't bring the space's cards in.
+    let (_, text) = call(
+        &rig,
+        &h,
+        "search",
+        json!({ "query": "lobby", "kinds": ["commit"] }),
+    );
+    assert!(!text.contains("lobby lighting"), "{text}");
+
+    // One space by its tag or its name, Personal by itself.
+    for space in ["mlg", "MLG farming", "mlg#"] {
+        let (code, text) = call(&rig, &h, "board", json!({ "space": space }));
+        assert_eq!(code, 200, "{space}: {text}");
+        assert!(text.contains("lobby lighting"), "{space}: {text}");
+        assert!(!text.contains("kitchen lighting"), "{space}: {text}");
+        assert!(text.contains("space \"mlg farming\""), "{text}");
+    }
+    let (_, text) = call(&rig, &h, "board", json!({ "space": "personal" }));
+    assert!(text.contains("kitchen lighting"), "{text}");
+    assert!(!text.contains("lobby lighting"), "{text}");
+    let (_, text) = call(&rig, &h, "board", json!({ "space": "nope" }));
+    assert!(text.starts_with("Error") && text.contains("(mlg)"), "{text}");
+    // Every space, then how to open one: not board_create, which the
+    // assistant doesn't have.
+    let (_, text) = call(&rig, &h, "board", json!({}));
+    assert!(
+        text.contains("lobby lighting") && text.contains("kitchen lighting"),
+        "{text}"
+    );
+    assert!(text.contains("Shared spaces (board space="), "{text}");
+    assert!(!text.contains("board_create board="), "{text}");
+    let _ = mine;
+
+    // A board too long to show whole still ends with the spaces: the
+    // cards are cut, not the way to the other spaces.
+    for i in 0..80 {
+        rig.core
+            .coord()
+            .create_task(
+                &me,
+                coord::NewTask {
+                    title: format!("a long Personal card number {i} {}", "x".repeat(80)),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+    let (_, text) = call(&rig, &h, "board", json!({}));
+    assert!(text.contains("more lines not shown"), "{text}");
+    assert!(text.contains("Shared spaces (board space="), "{text}");
+    assert!(text.contains("mlg \"mlg farming\""), "{text}");
+}
+
 #[test]
 fn the_write_tools_are_only_the_assistants() {
     let rig = common::Rig::new();

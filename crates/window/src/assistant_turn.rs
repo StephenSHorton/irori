@@ -350,6 +350,7 @@ mod tests {
             draft: draft.into(),
             partial,
             check,
+            space: String::new(),
         }
     }
 

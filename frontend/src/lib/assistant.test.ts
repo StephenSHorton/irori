@@ -21,6 +21,7 @@ import {
   sampleFiles,
   serializeHistory,
   settled,
+  spaceOfTag,
   splitDraft,
   splitReply,
   unreadableNote,
@@ -37,6 +38,7 @@ import {
   type ChatEntry,
   type Reply,
 } from "./assistant"
+import type { BoardSummary } from "./boards"
 import { threads } from "./cards"
 import { AssistantService } from "./host"
 import * as irori from "./irori"
@@ -215,6 +217,7 @@ describe("Ask Irori's drafted thread (card #783)", () => {
       draft: "",
       partial: false,
       check: false,
+      space: "",
     })
   })
   test("a whole draft comes out of the text", () => {
@@ -226,6 +229,7 @@ describe("Ask Irori's drafted thread (card #783)", () => {
       draft: "Add a changelog page. #8 has the notes.",
       partial: false,
       check: false,
+      space: "",
     })
   })
   test("words after the draft stay in the text", () => {
@@ -241,18 +245,21 @@ describe("Ask Irori's drafted thread (card #783)", () => {
       draft: "",
       partial: false,
       check: false,
+      space: "",
     })
     expect(splitDraft(`Drafting.\n${DraftOpen}\nFix the lob`)).toEqual({
       text: "Drafting.",
       draft: "Fix the lob",
       partial: true,
       check: false,
+      space: "",
     })
     expect(splitDraft(`${DraftOpen}\nFix the lobby.\n<</thr`)).toEqual({
       text: "",
       draft: "Fix the lobby.",
       partial: true,
       check: false,
+      space: "",
     })
   })
   test("a near-miss closing line still closes the draft", () => {
@@ -278,10 +285,44 @@ describe("Ask Irori's drafted thread (card #783)", () => {
           draft: "Fix the lobby.",
           partial: false,
           check: false,
+          space: "",
         },
       ])
     // The opening lines never close one.
     expect(splitDraft("A <<thread>> and <<thread check>>").partial).toBe(true)
+  })
+  test("a thread for a shared space waits for a tap (card #1198)", () => {
+    for (const open of ["<<thread in:MLG>>", "<<thread check in:mlg>>"])
+      expect(
+        splitDraft(`Posting it in mlg.\n${open}\nFix the lobby.\n${DraftClose}`)
+      ).toEqual({
+        text: "Posting it in mlg.",
+        draft: "Fix the lobby.",
+        partial: false,
+        check: true,
+        space: "mlg",
+      })
+    // Not a tag: no draft.
+    expect(splitDraft(`<<thread in:#5 x>>\nFix it.\n${DraftClose}`).draft).toBe(
+      ""
+    )
+    // Being written, the opening line never shows.
+    expect(splitDraft("Posting it.\n<<thread in:ml").text).toBe("Posting it.")
+    // Its space is found by any of the space's board tags.
+    const space = {
+      boardId: "sp1",
+      name: "mlg farming",
+      tag: "mlg",
+      boards: [
+        { boardId: "sp1", name: "", tag: "mlg" },
+        { boardId: "b2", name: "Art", tag: "art" },
+      ],
+    } as unknown as BoardSummary
+    expect(spaceOfTag("ART", [space])).toEqual({
+      id: "sp1",
+      name: "mlg farming",
+    })
+    expect(spaceOfTag("nope", [space])).toBeNull()
   })
   test("a reply that ended without closing its draft has the whole draft", () => {
     const raw = `Posting it.\n${DraftOpen}\nFix the lobby.\nAsk on #8.`
@@ -290,6 +331,7 @@ describe("Ask Irori's drafted thread (card #783)", () => {
       draft: "Fix the lobby.\nAsk on #8.",
       partial: false,
       check: false,
+      space: "",
     })
     // Still being written, or stopped: cut short.
     expect(splitDraft(raw).partial).toBe(true)
@@ -303,6 +345,7 @@ describe("Ask Irori's drafted thread (card #783)", () => {
       draft: "Fix the lobby.\nAsk on #8.",
       partial: false,
       check: false,
+      space: "",
     })
     const r = splitReply(go)
     expect([r.text, r.draft, r.partial]).toEqual([
