@@ -353,8 +353,8 @@ function freshSample(): Record<string, StorageItem[]> {
         detail: "#655 Share a screen",
         cards: ["01SAMPLE655"],
         cleanable: false,
-        keep: "held by cat.exe (pid 4242)",
-        holders: [{ pid: 4242, name: "cat.exe" }],
+        keep: "held by cat (pid 4242)",
+        holders: [{ pid: 4242, name: "cat" }],
       }),
       item({
         id: "c:/work/irori/.claude/worktrees/card-610-1",

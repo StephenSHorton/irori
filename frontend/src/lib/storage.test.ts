@@ -97,7 +97,7 @@ describe("What pins a worktree (card #1118)", () => {
   test("a pinned tree says why: a holder, waiting for Done, or canceled", async () => {
     const trees = await storage.items("builds")
     const held = trees.find((t) => t.holders.length > 0)
-    expect(held?.keep).toContain("held by cat.exe")
+    expect(held?.keep).toContain("held by cat")
     expect(trees.some((t) => t.pinned === "waiting for Done")).toBe(true)
     const canceled = trees.find((t) => t.deleteAnyway)
     expect(canceled?.pinned).toMatch(/^canceled, \d+ unpushed commits$/)

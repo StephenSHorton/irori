@@ -305,6 +305,130 @@ fn build_output_needs_a_tree_irori_made() {
     assert!(err.contains("isn't a worktree Irori made here"), "{err}");
 }
 
+/// Card #1118: a worktree the sweep keeps says why. A card still open: "its
+/// card is still open"; a canceled card's: "canceled, 1 unpushed commit"
+/// with Delete anyway, which refuses the open one's and takes the other's
+/// folder, not its branch.
+#[test]
+fn a_kept_worktree_says_why_and_a_canceled_one_deletes_anyway() {
+    let git = |dir: &std::path::Path, args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@example.com")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@example.com")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+    };
+    let r = Rig::new();
+    let repo = r.data.join("repo");
+    let origin = r.data.join("origin.git");
+    fs::create_dir_all(&repo).unwrap();
+    fs::create_dir_all(&origin).unwrap();
+    git(&origin, &["init", "-q", "--bare", "-b", "main"]);
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(
+        &repo,
+        &["remote", "add", "origin", &origin.to_string_lossy()],
+    );
+    fs::write(
+        repo.join("a.txt"),
+        "one
+",
+    )
+    .unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "one"]);
+    git(&repo, &["push", "-q", "origin", "main"]);
+    let tree = |name: &str| {
+        let w = repo.join(".claude/worktrees").join(name);
+        git(
+            &repo,
+            &["worktree", "add", "-q", "-b", name, &w.to_string_lossy()],
+        );
+        fs::create_dir_all(w.join("target")).unwrap();
+        fs::write(
+            w.join("target/CACHEDIR.TAG"),
+            "Signature: 8a477f597d28d172789f06886806bc55
+",
+        )
+        .unwrap();
+        fs::write(w.join("target/x"), vec![0u8; 100]).unwrap();
+        w
+    };
+    let (open, gone) = (tree("open"), tree("gone"));
+    // One commit only the canceled card's tree has.
+    fs::write(
+        gone.join("b.txt"),
+        "two
+",
+    )
+    .unwrap();
+    git(&gone, &["add", "."]);
+    git(&gone, &["commit", "-q", "-m", "two"]);
+    let co = r.w.core.coord();
+    let me = r.w.core.user_sender().key;
+    let mk = |title: &str, w: &std::path::Path| {
+        let t = co
+            .create_task(
+                &r.key_a,
+                coord::NewTask {
+                    title: title.into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let p = w.to_string_lossy().into_owned();
+        co.set_where(
+            &t.id,
+            coord::Where {
+                who: r.key_a.clone(),
+                cwd: p.clone(),
+                worktree: p,
+                branch: "b".into(),
+                head: "1a2b3c4d5e".into(),
+                ..coord::Where::default()
+            },
+        )
+        .unwrap();
+        t
+    };
+    mk("still going", &open);
+    let done = mk("dropped", &gone);
+    co.set_task_state(&me, &done.id, coord::CANCELED, "")
+        .unwrap();
+    r.core.set_spawner(Some(irori_core::spawn::Spawner {
+        spawn: std::sync::Arc::new(|r| {
+            Ok(irori_core::spawn::SpawnStarted {
+                name: r.name.clone(),
+                prefix: String::new(),
+            })
+        }),
+        end: std::sync::Arc::new(|_| Ok(String::new())),
+        trusted: std::sync::Arc::new(|_| true),
+        list: Some(std::sync::Arc::new(|| Ok(Vec::new()))),
+        ready: None,
+    }));
+    let got = items(&r, storage::BUILDS);
+    let of = |name: &str| got.iter().find(|i| i.name == name).unwrap().clone();
+    assert_eq!(of("open").pinned, storage::CARD_OPEN);
+    assert!(!of("open").delete_anyway);
+    assert_eq!(of("gone").pinned, "canceled, 1 unpushed commit");
+    assert!(of("gone").delete_anyway);
+    let err =
+        r.w.storage_delete_tree(&open.to_string_lossy())
+            .unwrap_err();
+    assert!(err.contains("isn't canceled"), "{err}");
+    assert!(open.join("a.txt").is_file());
+    r.w.storage_delete_tree(&gone.to_string_lossy()).unwrap();
+    assert!(!gone.exists());
+    assert!(repo.join(".git/refs/heads/gone").is_file());
+}
+
 /// A kind the page doesn't know is refused.
 #[test]
 fn an_unknown_kind_is_refused() {

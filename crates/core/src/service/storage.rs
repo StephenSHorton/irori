@@ -24,12 +24,21 @@ pub struct BuildTree {
     pub settled: bool,
     /// An agent on this device works in it now.
     pub live: bool,
+    /// Every one of its cards is closed and at least one waits on the
+    /// person's Done (card #1118): why the sweep keeps it.
+    pub waiting_for_done: bool,
     /// Every one of its cards is canceled (card #1118): its work is the
     /// person's to drop, so Storage offers to delete it.
     pub canceled: bool,
     /// Processes that have their folder in it (card #1118), which the
     /// sweep can't remove it past and Storage can end.
     pub holders: Vec<treeclean::Holder>,
+}
+
+/// Whether card `t` is closed and waits on the person's Done (card #1118):
+/// why the sweep keeps its tree.
+pub fn waiting_for_done(t: &coord::Task) -> bool {
+    coord::is_terminal(&t.state) && t.blockers.iter().any(|b| b.open() && b.done_check)
 }
 
 /// Why a tree's build output stays when the person clears it.
@@ -68,6 +77,16 @@ impl Core {
             .iter()
             .map(|t| (t.id.as_str(), buildclean::settled(t)))
             .collect();
+        let waiting: HashSet<&str> = tasks
+            .iter()
+            .filter(|t| waiting_for_done(t))
+            .map(|t| t.id.as_str())
+            .collect();
+        let terminal: HashSet<&str> = tasks
+            .iter()
+            .filter(|t| coord::is_terminal(&t.state))
+            .map(|t| t.id.as_str())
+            .collect();
         let canceled: HashSet<&str> = tasks
             .iter()
             .filter(|t| t.state == coord::CANCELED)
@@ -90,8 +109,21 @@ impl Core {
         trees
             .into_iter()
             .map(|(tree, ids)| BuildTree {
+                waiting_for_done: !ids.is_empty()
+                    && ids.iter().all(|id| terminal.contains(id.as_str()))
+                    && ids.iter().any(|id| waiting.contains(id.as_str())),
                 canceled: !ids.is_empty() && ids.iter().all(|id| canceled.contains(id.as_str())),
-                holders: held.remove(&tree).unwrap_or_default(),
+                // Only a settled tree is the sweep's to remove, and so only
+                // there is a process worth ending.
+                holders: held
+                    .remove(&tree)
+                    .filter(|_| {
+                        !ids.is_empty()
+                            && ids
+                                .iter()
+                                .all(|id| settled.get(id.as_str()).copied().unwrap_or(false))
+                    })
+                    .unwrap_or_default(),
                 settled: !ids.is_empty()
                     && ids
                         .iter()
@@ -148,13 +180,50 @@ impl Core {
         buildclean::clear(Path::new(&t.tree), idle, SystemTime::now())
     }
 
+    /// Whether an agent is in `tree`, by sessions and then `claude agents`
+    /// (presence lags for an agent just started). `Err` when the agents
+    /// can't be listed: nobody can then say no agent is there.
+    fn agent_in(&self, tree: &str) -> Result<bool, String> {
+        if self
+            .s
+            .session_dirs()
+            .iter()
+            .any(|d| treeclean::under(d, tree))
+        {
+            return Ok(true);
+        }
+        let list = self
+            .s
+            .spawn
+            .spawner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|s| s.list.clone())
+            .ok_or("Irori can't list the agents yet")?;
+        let agents = list().map_err(|e| format!("claude agents: {e}"))?;
+        if !super::trees::placed(&agents) {
+            return Err("claude agents listed a live agent with no folder".into());
+        }
+        Ok(agents
+            .iter()
+            .any(|a| a.live && treeclean::under(&a.cwd, tree)))
+    }
+
     /// Ends process `pid` that holds `tree` (card #1118, Storage's End it):
-    /// only a tree [`Self::build_trees`] lists, and only a process that is
-    /// in it now ([`treeclean::end_holder`] looks again).
+    /// only a settled tree [`Self::build_trees`] lists, with no agent in it
+    /// (an agent's own shell would be a holder too), and only a process
+    /// that is in it now ([`treeclean::end_holder`] looks again).
     pub fn end_tree_holder(&self, tree: &str, pid: u32) -> Result<treeclean::Holder, String> {
         let k = key(tree);
-        if !self.build_trees().iter().any(|t| t.tree == k) {
+        let Some(t) = self.build_trees().into_iter().find(|t| t.tree == k) else {
             return Err(format!("{tree} isn't a worktree Irori made here"));
+        };
+        if t.live || self.agent_in(&k)? {
+            return Err(LIVE_TREE.into());
+        }
+        if !t.settled {
+            return Err("its card is still open".into());
         }
         treeclean::end_holder(&k, pid)
     }
@@ -170,25 +239,10 @@ impl Core {
         if !t.canceled {
             return Err("its card isn't canceled".into());
         }
-        let mut live = self.s.session_dirs();
-        let list = self
-            .s
-            .spawn
-            .spawner
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-            .and_then(|s| s.list.clone());
-        // Without the agent list nobody can say no agent is in it.
-        let agents = list.ok_or("Irori can't list the agents yet")?()
-            .map_err(|e| format!("claude agents: {e}"))?;
-        if !super::trees::placed(&agents) {
-            return Err("claude agents listed a live agent with no folder".into());
-        }
-        live.extend(agents.into_iter().filter(|a| a.live).map(|a| a.cwd));
-        if live.iter().any(|d| treeclean::under(d, &t.tree)) {
+        if t.live || self.agent_in(&k)? {
             return Err(LIVE_TREE.into());
         }
+        let live = self.s.session_dirs();
         let check = treeclean::Check {
             live: &live,
             idle: Duration::ZERO,

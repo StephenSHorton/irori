@@ -611,8 +611,10 @@ impl Window {
                         ),
                         Err(e) => format!("canceled, Irori couldn't read its commits ({e})"),
                     }
-                } else if !t.settled {
+                } else if t.waiting_for_done {
                     WAITING_FOR_DONE.to_string()
+                } else if !t.settled {
+                    CARD_OPEN.to_string()
                 } else {
                     String::new()
                 };

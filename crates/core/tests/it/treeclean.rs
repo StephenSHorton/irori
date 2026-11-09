@@ -1656,37 +1656,102 @@ fn a_canceled_cards_tree_can_be_deleted_anyway_and_an_open_ones_cannot() {
     assert!(!git(&main, &["branch", "--list", "canceled"]).is_empty());
 }
 
+/// A fake holder: a `sleep` with its folder in `w`. On Windows Git's
+/// own, started by Git's `sh` (the MSYS processes are the ones named).
+fn fake_holder(w: &Path) -> Option<std::process::Child> {
+    #[cfg(windows)]
+    {
+        let exec = git(Path::new("."), &["--exec-path"]);
+        let sh = Path::new(&exec)
+            .ancestors()
+            .nth(3)
+            .unwrap()
+            .join("usr/bin/sh.exe");
+        if !sh.is_file() {
+            eprintln!("no Git sh here: skipped");
+            return None;
+        }
+        let child = std::process::Command::new(&sh)
+            .args(["-c", "exec sleep 30"])
+            .current_dir(w)
+            .spawn()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(1500));
+        Some(child)
+    }
+    #[cfg(unix)]
+    {
+        let child = std::process::Command::new("sleep")
+            .arg("30")
+            .current_dir(w)
+            .spawn()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        Some(child)
+    }
+}
+
 /// Card #1118: a fake holder shows in the Core's tree list with its name,
-/// and `end_tree_holder` ends it; a pid that isn't in the tree is refused.
-#[cfg(unix)]
+/// `end_tree_holder` ends it, and a pid that isn't in the tree, Irori
+/// itself, or a tree with an agent in it is refused.
 #[test]
 fn the_tree_list_names_a_holder_and_ends_it() {
     let d = tempfile::tempdir().unwrap();
     let main = git_repo(&d.path().join("repo"));
     let w = git_tree(&main, "held");
     let r = Rig::new();
+    r.core.set_spawner(Some(lister()));
     settled_card(&r, "Held", Some(&w));
-    let mut child = std::process::Command::new("sleep")
-        .arg("30")
-        .current_dir(&w)
-        .spawn()
-        .unwrap();
-    std::thread::sleep(Duration::from_millis(300));
+    let Some(mut child) = fake_holder(&w) else {
+        return;
+    };
+    let tree = w.to_string_lossy().into_owned();
     let t = r
         .core
         .build_trees()
         .into_iter()
-        .find(|t| t.tree == key(&w.to_string_lossy()))
+        .find(|t| t.tree == key(&tree))
         .unwrap();
-    assert_eq!(t.holders.len(), 1, "{t:?}");
-    assert_eq!(t.holders[0].name, "sleep");
+    let sleep = t.holders.iter().find(|h| h.name == "sleep");
+    let pid = sleep.unwrap_or_else(|| panic!("{t:?}")).pid;
+    assert!(r.core.end_tree_holder(&tree, std::process::id()).is_err());
+    // An agent listed in the tree: its shell is a holder too, so End it
+    // is refused.
+    let dir = tree.clone();
+    r.core.set_spawner(Some(lister_with(move || {
+        vec![ClaudeAgent {
+            live: true,
+            cwd: dir.clone(),
+            ..ClaudeAgent::default()
+        }]
+    })));
+    let why = r.core.end_tree_holder(&tree, pid).unwrap_err();
+    assert!(why.contains("working in it"), "{why}");
+    r.core.set_spawner(Some(lister()));
+    r.core.end_tree_holder(&tree, pid).unwrap();
+    child.wait().unwrap();
     assert!(
         r.core
-            .end_tree_holder(&w.to_string_lossy(), std::process::id())
-            .is_err()
+            .build_trees()
+            .into_iter()
+            .all(|t| t.holders.is_empty())
     );
-    r.core
-        .end_tree_holder(&w.to_string_lossy(), child.id())
-        .unwrap();
-    child.wait().unwrap();
+}
+
+/// Card #1118: only a closed card with the person's Done still open is
+/// "waiting for Done"; an open card isn't, and neither is a closed one the
+/// person already confirmed.
+#[test]
+fn only_a_closed_card_with_an_open_done_check_waits_for_done() {
+    let mut awaiting = coord::Task {
+        state: coord::COMPLETED.into(),
+        ..coord::Task::default()
+    };
+    assert!(!irori_core::waiting_for_done(&awaiting));
+    let mut check = coord::Blocker::default();
+    check.done_check = true;
+    awaiting.blockers.push(check);
+    assert!(irori_core::waiting_for_done(&awaiting));
+    awaiting.state = coord::WORKING.into();
+    assert!(!irori_core::waiting_for_done(&awaiting));
 }

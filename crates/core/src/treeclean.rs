@@ -1032,9 +1032,32 @@ pub fn remove_anyway(tree: &Path, c: &Check) -> Result<(), String> {
     if let Some(why) = scan(tree) {
         return Err(why);
     }
-    git(&main, &["worktree", "remove", "--force", &path])?;
+    let removed = git(&main, &["worktree", "remove", "--force", &path]);
     if tree.exists() {
-        return Err("git left the folder behind".into());
+        if registered(tree) {
+            // git refused before it began: the tree is whole.
+            return Err(removed
+                .err()
+                .unwrap_or_else(|| "git left the folder behind".into()));
+        }
+        // git dropped its entry and a file held it part way (Windows): the
+        // person said delete, so finish the folder, as the sweep's removal
+        // does for a half-done one. Nothing else could judge it now.
+        let mut last = String::new();
+        for _ in 0..20 {
+            match fs::remove_dir_all(tree) {
+                Ok(()) => break,
+                Err(_) if !tree.exists() => break,
+                Err(e) => last = e.to_string(),
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        if tree.exists() {
+            return Err(format!(
+                "git removed its entry but not all of the folder ({last}); delete {} by hand",
+                tree.display()
+            ));
+        }
     }
     crate::logf(format_args!(
         "trees: deleted {} at the person's word (canceled)",
