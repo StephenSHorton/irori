@@ -184,7 +184,7 @@ fn wait_said(c: &Core, turn: &str, what: &str) -> Said {
 
 /// What `grants_for` gives `text` with nothing typed before it.
 fn grants(text: &str, earlier: &[&str]) -> Vec<tools::Grant> {
-    tools::grants_for(text, earlier)
+    tools::grants_for(text, earlier, &tools::Snapshot::default())
 }
 
 // ---- answered once, by the recorded computer ----

@@ -3605,6 +3605,13 @@ impl Core {
         self.s.start_given_card(id)
     }
 
+    /// What was given to the person, and who they share a space with, now:
+    /// what the Office Assistant's grants for a question resolve against
+    /// (decision 69, §5.1). The turn worker takes one per question.
+    pub fn needs_snapshot(&self) -> tools::Snapshot {
+        tools::needs_snapshot(&ToolsView(self.s.clone()))
+    }
+
     /// Pause agents (card #665): whether this device starts no agents now.
     pub fn agents_pause(&self) -> spawn_pause::AgentsPause {
         self.s.agents_pause()

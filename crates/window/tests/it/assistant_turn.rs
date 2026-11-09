@@ -354,10 +354,11 @@ fn the_owner_ok_turn_lists_read_tools_only_and_never_begins_grants() {
     r.core.set_assistant_home(r.core.device_id()).unwrap();
 
     // A chat run in flight has grants; the owner's-OK turn leaves them alone.
-    let theirs = r
-        .core
-        .assistant_grants()
-        .begin(tools::grants_for("close #3", &[]));
+    let theirs = r.core.assistant_grants().begin(tools::grants_for(
+        "close #3",
+        &[],
+        &tools::Snapshot::default(),
+    ));
     let (runs, open) = (
         r.core.assistant_grants().runs(),
         r.core.assistant_grants().open_count(),
@@ -382,8 +383,17 @@ fn the_owner_ok_turn_lists_read_tools_only_and_never_begins_grants() {
     let at = args.iter().position(|a| *a == "--allowedTools").unwrap();
     let allowed = args[at + 1];
     let names: Vec<&str> = allowed.split(',').collect();
-    assert_eq!(names.len(), tools::ASSISTANT_TOOLS.len());
-    for t in tools::ASSISTANT_TOOLS {
+    // Decision 69: every read tool but needs_you, which reads what waits
+    // on the owner; that turn is driven by another person's question.
+    assert_eq!(names.len(), tools::ASSISTANT_TOOLS.len() - 1);
+    assert!(
+        !allowed.contains("needs_you"),
+        "needs_you is among the allowed tools"
+    );
+    for t in tools::ASSISTANT_TOOLS
+        .iter()
+        .filter(|t| **t != irori_window::assistant::OWNER_OK_LEAVES_OUT)
+    {
         assert!(names.contains(&format!("mcp__irori__{t}").as_str()), "{t}");
     }
     for w in tools::ASSISTANT_WRITE_TOOLS {

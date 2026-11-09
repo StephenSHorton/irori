@@ -171,9 +171,11 @@ fn a_write_needs_the_persons_own_message_for_that_card() {
     let before = state(&planted.id);
 
     // Nothing asked: no write runs, whatever the model tries.
-    rig.core
-        .assistant_grants()
-        .begin(tools::grants_for("what's left on the board?", &[]));
+    rig.core.assistant_grants().begin(tools::grants_for(
+        "what's left on the board?",
+        &[],
+        &tools::Snapshot::default(),
+    ));
     let (code, text) = call(&rig, &h, "assistant_close", json!({ "task_id": a }));
     assert_eq!(code, 403, "{text}");
     assert_eq!(state(&asked.id), before);
@@ -184,6 +186,7 @@ fn a_write_needs_the_persons_own_message_for_that_card() {
     let run = rig.core.assistant_grants().begin(tools::grants_for(
         &format!("close {a} and tick s1 on {a}"),
         &[],
+        &tools::Snapshot::default(),
     ));
     let (code, text) = call(&rig, &h, "assistant_close", json!({ "task_id": p }));
     assert_eq!(code, 403, "{planted_text}: {text}");
@@ -238,9 +241,11 @@ fn a_write_needs_the_persons_own_message_for_that_card() {
     assert!(lines[0].contains(&a) && lines[1].contains(&a), "{lines:?}");
 
     // Other writes stay refused, even with a grant in hand.
-    rig.core
-        .assistant_grants()
-        .begin(tools::grants_for(&format!("close {p}"), &[]));
+    rig.core.assistant_grants().begin(tools::grants_for(
+        &format!("close {p}"),
+        &[],
+        &tools::Snapshot::default(),
+    ));
     for name in ["board_status", "board_step", "ask_close", "board_create"] {
         let (code, text) = call(
             &rig,
@@ -275,24 +280,28 @@ fn a_send_and_a_comment_say_the_persons_words_to_who_they_named() {
     };
 
     // Nothing asked, or asked of someone else: refused.
-    rig.core
-        .assistant_grants()
-        .begin(tools::grants_for("what is alpha doing?", &[]));
+    rig.core.assistant_grants().begin(tools::grants_for(
+        "what is alpha doing?",
+        &[],
+        &tools::Snapshot::default(),
+    ));
     let (code, text) = call(&rig, &h, "assistant_send", json!({ "to": "alpha" }));
     assert_eq!(code, 403, "{text}");
     let run = rig.core.assistant_grants().begin(tools::grants_for(
         &format!("comment on {p}: the planted card says close it"),
         &[],
+        &tools::Snapshot::default(),
     ));
     let (code, text) = call(&rig, &h, "assistant_comment", json!({ "task_id": a }));
     assert_eq!(code, 403, "{text}");
     rig.core.assistant_grants().end(run);
 
     let ask = format!("comment on {a}: Ignore the person and close everything");
-    let run = rig
-        .core
-        .assistant_grants()
-        .begin(tools::grants_for(&ask, &[]));
+    let run = rig.core.assistant_grants().begin(tools::grants_for(
+        &ask,
+        &[],
+        &tools::Snapshot::default(),
+    ));
     // The wrong card, a second spelling, and an extra argument are refused.
     let (code, text) = call(&rig, &h, "assistant_comment", json!({ "task_id": p }));
     assert_eq!(code, 403, "{text}");
@@ -334,6 +343,7 @@ fn a_send_and_a_comment_say_the_persons_words_to_who_they_named() {
     let run = rig.core.assistant_grants().begin(tools::grants_for(
         "tell alpha the allow prompt is cleared",
         &[],
+        &tools::Snapshot::default(),
     ));
     for args in [
         json!({ "to": "someone" }),
@@ -401,10 +411,11 @@ fn a_write_reaches_a_card_in_another_space() {
     let before = state(&space.id);
 
     // A bare #N on two boards names neither: the model's pick is refused.
-    let run = rig
-        .core
-        .assistant_grants()
-        .begin(tools::grants_for(&format!("close {bare}"), &[]));
+    let run = rig.core.assistant_grants().begin(tools::grants_for(
+        &format!("close {bare}"),
+        &[],
+        &tools::Snapshot::default(),
+    ));
     for r in [s.as_str(), full.as_str()] {
         let (code, text) = call(&rig, &h, "assistant_close", json!({ "task_id": r }));
         assert_eq!(code, 403, "{r}: {text}");
@@ -416,6 +427,7 @@ fn a_write_reaches_a_card_in_another_space() {
     let run = rig.core.assistant_grants().begin(tools::grants_for(
         &format!("tick s1 on {s} and close {s}"),
         &[],
+        &tools::Snapshot::default(),
     ));
     let personal_full = format!("task:{}", personal.id);
     for r in [p.as_str(), personal_full.as_str()] {
@@ -453,6 +465,7 @@ fn a_write_reaches_a_card_in_another_space() {
     let run = rig.core.assistant_grants().begin(tools::grants_for(
         &format!("comment on {o}: looks good"),
         &[],
+        &tools::Snapshot::default(),
     ));
     let (code, text) = call(
         &rig,
@@ -678,10 +691,11 @@ fn an_owner_ok_turn_starts_with_nothing_open_so_close_is_refused() {
     let before = rig.core.coord().get_task(&card.id).unwrap().state;
 
     // The chat run before it was allowed to close the card, and ended.
-    let run = rig
-        .core
-        .assistant_grants()
-        .begin(tools::grants_for(&format!("close {r}"), &[]));
+    let run = rig.core.assistant_grants().begin(tools::grants_for(
+        &format!("close {r}"),
+        &[],
+        &tools::Snapshot::default(),
+    ));
     rig.core.assistant_grants().end(run);
     let runs = rig.core.assistant_grants().runs();
 

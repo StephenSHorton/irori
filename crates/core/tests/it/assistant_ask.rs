@@ -142,7 +142,10 @@ fn the_prompt_teaches_the_marker_and_the_draft_grants_nothing() {
         "ask Addam's assistant whether the build is green",
         "ask Bob's assistant to review the pull request",
     ] {
-        assert!(tools::grants_for(said, &[]).is_empty(), "{said}");
+        assert!(
+            tools::grants_for(said, &[], &tools::Snapshot::default()).is_empty(),
+            "{said}"
+        );
     }
     close(w);
 }
