@@ -58,6 +58,9 @@ pub enum Topic {
     /// The Office Assistant's computer changed (`assistant:home`, one-assistant
     /// card 1).
     AssistantHome,
+    /// An agent's runs changed: a run started or ended, crossed the heavy
+    /// threshold, or another device's summary folded (card #1249).
+    Runs,
 }
 
 /// One change.
@@ -92,6 +95,12 @@ pub enum CoreEvent {
     Call,
     /// The recorded assistant's computer changed, here or synced.
     AssistantHome,
+    /// These agents' runs changed (card #1249), by agent key: started,
+    /// ended, crossed the heavy threshold, or another device's summary
+    /// folded. Live load rides the window's own `runs:changed`, not this.
+    Runs {
+        keys: Vec<String>,
+    },
     /// Events were dropped for this feed: re-read everything it shows.
     Resync,
 }
@@ -112,6 +121,7 @@ impl CoreEvent {
             CoreEvent::Usage => Topic::Usage,
             CoreEvent::Call => Topic::Call,
             CoreEvent::AssistantHome => Topic::AssistantHome,
+            CoreEvent::Runs { .. } => Topic::Runs,
             CoreEvent::Resync => return None,
         })
     }
