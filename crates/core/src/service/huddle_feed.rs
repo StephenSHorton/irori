@@ -91,14 +91,16 @@ struct Buffered {
 }
 
 /// One huddle this device serves.
-struct Huddle {
+pub(super) struct Huddle {
     conv: String,
     seen: BTreeSet<String>,
     lines: VecDeque<Buffered>,
     next: u64,
     /// Lines numbered below this went to the session already.
     sent: u64,
-    brain: Brain,
+    pub(super) brain: Brain,
+    /// The chair has asked for a title once (card #1053).
+    title_asked: bool,
     /// A timer thread is waiting for the hold's end.
     timer: bool,
     /// The assistant's name in the session's system prompt.
@@ -106,18 +108,26 @@ struct Huddle {
 }
 
 impl Huddle {
-    fn new(conv: &str, me: &str) -> Huddle {
+    pub(super) fn new(conv: &str, me: &str, digest: bool) -> Huddle {
         Huddle {
             conv: conv.to_string(),
             seen: BTreeSet::new(),
             lines: VecDeque::new(),
             next: 0,
             sent: 0,
-            // L3 (the digest) is card 10's.
-            brain: Brain::new(me, Settings { digest: false }),
+            brain: Brain::new(me, Settings { digest }),
+            title_asked: false,
             timer: false,
             name: String::new(),
         }
+    }
+
+    /// The chair's title look, once (card #1053).
+    pub(super) fn title_look(&mut self, now: SystemTime) -> Option<Step> {
+        if std::mem::replace(&mut self.title_asked, true) {
+            return None;
+        }
+        Some(self.brain.title(now))
     }
 
     /// One line in. None when it doesn't count: a line seen already (the
@@ -164,7 +174,7 @@ impl Huddle {
 /// The feed's state on [`Services`].
 #[derive(Default)]
 pub(crate) struct Feed {
-    calls: Mutex<HashMap<String, Huddle>>,
+    pub(super) calls: Mutex<HashMap<String, Huddle>>,
     /// What each huddle's session was shown of the canvas, and its
     /// placeholders (card #1051).
     pub(super) canvas: Mutex<HashMap<String, super::huddle_canvas::CanvasMem>>,
@@ -184,7 +194,7 @@ fn clip(text: &str) -> String {
 }
 
 /// Who the room has, as the rules want them.
-struct Roomy {
+pub(super) struct Roomy {
     people: Vec<Person>,
     assistants: Vec<Assistant>,
 }
@@ -197,7 +207,7 @@ impl Roomy {
         }
     }
 
-    fn name_of(&self, key: &str) -> String {
+    pub(super) fn name_of(&self, key: &str) -> String {
         self.people
             .iter()
             .find(|p| p.key == key)
@@ -236,7 +246,8 @@ impl Services {
             let mut g = lock(&self.feed.calls);
             let hd = g
                 .entry(h.call_id.clone())
-                .or_insert_with(|| Huddle::new(&h.conv_id, &me));
+                .or_insert_with(|| Huddle::new(&h.conv_id, &me, self.huddle_notes_on()));
+            hd.brain.set_digest(self.huddle_notes_on());
             let Some(step) = hd.take(h, &me, now, &roomy.room()) else {
                 return;
             };
@@ -279,7 +290,7 @@ impl Services {
     }
 
     /// The people and connected assistants of `call` as the rules take them.
-    fn huddle_roomy(&self, call: &str, me_key: &str) -> Roomy {
+    pub(super) fn huddle_roomy(&self, call: &str, me_key: &str) -> Roomy {
         let (_, space) = self.call_people_now(call);
         let board = (!space.is_empty())
             .then(|| self.board(&space).ok())
@@ -378,7 +389,7 @@ impl Services {
 
     /// Acts on what the brain decided: starts a look on its own thread and
     /// arms the timer for a hold that is waiting.
-    fn huddle_step(&self, call: &str, step: Step) {
+    pub(super) fn huddle_step(&self, call: &str, step: Step) {
         if step.cap_note {
             logf!("huddle {call}: the assistant has done its looks");
             if self.huddle_hosting(call) {
@@ -440,7 +451,7 @@ impl Services {
             let mut g = lock(&self.feed.calls);
             let hd = g
                 .entry(call.to_string())
-                .or_insert_with(|| Huddle::new(&conv, &me));
+                .or_insert_with(|| Huddle::new(&conv, &me, self.huddle_notes_on()));
             hd.brain.ask_about(SystemTime::now(), Some(item))
         };
         self.huddle_step(call, step);
@@ -585,6 +596,11 @@ impl Services {
             _ => {}
         }
         drop(g);
+        let me_name = roomy.name_of(&me);
+        if let Some(note) = self.huddle_layer_note(call, &conv, look, &me_name) {
+            message.push_str("\n\n");
+            message.push_str(&note);
+        }
         if let Some(delta) = self.huddle_delta(call, &conv) {
             message.push_str("\n\n");
             message.push_str(&delta);
@@ -657,7 +673,7 @@ mod tests {
     #[test]
     fn a_line_calling_the_assistant_gets_a_look_and_a_mid_line_mention_does_not() {
         let now = SystemTime::now();
-        let mut hd = Huddle::new("ch_general", ME);
+        let mut hd = Huddle::new("ch_general", ME, false);
         let calls = feed(
             &mut hd,
             now,
@@ -666,7 +682,7 @@ mod tests {
         assert_eq!(calls.len(), 1, "{calls:?}");
         assert_eq!(calls[0].layer, Layer::Named);
 
-        let mut hd = Huddle::new("ch_general", ME);
+        let mut hd = Huddle::new("ch_general", ME, false);
         let none = feed(
             &mut hd,
             now,
@@ -685,7 +701,7 @@ mod tests {
     #[test]
     fn another_persons_question_wakes_nothing() {
         let now = SystemTime::now();
-        let mut hd = Huddle::new("ch_general", ME);
+        let mut hd = Huddle::new("ch_general", ME, false);
         for (i, t) in [
             "do we have anyone working on signing?",
             "can someone take the release notes",
@@ -720,7 +736,7 @@ mod tests {
     #[test]
     fn old_rows_after_a_reconnect_run_no_look_but_are_context() {
         let now = SystemTime::now();
-        let mut hd = Huddle::new("ch_general", ME);
+        let mut hd = Huddle::new("ch_general", ME, false);
         for i in 0..6 {
             let old = now - Duration::from_secs(300 + i);
             let l = feed(
@@ -743,7 +759,7 @@ mod tests {
     #[test]
     fn a_line_seen_again_feeds_once() {
         let now = SystemTime::now();
-        let mut hd = Huddle::new("ch_general", ME);
+        let mut hd = Huddle::new("ch_general", ME, false);
         let h = heard("ch_general", 0, ME, "Juno, who is on signing", now, true);
         assert_eq!(feed(&mut hd, now, &h).len(), 1);
         // The follow delivers the same row: nothing more, and one line.
@@ -754,7 +770,7 @@ mod tests {
     #[test]
     fn an_unmarked_dm_line_reaches_no_look_and_no_buffer() {
         let now = SystemTime::now();
-        let mut hd = Huddle::new("dm:0123456789abcdef", ME);
+        let mut hd = Huddle::new("dm:0123456789abcdef", ME, false);
         let l = feed(
             &mut hd,
             now,
@@ -788,7 +804,7 @@ mod tests {
     #[test]
     fn the_buffer_drops_talk_past_ten_minutes() {
         let now = SystemTime::now();
-        let mut hd = Huddle::new("ch_general", ME);
+        let mut hd = Huddle::new("ch_general", ME, false);
         feed(
             &mut hd,
             now,

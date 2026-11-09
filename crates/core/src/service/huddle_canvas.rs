@@ -261,7 +261,9 @@ impl Services {
             },
             &self.canvas_me(),
         );
-        self.canvas_done(call, "item", r)
+        let item = self.canvas_done(call, "item", r)?;
+        self.huddle_route_question(call, &item);
+        Ok(item)
     }
 
     /// A person changes an item: its text (their own), its status, its
@@ -325,6 +327,7 @@ impl Services {
         // The hosting device's follow delivers the row too; this makes sure
         // it is not missed when the host is this one.
         self.huddle_item_landed(call, &item);
+        self.huddle_route_question(call, &item);
         Ok(item)
     }
 
@@ -366,6 +369,8 @@ impl Services {
                 self.canvas_mem(call, |m| {
                     m.known_items.insert(i.item_id.clone());
                 });
+                // A question goes to whoever knows (L3b).
+                self.huddle_route_question(call, &i);
                 Some(i)
             }
             Err(e) => {
@@ -480,7 +485,10 @@ impl Services {
         let Some(conv) = self.talk.call_conv(call) else {
             return;
         };
-        let blocks = admit(look.layer, false, parse_blocks(text));
+        // The chair may add a title and a summary; the end's writer is the
+        // chair for that look even when it is only covering for it (§3).
+        let chair = look.layer == Layer::End || self.huddle_is_chair(call);
+        let blocks = admit(look.layer, chair, parse_blocks(text));
         let mut existing = self.canvas_texts(call);
         let ids: BTreeSet<String> = self
             .talk
@@ -492,14 +500,17 @@ impl Services {
         let short = self.assistant_short();
         let mut wrote = 0;
         for b in blocks {
-            let Block::Item {
-                kind,
-                reply,
-                refs,
-                text,
-            } = b
-            else {
-                continue;
+            let (kind, reply, refs, text) = match b {
+                Block::Title(t) => {
+                    self.huddle_propose_title(call, &t);
+                    continue;
+                }
+                Block::Item {
+                    kind,
+                    reply,
+                    refs,
+                    text,
+                } => (kind, reply, refs, text),
             };
             // The first answer takes a placeholder's place.
             if kind == Kind::Answer
@@ -560,6 +571,26 @@ impl Services {
                 },
             );
         }
+    }
+
+    /// The chair's title: written as the assistant's, which a person's title
+    /// always beats. Not when a person has set one.
+    fn huddle_propose_title(&self, call: &str, title: &str) {
+        let title: String = title.split_whitespace().collect::<Vec<_>>().join(" ");
+        let title: String = title.chars().take(80).collect();
+        if title.is_empty() {
+            return;
+        }
+        let person_set = self
+            .talk
+            .calls()
+            .into_iter()
+            .find(|c| c.call_id == call)
+            .is_some_and(|c| !c.title.is_empty() && !c.title_by_assistant);
+        if person_set {
+            return;
+        }
+        let _ = self.call_title_set(call, &title, true);
     }
 
     /// A look that timed out or failed: its placeholder says so.
@@ -768,6 +799,9 @@ impl Services {
             .find(|i| i.item_id == r.item_id)
         {
             self.huddle_item_landed(&r.call_id, &i);
+            // A question on the canvas, from anyone, goes to the assistants
+            // whose people hold a matching card (L3b).
+            self.huddle_route_question(&r.call_id, &i);
         }
     }
 

@@ -380,6 +380,14 @@ export const commands = {
 	assistantWeighs: () => __TAURI_INVOKE<boolean>("assistant_weighs"),
 	/**  Turns "Weigh new cards" on or off, on all the person's devices. */
 	assistantWeighsSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_weighs_set", { on }),
+	/**  "Let my assistant add notes from what I say" (#1053): on unless turned off. */
+	assistantHuddleNotes: () => __TAURI_INVOKE<boolean>("assistant_huddle_notes"),
+	/**  Turns the notes switch on or off, on all the person's devices. */
+	assistantHuddleNotesSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_huddle_notes_set", { on }),
+	/**  "Let my assistant chair huddles I start" (#1053): on unless turned off. */
+	assistantHuddleChair: () => __TAURI_INVOKE<boolean>("assistant_huddle_chair"),
+	/**  Turns the chair switch on or off, on all the person's devices. */
+	assistantHuddleChairSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_huddle_chair_set", { on }),
 	/**  A huddle's transcript (#656): every line, named. */
 	talkCallTranscript: (callId: string) => __TAURI_INVOKE<TalkTranscript>("talk_call_transcript", { callId }),
 	/**  Every huddle in Talk (card #1044), newest first. */

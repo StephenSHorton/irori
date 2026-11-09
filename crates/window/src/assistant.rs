@@ -274,6 +274,8 @@ main
 - app: Settings, App
 - app.login: Launch at login
 - app.transcribe: Transcribe what I say in huddles
+- app.huddle-notes: Let my assistant add notes from what I say: the huddle canvas digest
+- app.huddle-chair: Let my assistant chair huddles I start: the title and end summary
 - app.names: Name new threads: Irori titling the threads you post
 - app.updates: updates and Keep this device up to date";
 
