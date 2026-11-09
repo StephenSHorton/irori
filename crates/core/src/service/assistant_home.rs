@@ -111,6 +111,10 @@ pub(crate) struct HomeState {
     listener: Mutex<Option<HomeListener>>,
     /// One claim or pick is written and folded at a time.
     write: Mutex<()>,
+    /// One fold is read and stored at a time, so an older read never
+    /// overwrites a newer answer (the kind loop, the sweep and the chat
+    /// worker all fold).
+    fold: Mutex<()>,
 }
 
 impl HomeState {
@@ -240,6 +244,11 @@ impl Services {
     /// Folds again. When the answer changed, tells the listener and the
     /// window (`assistant:home`).
     pub(crate) fn follow_assistant_home(&self) {
+        let guard = self
+            .assistant_home
+            .fold
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let now = self.fold_assistant_home();
         let changed = {
             let mut cur = self
@@ -251,6 +260,7 @@ impl Services {
             *cur = now.clone();
             changed
         };
+        drop(guard);
         if !changed {
             return;
         }
@@ -267,7 +277,7 @@ impl Services {
         // Questions that waited while another computer was recorded
         // (card 3).
         if now.as_deref() == Some(self.device.id.as_str()) {
-            self.chat_scan();
+            self.chat_scan(super::assistant_turns::Why::Home);
         }
     }
 

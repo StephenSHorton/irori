@@ -231,10 +231,15 @@ fn a_failure_names_the_computer() {
 fn a_watch_gets_the_turns_events() {
     let r = Rig::new();
     let d = tempfile::tempdir().unwrap();
+    // It ends only once the test says so.
+    let go = d.path().join("go");
     let bin = fake(
         d.path(),
         &[delta("Two cards "), delta("are blocked.")],
-        &format!("sleep 1\necho '{SUCCESS}'"),
+        &format!(
+            "while [ ! -f '{}' ]; do sleep 0.05; done\necho '{SUCCESS}'",
+            go.display()
+        ),
     );
     asked(&r, "t7", "what's blocked?");
     let early: Arc<Mutex<Vec<AssistantEvent>>> = Arc::default();
@@ -267,6 +272,7 @@ fn a_watch_gets_the_turns_events() {
             true
         }),
     );
+    std::fs::write(&go, "").unwrap();
     let done = run.join().unwrap();
     assert_eq!(done.text, "Two cards are blocked.");
     let early = early.lock().unwrap().clone();

@@ -50,9 +50,12 @@ pub const LATE_MS: i64 = 5 * 60_000;
 pub const SCAN_ANSWERS: usize = 5;
 /// How often the worker looks again while it waits to be caught up.
 const POLL: Duration = Duration::from_millis(50);
-/// The longest it waits to be caught up with a connected device: a writer
-/// that never lets it catch up can't hold the assistant forever.
-const CAUGHT_UP_WAIT: Duration = Duration::from_secs(120);
+/// After a start, how long the worker waits for a first session with one
+/// of the person's other devices before "nothing connected" counts as
+/// caught up: no session yet isn't the same as none to have.
+const START_GRACE: Duration = Duration::from_secs(20);
+/// When a long wait to be caught up is logged.
+const SLOW_WAIT: Duration = Duration::from_secs(60);
 /// The longest it waits for the kind loop to fold what the store holds,
 /// before it reads the rows again itself.
 const HEARD_WAIT: Duration = Duration::from_secs(5);
@@ -78,6 +81,19 @@ struct Running {
     cancel: Arc<AtomicBool>,
 }
 
+/// What started a catch-up scan (§5: its four triggers).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Why {
+    /// The chat turn was installed.
+    Install = 0,
+    /// This device became the assistant's computer.
+    Home = 1,
+    /// The kind loop resynced.
+    Resync = 2,
+    /// The sweep's backstop.
+    Sweep = 3,
+}
+
 #[derive(Default)]
 struct Queue {
     pending: BTreeMap<Order, Pending>,
@@ -95,6 +111,12 @@ pub(crate) struct ChatQueue {
     heard: Mutex<Vector>,
     /// The kind loop's resyncs (tests).
     resyncs: AtomicU64,
+    /// The chat turn has been installed in this run: `assistantChat`.
+    ever: AtomicBool,
+    /// When the worker's state was made: the start's grace.
+    started: Instant,
+    /// Questions each kind of scan queued (tests), by [`Why`].
+    scanned: [AtomicU64; 4],
 }
 
 impl ChatQueue {
@@ -106,6 +128,9 @@ impl ChatQueue {
             kick: Kick::new(),
             heard: Mutex::new(heard),
             resyncs: AtomicU64::new(0),
+            ever: AtomicBool::new(false),
+            started: Instant::now(),
+            scanned: Default::default(),
         }
     }
 }
@@ -176,19 +201,28 @@ impl Services {
     /// Installs (or takes away) the desktop's chat turn. Installing it
     /// answers the questions that came before it, and says so on
     /// `spawn.host` (`assistantChat`).
+    /// Taking it away (at quit) says nothing new: the computer is closing,
+    /// not losing the worker, and its next start installs it again.
     pub(crate) fn set_chat_turn(&self, f: Option<ChatTurnFn>) {
         let some = f.is_some();
         *lock(&self.chat.hook) = f;
-        self.republish_host();
         if some {
-            self.chat_scan();
+            if !self.chat.ever.swap(true, Ordering::SeqCst) {
+                self.republish_host();
+            }
+            self.chat_scan(Why::Install);
         }
     }
 
-    /// Whether this run has the chat turn: then this computer can answer
-    /// questions asked on the person's other devices.
+    /// Whether the chat turn is installed now: questions are queued.
     pub(crate) fn has_chat_turn(&self) -> bool {
         lock(&self.chat.hook).is_some()
+    }
+
+    /// Whether this run has had the chat turn: then this computer answers
+    /// questions asked on the person's other devices (`assistantChat`).
+    pub(crate) fn chat_ever(&self) -> bool {
+        self.chat.ever.load(Ordering::SeqCst)
     }
 
     /// The kind loop heard `ev`, after folding it. Notes how far it has
@@ -247,7 +281,40 @@ impl Services {
             }
         }
         self.chat.resyncs.fetch_add(1, Ordering::SeqCst);
-        self.chat_scan();
+        self.chat_recheck_running();
+        self.chat_scan(Why::Resync);
+    }
+
+    /// A `stop` or New chat the kind loop never handed over (a resync
+    /// folded it) still stops the running turn.
+    fn chat_recheck_running(&self) {
+        let Some(turn) = lock(&self.chat.q).running.as_ref().map(|r| r.turn.clone()) else {
+            return;
+        };
+        if self
+            .assistant_chat
+            .turn_at(&turn)
+            .is_some_and(|t| t.turn.stopped || t.hidden)
+        {
+            self.chat_trip(|r| r.turn == turn);
+        }
+    }
+
+    /// Questions each kind of scan queued, by [`Why`] (tests).
+    pub(crate) fn chat_scan_counts(&self) -> [u64; 4] {
+        std::array::from_fn(|i| self.chat.scanned[i].load(Ordering::SeqCst))
+    }
+
+    /// Whether the kind loop has folded every row the store holds (tests).
+    pub(crate) fn chat_heard_all(&self) -> bool {
+        self.store
+            .vector()
+            .is_ok_and(|want| covers(&lock(&self.chat.heard), &want))
+    }
+
+    /// Whether question `turn` is queued or running (tests).
+    pub(crate) fn chat_queued(&self, turn: &str) -> bool {
+        lock(&self.chat.q).busy.contains(turn)
     }
 
     /// How many times the kind loop has resynced (tests).
@@ -301,7 +368,7 @@ impl Services {
     /// with the hook. Of what it finds, the newest five the person didn't
     /// stop are answered; the older ones get a `skipped` reply when the
     /// worker reaches them, oldest first, before the five.
-    pub(crate) fn chat_scan(&self) {
+    pub(crate) fn chat_scan(&self, why: Why) {
         if !self.has_chat_turn() || !self.is_assistant_home() {
             return;
         }
@@ -334,6 +401,7 @@ impl Services {
                     },
                 );
                 added = true;
+                self.chat.scanned[why as usize].fetch_add(1, Ordering::SeqCst);
             }
         }
         if added {
@@ -341,7 +409,9 @@ impl Services {
         }
     }
 
-    /// The Core stops: the worker ends, and a running turn with it.
+    /// The Core stops: the worker ends, and a running turn with it. A turn
+    /// cut off this way gets no reply (unless the person stopped it), so the
+    /// next start answers it.
     pub(crate) fn chat_close(&self) {
         self.chat.kick.close();
         self.chat_trip(|_| true);
@@ -383,22 +453,44 @@ impl Services {
         }
     }
 
+    /// Whether the person has another device that isn't removed.
+    fn chat_others(&self) -> bool {
+        self.chain
+            .devices()
+            .iter()
+            .any(|d| !d.revoked && d.cert.device_id != self.device.id)
+    }
+
     /// Waits until this device is caught up with every own device it is
     /// connected to, and the kind loop has folded every row the store
-    /// holds. False once the Core stops.
-    fn chat_ready(&self) -> bool {
+    /// holds. Just after a start, "nothing connected" counts only once a
+    /// session has had time to come up. A Stop ends the wait at once, for
+    /// the checks to say so. False once the Core stops.
+    fn chat_ready(&self, cancel: &AtomicBool) -> bool {
         let closed = || self.chat.kick.is_closed();
-        let deadline = Instant::now() + CAUGHT_UP_WAIT;
-        while !self.mesh.node.caught_up() {
+        let stopped = || cancel.load(Ordering::SeqCst);
+        let since = Instant::now();
+        let mut said = false;
+        loop {
             if closed() {
                 return false;
             }
-            if Instant::now() >= deadline {
-                logf(format_args!(
-                    "assistant chat: not caught up after {}s; answering anyway",
-                    CAUGHT_UP_WAIT.as_secs()
-                ));
+            if stopped() {
+                return true;
+            }
+            let node = &self.mesh.node;
+            let settled = node.any_connected()
+                || self.chat.started.elapsed() >= START_GRACE
+                || !self.chat_others();
+            if settled && node.caught_up() {
                 break;
+            }
+            if !said && since.elapsed() >= SLOW_WAIT {
+                said = true;
+                logf(format_args!(
+                    "assistant chat: still not caught up after {}s",
+                    SLOW_WAIT.as_secs()
+                ));
             }
             std::thread::sleep(POLL);
         }
@@ -472,7 +564,7 @@ impl Services {
     /// Takes one question: waits until caught up, checks it against the
     /// fold as it is now, and runs it.
     fn chat_take(&self, p: &Pending, cancel: &Arc<AtomicBool>) {
-        if !self.chat_ready() {
+        if !self.chat_ready(cancel) {
             return;
         }
         let Some(t) = self.assistant_chat.turn_at(&p.turn) else {
@@ -484,6 +576,10 @@ impl Services {
             return;
         }
         if turn.stopped || cancel.load(Ordering::SeqCst) {
+            if !turn.stopped && self.chat.kick.is_closed() {
+                // Irori is closing, not the person stopping it.
+                return;
+            }
             self.chat_said(
                 &p.turn,
                 Said {
@@ -529,11 +625,19 @@ impl Services {
         };
         let c = cancel.clone();
         let done = hook(&job, &move |_| !c.load(Ordering::SeqCst));
-        let stopped = cancel.load(Ordering::SeqCst);
-        if done.later && !stopped {
+        // The person stopped it, or a New chat ended it: not Irori closing.
+        let by_person = self
+            .assistant_chat
+            .turn_at(&p.turn)
+            .is_some_and(|t| t.turn.stopped || t.hidden);
+        let closing = done.later || (self.chat.kick.is_closed() && !by_person);
+        if closing && done.changed.is_empty() {
             // Irori is closing: the next start's scan answers it.
             return;
         }
+        // A run cut off after it changed something says what it changed;
+        // Ask again is there for the rest.
+        let stopped = closing || cancel.load(Ordering::SeqCst);
         self.chat_said(
             &p.turn,
             Said {

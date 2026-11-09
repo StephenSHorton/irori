@@ -19,6 +19,11 @@ use store::{Filter, kinds};
 
 const WAIT: u64 = 90;
 
+/// [`Core::chat_scan_counts`]'s places: what started the scan.
+const ON_INSTALL: usize = 0;
+const ON_HOME: usize = 1;
+const ON_RESYNC: usize = 2;
+
 /// A fake chat turn: records each job and answers "re: <question>". While
 /// `hold` is set a turn waits, ending early when its cancel trips.
 #[derive(Default)]
@@ -337,6 +342,11 @@ fn a_question_from_before_the_hook_is_answered_by_the_scan() {
     let r = wait_said(&s.core, &turn, "the scan answers it");
     assert_eq!(r.text, "re: anything new?");
     assert!(!r.skipped);
+    assert_eq!(
+        s.core.chat_scan_counts()[ON_INSTALL],
+        1,
+        "the install's scan queued it"
+    );
     s.core.close().unwrap();
 }
 
@@ -368,6 +378,7 @@ fn a_question_inside_a_burst_that_overflows_is_answered() {
             .unwrap();
     }
     let before = h.core.chat_resyncs();
+    let scanned = h.core.chat_scan_counts()[ON_RESYNC];
     meet(&links, &lans);
     let r = wait_said(&h.core, "buried", "the buried question is answered");
     assert_eq!(r.text, "re: the buried question");
@@ -375,6 +386,11 @@ fn a_question_inside_a_burst_that_overflows_is_answered() {
     assert!(
         h.core.chat_resyncs() > before,
         "the burst overflowed the kind loop"
+    );
+    assert_eq!(
+        h.core.chat_scan_counts()[ON_RESYNC],
+        scanned + 1,
+        "a resync's scan queued the buried question, lost to the live way in"
     );
     for d in devs {
         d.core.close().unwrap();
@@ -399,9 +415,15 @@ fn a_question_that_waited_for_another_computer_is_answered_after_a_move() {
         said(&b.core, &turn).is_none()
     });
     assert_eq!(f.ran(), 0);
+    let scanned = b.core.chat_scan_counts()[ON_HOME];
     b.core.set_assistant_home(b.core.device_id()).unwrap();
     let r = wait_said(&b.core, &turn, "B answers it after the move");
     assert_eq!(r.text, "re: can you check #4?");
+    assert_eq!(
+        b.core.chat_scan_counts()[ON_HOME],
+        scanned + 1,
+        "becoming the assistant's computer queued it"
+    );
     a.core.close().unwrap();
     b.core.close().unwrap();
 }
@@ -429,6 +451,10 @@ fn six_live_questions_all_answer_and_twenty_scanned_give_five() {
     let found: Vec<String> = (0..20)
         .map(|i| ask(&s.core, &format!("waiting {i}")))
         .collect();
+    // They reached this computer before the hook: the kind loop has them.
+    wait_for(WAIT, "the kind loop has folded the questions", || {
+        s.core.chat_heard_all()
+    });
     let f = Fake::new();
     s.core.set_chat_turn(Some(f.turn()));
     for t in &found {
@@ -443,6 +469,7 @@ fn six_live_questions_all_answer_and_twenty_scanned_give_five() {
         f.asked(),
         (15..20).map(|i| format!("waiting {i}")).collect::<Vec<_>>()
     );
+    assert_eq!(s.core.chat_scan_counts()[ON_INSTALL], 20);
     s.core.close().unwrap();
 }
 
@@ -533,9 +560,8 @@ fn a_close_queued_live_behind_a_long_turn_keeps_its_grant() {
     ask(&s.core, "a long question");
     wait_for(WAIT, "the long turn runs", || f.ran() == 1);
     let close = ask(&s.core, "close #12");
-    // Its row reaches the kind loop now; then the long turn runs ten
-    // minutes.
-    std::thread::sleep(Duration::from_millis(500));
+    // Its row reaches the kind loop; then the long turn runs ten minutes.
+    wait_for(WAIT, "the close is queued", || s.core.chat_queued(&close));
     ahead.store(600, Ordering::SeqCst);
     f.release();
     wait_said(&s.core, &close, "the close is answered");
@@ -684,12 +710,22 @@ fn a_question_with_a_newer_move_in_one_sync_runs_no_turn() {
 /// caught up with the device it syncs from before either.
 #[test]
 fn a_fresh_core_neither_claims_nor_runs_the_phones_questions() {
-    let (devs, links, lans) = apart("stephen", 3);
-    let (old, phone, fresh) = (&devs[0], &devs[1], &devs[2]);
+    let (mut devs, links, lans) = apart("stephen", 3);
+    // A sync hands over rows by writer id, then seq: the phone's id comes
+    // first, so its questions reach the fresh desktop before the old
+    // computer's replies and claim.
+    let ids: Vec<String> = devs
+        .iter()
+        .map(|d| d.core.device_id().to_string())
+        .collect();
+    let mut order: Vec<usize> = (0..3).collect();
+    order.sort_by(|a, b| ids[*a].cmp(&ids[*b]));
+    let (ip, io, iff) = (order[0], order[1], order[2]);
+    let (phone, old, fresh) = (&devs[ip], &devs[io], &devs[iff]);
     let f_old = Fake::new();
     old.core.set_chat_turn(Some(f_old.turn()));
     home_here(&old.core);
-    link(&links, &lans, &[(0, 1), (1, 0)]);
+    link(&links, &lans, &[(io, ip), (ip, io)]);
     let turns: Vec<String> = (0..3)
         .map(|i| ask(&phone.core, &format!("phone question {i}")))
         .collect();
@@ -698,10 +734,22 @@ fn a_fresh_core_neither_claims_nor_runs_the_phones_questions() {
         "the old computer answers, and the phone has it",
         || turns.iter().all(|t| said(&phone.core, t).is_some()),
     );
+    // More than one batch of the phone's own rows after them.
+    for i in 0..600 {
+        phone
+            .core
+            .assistant_chat_write(ChatRow::Update(irori_core::assistant_chat::Update {
+                key: format!("filler-{i}"),
+                text: format!("line {i}"),
+                at: unix_ms(),
+                ..Default::default()
+            }))
+            .unwrap();
+    }
     // The fresh desktop has its chat turn, and syncs from the phone only.
     let f_fresh = Fake::new();
     fresh.core.set_chat_turn(Some(f_fresh.turn()));
-    link(&links, &lans, &[(2, 1), (1, 2)]);
+    link(&links, &lans, &[(iff, ip), (ip, iff)]);
     wait_for(WAIT, "the fresh desktop is connected to the phone", || {
         fresh
             .core
@@ -735,7 +783,7 @@ fn a_fresh_core_neither_claims_nor_runs_the_phones_questions() {
     holds_for(12, "the fresh desktop neither claims nor runs", || {
         f_fresh.ran() == 0 && mine(&fresh.core) == 0 && !fresh.core.is_assistant_home()
     });
-    for d in devs {
+    for d in devs.drain(..) {
         d.core.close().unwrap();
     }
 }
@@ -804,4 +852,37 @@ fn a_higher_ranked_core_without_assistant_chat_doesnt_block_the_claim() {
     });
     old.core.close().unwrap();
     able.core.close().unwrap();
+}
+
+// ---- closing ----
+
+/// A turn cut off by Irori closing gets no reply (it isn't the person's
+/// Stop), so the next start's scan answers it.
+#[test]
+fn a_turn_cut_off_by_closing_is_answered_after_the_restart() {
+    let (d, c) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let core = Core::start(common::options(d.path(), c.path())).unwrap();
+    home_here(&core);
+    let f = Fake::held();
+    core.set_chat_turn(Some(f.turn()));
+    let turn = ask(&core, "a long one");
+    wait_for(WAIT, "it runs", || f.ran() == 1);
+    core.close().unwrap();
+    assert_eq!(
+        f.cancelled.lock().unwrap().len(),
+        1,
+        "closing ended the run"
+    );
+
+    let core = Core::start(common::options(d.path(), c.path())).unwrap();
+    assert!(
+        said(&core, &turn).is_none(),
+        "no reply was written at close"
+    );
+    let f = Fake::new();
+    core.set_chat_turn(Some(f.turn()));
+    let r = wait_said(&core, &turn, "the restart answers it");
+    assert_eq!(r.text, "re: a long one");
+    assert!(r.error.is_empty());
+    core.close().unwrap();
 }

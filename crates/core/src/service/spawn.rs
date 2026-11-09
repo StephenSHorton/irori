@@ -2059,7 +2059,7 @@ impl Services {
         // The chat's backstop: an unanswered question that isn't queued
         // (one-assistant card 3). Before the pause: Stop everywhere never
         // stops the person's own chat.
-        self.chat_scan();
+        self.chat_scan(super::assistant_turns::Why::Sweep);
         if self.inbox.policy().paused {
             return;
         }

@@ -278,7 +278,7 @@ impl Services {
         let assistant_turn = ready && os != "android";
         // It answers the person's other devices only with the chat worker's
         // turn installed in this run (one-assistant card 3).
-        let assistant_chat = assistant_turn && self.has_chat_turn();
+        let assistant_chat = assistant_turn && self.chat_ever();
         if last.as_ref()
             == Some(&(
                 os.clone(),

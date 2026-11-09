@@ -2996,6 +2996,25 @@ impl Core {
         self.s.chat_resyncs()
     }
 
+    /// Questions each catch-up scan queued: on install, on becoming the
+    /// assistant's computer, on a resync, from the sweep (tests).
+    #[doc(hidden)]
+    pub fn chat_scan_counts(&self) -> [u64; 4] {
+        self.s.chat_scan_counts()
+    }
+
+    /// Whether the kind loop has folded every row the store holds (tests).
+    #[doc(hidden)]
+    pub fn chat_heard_all(&self) -> bool {
+        self.s.chat_heard_all()
+    }
+
+    /// Whether question `turn` is queued or running here (tests).
+    #[doc(hidden)]
+    pub fn chat_queued(&self, turn: &str) -> bool {
+        self.s.chat_queued(turn)
+    }
+
     /// Installs the turn that weighs a new card (card #965).
     pub fn set_weigher(&self, n: Option<thread_names::Namer>) {
         self.s.set_weigher(n);
