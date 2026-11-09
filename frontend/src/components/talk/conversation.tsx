@@ -96,6 +96,7 @@ import {
   type Mention,
 } from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
+import { useClockValue, useToday } from "@/lib/clock"
 import { parseTime, plainLine } from "@/lib/irori"
 import { useMedia } from "@/lib/media"
 import { go } from "@/lib/nav"
@@ -182,12 +183,10 @@ export const membersRoomyQuery = "(min-width: 1280px)"
 
 export function ConversationView({
   conv,
-  now,
   narrow,
   onBack,
 }: {
   conv: Conversation
-  now: Date
   narrow: boolean
   onBack: () => void
 }) {
@@ -305,10 +304,20 @@ export function ConversationView({
 
   // Agents a post here woke, until they answer (card #645).
   const replyingAgents = useReplying(conv.convId)
-  const replying = conv.readOnly
-    ? null
-    : replyingLine(replyingAgents, now.getTime())
+  // Read off the shared clock: an agent's row expires after a while, and only
+  // this text changing renders the conversation (card #1137).
+  const replyingJson = useClockValue((now) =>
+    JSON.stringify(
+      conv.readOnly ? null : replyingLine(replyingAgents, now.getTime())
+    )
+  )
+  const replying = useMemo(
+    () => JSON.parse(replyingJson) as ReturnType<typeof replyingLine>,
+    [replyingJson]
+  )
   const replyingText = replying?.text ?? ""
+  // "Today" and "Yesterday" on the day lines roll over at midnight.
+  const today = useToday()
 
   const bottom = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -566,7 +575,7 @@ export function ConversationView({
         ) : narrow && transcript ? (
           <TranscriptPane
             callId={transcript}
-            now={now}
+
             wide
             onClose={() => setTranscript("")}
           />
@@ -603,13 +612,16 @@ export function ConversationView({
                     const at = parseTime(p.at)
                     const prev = i > 0 ? parseTime(posts[i - 1].at) : null
                     const newDay =
-                      at && (!prev || dayLabel(prev, now) !== dayLabel(at, now))
+                      at &&
+                      (!prev || dayLabel(prev, today) !== dayLabel(at, today))
                     return (
                       <div
                         key={p.postId}
                         className="grid grid-cols-[minmax(0,1fr)]"
                       >
-                        {newDay && at && <DayLine label={dayLabel(at, now)} />}
+                        {newDay && at && (
+                          <DayLine label={dayLabel(at, today)} />
+                        )}
                         <PostRow
                           post={p}
                           who={memberOf(names.values(), p.by)}
@@ -662,7 +674,7 @@ export function ConversationView({
       ) : transcript && !narrow ? (
         <TranscriptPane
           callId={transcript}
-          now={now}
+
           onClose={() => setTranscript("")}
         />
       ) : (

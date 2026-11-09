@@ -3,6 +3,7 @@
 // TranscriptView draws a transcript it's given, so the server-rendered
 // tests can feed it directly; TranscriptPane reads one by its call.
 
+import { useToday } from "@/lib/clock"
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { FileTextIcon, SearchIcon, XIcon } from "lucide-react"
 
@@ -88,19 +89,18 @@ function Frame({
 // lines with who said each and when.
 export function TranscriptView({
   t,
-  now,
   wide,
   onClose,
 }: {
   t: TalkTranscript
-  now: Date
   wide?: boolean
   onClose?: () => void
 }) {
   const [q, setQ] = useState("")
+  const today = useToday()
   const shown = findLines(t.lines, q)
   return (
-    <Frame wide={wide} onClose={onClose} sub={whenText(t, now)}>
+    <Frame wide={wide} onClose={onClose} sub={whenText(t, today)}>
       <div className="grid gap-2 border-b border-border px-3 pt-1 pb-3">
         <span className="text-[11.5px] text-muted-foreground">
           {whoCanRead(t)}
@@ -215,19 +215,17 @@ export function useTranscript(
 // keeps it current while the huddle is on.
 export function TranscriptPane({
   callId,
-  now,
   wide,
   follow,
   onClose,
 }: {
   callId: string
-  now: Date
   wide?: boolean
   follow?: boolean
   onClose?: () => void
 }) {
   const { t, error } = useTranscript(callId, follow)
-  if (t) return <TranscriptView t={t} now={now} wide={wide} onClose={onClose} />
+  if (t) return <TranscriptView t={t} wide={wide} onClose={onClose} />
   return (
     <Frame wide={wide} onClose={onClose}>
       <p
