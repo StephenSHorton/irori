@@ -556,6 +556,18 @@ pub fn content_blocks(
     text: &str,
     files: &[(String, Option<Vec<u8>>)],
 ) -> Vec<serde_json::Value> {
+    let (mut blocks, read, notes) = file_blocks(files);
+    let mut prompt = render_prompt(history, text, &read);
+    prompt.push_str(&notes);
+    blocks.push(serde_json::json!({"type": "text", "text": prompt}));
+    blocks
+}
+
+/// The blocks for the files the model can read, the names of those, and
+/// the lines saying which could not be read ([`content_blocks`]).
+pub fn file_blocks(
+    files: &[(String, Option<Vec<u8>>)],
+) -> (Vec<serde_json::Value>, Vec<String>, String) {
     use base64::Engine as _;
     let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
     let mut blocks = Vec::new();
@@ -587,9 +599,24 @@ pub fn content_blocks(
         }
         read.push(shown);
     }
-    let mut prompt = render_prompt(history, text, &read);
-    prompt.push_str(&notes);
-    blocks.push(serde_json::json!({"type": "text", "text": prompt}));
+    (blocks, read, notes)
+}
+
+/// The content blocks for a chat turn whose prompt Core built from rows:
+/// the files first, then the prompt with the names of the files read and a
+/// line for each that could not be read.
+pub fn chat_content_blocks(
+    prompt: &str,
+    files: &[(String, Option<Vec<u8>>)],
+) -> Vec<serde_json::Value> {
+    let (mut blocks, read, notes) = file_blocks(files);
+    let mut text = prompt.to_string();
+    if !read.is_empty() {
+        text.push_str(&attached_line(&read));
+        text.push('\n');
+    }
+    text.push_str(&notes);
+    blocks.push(serde_json::json!({"type": "text", "text": text}));
     blocks
 }
 
@@ -2129,61 +2156,67 @@ impl crate::Window {
             .collect()
     }
 
-    /// Asks the assistant `text` after `history` (card #783), with `files`
-    /// from [`Self::assistant_attach`]; events come to `sink`. Only files
-    /// in the chat's index are read: any other sha counts as unreadable.
-    ///
-    /// `screen` is the window's plain-text snapshot of what the person is
-    /// looking at (card #1009): the Core keeps it for the `screen` tool.
-    pub fn assistant_ask(
+    /// Takes the question the person typed here (one-assistant card 4):
+    /// the chat's files named in `files` are offered to the person's other
+    /// devices, so the assistant's computer can fetch them, and the
+    /// question's row carries them. Only files the chat itself stored count.
+    pub fn assistant_chat_ask(
         &self,
-        history: &[AssistantTurn],
         text: &str,
-        files: &[AssistantFile],
         screen: &str,
-        sink: Sink,
-    ) -> u32 {
+        again: &str,
+        files: &[AssistantFile],
+    ) -> Result<String, String> {
         let index = load_index(&self.core.assistant_dir());
-        let loaded: Vec<(String, Option<Vec<u8>>)> = files
-            .iter()
-            .map(|f| match index.get(&f.sha256) {
-                Some(r) => (
-                    r.name.clone(),
-                    std::fs::read(self.core.files().path(&r.sha256)).ok(),
-                ),
-                None => (f.name.clone(), None),
-            })
-            .collect();
-        self.core.set_assistant_screen(screen);
-        let line = stream_json_line(&content_blocks(history, text, &loaded));
-        // Card #987: only what the person typed can allow a change.
-        let typed: Vec<&str> = history
-            .iter()
-            .filter(|t| t.role == "person")
-            .map(|t| t.text.as_str())
-            .collect();
-        let core = self.core.clone();
-        let run = core
-            .assistant_grants()
-            .begin(tools::grants_for(text, &typed));
-        let sink: Sink = Box::new(move |e| {
-            if e.ends() {
-                for line in core.assistant_grants().end(run) {
-                    sink(AssistantEvent::changed(&line));
-                }
-            }
-            sink(e)
-        });
-        let mut job = Job::assistant(&self.core, line);
-        if let Ok(j) = job.as_mut() {
-            j.look = screen_label(screen);
+        let mut asked = Vec::with_capacity(files.len());
+        for f in files {
+            let Some(r) = index.get(&f.sha256) else {
+                return Err(format!("{}: not stored for the chat", f.name));
+            };
+            self.seams.mesh.offer(r)?;
+            asked.push(irori_core::assistant_chat::AskedFile {
+                sha256: r.sha256.clone(),
+                name: r.name.clone(),
+                size: r.size,
+                mime: r.mime.clone(),
+                device: r.device.clone(),
+                can_read: f.can_read,
+            });
         }
-        self.assistant.start(job, sink)
+        self.core
+            .assistant_chat_ask_with(text, screen, again, asked)
     }
 
-    /// Stops assistant run `id`.
-    pub fn assistant_stop(&self, id: u32) {
-        self.assistant.stop(id);
+    /// The bytes of a question's files for the model, each file's name and
+    /// bytes: from this device's store, else fetched over the mesh from the
+    /// device that holds them. A file that can't be had is `None`, and the
+    /// prompt says it could not be read.
+    pub fn chat_file_bytes(
+        &self,
+        files: &[irori_core::assistant_chat::AskedFile],
+    ) -> Vec<(String, Option<Vec<u8>>)> {
+        files
+            .iter()
+            .map(|f| {
+                let r = FileRef {
+                    sha256: f.sha256.clone(),
+                    name: f.name.clone(),
+                    size: f.size,
+                    mime: f.mime.clone(),
+                    device: f.device.clone(),
+                };
+                if !self.core.files().has(&r.sha256)
+                    && let Err(e) = self.core.fetch_file_blocking(&r)
+                {
+                    irori_core::log(&format!("assistant: fetch {}: {e:?}", f.name));
+                    return (f.name.clone(), None);
+                }
+                (
+                    f.name.clone(),
+                    std::fs::read(self.core.files().path(&r.sha256)).ok(),
+                )
+            })
+            .collect()
     }
 
     /// Ends the assistant's runs as the app quits.
@@ -2630,6 +2663,28 @@ mod tests {
         );
         let all = serde_json::to_string(&b).unwrap();
         assert!(!all.contains("UEsDBH"), "the docx's bytes never go: {all}");
+    }
+
+    #[test]
+    fn a_chat_turn_keeps_core_s_prompt_and_adds_its_files() {
+        let files = vec![
+            ("shot.png".to_string(), Some(PNG.to_vec())),
+            ("report.docx".to_string(), Some(b"PK\x03\x04rest".to_vec())),
+        ];
+        let b = chat_content_blocks("The person: what is this?\n", &files);
+        assert_eq!(b.len(), 2);
+        assert_eq!(b[0]["type"], "image");
+        let t = b[1]["text"].as_str().unwrap();
+        assert!(t.starts_with("The person: what is this?\n"), "{t}");
+        assert!(t.contains(r#"[attached: "shot.png"]"#), "{t}");
+        assert!(
+            t.contains(r#"attached "report.docx", and you cannot read"#),
+            "{t}"
+        );
+        // No files: the prompt alone.
+        let b = chat_content_blocks("The person: hi\n", &[]);
+        assert_eq!(b.len(), 1);
+        assert_eq!(b[0]["text"], "The person: hi\n");
     }
 
     #[test]

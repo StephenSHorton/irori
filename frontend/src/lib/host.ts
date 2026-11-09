@@ -732,24 +732,12 @@ export const UsageService = {
   Limits: () => call(commands.usageLimits()),
 }
 
-// Ask Irori (card #783): the read-only helper's answer comes as
-// AssistantEvents on a Channel (delta, tool, then done or error); Ask
-// returns the run's id at once, and Stop(id) ends it.
+// Ask Irori (card #783): one assistant across the person's devices; its
+// questions and replies are rows (ChatList, ChatAsk), and a reply streams
+// as AssistantEvents on a Channel (ChatWatch) where the turn runs.
 export const AssistantService = {
   // Card #999: stores the chat's files; Ask takes back what this returned.
   Attach: (files: B.UploadFile[]) => call(commands.assistantAttach(files)),
-  Ask(
-    history: B.AssistantTurn[],
-    text: string,
-    files: B.AssistantFile[],
-    screen: string,
-    onEvent: (ev: B.AssistantEvent) => void
-  ): Promise<number> {
-    const on = new Channel<B.AssistantEvent>()
-    on.onmessage = onEvent
-    return call(commands.assistantAsk(history, text, files, screen, on))
-  },
-  Stop: (id: number) => done(commands.assistantStop(id)),
   // The one conversation, the same on every device (card #1102): a page,
   // newest first, older than the entry whose cursor is before ("" is the
   // newest); limit 0 is 50. "assistant:changed" says to read it again.
@@ -758,8 +746,12 @@ export const AssistantService = {
   // Asks the one assistant (one-assistant card 3): writes the question's
   // row and returns its turn; the assistant's computer answers it, wherever
   // it is. again is the turn Ask again repeats.
-  ChatAsk: (text: string, screen: string, again?: string) =>
-    call(commands.assistantChatAsk(text, screen, again ?? null)),
+  ChatAsk: (
+    text: string,
+    screen: string,
+    again: string | undefined,
+    files: B.AssistantFile[]
+  ) => call(commands.assistantChatAsk(text, screen, again ?? null, files)),
   // Post thread: the reply's draft became this thread (every device then
   // hides the button). New chat hides the conversation so far, everywhere.
   ChatPosted: (turn: string, id: string, short: string, tag: string) =>

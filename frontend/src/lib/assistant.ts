@@ -530,6 +530,7 @@ export function entriesFrom(page: readonly AssistantChatItem[]): ChatEntry[] {
       turn: t.turn,
       device: t.device,
     }
+    if (t.files?.length) q.files = t.files
     if (t.again) q.again = t.again
     const r = t.reply
     if (!r) q.pending = true
@@ -836,11 +837,10 @@ export async function ask(
   const body = text.trim()
   if (!body && !files.length) return
   if (!inWails()) return localAsk(body, files)
-  if (!body) return
   try {
     // What the window shows, sent along for the screen tool (card #1009).
     const screen = await screenSnapshot().catch(() => "")
-    const turn = await AssistantService.ChatAsk(body, screen, again)
+    const turn = await AssistantService.ChatAsk(body, screen, again, files)
     asked.set(turn, Date.now())
     await refresh()
   } catch (err) {

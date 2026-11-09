@@ -19,7 +19,7 @@ use crate::agents::{
     AgentStartsView, AgentUsage, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings,
     NamesThemesView, RunningAgent,
 };
-use crate::assistant::{AssistantEvent, AssistantFile, AssistantTurn};
+use crate::assistant::{AssistantEvent, AssistantFile};
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
 use crate::boards::{BoardSettings, BoardSummary, SharePreview, SpaceBoard};
@@ -2679,8 +2679,6 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             meters_history,
             usage_limits,
             assistant_attach,
-            assistant_ask,
-            assistant_stop,
             assistant_chat_list,
             assistant_chat_ask,
             assistant_chat_stop,
@@ -2718,45 +2716,6 @@ pub async fn assistant_attach(w: W<'_>, files: Vec<UploadFile>) -> R<Vec<Assista
     blocking(&w, move |w| w.assistant_attach(&files)).await
 }
 
-/// Asks the corner chat's assistant `text` after `history`, with `files`
-/// from [`assistant_attach`]; `screen` is the window's plain-text snapshot
-/// of what is shown (card #1009; "" sends none). Returns the run's id at
-/// once; its events come on `on`, ending with one `done` or `error` (a
-/// failure to start included).
-#[tauri::command]
-#[specta::specta]
-pub async fn assistant_ask(
-    w: W<'_>,
-    history: Vec<AssistantTurn>,
-    text: String,
-    files: Vec<AssistantFile>,
-    screen: String,
-    on: tauri::ipc::Channel<AssistantEvent>,
-) -> R<u32> {
-    if text.trim().is_empty() && files.is_empty() {
-        return Err("ask something first".into());
-    }
-    blocking(&w, move |w| {
-        Ok(w.assistant_ask(
-            &history,
-            &text,
-            &files,
-            &screen,
-            Box::new(move |e| on.send(e).is_ok()),
-        ))
-    })
-    .await
-}
-
-/// Stops assistant run `id`: its channel gets error "Stopped." or nothing
-/// more. An unknown or finished id is fine.
-#[tauri::command]
-#[specta::specta]
-pub async fn assistant_stop(w: W<'_>, id: u32) -> R<()> {
-    w.assistant_stop(id);
-    Ok(())
-}
-
 /// A page of the assistant's one conversation, newest first (card #1102,
 /// docs/design/one-assistant.md §4): up to `limit` entries (0 is 50) older
 /// than the one whose cursor is `before` ("" starts at the newest). The
@@ -2774,7 +2733,7 @@ pub async fn assistant_chat_list(
 /// The person asks the assistant (one-assistant card 3, §5): writes the
 /// question's row, which the assistant's computer answers wherever it is,
 /// and returns its turn. `screen` is this device's snapshot; `again` the
-/// turn it asks again (Ask again).
+/// turn it asks again (Ask again). `files` are from [`assistant_attach`].
 #[tauri::command]
 #[specta::specta]
 pub async fn assistant_chat_ask(
@@ -2782,10 +2741,10 @@ pub async fn assistant_chat_ask(
     text: String,
     screen: String,
     again: Option<String>,
+    files: Vec<AssistantFile>,
 ) -> R<String> {
     blocking(&w, move |w| {
-        w.core
-            .assistant_chat_ask(&text, &screen, again.as_deref().unwrap_or(""))
+        w.assistant_chat_ask(&text, &screen, again.as_deref().unwrap_or(""), &files)
     })
     .await
 }
@@ -2808,7 +2767,10 @@ pub async fn assistant_chat_posted(
     short: String,
     tag: String,
 ) -> R<()> {
-    blocking(&w, move |w| w.assistant_chat_posted(&turn, &id, &short, &tag)).await
+    blocking(&w, move |w| {
+        w.assistant_chat_posted(&turn, &id, &short, &tag)
+    })
+    .await
 }
 
 /// New chat: hides the conversation so far, on every device.

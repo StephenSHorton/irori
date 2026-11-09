@@ -60,6 +60,8 @@ pub struct AssistantChatTurn {
     /// Brought in from the assistant's computer's old history.
     pub imported: bool,
     pub call_id: String,
+    /// The files that came with it.
+    pub files: Vec<crate::assistant::AssistantFile>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub reply: Option<AssistantChatReply>,
@@ -164,6 +166,18 @@ fn item(i: chat::ChatItem) -> AssistantChatItem {
                 again: a.again,
                 imported: a.imported,
                 call_id: a.call_id,
+                files: a
+                    .files
+                    .into_iter()
+                    .map(|f| crate::assistant::AssistantFile {
+                        sha256: f.sha256,
+                        name: f.name,
+                        size: f.size,
+                        mime: f.mime,
+                        device: f.device,
+                        can_read: f.can_read,
+                    })
+                    .collect(),
                 reply: t.said.map(|s| AssistantChatReply {
                     text: s.text,
                     changed: s.changed,

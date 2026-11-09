@@ -584,19 +584,6 @@ export const commands = {
 	 */
 	assistantAttach: (files: UploadFile[]) => __TAURI_INVOKE<AssistantFile[]>("assistant_attach", { files }),
 	/**
-	 *  Asks the corner chat's assistant `text` after `history`, with `files`
-	 *  from [`assistant_attach`]; `screen` is the window's plain-text snapshot
-	 *  of what is shown (card #1009; "" sends none). Returns the run's id at
-	 *  once; its events come on `on`, ending with one `done` or `error` (a
-	 *  failure to start included).
-	 */
-	assistantAsk: (history: AssistantTurn[], text: string, files: AssistantFile[], screen: string, on: Channel<AssistantEvent>) => __TAURI_INVOKE<number>("assistant_ask", { history, text, files, screen, on }),
-	/**
-	 *  Stops assistant run `id`: its channel gets error "Stopped." or nothing
-	 *  more. An unknown or finished id is fine.
-	 */
-	assistantStop: (id: number) => __TAURI_INVOKE<null>("assistant_stop", { id }),
-	/**
 	 *  A page of the assistant's one conversation, newest first (card #1102,
 	 *  docs/design/one-assistant.md §4): up to `limit` entries (0 is 50) older
 	 *  than the one whose cursor is `before` ("" starts at the newest). The
@@ -607,9 +594,9 @@ export const commands = {
 	 *  The person asks the assistant (one-assistant card 3, §5): writes the
 	 *  question's row, which the assistant's computer answers wherever it is,
 	 *  and returns its turn. `screen` is this device's snapshot; `again` the
-	 *  turn it asks again (Ask again).
+	 *  turn it asks again (Ask again). `files` are from [`assistant_attach`].
 	 */
-	assistantChatAsk: (text: string, screen: string, again: string | null) => __TAURI_INVOKE<string>("assistant_chat_ask", { text, screen, again }),
+	assistantChatAsk: (text: string, screen: string, again: string | null, files: AssistantFile[]) => __TAURI_INVOKE<string>("assistant_chat_ask", { text, screen, again, files }),
 	/**
 	 *  Stops a question, from any device: one that hasn't started never runs,
 	 *  and a running one ends at once.
@@ -1053,6 +1040,8 @@ export type AssistantChatTurn = {
 	/**  Brought in from the assistant's computer's old history. */
 	imported: boolean,
 	callId: string,
+	/**  The files that came with it. */
+	files: AssistantFile[],
 	reply?: AssistantChatReply | null,
 	posted?: AssistantChatPosted | null,
 	/**  The person stopped it. */
@@ -1128,18 +1117,6 @@ export type AssistantHomeStatus = {
 	 *  "" otherwise.
 	 */
 	none: string,
-};
-
-/**  One turn of the chat so far. */
-export type AssistantTurn = {
-	/**  `"person"` or `"assistant"`. */
-	role: string,
-	text: string,
-	/**
-	 *  What the person attached to this turn (card #999): names only reach
-	 *  the model on later turns.
-	 */
-	files?: AssistantFile[],
 };
 
 /**  One comment file as the window shows it. */
