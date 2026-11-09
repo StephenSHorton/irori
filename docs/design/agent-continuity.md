@@ -32,7 +32,7 @@ Myrtle, on #1209, asked whether "same name, new session" would feel continuous o
 
 So:
 - **Rest and wake keep the same session.** `--resume` restores the transcript and keeps the session id unless `--fork-session` is passed (checked against `claude --help` on 2026-11-09). The agent that answers really did the earlier work. It only lacks what it never read, and its wake lists what happened while it rested (§7).
-- **A successor gets a new name** and an explicit line: "quill takes over from sorrel (retired at 131k tokens)". Its brief quotes sorrel's last closing comments. The card thread and the roster both show the link (§9, §12). Nobody is led to think quill remembers.
+- **A successor gets a new name** and an explicit line: "quill takes over from sorrel (retired at 212k tokens)". Its brief quotes sorrel's last closing comments. The card thread and the roster both show the link (§9, §12). Nobody is led to think quill remembers.
 
 ## 4. Measuring context
 
@@ -55,9 +55,9 @@ Gotchas, all found in real transcripts:
 
 **Measured on events.** The budget is checked when an item settles, when the agent goes idle, and when a wake or offer is about to go out. It is never checked on a timer.
 
-**Default: 120k tokens of context.** It is a per-device setting, like the idle limit since #492, in Settings › Agents › "When Irori stops and asks". The choices are **80k, 120k (default), 200k, 300k, and "Always start a fresh agent"**. The last one turns reuse off, so the setting only tunes or turns off a feature that works by itself (decision 52). It is stored as a `SpawnSetting` field (0 means the default) and checked in `check()`.
+**Default: 200k tokens of context**, the person's pick on #1209 b1 ("200k: maximum continuity"). It is a per-device setting, like the idle limit since #492, in Settings › Agents › "When Irori stops and asks". The choices are **80k, 120k, 200k (default), 300k, and "Always start a fresh agent"**. The last one turns reuse off, so the setting only tunes or turns off a feature that works by itself (decision 52). It is stored as a `SpawnSetting` field (0 means the default) and checked in `check()`.
 
-### What 120k means, from 300 real sessions
+### What the budget means, from 300 real sessions
 
 300 recent transcripts on this Mac, 2026-11-09:
 
@@ -68,7 +68,7 @@ Gotchas, all found in real transcripts:
 | Context at the end, Sonnet card agents | 112k | 232k |
 | Context at the end, Opus card agents | 243k | 407k |
 
-So at 120k, **ask and thread agents nearly always stay reusable**, which is the cycling the person saw. About half of Sonnet card agents stay. Opus card agents mostly retire after their card, and that is the work most likely to have used up its context anyway. The budget sorts agents the way the person described without a rule about kinds: the small ones stay and the heavy ones go.
+So at 200k, **ask and thread agents always stay reusable**, which is the cycling the person saw, and so do most Sonnet card agents (their p90 is 232k). About one Opus card agent in three stays; the rest retire after their card, which is the work most likely to have used up its context anyway. At 120k, about half the Sonnet card agents and few Opus ones would stay. The budget sorts agents the way the person described without a rule about kinds: the small ones stay and the heavy ones go.
 
 ### What it costs
 
@@ -83,16 +83,17 @@ The data shows that every session writes cache with the **1-hour lifetime** (99.
 | 30k | ~85k | +$0.26 | +$0.09 |
 | 60k | ~115k | +$0.72 | +$0.29 |
 | 100k | ~155k | +$1.33 | +$0.54 |
+| 145k | ~200k | +$2.03 | +$0.83 |
 
 For an ask-sized item (13 calls), reuse is cheaper than a fresh start up to about C = 60k on Opus and about 30k on Sonnet.
 
-**Honestly:** on cost alone, reuse breaks about even at **80k**, and **120k is a continuity choice**. It costs roughly +$0.30 (Sonnet) to +$0.75 (Opus) for a median card taken by an agent near the budget, and nothing extra for the small thread items the person was annoyed by. What it buys is an agent that already read the thread and the code: fewer calls rediscovering them, which the transcripts can't measure, and an agent other agents can still ask. The person picks the trade with the setting. #1209's blocker asks them which default they want.
+**Honestly:** on cost alone, reuse breaks about even at **80k**. **200k is a continuity choice**, and the person made it knowing the trade. An agent near the budget costs about +$0.83 (Sonnet) to +$2.03 (Opus) more for a median card than a fresh start. A small thread item costs nothing extra. In exchange, the agent already read the thread and the code, so it spends fewer calls rediscovering them (the transcripts can't measure this), and other agents can still ask it. The setting is how the person moves the trade later. (#1209 b1's option text said +$0.5 to +$1.3, which was too low; the corrected figure is on the card.)
 
-**Cold reuse always costs more.** After 60 minutes without a call, the next call writes the whole context again: (B + C) × 2 × input. At 120k that is about +$0.75 (Opus) or +$0.38 (Sonnet) once, over a fresh start. So:
+**Cold reuse always costs more.** After 60 minutes without a call, the next call writes the whole context again: (B + C) × 2 × input. At 200k that is about +$1.39 (Opus) or +$0.70 (Sonnet) once, over a fresh start. So:
 - **Automatic reuse** (same-repo cards, §8) is only offered to an agent whose last call was **under 55 minutes ago**, read from `ctx_at` when the offer is decided.
 - **Waking a resting agent** for its own continuity (its thread, its question, a mention, §7) is allowed cold. The person asked for that continuity, and it costs at most one re-write.
 
-**Not a turn or item count.** API calls per session range from 4 to 247, while context grows steadily by about 2.1k per call, so tokens are the better measure. The budget also bounds items: a small item adds at least about 5k, so 120k leaves room for roughly a dozen small items and far fewer card-sized ones, never 100.
+**Not a turn or item count.** API calls per session range from 4 to 247, while context grows steadily by about 2.1k per call, so tokens are the better measure. The budget also bounds items: a small item adds at least about 5k, so 200k leaves room for at most about 30 small items and far fewer card-sized ones, never 100.
 
 ## 6. Rest instead of end
 
@@ -254,7 +255,7 @@ What each place that reads the single mark becomes (find them with `grep -rn 'sp
 1. If the agent is awake, it runs the exit protocol. A resting agent already wrote its hand-off when it rested.
 2. Irori writes `agent.retire`, then `agent.gone` "finished", `claude stop` (if awake) and `claude rm`.
 3. The name is released to the namer's normal protection.
-4. Any open thread or item it held goes back to hand-out. Its next agent is a **successor**: the brief opens with "You take over from sorrel (retired: context past 120k). sorrel's closing notes:", then the quoted closing comments (§12). The thread and card get one line: "sorrel retired (131k); quill takes over."
+4. Any open thread or item it held goes back to hand-out. Its next agent is a **successor**: the brief opens with "You take over from sorrel (retired: context past 200k). sorrel's closing notes:", then the quoted closing comments (§12). The thread and card get one line: "sorrel retired (212k); quill takes over."
 
 **Mentions and messages to a retired agent** land on its current item, as today ("for sorrel, who has finished"), plus "quill took over" when there is a successor, and they wake that successor if it holds the item.
 
@@ -295,8 +296,8 @@ On cards
   ● sorrel      #1212 · working · 64k
   ● quill       #1215 · blocked on you · 101k
 Free
-  ○ tansy       irori · idle 12m · 41k of 120k · served #1207, #1208
-  ○ marram      ww-multiplayer · idle 3m · 88k of 120k · served #1190
+  ○ tansy       irori · idle 12m · 41k of 200k · served #1207, #1208
+  ○ marram      ww-multiplayer · idle 3m · 88k of 200k · served #1190
 Resting (5)                                                   ▸
 ```
 
@@ -304,7 +305,7 @@ Opened, Resting shows each agent with its repo, its context, what it holds, and 
 
 The hover (`agent-hover.tsx` `AgentSummary`) replaces "Irori started it for #N" with:
 - "Served #1207 (thread), #1208";
-- a context line, "41k of 120k · retires past 120k";
+- a context line, "41k of 200k · retires past 200k";
 - the state: "awake, idle 12 min" or "resting since 14:02".
 
 Its actions are Attach and Logs (awake), Wake (resting), Rest now (awake), and Retire. It still shows the model and effort, plus a note when they differ from the board's current pick.
