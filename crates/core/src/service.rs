@@ -79,6 +79,7 @@ mod desk_review;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
+mod given_follow;
 pub mod huddle_canvas;
 mod huddle_divide;
 mod huddle_end;

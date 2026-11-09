@@ -73,6 +73,11 @@ export type PatchedOptions<T, P> = {
   noteDropped?(): void
   noteRead?: (r: ReadReport) => void
   now?: () => number
+  // settleMs is how long a drift sample waits after its read before it is
+  // compared (default DriftSettleMs): a change made while the read ran
+  // reaches the page a moment after it, and a notice in that wait drops
+  // the sample. 0 compares at once.
+  settleMs?: number
 }
 
 export type PatchedReads = {
@@ -156,7 +161,17 @@ export function patchedReads<T, P>(o: PatchedOptions<T, P>): PatchedReads {
           // differ by the notice, not by a miss.
           const drained = want.all || Object.keys(want.ids).length > 0
           if (drained || touched !== since || !empty(pending)) dropSample()
-          else compare(before, after)
+          else if ((o.settleMs ?? DriftSettleMs) <= 0) compare(before, after)
+          else {
+            // The pump delivers a notice a moment after its change, so a
+            // read that ran meanwhile can already hold a change whose
+            // notice has not come yet: wait for it before comparing.
+            const at = touched
+            setTimeout(() => {
+              if (touched !== at || !empty(pending)) dropSample()
+              else compare(before, after)
+            }, o.settleMs ?? DriftSettleMs)
+          }
         }
         patched = want.full ? false : true
         o.set(after)
@@ -241,6 +256,9 @@ export function rowsDiffer(
 // read, while the window is shown. DriftSlots is how many places the lists
 // are staggered over, so they don't all read at once.
 export const DriftEveryMs = 5 * 60_000
+// DriftSettleMs is how long a drift sample waits for the notice of a change
+// that came in during its read before it compares (patchedReads).
+export const DriftSettleMs = 3000
 export const DriftSlots = 10
 
 export type DriftDeps = {

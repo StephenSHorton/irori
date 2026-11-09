@@ -247,12 +247,21 @@ pub(crate) fn needs_you(s: &Inner, _c: &Caller, raw: &[u8]) -> String {
                     .is_none_or(|o| o.kind == coord::BLOCKED_ON_PERSON);
             if q.given_back {
                 let who = bare_name(&s.roster().who(&q.raised_by));
-                back.push(format!(
-                    "- {}, given back by {}: Keep it or Cancel it\n{}",
+                let why = coord::given_back_reason(&q.context);
+                let mut line = format!(
+                    "- {}, given back by {}: Keep it or Cancel it",
                     t.short_ref(),
                     one_line(&who, MAX_NAME),
-                    fence_sender(&who, &one_line(&q.context, MAX_NOTE))
-                ));
+                );
+                if why.is_empty() {
+                    line.push_str(" (no reason given)");
+                } else {
+                    line.push_str(&format!(
+                        "\nTheir reason:\n{}",
+                        fence_sender(&who, &one_line(why, MAX_NOTE))
+                    ));
+                }
+                back.push(line);
             } else if q.question == coord::GIVEN_QUESTION && t.given.is_none() {
                 marked.push(format!(
                     "- {}: an agent made or changed it after reading another person's text; it asks OK to start an agent",

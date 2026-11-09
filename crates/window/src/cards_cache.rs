@@ -110,6 +110,17 @@ pub struct CardsCache {
     keys_of: HashMap<String, Vec<String>>,
     /// Each open card's loop of waits as of the last batch.
     rings: HashMap<String, Vec<String>>,
+    /// When the cache was last built or given a batch (unix nanos, taken
+    /// before it read). A card written after this is a change the pump has
+    /// not delivered yet, so the drift read leaves its row out.
+    applied_nano: i64,
+}
+
+/// Now, in unix nanos, as `GoTime::unix_nano` counts them.
+fn now_nano() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_nanos()).unwrap_or(i64::MAX))
 }
 
 impl CardsCache {
@@ -350,6 +361,7 @@ impl Window {
         *c = CardsCache {
             live,
             built: true,
+            applied_nano: now_nano(),
             ..CardsCache::default()
         };
         c.logs.push(Log {
@@ -433,6 +445,7 @@ impl Window {
         if !c.live || !c.built || cards.is_empty() {
             return out;
         }
+        c.applied_nano = c.applied_nano.max(now_nano());
         let mut dirty: Vec<String> = Vec::new();
         for (id, refs) in cards {
             add_id(&mut dirty, id);
@@ -589,6 +602,7 @@ impl Window {
             Some(b) => {
                 let private = |k: &str| self.core.private_key(k);
                 s.given_no = co.mine_to_serve(t) && t.given_said.as_ref().is_some_and(|y| !y.yes);
+                self.set_given(&mut s, t, &co, p);
                 s.ours = ours(t, [], private)
                     || (t.comments > 0
                         && ours(t, a.commenters.iter().map(String::as_str), private));
@@ -702,16 +716,54 @@ impl Window {
         }
         let p = self.people();
         let kept = self.grid_from(&mut c, &p);
+        let cut = c.applied_nano;
         let mut fresh = CardsCache {
             live: true,
+            applied_nano: now_nano(),
             ..CardsCache::default()
         };
         let cold = self.grid_from(&mut fresh, &p);
-        let (n, ids) = rows_differ(&kept, &cold);
+        // A card written since the last batch is a change the pump has not
+        // delivered yet (it can lag seconds under load), not a wrong row:
+        // the next batch names it. Leave those rows out of the comparison.
+        let late: HashSet<&str> = cold
+            .iter()
+            .filter(|s| s.updated_at.unix_nano() > cut)
+            .map(|s| s.id.as_str())
+            .collect();
+        let settled = |rows: &[CardSummary]| -> Vec<CardSummary> {
+            rows.iter()
+                .filter(|s| !late.contains(s.id.as_str()))
+                .cloned()
+                .collect()
+        };
+        let (n, ids) = rows_differ(&settled(&kept), &settled(&cold));
         let mut line = format!("drift cards-cache {n}");
         if !ids.is_empty() {
             let shown: Vec<&str> = ids.iter().take(20).map(String::as_str).collect();
             line.push_str(&format!(" {}", shown.join(" ")));
+            // Which fields differ, per row, so a drift names its cause.
+            let fields: Vec<String> = shown
+                .iter()
+                .filter_map(|id| {
+                    let a = kept.iter().find(|s| s.id == *id)?;
+                    let b = cold.iter().find(|s| s.id == *id)?;
+                    let (a, b) = (serde_json::to_value(a).ok()?, serde_json::to_value(b).ok()?);
+                    let (a, b) = (a.as_object()?, b.as_object()?);
+                    let mut keys: Vec<&str> = a
+                        .keys()
+                        .chain(b.keys())
+                        .filter(|k| a.get(*k) != b.get(*k))
+                        .map(String::as_str)
+                        .collect();
+                    keys.sort_unstable();
+                    keys.dedup();
+                    Some(format!("{id}:{}", keys.join(",")))
+                })
+                .collect();
+            if !fields.is_empty() {
+                line.push_str(&format!(" fields {}", fields.join(" ")));
+            }
         }
         irori_core::log(&line);
         *c = fresh;

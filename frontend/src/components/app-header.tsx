@@ -48,8 +48,6 @@ export function AppHeader({
   return (
     <header className="sticky top-0 z-20 border-x-0! border-t-0! pt-[var(--safe-top)] pr-[var(--safe-right)] pl-[var(--safe-left)] glass-panel">
       <div className="@container/header relative mx-auto flex h-[calc(3.5rem_-_min(var(--safe-top),0.75rem))] max-w-[1920px] items-center gap-2 px-2 sm:gap-3 sm:px-6 md:px-4">
-        {/* Sync badge (card #1089): false in a browser, so nothing shows there. */}
-        <SyncBadge hasMenu={Boolean(onMenu)} />
         {onMenu && (
           <Button
             variant="ghost"
@@ -81,6 +79,9 @@ export function AppHeader({
           </Badge>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {/* Sync badge (cards #1089, #1231): false in a browser, so nothing
+              shows there. */}
+          <SyncBadge />
           {/* This computer's meters (card #599): desktop only. */}
           <MetersStrip crowded={Boolean(bar)} />
           {actions}

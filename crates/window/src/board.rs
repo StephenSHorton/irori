@@ -16,6 +16,15 @@ use crate::cards::{AgentRef, NOTE_ITEM, not_found_task};
 use crate::mentions::{MentionOutcome, Plan};
 use crate::ts;
 
+/// One new card in a batch the person gives.
+#[derive(Debug, Clone, Default, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GiveTask {
+    pub title: String,
+    pub objective: String,
+    pub done_when: String,
+}
+
 /// MaxUpload caps one file added from the window.
 pub const MAX_UPLOAD: usize = 32 << 20;
 
@@ -362,6 +371,74 @@ impl Window {
         self.core
             .coord()
             .ask_again(&self.user_key(), trim(id))
+            .map_err(|e| e.to_string())
+    }
+
+    /// BoardService.SayGiven: the person's Start an agent / Not now on a
+    /// card given to them (decision 69). `say` is "start" or "notnow".
+    /// Start stays one yes, one agent: it answers the card's open question
+    /// and nothing else.
+    pub fn say_given(&self, id: &str, say: &str) -> Result<(), String> {
+        let say = match say {
+            "start" => coord::GivenSay::Start,
+            "notnow" => coord::GivenSay::NotNow,
+            other => return Err(format!("say start or notnow, not {other:?}")),
+        };
+        let id = trim(id);
+        let (co, _) = self.on(id, &[])?;
+        co.say_given(&self.user_key(), id, say)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// BoardService.GiveBack: the person returns a given card to its
+    /// owner, with a reason if they give one (decision 69).
+    pub fn give_back(&self, id: &str, reason: &str) -> Result<(), String> {
+        let id = trim(id);
+        let (co, _) = self.on(id, &[])?;
+        co.give_back(&self.user_key(), id, reason)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// BoardService.GiveBatch: gives new cards (`tasks`) or cards already
+    /// on the board (`cards`) to one member as one batch (decision 69).
+    /// Returns the cards given.
+    #[allow(clippy::too_many_arguments)]
+    pub fn give_batch(
+        &self,
+        space: &str,
+        board: &str,
+        to: &str,
+        tasks: &[GiveTask],
+        cards: &[String],
+        note: &str,
+    ) -> Result<Vec<String>, String> {
+        let co = self
+            .core
+            .board_coord(trim(space))
+            .map_err(|e| e.to_string())?;
+        let items = if cards.is_empty() {
+            coord::GiveItems::Tasks(
+                tasks
+                    .iter()
+                    .map(|t| coord::NewTask {
+                        title: t.title.clone(),
+                        objective: t.objective.clone(),
+                        done_criteria: t.done_when.clone(),
+                        board: board.to_string(),
+                        board_named: !board.is_empty(),
+                        ..coord::NewTask::default()
+                    })
+                    .collect(),
+            )
+        } else if tasks.is_empty() {
+            coord::GiveItems::Cards(cards.iter().map(|c| trim(c).to_string()).collect())
+        } else {
+            return Err("give new tasks or cards already there, not both".into());
+        };
+        co.give_batch(&self.user_key(), board, trim(to), items, note, false)
+            .map(|v| v.into_iter().map(|t| t.id).collect())
             .map_err(|e| e.to_string())
     }
 

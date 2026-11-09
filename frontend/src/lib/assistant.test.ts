@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
+import { readFileSync } from "node:fs"
 
 import {
   ask,
@@ -8,6 +9,15 @@ import {
   mergeLines,
   openDraftPosts,
   quietKey,
+  updateKey,
+  GIVEN_BACK_FACT,
+  GIVEN_BACK_VERB,
+  GIVEN_NOT_NOW_FACT,
+  GIVEN_NOT_NOW_TAIL,
+  GIVEN_NOT_NOW_VERB,
+  GIVEN_START_FACT,
+  GIVEN_START_VERB,
+  GIVEN_THREAD,
   setTalkLines,
   failedLine,
   foldEvent,
@@ -1000,6 +1010,149 @@ describe("labelled lines (card #1062)", () => {
     const out = entriesFrom([upd("held:p"), upd("req:r"), upd("t1|cant")])
     expect(out.map((e) => !!e.quiet)).toEqual([false, true, true])
     expect(quietKey("held:x") && quietKey("req:y") && !quietKey("a")).toBe(true)
+  })
+})
+
+describe("the sender hears what came of the cards they gave (decision 69)", () => {
+  const upd = (
+    fact: string,
+    text: string,
+    at: number,
+    extra: Record<string, unknown> = {}
+  ) =>
+    ({
+      cursor: `1.${at}.1.d`,
+      kind: "update",
+      update: {
+        key: updateKey("given:b1", fact),
+        thread: "given:b1",
+        text,
+        at,
+        imported: false,
+        ...extra,
+      },
+    }) as unknown as Item
+  // A page is newest first.
+  const page = (...oldestFirst: Item[]) => [...oldestFirst].reverse()
+
+  test("the constants match the Rust ones", () => {
+    const rust = readFileSync(
+      new URL(
+        "../../../crates/core/src/service/given_follow.rs",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    const c = (name: string, v: string) =>
+      expect(rust).toContain(`pub const ${name}: &str = "${v}";`)
+    c("THREAD_PREFIX", GIVEN_THREAD)
+    c("FACT_START", GIVEN_START_FACT)
+    c("FACT_NOT_NOW", GIVEN_NOT_NOW_FACT)
+    c("FACT_BACK", GIVEN_BACK_FACT)
+    c("START_VERB", GIVEN_START_VERB)
+    c("NOT_NOW_VERB", GIVEN_NOT_NOW_VERB)
+    c("NOT_NOW_TAIL", GIVEN_NOT_NOW_TAIL)
+    c("BACK_VERB", GIVEN_BACK_VERB)
+  })
+
+  test("the start and notnow facts are quiet; the back fact is not", () => {
+    const es = entriesFrom(
+      page(
+        upd("start:c1:1", "Spencer started an agent on #12.", 1),
+        upd("notnow:c2:q1", "Spencer put #13 aside for now.", 1_000_000),
+        upd("back:c3:b9", "Spencer gave back #14.", 2_000_000)
+      )
+    )
+    expect(es.map((e) => !!e.quiet)).toEqual([true, true, false])
+    expect(quietKey(updateKey("given:b1", "start:c:1"))).toBe(true)
+    expect(quietKey(updateKey("given:b1", "back:c:b"))).toBe(false)
+    // Another thread's fact of the same name is not a given line.
+    expect(quietKey(updateKey("t1", "start:c:1"))).toBe(false)
+  })
+
+  test("the display fold joins a start row that arrives after the first", () => {
+    const first = [upd("start:c1:1", "Spencer started an agent on #12.", 1_000)]
+    expect(entriesFrom(page(...first)).map((e) => e.text)).toEqual([
+      "Spencer started an agent on #12.",
+    ])
+    const es = entriesFrom(
+      page(
+        ...first,
+        upd("start:c2:1", "Spencer started an agent on #13.", 5_000)
+      )
+    )
+    expect(es.map((e) => e.text)).toEqual([
+      "Spencer started agents on 2 of your tasks (#12, #13).",
+    ])
+    // The same card twice is one mention; a start long after is its own.
+    const more = entriesFrom(
+      page(
+        ...first,
+        upd("start:c2:1", "Spencer started an agent on #13.", 5_000),
+        upd("start:c2:2", "Spencer started an agent on #13.", 6_000),
+        upd("start:c4:1", "Spencer started an agent on #15.", 9_000_000)
+      )
+    )
+    expect(more.map((e) => e.text)).toEqual([
+      "Spencer started agents on 2 of your tasks (#12, #13).",
+      "Spencer started an agent on #15.",
+    ])
+    // A not-now line is its own outcome and a give-back is never folded.
+    const mixed = entriesFrom(
+      page(
+        ...first,
+        upd("notnow:c2:q", "Spencer put #13 aside for now.", 2_000),
+        upd("notnow:c3:q", "Spencer put #14 aside for now.", 3_000),
+        upd("back:c5:b1", "Spencer gave back #16.", 4_000),
+        upd("back:c6:b2", "Spencer gave back #17.", 5_000)
+      )
+    )
+    expect(mixed.map((e) => e.text)).toEqual([
+      "Spencer started an agent on #12.",
+      "Spencer put #13, #14 aside for now.",
+      "Spencer gave back #16.",
+      "Spencer gave back #17.",
+    ])
+  })
+
+  test("a give-back's reason is a quote, not the assistant's words", () => {
+    const es = entriesFrom(
+      page(
+        upd("back:c5:b1", "Spencer gave back #16.", 4_000, {
+          from: { name: "Spencer", words: "too big" },
+          act: { kind: "answer", card: "c5", blocker: "b1" },
+        })
+      )
+    )
+    expect(es[0].text).toBe("Spencer gave back #16.")
+    expect(es[0].quote).toEqual({ name: "Spencer", words: "too big" })
+    expect(es[0].act).toEqual({ kind: "answer", card: "c5", blocker: "b1" })
+  })
+
+  test("a row with no batch groups by giver", () => {
+    const row = (giver: string, fact: string, text: string, at: number) =>
+      ({
+        cursor: `1.${at}.1.d`,
+        kind: "update",
+        update: {
+          key: updateKey(`given:${giver}`, fact),
+          thread: `given:${giver}`,
+          text,
+          at,
+          imported: false,
+        },
+      }) as unknown as Item
+    const es = entriesFrom(
+      page(
+        row("p1", "start:c1:1", "Spencer started an agent on #12.", 1_000),
+        row("p1", "start:c2:1", "Spencer started an agent on #13.", 2_000),
+        row("p2", "start:c3:1", "Spencer started an agent on #14.", 3_000)
+      )
+    )
+    expect(es.map((e) => [e.update, e.text])).toEqual([
+      ["given:p1", "Spencer started agents on 2 of your tasks (#12, #13)."],
+      ["given:p2", "Spencer started an agent on #14."],
+    ])
   })
 })
 

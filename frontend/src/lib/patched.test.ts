@@ -24,7 +24,7 @@ const settled = async () => {
   for (let i = 0; i < 8; i++) await Promise.resolve()
 }
 
-function rig(drift = true) {
+function rig(drift = true, settleMs = 0) {
   let value: Row[] = []
   const reads: Read[] = []
   const errors: unknown[] = []
@@ -53,6 +53,7 @@ function rig(drift = true) {
     noteDropped: () => dropped.n++,
     noteRead: () => {},
     now: () => clock.now,
+    settleMs,
   })
   const notice = (...cards: string[]): Notice => ({
     signal: "board:changed",
@@ -358,6 +359,38 @@ describe("patched: the drift check", () => {
     expect(r.reads.length).toBe(4)
     expect(r.reads[3].want.full).toBe(false)
     expect(cardsOf(r.reads[3].want)).toEqual(["a"])
+  })
+
+  test("a notice in the settle wait after the read drops the sample", async () => {
+    const r = rig(true, 30)
+    await r.start([{ id: "a", v: 1 }])
+    r.core.notice(r.notice("a"))
+    await settled()
+    await r.finish(1, [{ id: "a", v: 1 }])
+    r.core.driftCheck()
+    await settled()
+    // The read holds a change whose notice has not come yet.
+    await r.finish(2, [{ id: "a", v: 2 }])
+    expect(r.drifts).toEqual([])
+    r.core.notice(r.notice("a"))
+    await new Promise((res) => setTimeout(res, 60))
+    expect(r.drifts).toEqual([])
+    expect(r.dropped.n).toBe(1)
+  })
+
+  test("a quiet settle wait compares the sample", async () => {
+    const r = rig(true, 30)
+    await r.start([{ id: "a", v: 1 }])
+    r.core.notice(r.notice("a"))
+    await settled()
+    await r.finish(1, [{ id: "a", v: 1 }])
+    r.core.driftCheck()
+    await settled()
+    await r.finish(2, [{ id: "a", v: 2 }])
+    expect(r.drifts).toEqual([])
+    await new Promise((res) => setTimeout(res, 60))
+    expect(r.drifts).toEqual([1])
+    expect(r.dropped.n).toBe(0)
   })
 
   test("a notice for another list during a sample does not drop it", async () => {
