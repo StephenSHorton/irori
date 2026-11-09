@@ -515,7 +515,11 @@ export function useDevices(active: boolean): DevicesState {
         : sampleList().map((d) => DeviceView(d)),
     []
   )
-  const { value, error, loading, reload } = useLatest<DeviceView[]>(load, [])
+  const { value, error, loading, reload } = useLatest<DeviceView[]>(
+    load,
+    [],
+    "devices"
+  )
 
   useEffect(() => {
     if (!active) return

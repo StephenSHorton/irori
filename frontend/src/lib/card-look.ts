@@ -12,7 +12,12 @@
 // `background` is the same tint over the theme's page colour, the solid
 // card where the OS has no glass.
 
-import { commands, type CardColors, type CardLook } from "../gen/bindings"
+import {
+  commands as bindings,
+  type CardColors,
+  type CardLook,
+} from "../gen/bindings"
+import { counted } from "./ipc-count"
 import {
   contrast,
   customTokens,
@@ -26,6 +31,9 @@ import {
   type Tokens,
 } from "./appearance"
 import { inHost } from "./irori"
+
+// Counted for the lists line in irori.log (ipc-count.ts).
+const commands = counted(bindings)
 
 // The glass styles' knobs from design/irori-ds.css, per mode: the tint's
 // opacity (--glass-alpha) and the rim's (--glass-border, white).

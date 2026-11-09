@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react"
 
 import { subscribeCall, sharedCall, personWord, lengthText } from "./call"
 import { Events, TalkService } from "./host"
+import { timedRead } from "./window-log"
 import { inWails } from "./irori"
 import { errorText } from "./talk"
 import type { TalkCanvasItem, TalkHuddle } from "../gen/bindings"
@@ -71,7 +72,7 @@ export function peopleText(names: readonly string[]): string {
 
 export async function loadHuddles(): Promise<TalkHuddle[]> {
   if (!inWails()) return previewHuddles()
-  return byNewest(await TalkService.Huddles())
+  return byNewest(await timedRead("huddles", () => TalkService.Huddles()))
 }
 
 // setHuddleTitle sets the title as the person; the title now shown comes
