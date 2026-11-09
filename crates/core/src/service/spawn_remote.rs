@@ -407,8 +407,18 @@ impl Services {
         // Pause agents here (card #665): nothing is started here, and a
         // card only this device would run waits.
         let here = self.can_run_here() && !self.agents_paused();
-        if t.open_ask().is_some() || (t.spawn && !t.parent.is_empty()) || t.repo_key.is_empty() {
-            return here.then_some(me);
+        let helper = t.spawn && !t.parent.is_empty();
+        if t.open_ask().is_some() || helper || t.repo_key.is_empty() {
+            // A helper's part is worked in a worktree made here from its
+            // lead's branch, so it can't move to another device; but one
+            // that needs the other machine (`needs:pc` on a Mac) waits
+            // instead of starting an agent that can only hand it back,
+            // over and over (card #1129).
+            let off_machine = helper && {
+                let need = coord::machine_needed(t);
+                !need.is_empty() && self.this_machine() != need
+            };
+            return (here && !off_machine).then_some(me);
         }
         let hosts = self.hosts();
         let cant = self.cant_run_devices();
@@ -534,6 +544,16 @@ impl Services {
             return None;
         }
         Some(dev)
+    }
+
+    /// "pc" or "mac" for this device, as a card's `needs:` hint names them;
+    /// "" otherwise.
+    fn this_machine(&self) -> &'static str {
+        match std::env::consts::OS {
+            "windows" => "pc",
+            "macos" => "mac",
+            _ => "",
+        }
     }
 
     pub(crate) fn note_tried(&self, id: &str, dev: &str) {
