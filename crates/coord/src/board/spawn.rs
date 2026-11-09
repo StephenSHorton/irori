@@ -255,7 +255,9 @@ impl Fold {
     /// [`Fold::takes_handout`].
     pub(crate) fn may_hand_to(&self, key: &str, t: &Task) -> bool {
         match self.spawned_for(key) {
-            Some(s) => s.task_id == t.id || t.parent == s.task_id,
+            Some(s) => {
+                s.task_id == t.id || t.parent == s.task_id || self.made_from_agents_thread(s, t)
+            }
             None => self.offers.as_ref().is_none_or(|f| f(key)),
         }
     }
@@ -265,8 +267,48 @@ impl Fold {
     pub(crate) fn spawned_may_take(&self, key: &str, t: &Task) -> bool {
         match self.spawned_for(key) {
             None => true,
-            Some(s) => s.task_id == t.id || t.parent == s.task_id || t.created_by == key,
+            Some(s) => {
+                s.task_id == t.id
+                    || t.parent == s.task_id
+                    || t.created_by == key
+                    || self.made_from_agents_thread(s, t)
+            }
         }
+    }
+
+    /// Whether the thread `id` is still wanted (card #1208): a card made
+    /// from it is open, so its agent is kept past the idle limit; a thread
+    /// with none keeps the short clock.
+    pub(crate) fn thread_wanted(&self, id: &str) -> bool {
+        self.tasks.get(id).is_some_and(|th| {
+            th.made
+                .iter()
+                .any(|m| self.tasks.get(m).is_some_and(|c| !is_terminal(&c.state)))
+        })
+    }
+
+    /// The live spawned agent keys serving thread `id` (card #1208).
+    pub(crate) fn thread_agents(&self, id: &str) -> Vec<String> {
+        let mut v: Vec<String> = self
+            .spawned
+            .iter()
+            .filter(|(_, s)| s.task_id == id)
+            .map(|(k, _)| k.clone())
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// Whether card t was made from the thread spawned agent `s` serves
+    /// (card #1208): that agent may be given it, where any other spawned
+    /// agent serves only its own card. Only while the thread is open.
+    pub(crate) fn made_from_agents_thread(&self, s: &Spawned, t: &Task) -> bool {
+        !t.from.is_empty()
+            && t.from == s.task_id
+            && self
+                .tasks
+                .get(&s.task_id)
+                .is_some_and(|th| th.open_ask().is_some() && !is_terminal(&th.state))
     }
 
     /// Whether a `task.spawn`/`task.spawned` row came from someone who may
