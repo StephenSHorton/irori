@@ -160,6 +160,13 @@ pub fn slot_resource(base: &str, n: usize) -> String {
     format!("{base}/slot-{n}")
 }
 
+/// Whether `resource` is one slot of a slot lease (`<base>/slot-<n>`).
+pub fn is_slot_resource(resource: &str) -> bool {
+    resource.rsplit_once("/slot-").is_some_and(|(b, n)| {
+        !b.is_empty() && !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit())
+    })
+}
+
 pub const MAX_COMMENT: usize = 4000;
 /// What the person types (a comment, an ask, a blocker answer) is held to
 /// this many bytes, not to an agent's character caps (card #265): a pasted
@@ -1263,6 +1270,11 @@ impl Coord {
         ttl: Duration,
     ) -> Result<Lease> {
         self.lock().acquire_slot(holder, base, slots, ttl)
+    }
+    /// Renews the slot leases `holder` holds that are under half spent
+    /// (see tasks.rs `renew_slots`); how many it renewed.
+    pub fn renew_slots(&self, holder: &str, ttl: Duration) -> Result<usize> {
+        self.lock().renew_slots(holder, ttl)
     }
     /// Releases every slot of `base` that `by` holds; false when it held none.
     pub fn release_slot(&self, by: &str, base: &str) -> Result<bool> {

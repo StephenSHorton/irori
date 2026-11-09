@@ -17,5 +17,6 @@ mod personal_boards;
 mod ported;
 mod shared;
 mod sides;
+mod slots;
 mod talk;
 mod waits;

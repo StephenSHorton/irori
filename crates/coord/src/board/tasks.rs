@@ -798,6 +798,32 @@ impl Fold {
         self.acquire(&holder, &name, ttl, false)
     }
 
+    /// Renews every slot lease `holder` holds whose time left is under
+    /// half of `ttl`, to `ttl` from now; returns how many it renewed. An
+    /// agent's slot (the slot_take tool) lives while the agent does: the
+    /// tools call this on each of its calls, and the gone sweep frees the
+    /// slot when the agent is gone.
+    pub(crate) fn renew_slots(&mut self, holder: &str, ttl: Duration) -> Result<usize> {
+        let holder = caller(holder)?;
+        let now = self.stamp();
+        let soon = gotime::add(&now, ttl / 2);
+        let due: Vec<String> = self
+            .held
+            .values()
+            .filter(|l| {
+                l.lease.holder == holder
+                    && self.live(l, &now)
+                    && super::is_slot_resource(&l.lease.resource)
+                    && gotime::before(&l.lease.until, &soon)
+            })
+            .map(|l| l.lease.resource.clone())
+            .collect();
+        for r in &due {
+            self.acquire(&holder, r, ttl, false)?;
+        }
+        Ok(due.len())
+    }
+
     pub(crate) fn release_slot(&mut self, by: &str, base: &str) -> Result<bool> {
         let by = caller(by)?;
         let base = normalize_resource(base)?;
