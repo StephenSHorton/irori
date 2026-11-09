@@ -31,7 +31,7 @@ pub(crate) fn capture_off() -> String {
 
 impl Inner {
     /// The caller's working directory from its presence card.
-    fn cwd_of(&self, c: &Caller) -> String {
+    pub(crate) fn cwd_of(&self, c: &Caller) -> String {
         if c.sender.key.is_empty() {
             return String::new();
         }

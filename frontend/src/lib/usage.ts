@@ -1,9 +1,10 @@
 // Claude usage gateway (card #599): how much of the plan's 5-hour and weekly
-// windows is left, as Claude Code last reported it on this computer. The
+// windows is used, as Claude Code last reported it on this computer. The
 // host reads it from a reply's rate limits and sends usage:changed; the
 // window asks once with usage_limits. Components import from here, never
 // from src/gen or host.ts. In a plain browser a sample reading shows
-// (?usage=none: no reading yet, ?usage=stale: one from 40 minutes ago).
+// (?usage=none: no reading yet, ?usage=stale: one from 40 minutes ago,
+// ?usage=80: both windows 80% used, to see the bars' colors).
 
 import { useSyncExternalStore } from "react"
 
@@ -46,6 +47,12 @@ export function isReset(w: UsageWindow, now: number): boolean {
 export function percentLeft(w: UsageWindow, now: number): number {
   if (isReset(w, now)) return 100
   return Math.round(Math.min(Math.max(100 - w.percentUsed, 0), 100))
+}
+
+// percentUsed is how much of a window is used, a whole 0 to 100 (claude.ai
+// shows it this way, card #772): none once the window has started over.
+export function percentUsed(w: UsageWindow, now: number): number {
+  return 100 - percentLeft(w, now)
 }
 
 // windowLabel is a window's name: "5-hour", "Weekly", "Spend limit".
@@ -118,9 +125,57 @@ export function staleLine(observedAtMs: number, now: number): string | null {
   return `as of ${day}${clock(observedAtMs)}`
 }
 
-// StripLine is the top bar's reading of what is left: text is "62% · 39%
-// left" (5-hour, then weekly), title spells it out.
-export type StripLine = { text: string; title: string }
+// Usage color (card #772): a bar is the theme color while the window is
+// fresh, turns toward amber as it fills, then toward red as it runs out. The
+// stops are % used: up to CALM it is all primary, at AMBER all warning, at
+// 100 all destructive; between two stops the color is mixed from the theme's
+// own tokens, so it holds in every theme, light and dark. Primary to amber
+// mixes in oklab: a straight line, where oklch would swing round the hue
+// wheel (blue to amber goes by cyan in one theme and purple in another).
+// Amber to red is close in hue, so it mixes in oklch and keeps its strength.
+export const USAGE_CALM = 50
+export const USAGE_AMBER = 80
+// USAGE_HIGH: at or over this % used the header strip's reading is tinted.
+export const USAGE_HIGH = 75
+
+// mix is CSS for `a` with `pct`% of `b` mixed in `space`, or just the end
+// token when pct is 0 or 100.
+function mix(space: string, a: string, b: string, pct: number): string {
+  const p = Math.round(pct)
+  if (p <= 0) return `var(${a})`
+  if (p >= 100) return `var(${b})`
+  return `color-mix(in ${space}, var(${a}), var(${b}) ${p}%)`
+}
+
+// usageColor is a CSS color for a window `used`% used.
+export function usageColor(used: number): string {
+  const u = Math.min(Math.max(used, 0), 100)
+  if (u <= USAGE_CALM) return "var(--primary)"
+  if (u <= USAGE_AMBER)
+    return mix(
+      "oklab",
+      "--primary",
+      "--warning",
+      ((u - USAGE_CALM) / (USAGE_AMBER - USAGE_CALM)) * 100
+    )
+  return mix(
+    "oklch",
+    "--warning",
+    "--destructive",
+    ((u - USAGE_AMBER) / (100 - USAGE_AMBER)) * 100
+  )
+}
+
+// usageTextColor is the header strip's tint for a window `used`% used: none
+// (the strip's own muted text) until it is nearly full, then the bar's color.
+export function usageTextColor(used: number): string | null {
+  return used >= USAGE_HIGH ? usageColor(used) : null
+}
+
+// StripLine is the top bar's reading of what is used: text is "38% · 61%
+// used" (5-hour, then weekly), title spells it out; color tints it by the
+// fullest window shown, null while none is nearly full.
+export type StripLine = { text: string; title: string; color: string | null }
 
 // stripLine is the top bar's Claude reading, or null with no reading. With
 // no 5-hour or weekly window (a gateway's spend limit only) it shows the
@@ -129,14 +184,19 @@ export function stripLine(u: UsageLimits, now: number): StripLine | null {
   if (!hasUsage(u)) return null
   let shown = u.windows.filter((w) => ORDER.includes(w.kind))
   shown = shown.length ? sortWindows(shown) : sortWindows(u.windows).slice(0, 1)
-  const pcts = shown.map((w) => `${percentLeft(w, now)}%`)
+  const used = shown.map((w) => percentUsed(w, now))
+  const pcts = used.map((n) => `${n}%`)
   const title = shown
     .map((w, i) => {
       const label = windowLabel(w.kind)
-      return `${i ? label.toLowerCase() : label} ${pcts[i]} left`
+      return `${i ? label.toLowerCase() : label} ${pcts[i]} used`
     })
     .join(", ")
-  return { text: `${pcts.join(" · ")} left`, title }
+  return {
+    text: `${pcts.join(" · ")} used`,
+    title,
+    color: usageTextColor(Math.max(...used)),
+  }
 }
 
 // asLimits reads the host's answer: no answer is no reading.
@@ -151,15 +211,20 @@ export function sampleUsage(
 ): UsageLimits {
   if (kind === "none") return NO_USAGE
   const observed = kind === "stale" ? now - 40 * MIN : now - 2 * MIN
+  const used = kind != null && /^\d+$/.test(kind) ? Number(kind) : null
   return {
     observedAtMs: observed,
     windows: [
       {
         kind: "five_hour",
-        percentUsed: 38,
+        percentUsed: used ?? 38,
         resetsAtMs: now + 2 * HOUR + 10 * MIN,
       },
-      { kind: "seven_day", percentUsed: 61, resetsAtMs: now + 3 * 24 * HOUR },
+      {
+        kind: "seven_day",
+        percentUsed: used ?? 61,
+        resetsAtMs: now + 3 * 24 * HOUR,
+      },
     ],
   }
 }

@@ -53,6 +53,9 @@ export type RepoDesk = {
   // Kept only so a save writes the row back as it was (card #625: no
   // per-PR OKs any more).
   perPrOk: boolean
+  // Other people's agents don't review this repo's PRs: off, the repo
+  // behaves like a solo one (card #1077). Absent is on.
+  reviewsOff: boolean
   by?: string
   at?: string
 }
@@ -64,6 +67,8 @@ export type PrAuthor = {
   cardRef?: string
   agent?: string
   name?: string
+  // Why the PR has no review card in a shared space yet (card #1077).
+  reviewNote?: string
 }
 
 export type MergedPr = {
@@ -137,6 +142,7 @@ export function deskQueue(inp: DeskInputs): QueueLine[] {
       state = "ready"
       note = author.card ? "ready for review" : "no author card yet"
     }
+    if (author.reviewNote) note = `${note} · ${author.reviewNote}`
     lines.push({
       pr: p.number,
       url: p.url,
@@ -243,6 +249,7 @@ export function newDesk(repoKey: string, pollDevice: string): RepoDesk {
     pollDevice,
     trusted: [],
     perPrOk: false,
+    reviewsOff: false,
   }
 }
 
@@ -267,6 +274,7 @@ export function fromHost(v: DeskView): Desk {
       pollDevice: st.pollDevice ?? "",
       trusted: st.trusted ?? [],
       perPrOk: st.perPrOk ?? false,
+      reviewsOff: st.reviewsOff ?? false,
       by: st.by,
       at: time(st.at),
     },
@@ -292,6 +300,7 @@ export function fromHost(v: DeskView): Desk {
           card: a.card || undefined,
           cardRef: a.cardRef || undefined,
           agent: a.agent || undefined,
+          reviewNote: a.reviewNote || undefined,
         },
       ])
     ),
@@ -307,6 +316,7 @@ function toHost(d: RepoDesk) {
     pollDevice: d.pollDevice,
     trusted: d.trusted,
     perPrOk: d.perPrOk,
+    reviewsOff: d.reviewsOff,
     by: "",
     at: "0001-01-01T00:00:00Z",
   }
@@ -405,7 +415,7 @@ function subscribe(fn: () => void): () => void {
   listeners.add(fn)
   if (inWails() && !stopHost) {
     refresh()
-    const off = Events.On("board:changed", () => refresh())
+    const off = Events.OnShown("board:changed", () => refresh())
     const id = window.setInterval(refresh, RefreshMs)
     stopHost = () => {
       off()

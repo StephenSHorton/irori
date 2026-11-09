@@ -74,6 +74,9 @@ pub(crate) fn needs_agent(t: &Task) -> bool {
         && t.assigned.is_empty()
         && !t.shared
         && !t.withdrawn
+        // A PR card is where a PR's review meets, never work (merge desk
+        // §12.2): handing it out would start an agent for every PR.
+        && !pr_card(t)
         // An ask made into a card is a card from then on (card #454).
         && t.open_ask().is_none()
         && t.subtasks.is_empty()
@@ -666,6 +669,25 @@ impl Fold {
             return a.owner == self.dev;
         }
         (self.hands_out(t) && self.can_run(&self.dev)) || self.stands_in(t)
+    }
+
+    /// Whether this device names the person's thread t (card #782): the
+    /// ask's owner (with no namer, as on the phone, it names nothing),
+    /// else the computer standing in for an owner that can't run Claude
+    /// (a thread posted on the phone). One device, so it isn't named
+    /// twice. Whether the owner starts agents now doesn't matter: naming
+    /// isn't an agent.
+    pub(crate) fn names_out(&self, t: &Task) -> bool {
+        let Some(a) = t.ask.as_ref() else {
+            return false;
+        };
+        if a.owner == self.dev {
+            return true;
+        }
+        !a.owner.is_empty()
+            && !self.can_run(&a.owner)
+            && self.same_person_dev(&a.owner, &self.dev)
+            && self.agent_home(&t.side).as_deref() == Some(self.dev.as_str())
     }
 
     /// Whether this device runs card t's side (card #495): a card with no

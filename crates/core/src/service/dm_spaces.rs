@@ -213,9 +213,14 @@ pub(crate) fn dm_conv_of(
     if !pair(actor) || row.get("by").and_then(Value::as_str) != Some(actor) {
         return None;
     }
-    // 5. A post or a huddle's line (card #656), or a join of one of them.
+    // 5. A post or a huddle's line, title or canvas item (cards #656, #1043, #1051), or a join of one of them.
     let ok = match kind {
-        kinds::TALK_POST | kinds::CALL_SEGMENT => true,
+        kinds::TALK_POST
+        | kinds::CALL_SEGMENT
+        | kinds::CALL_TITLE
+        | kinds::CALL_ASSIST
+        | kinds::CALL_ITEM
+        | kinds::CALL_ITEM_SET => true,
         kinds::TALK_MEMBER => {
             let key = row.pointer("/member/key").and_then(Value::as_str);
             row.get("op").and_then(Value::as_str) == Some(coord::talk::JOIN)
@@ -342,7 +347,7 @@ impl Services {
     }
 
     /// Every space this person shares with `other`, hidden ones aside.
-    fn dm_shared(&self, other: &str) -> Vec<Arc<BoardLog>> {
+    pub(crate) fn dm_shared(&self, other: &str) -> Vec<Arc<BoardLog>> {
         self.shown_boards()
             .into_iter()
             .filter(|b| self.dm_rides_on(b, other))
@@ -1178,6 +1183,33 @@ mod tests {
                 stamp(&ms(), "person:them", kind, &post("person:them")),
                 None
             );
+        }
+    }
+
+    /// A canvas item or its change (card #1051) folds into the DM only when
+    /// one of the pair wrote it under their own person key: an agent's
+    /// item, someone else's, or one for another conversation folds nothing.
+    #[test]
+    fn a_canvas_row_folds_only_when_one_of_the_pair_wrote_it() {
+        let item = |by: &str| {
+            json!({"itemId": "i1", "callId": "c1", "convId": conv(), "kind": "note",
+                   "text": "x", "assistant": false, "by": by})
+        };
+        for kind in [kinds::CALL_ITEM, kinds::CALL_ITEM_SET] {
+            for who in ["person:me", "person:them"] {
+                assert_eq!(stamp(&ms(), who, kind, &item(who)), Some(conv()), "{kind}");
+            }
+            for who in ["agent:c1", "person:other", "irori"] {
+                assert_eq!(stamp(&ms(), who, kind, &item(who)), None, "{kind} {who}");
+            }
+            assert_eq!(
+                stamp(&ms(), "person:them", kind, &item("person:me")),
+                None,
+                "{kind}: by must be the actor"
+            );
+            let mut other = item("person:them");
+            other["convId"] = "ch_general".into();
+            assert_eq!(stamp(&ms(), "person:them", kind, &other), None);
         }
     }
 

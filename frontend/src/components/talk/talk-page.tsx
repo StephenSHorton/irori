@@ -26,10 +26,11 @@ import {
   MessageRowsShape,
 } from "@/components/common/loading-shapes"
 import { Loading } from "@/components/ui/loading"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Face } from "@/components/cards/faces"
-import { type ThreadSummary } from "@/lib/cards"
+import { useCard, type ThreadSummary } from "@/lib/cards"
+import { CardPage } from "@/components/cards/card-detail"
+import { AgentCards } from "@/components/cards/agent-hover"
 import {
   dmGone,
   dmPerson,
@@ -48,7 +49,7 @@ import { AllSpaces, convInSpace } from "@/lib/spaces"
 import { LiveRoster } from "@/lib/thread"
 import { parseTime, plainLine, relativeTime } from "@/lib/irori"
 import { useNarrow } from "@/lib/media"
-import { errorText } from "@/lib/talk"
+import { errorText, useGone } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import {
   agentRows,
@@ -57,23 +58,24 @@ import {
   broadcastTo,
   dmSections,
   sectionRows,
+  shownAtOnce,
   type Broadcast,
   sectionHeader,
   useFolds,
   type SectionKey,
 } from "@/lib/talk-sections"
 import {
-  ThreadCards,
-  ThreadView,
   openAfterResolve,
   resolvedShown,
   resolvedToggle,
-  stateBadges,
   stateLine,
 } from "./threads"
 import { agentStatus } from "@/lib/agent-status"
 import { ConversationView, memberStatus, statusOf } from "./conversation"
 import { HuddleLine, useCallPart } from "./huddle"
+import { HuddleRow } from "./huddles-list"
+import { huddlesFor } from "./huddles-list"
+import { useHuddles } from "@/lib/huddles"
 import { huddleNames } from "@/lib/call"
 import { memberName, nameOr } from "@/lib/names"
 
@@ -87,11 +89,14 @@ export function talkMatches(t: ThreadSummary, query: string): boolean {
   )
 }
 
-// needsYou is whether a thread waits on the person: an agent answered and
-// it isn't resolved, or no computer can start its agent (card #541). Talk's
-// count in the sidebar counts these.
-export function needsYou(t: Pick<ThreadSummary, "state" | "noAgent">): boolean {
-  return t.state === "answered" || !!t.noAgent
+// needsYou is whether a thread waits on the person: an agent replied since
+// they last opened or replied in it (card #719), or no computer can start
+// its agent (card #541). Talk's count in the sidebar counts these, and the
+// list marks the same ones.
+export function needsYou(
+  t: Pick<ThreadSummary, "unread" | "noAgent">
+): boolean {
+  return !!t.unread || !!t.noAgent
 }
 
 // convMatches is whether a channel or DM fits the list's search: its name,
@@ -113,6 +118,7 @@ export function TalkPage({
   agents,
   open,
   onOpen,
+  onOpenHuddle,
   now,
   why = "",
   board = "",
@@ -133,6 +139,8 @@ export function TalkPage({
   // The conversation open ("" none: the new-thread box).
   open: string
   onOpen: (id: string) => void
+  // Opens a huddle's page (card #1044).
+  onOpenHuddle?: (callId: string) => void
   now: Date
   // Why nobody is free to take a waiting thread (card #172).
   why?: string
@@ -313,11 +321,62 @@ export function TalkPage({
     )
   }
 
+  // Huddles (card #1044): the picked space's, newest first.
+  const { huddles, loading: huddlesLoading } = useHuddles()
+  const huddlesShown = huddlesFor(huddles, conversations, space, query)
+  const huddlesSection = () => {
+    const all = huddlesShown
+    const fold = folded("huddles")
+    const rows = fold
+      ? []
+      : searching || allShown.huddles
+        ? all
+        : all.slice(0, shownAtOnce)
+    return (
+      <Group
+        label="Huddles"
+        count={all.length}
+        folded={fold}
+        onToggle={searching ? undefined : () => toggleFold("huddles")}
+      >
+        {!fold && (
+          <Rows loading={huddlesLoading} label="Huddles">
+            {all.length === 0 && (
+              <p className="px-2 py-1 text-[12px] text-muted-foreground">
+                {searching
+                  ? "No huddle matches."
+                  : "No huddles yet. Start one from a channel or a DM."}
+              </p>
+            )}
+            {rows.map((h) => (
+              <HuddleRow
+                key={h.callId}
+                h={h}
+                now={now}
+                onOpen={() => onOpenHuddle?.(h.callId)}
+              />
+            ))}
+            {all.length > rows.length && (
+              <button
+                type="button"
+                className="px-2 py-0.5 text-left text-[11px] text-muted-foreground hover:text-ink"
+                onClick={() => setAllShown({ ...allShown, huddles: true })}
+              >
+                Show {all.length - rows.length} more
+              </button>
+            )}
+          </Rows>
+        )}
+      </Group>
+    )
+  }
+
   const list = (
     <nav
       aria-label="Talk"
       className={cn(
-        "flex min-h-0 shrink-0 flex-col gap-1 overflow-y-auto py-3 mac:overscroll-none",
+        // The list's end clears Ask Irori's button (pb-20, card #783).
+        "flex min-h-0 shrink-0 flex-col gap-1 overflow-y-auto pt-3 pb-20 mac:overscroll-none",
         narrow ? "w-full px-1" : "w-[260px] border-r border-border px-2"
       )}
     >
@@ -360,6 +419,7 @@ export function TalkPage({
           if (t.closeOpen) onOpen("")
         }}
       />
+      {onOpenHuddle && huddlesSection()}
       {convSection(
         "channels",
         "Channels",
@@ -414,11 +474,12 @@ export function TalkPage({
     !!open && !current && !conv && (threadsLoading || conversationsLoading)
 
   const conversation = current ? (
-    <Conversation
+    <ThreadPane
       key={current.id}
       t={current}
       now={now}
       narrow={narrow}
+      why={why}
       onBack={() => onOpen("")}
       onResolved={() => onOpen(openAfterResolve(open, current.id))}
     />
@@ -454,10 +515,12 @@ export function TalkPage({
         Start a thread
       </h2>
       <p className="text-[12.5px] text-muted-foreground">
-        Ask the room about anything. An agent on the cards you name answers, or
-        an idle one does. It stays in Threads until you resolve it.
+        Start a thread about anything. An agent on the cards you name answers,
+        or an idle one does. It stays in Threads until you resolve it.
       </p>
+      {/* By its draft: a space picked here is another draft (card #981). */}
       <AskBox
+        key={board}
         board={board}
         onThread={(id) => {
           setComposing(false)
@@ -1073,87 +1136,54 @@ function ThreadItem({
       {needsYou(t) && (
         <span
           className="size-2 shrink-0 rounded-full bg-primary"
-          title="Answered: waiting on you"
+          title={t.unread ? "A reply you haven't read" : "No agent can start"}
         />
       )}
     </button>
   )
 }
 
-function Conversation({
+// ThreadPane is an open thread in Talk's pane (card #780): the thread's
+// ask card view, the same page the Board opens for it, with the thread's
+// bar (Resolve, Agents answer now, its cards). The list stays beside it.
+function ThreadPane({
   t,
   now,
   narrow,
+  why,
   onBack,
   onResolved,
 }: {
   t: ThreadSummary
   now: Date
   narrow: boolean
+  why: string
   onBack: () => void
   onResolved: () => void
 }) {
-  const badge = stateBadges[t.state]
-  const at = parseTime(t.updatedAt)
+  const { detail, error } = useCard(t.id)
+  const { gone } = useGone()
+  const ctx = useContext(AgentCards)
   return (
     <section
       aria-label={plainLine(t.title)}
       className={cn(
-        // Fills the pane: only the thread's messages scroll (card #564).
-        // The column scrolls only when its fixed lines alone outgrow it.
-        "flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto mac:overscroll-none",
+        "flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto mac:overscroll-none",
         narrow ? "px-1 py-2" : "p-4"
       )}
     >
-      <header className="flex min-w-0 shrink-0 items-center gap-2">
-        {narrow && (
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-label="Back to Talk"
-            onClick={onBack}
-          >
-            <ChevronLeftIcon />
-          </Button>
-        )}
-        <MessageSquareTextIcon
-          className="size-4 shrink-0 text-muted-foreground"
-          aria-hidden
-        />
-        {t.short && (
-          <span className="shrink-0 text-[12px] text-muted-foreground tabular-nums">
-            {cardRef(t)}
-          </span>
-        )}
-        <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">
-          {plainLine(t.title)}
-        </h2>
-        {t.private && (
-          <Badge
-            variant="slate"
-            className="h-4 shrink-0 px-1.5 text-[10.5px]"
-            title="Only you and your own agents see this thread; it never reaches other members' devices"
-          >
-            Private
-          </Badge>
-        )}
-        {badge && (
-          <Badge
-            variant={badge.variant}
-            className="h-4 shrink-0 px-1.5 text-[10.5px]"
-          >
-            {badge.label}
-          </Badge>
-        )}
-        <time
-          className="shrink-0 text-[11px] text-muted-foreground tabular-nums"
-          dateTime={at?.toISOString()}
-        >
-          {relativeTime(at, now)}
-        </time>
-      </header>
-      {t.cards.length > 0 && <ThreadCards cards={t.cards} />}
-      <ThreadView t={t} now={now} onResolved={onResolved} />
+      <CardPage
+        detail={detail}
+        error={error}
+        gone={gone}
+        now={now}
+        onBack={onBack}
+        onOpen={ctx?.onOpen}
+        thread={t}
+        pane={{ narrow }}
+        why={why}
+        onResolved={onResolved}
+      />
     </section>
   )
 }

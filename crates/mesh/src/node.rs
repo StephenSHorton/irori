@@ -216,6 +216,8 @@ pub struct Node {
     pub(crate) board_pending: Mutex<BTreeMap<String, crate::ownboards::PendingBoardSecret>>,
     /// Who hears call frames from the person's devices (crate::owncalls).
     pub(crate) own_calls: Mutex<Option<Arc<dyn crate::owncalls::OwnCalls>>>,
+    /// Rows or blobs moving to or from a peer (card #1089).
+    activity: crate::Activity,
     me: Weak<Node>,
 }
 
@@ -276,6 +278,7 @@ impl Node {
             own_boards: Mutex::new(None),
             board_pending: Mutex::new(BTreeMap::new()),
             own_calls: Mutex::new(None),
+            activity: crate::Activity::default(),
             me: me.clone(),
             o,
         })
@@ -298,6 +301,18 @@ impl Node {
     }
 
     /// This device's id.
+    /// The sync signal's source: [`Activity::pulse`](crate::Activity::pulse)
+    /// from whatever moves rows or blobs.
+    pub fn activity(&self) -> &crate::Activity {
+        &self.activity
+    }
+
+    /// Whether this device is exchanging rows or blobs with a peer now,
+    /// held a second past the last (card #1089).
+    pub fn syncing(&self) -> bool {
+        self.activity.active()
+    }
+
     pub fn self_id(&self) -> &str {
         &self.self_id
     }

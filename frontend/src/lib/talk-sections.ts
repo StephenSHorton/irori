@@ -10,11 +10,14 @@ import { useCallback, useState } from "react"
 
 import type { Conversation } from "@/lib/conversations"
 
-export type SectionKey = "threads" | "channels" | "dms" | "gone" | "agents"
+export type SectionKey =
+  "threads" | "huddles" | "channels" | "dms" | "gone" | "agents"
 
 // foldedByDefault is each section's fold before the person touches it.
 export const foldedByDefault: Record<SectionKey, boolean> = {
   threads: false,
+  // Huddles (card #1044): newest first, the live ones at the top.
+  huddles: false,
   channels: false,
   // Unfolded (card #484): a folded section shows no rows, so folding the
   // person's live DMs by default would hide what waits on them.
@@ -30,6 +33,8 @@ export const shownAtOnce = 8
 // dmSections splits DMs (newest first, as listed() gives them) three ways:
 // yours with a running agent or a person, the Archive of yours with agents
 // that have gone (card #473), and agent↔agent DMs the person only reads.
+// An agent↔agent DM whose agents have all gone goes to the Archive too
+// (card #1037), so Agents talking lists only live conversations.
 // Nothing is deleted: the Archive folds at the bottom of the list and
 // search still finds what is in it. When the agent comes back (its session
 // reattaches) gone turns false and the DM is back with yours.
@@ -44,8 +49,8 @@ export function dmSections(
     agents: [] as Conversation[],
   }
   for (const c of dms) {
-    if (c.readOnly) out.agents.push(c)
-    else if (archived(c, gone, keep)) out.gone.push(c)
+    if (archived(c, gone, keep)) out.gone.push(c)
+    else if (c.readOnly) out.agents.push(c)
     else out.yours.push(c)
   }
   return out

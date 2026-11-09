@@ -219,10 +219,10 @@ fn a_closed_pr_is_asked_about_slowly_and_a_reopen_is_heard() {
     assert_eq!(calls(), 4, "a merge is final");
 }
 
-/// Card #548: a merge wait on a closed PR is asked about too, whoever
-/// holds the card, so a reopen brings it back to the person.
+/// Card #548: a wait on a closed PR is asked about too, whoever holds the
+/// card, so its holders hear a reopen.
 #[test]
-fn a_closed_merge_wait_nobody_here_holds_is_still_asked_about() {
+fn a_closed_pr_wait_nobody_here_holds_is_still_asked_about() {
     let gh = Arc::new(FakeGh::default());
     *gh.state.lock().unwrap() = PR_CLOSED.into();
     let g2 = gh.clone();
@@ -249,13 +249,14 @@ fn a_closed_merge_wait_nobody_here_holds_is_still_asked_about() {
     )
     .unwrap();
     r.core.check_prs();
-    assert!(co.merge_waits(&t.id).is_empty());
+    assert_eq!(co.pr_state(&t.id, PR).unwrap().state, PR_CLOSED);
+    assert_eq!(co.polled_waits(&t.id), vec![PR.to_string()]);
 
     *gh.state.lock().unwrap() = PR_OPEN.into();
     r.core
         .check_prs_at(Instant::now() + CLOSED_EVERY + Duration::from_secs(1));
     assert_eq!(gh.calls.lock().unwrap().len(), 2);
-    assert_eq!(co.merge_waits(&t.id), vec![PR.to_string()]);
+    assert_eq!(co.pr_state(&t.id, PR).unwrap().state, PR_OPEN);
 }
 
 /// A device with no gh.
@@ -316,8 +317,10 @@ fn a_device_with_no_gh_asks_nothing_and_writes_nothing() {
 /// Card #509: a wait on a PR's merge is asked about even when nobody here
 /// holds its card (its agent may be gone), so the person's Needs you
 /// drops it once the PR merges.
+/// Card #970: a wait on a PR is asked about whoever holds the card, and
+/// never needs the person: open or merged, it stays its agent's.
 #[test]
-fn a_merge_wait_is_asked_about_whoever_holds_the_card() {
+fn a_pr_wait_is_asked_about_whoever_holds_the_card() {
     let gh = Arc::new(FakeGh::default());
     *gh.state.lock().unwrap() = PR_OPEN.into();
     let g2 = gh.clone();
@@ -349,14 +352,116 @@ fn a_merge_wait_is_asked_about_whoever_holds_the_card() {
             .iter()
             .any(|c| c.task.id == t.id)
     };
-    assert!(needs());
+    assert!(!needs(), "the agent's wait, not the person's merge");
 
     r.core.check_prs();
     assert_eq!(*gh.calls.lock().unwrap(), vec![PR.to_string()]);
     assert_eq!(co.pr_state(&t.id, PR).unwrap().state, PR_OPEN);
-    assert!(needs(), "still open");
+    assert!(!needs(), "still open");
 
     *gh.state.lock().unwrap() = PR_MERGED.into();
     co.record_pr_state(&t.id, gh.check(PR)).unwrap();
-    assert!(!needs(), "merged: no longer the person's");
+    assert!(!needs(), "merged");
+    assert!(
+        co.polled_waits(&t.id).is_empty(),
+        "a merged PR isn't asked again"
+    );
+}
+
+/// Card #970: an agent's own `gh pr merge`, as capture hears it, has its
+/// open PR asked about at once, so its completed isn't refused while the
+/// poll waits out [`OPEN_EVERY`].
+#[test]
+fn a_heard_gh_pr_merge_asks_about_open_prs_at_once() {
+    let gh = Arc::new(FakeGh::default());
+    let g2 = gh.clone();
+    let r = Rig::with(move |o| o.pr_checker = Some(g2));
+    let co = r.core.coord();
+    let t = held_and_open(&r, &gh);
+    assert_eq!(gh.calls.lock().unwrap().len(), 1);
+    // Asked just now: not due again for OPEN_EVERY.
+    r.core.check_prs();
+    assert_eq!(gh.calls.lock().unwrap().len(), 1);
+    assert!(
+        co.set_task_state(&r.key_a, &t.id, coord::COMPLETED, "done")
+            .is_err(),
+        "open: refused"
+    );
+
+    *gh.state.lock().unwrap() = PR_MERGED.into();
+    r.core
+        .capture()
+        .emit_row(
+            &format!("agent:{}", r.key_a),
+            capture::KIND_COMMIT_CMD,
+            &capture::CommitCmdRow {
+                key: r.key_a.clone(),
+                turn_id: "turn1".into(),
+                tool_use_id: "toolu_merge".into(),
+                cwd: "/tmp".into(),
+                command: "gh pr merge 12 --squash".into(),
+                at: gocompat::time::GoTime::from_system(std::time::SystemTime::now()),
+                ..capture::CommitCmdRow::default()
+            },
+        )
+        .unwrap();
+    // The Core's own loop hears it within a few seconds.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while co.pr_state(&t.id, PR).unwrap().state != PR_MERGED {
+        assert!(Instant::now() < deadline, "the merge was never asked about");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(gh.calls.lock().unwrap().len(), 2);
+    co.set_task_state(&r.key_a, &t.id, coord::COMPLETED, "merged")
+        .unwrap();
+}
+
+/// Card #970: an agent's completed on a card whose PR was last heard open
+/// asks GitHub first, so its own merge a moment ago isn't refused.
+#[test]
+fn completed_asks_github_about_a_pr_last_heard_open() {
+    let gh = Arc::new(FakeGh::default());
+    let g2 = gh.clone();
+    let r = Rig::with(move |o| o.pr_checker = Some(g2));
+    let co = r.core.coord();
+    let t = held_and_open(&r, &gh);
+    let complete = || {
+        r.core
+            .tools()
+            .call(
+                &tools::Caller {
+                    sender: inbox::Sender::new(&r.key_a, "alpha", "claude"),
+                    path: String::new(),
+                },
+                "board_status",
+                &serde_json::to_vec(&serde_json::json!({
+                    "task_id": t.id,
+                    "state": "completed",
+                    "proof": "merged as abc123",
+                }))
+                .unwrap(),
+            )
+            .unwrap()
+    };
+
+    // Still open on GitHub: asked, and refused.
+    let out = complete();
+    assert!(out.contains("GitHub still shows open"), "{out}");
+    assert!(out.contains("Never raise a wait on it"), "{out}");
+    assert_eq!(gh.calls.lock().unwrap().len(), 2);
+
+    // Merged a moment ago: heard now, and it goes to the person's Done.
+    *gh.state.lock().unwrap() = PR_MERGED.into();
+    let out = complete();
+    assert!(!out.starts_with("Error"), "{out}");
+    assert_eq!(gh.calls.lock().unwrap().len(), 3);
+    assert_eq!(co.pr_state(&t.id, PR).unwrap().state, PR_MERGED);
+    assert!(
+        co.get_task(&t.id)
+            .unwrap()
+            .blockers
+            .iter()
+            .any(|b| b.open() && b.done_check),
+        "the person's Done: {out}"
+    );
 }
