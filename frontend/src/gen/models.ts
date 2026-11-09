@@ -115,6 +115,7 @@ export type DonePage = B.DonePage
 export type Event = B.Event
 export type FileRef = B.FileRef
 export type Folder = B.Folder
+export type GiveTask = B.GiveTask
 export type GoneSession = B.GoneSession
 export type GoneWait = B.GoneWait
 export type HoldReason = B.HoldReason
@@ -765,6 +766,11 @@ export function FileRef(p: Partial<B.FileRef> = {}): B.FileRef {
 /** Folder with Go's zero values for every field left out. */
 export function Folder(p: Partial<B.Folder> = {}): B.Folder {
   return { "path": "", "why": "", ...p } as B.Folder
+}
+
+/** GiveTask with Go's zero values for every field left out. */
+export function GiveTask(p: Partial<B.GiveTask> = {}): B.GiveTask {
+  return { ...p } as B.GiveTask
 }
 
 /** GoneSession with Go's zero values for every field left out. */
