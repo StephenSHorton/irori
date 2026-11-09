@@ -11,8 +11,8 @@
 //!   even while it waits on a tool call.
 //! - Each event goes to Core and to any `assistant_chat_watch` opened for
 //!   the turn in this window.
-//! - A reply whose thread posts by itself (the ports of the chat's
-//!   `splitDraft` and `postsByItself`) posts it here, once, after checking
+//! - A reply whose thread posts by itself (`irori_core::assistant_draft`,
+//!   the chat's `splitDraft` rules) posts it here, once, after checking
 //!   again that this is still the assistant's computer and the turn has no
 //!   reply or posted thread yet.
 
@@ -26,8 +26,8 @@ use std::time::Duration;
 use irori_core::assistant_chat::{ChatDone, ChatEvent, ChatJob, Posted};
 
 use crate::assistant::{
-    AssistantEvent, DRAFT_CLOSE, DRAFT_OPEN, DRAFT_OPEN_CHECK, Job, NO_CLAUDE, SCREEN_STATUS,
-    SIGNED_OUT, STOPPED, Sink, TOO_LONG, chat_content_blocks, screen_label, stream_json_line,
+    AssistantEvent, Job, NO_CLAUDE, SCREEN_STATUS, SIGNED_OUT, STOPPED, Sink, TOO_LONG,
+    chat_content_blocks, screen_label, stream_json_line,
 };
 
 /// How often a run's wait looks at its cancel.
@@ -51,121 +51,7 @@ struct WatchState {
     subs: HashMap<String, Vec<Sink>>,
 }
 
-/// A reply split around its drafted thread (the chat's `Split`).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Split {
-    /// The reply without the draft.
-    pub text: String,
-    /// The drafted thread, "" when there is none.
-    pub draft: String,
-    /// The draft is still being written.
-    pub partial: bool,
-    /// The person asked to check it first: only a tap posts it.
-    pub check: bool,
-}
-
-/// `s` without a start of `marker` at its end ("…<<thr").
-fn cut_marker_tail<'a>(s: &'a str, marker: &str) -> &'a str {
-    let most = (marker.len() - 1).min(s.len());
-    for n in (1..=most).rev() {
-        if s.ends_with(&marker[..n]) {
-            return &s[..s.len() - n];
-        }
-    }
-    s
-}
-
-/// A reply's drafted thread taken out of its text (the chat's
-/// `splitDraft`).
-pub fn split_draft(raw: &str) -> Split {
-    let open = [(DRAFT_OPEN, false), (DRAFT_OPEN_CHECK, true)]
-        .into_iter()
-        .filter_map(|(m, check)| raw.find(m).map(|i| (i, m, check)))
-        .min_by_key(|(i, ..)| *i);
-    let Some((at, marker, check)) = open else {
-        return Split {
-            text: cut_marker_tail(cut_marker_tail(raw, DRAFT_OPEN), DRAFT_OPEN_CHECK)
-                .trim()
-                .to_string(),
-            ..Split::default()
-        };
-    };
-    let before = raw[..at].trim();
-    let rest = &raw[at + marker.len()..];
-    let Some(end) = rest.find(DRAFT_CLOSE) else {
-        return Split {
-            text: before.to_string(),
-            draft: cut_marker_tail(rest, DRAFT_CLOSE).trim().to_string(),
-            partial: true,
-            check,
-        };
-    };
-    let after = rest[end + DRAFT_CLOSE.len()..].trim();
-    Split {
-        text: if after.is_empty() {
-            before.to_string()
-        } else {
-            format!("{before}\n\n{after}").trim().to_string()
-        },
-        draft: rest[..end].trim().to_string(),
-        partial: false,
-        check,
-    }
-}
-
-/// Whether `s` ends where the chat's `postableBlock` may: nothing but
-/// white space, or one go line and white space
-/// (`\s*(?:<<go [^\n]*>>\s*)?$`).
-fn tail_ok(s: &str) -> bool {
-    let t = s.trim();
-    if t.is_empty() {
-        return true;
-    }
-    // One go line: `<<go `, no line break, then `>>`.
-    t.starts_with("<<go ") && t.ends_with(">>") && t.len() >= "<<go >>".len() && !t.contains('\n')
-}
-
-/// Whether the reply's thread posts with no tap (the chat's
-/// `postsByItself`): it holds a whole thread nobody asked to check first,
-/// laid out as the prompt lays it out, its lines alone and ending the
-/// reply (a go line may follow), and no marker comes before it.
-pub fn posts_by_itself(text: &str) -> bool {
-    let s = split_draft(text);
-    if s.draft.is_empty() || s.partial || s.check {
-        return false;
-    }
-    // The first `<<thread` anywhere must open the block.
-    let Some(at) = text.find("<<thread") else {
-        return false;
-    };
-    if !text[at..].starts_with(DRAFT_OPEN) {
-        return false;
-    }
-    // Its line holds nothing else: spaces or tabs before it ...
-    let line = &text[..at];
-    let line = &line[line.rfind('\n').map_or(0, |i| i + 1)..];
-    if !line.chars().all(|c| c == ' ' || c == '\t') {
-        return false;
-    }
-    // ... and after it, then the line ends.
-    let after = text[at + DRAFT_OPEN.len()..].trim_start_matches([' ', '\t']);
-    let Some(body) = after.strip_prefix('\n') else {
-        return false;
-    };
-    // A closing line (`\n[ \t]*<</thread>>`) that only white space or a go
-    // line follows.
-    let mut from = 0;
-    while let Some(i) = body[from..].find(DRAFT_CLOSE) {
-        let j = from + i;
-        if body[..j].trim_end_matches([' ', '\t']).ends_with('\n')
-            && tail_ok(&body[j + DRAFT_CLOSE.len()..])
-        {
-            return true;
-        }
-        from = j + DRAFT_CLOSE.len();
-    }
-    false
-}
+pub use irori_core::assistant_draft::{Split, posts_by_itself, split_draft, split_draft_done};
 
 /// A failure in the words the chat shows on every device, naming the
 /// computer (§5).
@@ -326,7 +212,7 @@ impl crate::Window {
         if !self.core.is_assistant_home() || !fresh {
             return None;
         }
-        let draft = split_draft(text).draft;
+        let draft = split_draft_done(text).draft;
         // A post that fails leaves the draft with Post thread, to tap.
         let r = self
             .start_thread_with(&draft, &[], &[], "", None, true)
@@ -456,6 +342,7 @@ fn follow_remote(core: std::sync::Arc<irori_core::Core>, turn: String, sink: Sin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assistant::{DRAFT_CLOSE, DRAFT_OPEN, DRAFT_OPEN_CHECK};
 
     fn split(text: &str, draft: &str, partial: bool, check: bool) -> Split {
         Split {

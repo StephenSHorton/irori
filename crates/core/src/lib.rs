@@ -38,6 +38,7 @@
 
 pub mod agentnames;
 mod answering;
+pub mod assistant_draft;
 pub mod attachments;
 pub mod buildclean;
 pub mod deskmap;
