@@ -78,13 +78,19 @@ fn a_divide_question_carries_the_finished_huddle_and_only_after_it_is_over() {
     // Unknown huddle: refused, and nothing is written.
     let err = d
         .core
-        .assistant_chat_ask("divide it", "", "", "ffffffffffffffffffffffffffffffff")
+        .assistant_chat_ask_from(
+            "divide it",
+            "",
+            "",
+            "ffffffffffffffffffffffffffffffff",
+            vec![],
+        )
         .unwrap_err();
     assert!(err.contains("isn't here"), "{err}");
 
     let turn = d
         .core
-        .assistant_chat_ask("divide it", "", "", CALL)
+        .assistant_chat_ask_from("divide it", "", "", CALL, vec![])
         .unwrap();
     wait_for(WAIT, "the assistant answers", || {
         d.core
@@ -153,7 +159,7 @@ fn a_huddle_that_is_still_on_cannot_be_divided_or_carded() {
     let i = d.core.huddle_item_add(CALL, "task", "Ship it", "").unwrap();
     let err = d
         .core
-        .assistant_chat_ask("divide it", "", "", CALL)
+        .assistant_chat_ask_from("divide it", "", "", CALL, vec![])
         .unwrap_err();
     assert!(err.contains("isn't over"), "{err}");
     let err = d

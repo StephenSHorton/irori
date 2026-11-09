@@ -92,6 +92,9 @@ pub struct ChatJob {
     /// run ends at once.
     pub cancel: Arc<AtomicBool>,
     pub kind: ChatKind,
+    /// The files that came with the question: the window reads them from
+    /// its store, fetching from the device that holds them if need be.
+    pub files: Vec<AskedFile>,
 }
 
 /// How a run ended.
@@ -124,6 +127,8 @@ pub const MAX_TEXT: usize = inbox::MAX_PERSON_TEXT;
 /// The most of the asking device's screen a question carries, in
 /// characters, as the window sends today.
 pub const MAX_SCREEN_CHARS: usize = 4000;
+/// The most files one question carries.
+pub const MAX_FILES: usize = 10;
 /// A page of the list when the caller names no size.
 pub const PAGE: usize = 50;
 /// The most one page holds.
@@ -141,6 +146,25 @@ pub fn actor_of(kind: &str) -> Option<&'static str> {
 
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+/// A file that came with a question (card #999, one-assistant card 4): a
+/// reference only. The bytes stay on the device that holds them (`device`),
+/// which offers them to the person's other devices; the assistant's computer
+/// fetches them when it runs the turn.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AskedFile {
+    pub sha256: String,
+    pub name: String,
+    pub size: i64,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub mime: String,
+    /// The device that holds the bytes.
+    pub device: String,
+    /// The window checked, when it took the file in, whether the assistant
+    /// can read this kind of file.
+    pub can_read: bool,
 }
 
 /// A question the person typed (`assistant.chat.asked`).
@@ -166,6 +190,9 @@ pub struct Asked {
     /// The huddle it was asked from (call-agents card 11, Divide).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub call_id: String,
+    /// The files that came with it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<AskedFile>,
 }
 
 /// A thread a reply posted, or the person posted from its draft.
@@ -323,6 +350,9 @@ impl ChatRow {
     /// Refuses a row the fold would never show: one with no id to fold by.
     fn check(&self) -> Result<(), String> {
         let (what, id) = match self {
+            ChatRow::Asked(r) if r.files.len() > MAX_FILES => {
+                return Err(format!("at most {MAX_FILES} files"));
+            }
             ChatRow::Asked(r) => ("turn", &r.turn),
             ChatRow::Said(r) => ("turn", &r.turn),
             ChatRow::Posted(r) if r.posted.id.trim().is_empty() => {
@@ -349,6 +379,9 @@ impl ChatRow {
         match self {
             ChatRow::Asked(r) => {
                 text(&mut r.text);
+                for file in &mut r.files {
+                    text(&mut file.name);
+                }
                 r.screen = f(&r.screen).chars().take(MAX_SCREEN_CHARS).collect();
             }
             ChatRow::Said(r) => {
@@ -805,7 +838,7 @@ impl Fold {
                         continue;
                     }
                     flush(&mut out, &mut ups);
-                    out.push((false, t.asked.text.clone()));
+                    out.push((false, with_files(&t.asked)));
                     out.push((true, reply_text(&said.text, t.posted.as_ref())));
                 }
                 ChatEntry::Update(u) => ups.push(u.text),
@@ -817,6 +850,29 @@ impl Fold {
         out.drain(..skip);
         out
     }
+}
+
+/// A question's words for the history, with a line naming its files, those
+/// read and those not (so the model never answers as if it had read one).
+fn with_files(a: &Asked) -> String {
+    let names = |can_read: bool| -> Vec<String> {
+        a.files
+            .iter()
+            .filter(|f| f.can_read == can_read)
+            .map(|f| format!("{:?}", f.name))
+            .collect()
+    };
+    let (read, unread) = (names(true), names(false));
+    let mut out = a.text.trim().to_string();
+    for (head, list) in [("attached", read), ("attached, not readable", unread)] {
+        if !list.is_empty() {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&format!("[{head}: {}]", list.join(", ")));
+        }
+    }
+    out
 }
 
 fn decode<T: for<'de> Deserialize<'de>>(ev: &Event) -> Option<T> {
@@ -884,17 +940,41 @@ impl Core {
     /// question's row with a new turn, this device and the time, and
     /// returns the turn. The assistant's computer answers it, wherever
     /// that is. `screen` is this device's snapshot; `again` the turn it
-    /// asks again (Ask again), or "". `call_id` is the huddle it is asked
-    /// from (Divide with my assistant, call-agents §9), or "": the
-    /// assistant's computer then puts the huddle in the prompt.
+    /// asks again (Ask again), or "".
     pub fn assistant_chat_ask(
         &self,
         text: &str,
         screen: &str,
         again: &str,
-        call_id: &str,
     ) -> Result<String, String> {
-        if text.trim().is_empty() {
+        self.assistant_chat_ask_from(text, screen, again, "", Vec::new())
+    }
+
+    /// [`Self::assistant_chat_ask`] with the files that go with the
+    /// question. A question may be files and no words.
+    pub fn assistant_chat_ask_with(
+        &self,
+        text: &str,
+        screen: &str,
+        again: &str,
+        files: Vec<AskedFile>,
+    ) -> Result<String, String> {
+        self.assistant_chat_ask_from(text, screen, again, "", files)
+    }
+
+    /// [`Self::assistant_chat_ask_with`] from a huddle (Divide with my
+    /// assistant, call-agents §9): `call_id` is the huddle, or "". The
+    /// assistant's computer then puts the huddle in the prompt, fenced.
+    /// Refused when the huddle isn't here or isn't over.
+    pub fn assistant_chat_ask_from(
+        &self,
+        text: &str,
+        screen: &str,
+        again: &str,
+        call_id: &str,
+        files: Vec<AskedFile>,
+    ) -> Result<String, String> {
+        if text.trim().is_empty() && files.is_empty() {
             return Err("ask something first".into());
         }
         let call_id = call_id.trim();
@@ -911,6 +991,7 @@ impl Core {
             at: now.unix_milli_value(),
             again: again.trim().to_string(),
             call_id: call_id.to_string(),
+            files,
             ..Asked::default()
         }))?;
         Ok(turn)
@@ -928,6 +1009,11 @@ impl Core {
             at: (self.s.now)().unix_milli_value(),
         }))?;
         Ok(())
+    }
+
+    /// Now, in unix milliseconds, as the rows stamp `at`.
+    pub fn assistant_chat_now(&self) -> i64 {
+        (self.s.now)().unix_milli_value()
     }
 
     /// Turn `turn` as the fold has it, hidden by New chat or not.

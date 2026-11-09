@@ -12,7 +12,7 @@ use common::chat::{apart, holds_for, link, meet, skewed, spawner};
 use common::mesh::{person, person_with};
 use common::{unix_ms, wait_for};
 use irori_core::assistant_chat::{
-    Asked, ChatDone, ChatJob, ChatRow, ChatTurnFn, Cleared, Posted, STOPPED, Said,
+    Asked, AskedFile, ChatDone, ChatJob, ChatRow, ChatTurnFn, Cleared, Posted, STOPPED, Said,
 };
 use irori_core::{Core, Options};
 use store::{Filter, kinds};
@@ -108,7 +108,10 @@ impl Fake {
 
 /// The question a prompt ends with.
 fn question(prompt: &str) -> String {
-    let at = prompt.rfind("The person: ").expect("a question") + "The person: ".len();
+    let Some(at) = prompt.rfind("The person: ") else {
+        return "(files only)".into();
+    };
+    let at = at + "The person: ".len();
     prompt[at..].lines().next().unwrap_or_default().to_string()
 }
 
@@ -140,7 +143,7 @@ fn home_here(c: &Core) {
 }
 
 fn ask(c: &Core, text: &str) -> String {
-    c.assistant_chat_ask(text, "", "", "").unwrap()
+    c.assistant_chat_ask(text, "", "").unwrap()
 }
 
 /// Writes a question row as the window would, with `at` given.
@@ -322,6 +325,44 @@ fn a_question_both_live_and_scanned_runs_once() {
         said_rows(&s.core, &running) == 1 && said_rows(&s.core, &queued) == 1
     });
     assert_eq!(f.asked(), vec!["first", "second"]);
+    s.core.close().unwrap();
+}
+
+/// A question's files reach the turn that answers it, and a question may be
+/// files and no words (its prompt says so). The history names them for the
+/// turns after it.
+#[test]
+fn a_questions_files_reach_its_turn() {
+    let s = solo();
+    let f = Fake::new();
+    s.core.set_chat_turn(Some(f.turn()));
+    home_here(&s.core);
+    let file = AskedFile {
+        sha256: "a".repeat(64),
+        name: "shot.png".into(),
+        size: 12,
+        mime: "image/png".into(),
+        device: s.core.device_id().into(),
+        can_read: true,
+    };
+    let only = s
+        .core
+        .assistant_chat_ask_with("", "", "", vec![file.clone()])
+        .unwrap();
+    wait_said(&s.core, &only, "the files-only question is answered");
+    let job = f.jobs.lock().unwrap()[0].clone();
+    assert_eq!(job.files, vec![file.clone()]);
+    assert!(job.prompt.contains("with no message"), "{}", job.prompt);
+    assert!(s.core.assistant_chat_ask_with("", "", "", vec![]).is_err());
+    let next = ask(&s.core, "and what is in it?");
+    wait_said(&s.core, &next, "the second is answered");
+    let jobs = f.jobs.lock().unwrap().clone();
+    assert!(
+        jobs[1].prompt.contains(r#"[attached: "shot.png"]"#),
+        "{}",
+        jobs[1].prompt
+    );
+    assert!(jobs[1].files.is_empty());
     s.core.close().unwrap();
 }
 

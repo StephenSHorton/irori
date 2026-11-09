@@ -733,24 +733,12 @@ export const UsageService = {
   Limits: () => call(commands.usageLimits()),
 }
 
-// Ask Irori (card #783): the read-only helper's answer comes as
-// AssistantEvents on a Channel (delta, tool, then done or error); Ask
-// returns the run's id at once, and Stop(id) ends it.
+// Ask Irori (card #783): one assistant across the person's devices; its
+// questions and replies are rows (ChatList, ChatAsk), and a reply streams
+// as AssistantEvents on a Channel (ChatWatch) where the turn runs.
 export const AssistantService = {
   // Card #999: stores the chat's files; Ask takes back what this returned.
   Attach: (files: B.UploadFile[]) => call(commands.assistantAttach(files)),
-  Ask(
-    history: B.AssistantTurn[],
-    text: string,
-    files: B.AssistantFile[],
-    screen: string,
-    onEvent: (ev: B.AssistantEvent) => void
-  ): Promise<number> {
-    const on = new Channel<B.AssistantEvent>()
-    on.onmessage = onEvent
-    return call(commands.assistantAsk(history, text, files, screen, on))
-  },
-  Stop: (id: number) => done(commands.assistantStop(id)),
   // The one conversation, the same on every device (card #1102): a page,
   // newest first, older than the entry whose cursor is before ("" is the
   // newest); limit 0 is 50. "assistant:changed" says to read it again.
@@ -761,10 +749,31 @@ export const AssistantService = {
   // it is. again is the turn Ask again repeats.
   // callId is the huddle it is asked from (Divide, card #1054): the
   // assistant's computer puts it in the prompt.
-  ChatAsk: (text: string, screen: string, again?: string, callId?: string) =>
+  ChatAsk: (
+    text: string,
+    screen: string,
+    again: string | undefined,
+    files: B.AssistantFile[],
+    callId?: string
+  ) =>
     call(
-      commands.assistantChatAsk(text, screen, again ?? null, callId ?? null)
+      commands.assistantChatAsk(
+        text,
+        screen,
+        again ?? null,
+        files,
+        callId ?? null
+      )
     ),
+  // Post thread: the reply's draft became this thread (every device then
+  // hides the button). New chat hides the conversation so far, everywhere.
+  ChatPosted: (turn: string, id: string, short: string, tag: string) =>
+    done(commands.assistantChatPosted(turn, id, short, tag)),
+  ChatClear: () => done(commands.assistantChatClear()),
+  // A follow-up line about a thread the chat posted; the first row per key
+  // wins on every device.
+  ChatUpdate: (line: B.AssistantChatUpdateIn) =>
+    done(commands.assistantChatUpdate(line)),
   // Stops a question, from any device.
   ChatStop: (turn: string) => done(commands.assistantChatStop(turn)),
   // The reply of a turn this computer runs, as it streams: what it has said

@@ -179,7 +179,11 @@ pub(crate) fn chat_prompt(
         }
         b.push_str("Now answer the person's new message.\n\n");
     }
-    b.push_str(&format!("The person: {}\n", text.trim()));
+    if text.trim().is_empty() {
+        b.push_str("The person sent the attached file(s) with no message.\n");
+    } else {
+        b.push_str(&format!("The person: {}\n", text.trim()));
+    }
     if let Some(n) = note {
         b.push_str(n);
         b.push('\n');
@@ -646,6 +650,7 @@ impl Services {
             grants,
             cancel: cancel.clone(),
             kind: ChatKind::Chat,
+            files: turn.asked.files.clone(),
         };
         let c = cancel.clone();
         let done = hook(&job, &move |_| !c.load(Ordering::SeqCst));

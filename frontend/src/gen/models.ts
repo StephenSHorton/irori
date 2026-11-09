@@ -19,6 +19,7 @@ export type AnswerResult = B.AnswerResult
 export type Ask = B.Ask
 export type AskRepo = B.AskRepo
 export type AssistantChatAct = B.AssistantChatAct
+export type AssistantChatActIn = B.AssistantChatActIn
 export type AssistantChatDraft = B.AssistantChatDraft
 export type AssistantChatItem = B.AssistantChatItem
 export type AssistantChatPage = B.AssistantChatPage
@@ -26,10 +27,10 @@ export type AssistantChatPosted = B.AssistantChatPosted
 export type AssistantChatReply = B.AssistantChatReply
 export type AssistantChatTurn = B.AssistantChatTurn
 export type AssistantChatUpdate = B.AssistantChatUpdate
+export type AssistantChatUpdateIn = B.AssistantChatUpdateIn
 export type AssistantEvent = B.AssistantEvent
 export type AssistantFile = B.AssistantFile
 export type AssistantHomeStatus = B.AssistantHomeStatus
-export type AssistantTurn = B.AssistantTurn
 export type AttachmentInfo = B.AttachmentInfo
 export type BlockedBy = B.BlockedBy
 export type Blocker = B.Blocker
@@ -285,6 +286,11 @@ export function AssistantChatAct(p: Partial<B.AssistantChatAct> = {}): B.Assista
   return { "kind": "", "card": "", "blocker": "", ...p } as B.AssistantChatAct
 }
 
+/** AssistantChatActIn with Go's zero values for every field left out. */
+export function AssistantChatActIn(p: Partial<B.AssistantChatActIn> = {}): B.AssistantChatActIn {
+  return { "kind": "", "card": "", "blocker": "", ...p } as B.AssistantChatActIn
+}
+
 /** AssistantChatDraft with Go's zero values for every field left out. */
 export function AssistantChatDraft(p: Partial<B.AssistantChatDraft> = {}): B.AssistantChatDraft {
   return { "request": "", "post": "", "space": "", "text": "", "device": "", "at": 0, ...p } as B.AssistantChatDraft
@@ -312,12 +318,17 @@ export function AssistantChatReply(p: Partial<B.AssistantChatReply> = {}): B.Ass
 
 /** AssistantChatTurn with Go's zero values for every field left out. */
 export function AssistantChatTurn(p: Partial<B.AssistantChatTurn> = {}): B.AssistantChatTurn {
-  return { "turn": "", "text": "", "device": "", "at": 0, "again": "", "imported": false, "callId": "", "stopped": false, ...p } as B.AssistantChatTurn
+  return { "turn": "", "text": "", "device": "", "at": 0, "again": "", "imported": false, "callId": "", "files": [], "stopped": false, ...p } as B.AssistantChatTurn
 }
 
 /** AssistantChatUpdate with Go's zero values for every field left out. */
 export function AssistantChatUpdate(p: Partial<B.AssistantChatUpdate> = {}): B.AssistantChatUpdate {
   return { "key": "", "thread": "", "text": "", "at": 0, "imported": false, ...p } as B.AssistantChatUpdate
+}
+
+/** AssistantChatUpdateIn with Go's zero values for every field left out. */
+export function AssistantChatUpdateIn(p: Partial<B.AssistantChatUpdateIn> = {}): B.AssistantChatUpdateIn {
+  return { "key": "", "thread": "", "text": "", "act": null, ...p } as B.AssistantChatUpdateIn
 }
 
 /** AssistantEvent with Go's zero values for every field left out. */
@@ -333,11 +344,6 @@ export function AssistantFile(p: Partial<B.AssistantFile> = {}): B.AssistantFile
 /** AssistantHomeStatus with Go's zero values for every field left out. */
 export function AssistantHomeStatus(p: Partial<B.AssistantHomeStatus> = {}): B.AssistantHomeStatus {
   return { "device": "", "name": "", "here": false, "state": "", "lastSeenMs": 0, "claude": false, "chat": false, "none": "", ...p } as B.AssistantHomeStatus
-}
-
-/** AssistantTurn with Go's zero values for every field left out. */
-export function AssistantTurn(p: Partial<B.AssistantTurn> = {}): B.AssistantTurn {
-  return { "role": "", "text": "", ...p } as B.AssistantTurn
 }
 
 /** AttachmentInfo with Go's zero values for every field left out. */

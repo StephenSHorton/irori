@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useContext,
   useEffect,
@@ -26,7 +27,6 @@ import {
   XIcon,
 } from "lucide-react"
 
-import { screenLabel } from "@/lib/assistant-screen"
 import { goThere } from "@/components/assistant/go-there"
 import { SpotlightLine } from "@/components/assistant/spotlight-line"
 import {
@@ -58,15 +58,17 @@ import {
   newChat,
   addNote,
   onGo,
+  loadOlder,
   postDraft,
   replyText,
   setAssistantOpen,
   splitReply,
   startFollowing,
-  stopAsking,
+  stopTurn,
   subscribeAssistant,
   suggestions,
   type AssistantFile,
+  type AssistantHomeStatus,
   type Box,
   type ChatEntry,
   type Posted,
@@ -197,17 +199,21 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
           <AssistantPanel
             ref={panelRef}
             entries={s.entries}
-            reply={s.reply}
+            streams={s.streams}
+            home={s.home}
+            more={s.more}
             work={s.work}
-            autoPosting={s.autoPosting}
-            autoFailed={s.autoFailed}
+            posting={s.posting}
+            postFailed={s.postFailed}
             narrow={narrow}
             onAsk={(t, files) => void ask(t, files)}
-            onStop={stopAsking}
+            onAskAgain={(t, turn) => void ask(t, [], turn)}
+            onStop={stopTurn}
             onNew={newChat}
+            onOlder={loadOlder}
             onGo={goTo}
-            onPost={async (i) => {
-              const p = await postDraft(i)
+            onPost={async (turn) => {
+              const p = await postDraft(turn)
               // As the ask box does, the new thread opens (on a phone the
               // panel gets out of the way).
               cards?.onOpenThread(p.id)
@@ -233,8 +239,8 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
       ) : (
         <AskButton
           ref={buttonRef}
-          unread={s.unread || !!s.reply}
-          busy={!!s.reply}
+          unread={s.unread}
+          busy={s.busy}
           onOpen={() => setAssistantOpen(true)}
           style={{ right, bottom: bottom(lift.button + 12) }}
         />
@@ -426,14 +432,18 @@ let uploadFailed = ""
 export function AssistantPanel({
   ref,
   entries,
-  reply,
+  streams = {},
+  home = null,
+  more = false,
   work = {},
-  autoPosting = null,
-  autoFailed,
+  posting,
+  postFailed,
   narrow,
   onAsk,
+  onAskAgain,
   onStop,
   onNew,
+  onOlder,
   onGo,
   onPost,
   onClose,
@@ -441,22 +451,30 @@ export function AssistantPanel({
 }: {
   ref?: Ref<HTMLDivElement>
   entries: ChatEntry[]
-  reply: Reply | null
+  // The replies being written, by turn (only where the turn runs).
+  streams?: Readonly<Record<string, Reply>>
+  // Where the assistant runs (assistant_home_status).
+  home?: AssistantHomeStatus | null
+  // Older entries remain beyond those shown.
+  more?: boolean
   // The work of the threads the chat posted (card #785).
   work?: Record<string, WorkThread>
-  // The message whose thread is posting by itself (card #988).
-  autoPosting?: ChatEntry | null
-  // Why a message's thread couldn't post by itself.
-  autoFailed?: ReadonlyMap<ChatEntry, string>
+  // The turns whose draft a tap is posting, and why a post failed.
+  posting?: ReadonlySet<string>
+  postFailed?: Readonly<Record<string, string>>
   narrow: boolean
   onAsk: (text: string, files?: AssistantFile[]) => void
-  onStop: () => void
+  // Ask again: the same words, as a new question that repeats this turn.
+  onAskAgain?: (text: string, turn: string) => void
+  // Stop one question.
+  onStop: (turn: string) => void
   onNew: () => void
+  onOlder?: () => void
   // onGo goes where a reply's go line says (card #784), its line from the
   // button tapped: "" or why not.
   onGo: (t: GoTarget, from?: Element) => Promise<string>
-  // onPost posts the drafted thread of the message at that index.
-  onPost: (index: number) => Promise<void>
+  // onPost posts the drafted thread of the reply to that turn.
+  onPost: (turn: string) => Promise<void>
   onClose: () => void
   style?: CSSProperties
 }) {
@@ -475,12 +493,16 @@ export function AssistantPanel({
     if (at !== null) input.current?.setSelectionRange(at, at)
   }, [text])
   const end = useRef<HTMLDivElement>(null)
+  const firstPending = entries.find((e) => e.pending)?.turn
   useEffect(() => {
     input.current?.focus({ preventScroll: true })
   }, [])
   // The newest message stays in view as the reply comes in.
   const last = entries.length
-  const growing = reply ? reply.text.length + reply.status.length : -1
+  const growing = Object.values(streams).reduce(
+    (n, r) => n + r.text.length + r.status.length,
+    0
+  )
   // A draft just posted shows its "Posted as #N" line, and the cards
   // made from it as they come.
   const posted =
@@ -519,10 +541,11 @@ export function AssistantPanel({
     return () => grew.disconnect()
   }, [last])
 
-  const busy = !!reply
+  // The composer stays on while questions wait or run: only files on
+  // their way hold it.
   const attach = useFileAttach(
-    busy || sending,
-    "Add files once the reply is done.",
+    sending,
+    "Add files once the last ones are sent.",
     draftFiles
   )
   const pending = attach.files
@@ -565,7 +588,7 @@ export function AssistantPanel({
     setGoing(uploading)
   }
   const send = (t: string, files: File[] = []) => {
-    if (busy || uploading || attach.reading) return
+    if (uploading || attach.reading) return
     if (!t.trim() && !files.length) return
     uploadFailed = ""
     setSendError("")
@@ -610,7 +633,7 @@ export function AssistantPanel({
             variant="ghost"
             size="icon-sm"
             aria-label="New chat"
-            disabled={sending || (!entries.length && !busy)}
+            disabled={sending || !entries.length}
             onClick={() => {
               onNew()
               input.current?.focus()
@@ -638,27 +661,57 @@ export function AssistantPanel({
         ref={scroller}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3"
         aria-live="polite"
-        aria-busy={busy}
+        aria-busy={Object.keys(streams).length > 0}
       >
-        {!entries.length && !reply ? (
+        {!entries.length ? (
           <Starters
             onPick={(q) => send(q, pending)}
             disabled={sending || attach.reading}
           />
         ) : (
           <div ref={list} className="flex flex-col gap-4">
-            {entries.map((e, i) => (
-              <Entry
-                key={entryKey(e)}
-                entry={e}
-                onGo={onGo}
-                work={e.posted ? work[e.posted.id] : undefined}
-                onPost={() => onPost(i)}
-                posting={e === autoPosting}
-                failed={autoFailed?.get(e)}
-              />
+            {more && onOlder && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="self-center text-[12.5px] text-muted-foreground"
+                onClick={onOlder}
+              >
+                Earlier
+              </Button>
+            )}
+            {entries.map((e) => (
+              <Fragment key={e.id ?? entryKey(e)}>
+                <Entry
+                  entry={e}
+                  onGo={onGo}
+                  work={e.posted ? work[e.posted.id] : undefined}
+                  onPost={() => onPost(e.turn ?? "")}
+                  posting={!!e.turn && !!posting?.has(e.turn)}
+                  failed={e.turn ? postFailed?.[e.turn] : undefined}
+                  onAskAgain={
+                    e.retry && e.turn && onAskAgain
+                      ? () => {
+                          const q = entries.find(
+                            (x) => x.turn === e.turn && x.role === "person"
+                          )
+                          if (q) onAskAgain(q.text, e.turn as string)
+                        }
+                      : undefined
+                  }
+                />
+                {e.pending && e.turn && (
+                  <Waiting
+                    turn={e.turn}
+                    stream={streams[e.turn]}
+                    home={home}
+                    oldest={e.turn === firstPending}
+                    onStop={() => onStop(e.turn as string)}
+                  />
+                )}
+              </Fragment>
             ))}
-            {reply && <Answering reply={reply} />}
           </div>
         )}
         <div ref={end} />
@@ -699,7 +752,7 @@ export function AssistantPanel({
           {attach.input}
           {/* Centred on the 32 px send button the row bottom-aligns to. */}
           <div className="flex h-8 shrink-0 items-center">
-            <AttachButton attach={attach} disabled={busy || sending} />
+            <AttachButton attach={attach} disabled={sending} />
             <MicButton
               target={input}
               value={text}
@@ -711,18 +764,7 @@ export function AssistantPanel({
               }}
             />
           </div>
-          {busy ? (
-            <Button
-              type="button"
-              size="icon"
-              variant="secondary"
-              className="size-8 shrink-0 rounded-lg"
-              aria-label="Stop"
-              onClick={onStop}
-            >
-              <SquareIcon className="size-3.5 fill-current" />
-            </Button>
-          ) : (
+          {
             <Button
               type="submit"
               size="icon"
@@ -747,11 +789,11 @@ export function AssistantPanel({
                 <ArrowUpIcon />
               )}
             </Button>
-          )}
+          }
         </div>
         <PendingFiles
           attach={attach}
-          disabled={busy || sending}
+          disabled={sending}
           label="Files with the message"
           className="flex max-h-44 flex-wrap gap-2 overflow-y-auto px-1"
         />
@@ -821,12 +863,15 @@ function Entry({
   onPost,
   posting,
   failed,
+  onAskAgain,
 }: {
   entry: ChatEntry
-  // Its thread is posting by itself.
+  // Its draft is being posted by a tap.
   posting: boolean
-  // Why it couldn't post by itself.
+  // Why the post failed.
   failed?: string
+  // Ask again, on a note of a turn that was skipped, failed or stopped.
+  onAskAgain?: () => void
   onGo: (t: GoTarget, from?: Element) => Promise<string>
   // A posted draft's thread, as last read.
   work?: WorkThread
@@ -871,6 +916,17 @@ function Entry({
     return (
       <p className="text-[12.5px] text-muted-foreground" data-note="">
         {entry.text}
+        {onAskAgain && (
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="ml-1 h-auto p-0 text-[12.5px]"
+            onClick={onAskAgain}
+          >
+            Ask again
+          </Button>
+        )}
       </p>
     )
   // A thread posting by itself shows that, not Post thread (card #988).
@@ -885,7 +941,7 @@ function Entry({
           <DivideDrafts cards={cards} settle={settle} />
         )}
         {go && <GoButton target={go} onGo={onGo} />}
-        {entry.looked && <LookedAt text={entry.looked} />}
+        {entry.looked && <LookedAt label={entry.looked} />}
         {draft && (
           <DraftThread
             draft={draft}
@@ -934,20 +990,16 @@ function DivideBar() {
 }
 
 // LookedAt is the small line under a reply that read the screen (card
-// #1009): it opens to the exact text the assistant was given.
-function LookedAt({ text }: { text: string }) {
+// #1009): it names what the assistant looked at. The text itself stays with
+// the question's row.
+function LookedAt({ label }: { label: string }) {
   return (
-    <details
-      className="text-[12px] text-muted-foreground"
+    <p
+      className="truncate text-[12px] text-muted-foreground"
       data-assistant-looked=""
     >
-      <summary className="cursor-pointer truncate select-none">
-        Looked at: {screenLabel(text) || "your screen"}
-      </summary>
-      <pre className="mt-1 rounded-md bg-muted/60 px-2 py-1.5 font-sans whitespace-pre-wrap">
-        {text}
-      </pre>
-    </details>
+      Looked at: {label || "your screen"}
+    </p>
   )
 }
 
@@ -1103,6 +1155,58 @@ function DraftThread({
           The draft was cut short. Ask again for the whole thread.
         </p>
       ) : null}
+    </div>
+  )
+}
+
+// Waiting is what shows under a question with no reply yet: the reply as
+// it streams where the turn runs, else which computer has it (design §5).
+function Waiting({
+  turn,
+  stream,
+  home,
+  oldest,
+  onStop,
+}: {
+  turn: string
+  stream?: Reply
+  home: AssistantHomeStatus | null
+  oldest: boolean
+  onStop: () => void
+}) {
+  const name = home?.name || "the assistant's computer"
+  const connected = home?.state === "connected"
+  let line = ""
+  if (!stream) {
+    if (home?.here) line = "Waiting for the question above…"
+    else if (!home?.device) line = "Waiting for the assistant's computer…"
+    else if (connected && oldest) line = `${name} is answering…`
+    else line = `Waiting for ${name}`
+  }
+  return (
+    <div className="flex flex-col gap-1" data-assistant-waiting={turn}>
+      {stream ? (
+        <Answering reply={stream} />
+      ) : (
+        <p className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
+          <Loader2Icon
+            className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
+            aria-hidden
+          />
+          {line}
+        </p>
+      )}
+      <Button
+        type="button"
+        variant="link"
+        size="sm"
+        className="h-auto self-start p-0 text-[12.5px] text-muted-foreground"
+        aria-label="Stop this question"
+        onClick={onStop}
+      >
+        <SquareIcon className="size-3 fill-current" aria-hidden />
+        Stop
+      </Button>
     </div>
   )
 }
