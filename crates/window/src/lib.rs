@@ -46,6 +46,8 @@ pub mod agents;
 pub mod agents_trust;
 pub mod assistant;
 pub mod assistant_chat;
+pub mod assistant_home;
+pub mod assistant_turn;
 pub mod attachments;
 pub mod board;
 pub mod boards;
@@ -199,6 +201,9 @@ pub struct Window {
     answers: assistant::Runner,
     /// The held huddle sessions (card #1046), apart from the chat's runs.
     huddles: Arc<assistant::HeldRunner>,
+    /// The open watches of the chat turns this computer runs
+    /// (one-assistant card 3).
+    chat_watch: assistant_turn::ChatWatch,
 }
 
 impl Window {
@@ -226,6 +231,7 @@ impl Window {
             rewrites: assistant::Runner::new(),
             answers: assistant::Runner::new(),
             huddles,
+            chat_watch: assistant_turn::ChatWatch::default(),
         }
     }
 

@@ -84,6 +84,7 @@ fn world(bobs: usize, installed: bool) -> World {
         d.core.kick_board(&space);
     }
     for d in &bob {
+        d.core.set_chat_turn(Some(common::chat::idle_turn()));
         d.core.set_spawner(Some(ready_spawner()));
     }
     let bob_id = b1.core.person().id;

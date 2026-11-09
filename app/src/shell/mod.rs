@@ -355,7 +355,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         // Free the speech model before exit (#240: Metal
                         // asserts otherwise).
                         window.voice_shutdown();
-                        // Card #783: the corner chat's headless runs end.
+                        // The chat worker takes no new question (one-
+                        // assistant card 3); card #783: the corner chat's
+                        // headless runs end.
+                        h.core.set_chat_turn(None);
                         window.assistant_shutdown();
                         h.core.set_reviver(None);
                         h.core.set_spawner(None);
@@ -508,6 +511,28 @@ fn start_core(
             Some(w) => w.revive(id),
             None => Err("Irori is closing".into()),
         })));
+    }
+    // The one assistant's chat, answered from rows when this is the
+    // assistant's computer (one-assistant card 3), from every one of the
+    // person's devices. Before the spawner: its first sweep publishes
+    // spawn.host, which must already say assistantChat, or a restart writes
+    // a row saying false and then one saying true.
+    #[cfg(desktop)]
+    {
+        let w = Arc::downgrade(&window);
+        core.set_chat_turn(Some(Arc::new(
+            move |job: &irori_core::assistant_chat::ChatJob,
+                  emit: &dyn Fn(irori_core::assistant_chat::ChatEvent) -> bool| {
+                match w.upgrade() {
+                    Some(w) => w.chat_turn(job, emit),
+                    // Closing: no reply, so the next start answers it.
+                    None => irori_core::assistant_chat::ChatDone {
+                        later: true,
+                        ..Default::default()
+                    },
+                }
+            },
+        )));
     }
     // A phone runs no agents (card #524): with no spawner its sweep never
     // lists `claude` agents, so it doesn't log "spawn cleanup: can't find

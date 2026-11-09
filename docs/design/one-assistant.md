@@ -93,6 +93,8 @@ Nothing else moves it: not being offline, asleep or unreachable, not a slow link
 
 A new `Node::caught_up() -> bool` (`crates/mesh/src/node.rs`): true when, for every one of the person's devices this one has a live session with, this device's vector covers that device's newest vector (the same `covers` check `check_step` makes). It leaves out writers in the node's `stopped` map (a fork or a bad HLC order: their rows will never arrive) and revoked devices' rows past their cut, so a stuck writer can't hold the assistant forever. With no own device connected, it is true. Both the claim and the worker (§5) use it.
 
+*Built in card 1 (#1101).* The peer's vector it compares with is the one the peer last sent: at connect and after it takes rows. Rows a peer wrote since arrive by push and are not in that vector, so `caught_up` can be true for a moment while a peer's newest rows are on their way. It is false while the peer's rows are held back (a clock ahead) once the peer has said so. Until a session is up it is true (a device that has just started and is not yet connected can claim; the sweep runs several seconds after start).
+
 ### Saying it can answer from other devices
 
 A new `assistantChat: true` field on `spawn.host`. Card 1 adds it to `SpawnHost` as a read-only field (`#[serde(default)]`), so the status can read it. Card 3 publishes it, never before. It is `assistantTurn && the chat hook is installed in this run` (`set_chat_turn`, §5). Like `assistantTurn`, it joins `publish_host`'s change tuple, or an upgraded desktop never publishes it. It must never ship in a build without the worker: then it would promise answers nobody gives.
@@ -254,6 +256,17 @@ The five cap is only for the scan, where the computer really was away or behind.
 **The reply row.** When the run ends, Core scrubs the text and `changed` lines, and appends `assistant.chat.said`. The stream is a view: the row is the reply.
 
 **When the run fails.** `NO_CLAUDE`, `TOO_LONG`, a signed-out Claude Code, a usage limit, or any other error goes in the `said` row's `error`, in today's words plus the computer's name: "Claude Code on Mac couldn't answer: …". For a signed-out Claude Code: "… it isn't signed in. Run `claude` in a terminal on Mac to sign in." Every device shows it, with **Ask again** (§6).
+
+**As built (#1103).** Where card 3 differs from, or adds to, the text above:
+
+- The hook's type is `ChatTurnFn` (`ChatTurn` is the fold's turn). `ChatEvent`, `ChatJob` and `ChatDone` keep their names, in `assistant_chat.rs`. The worker is `crates/core/src/service/assistant_turns.rs`; the window's closure is `crates/window/src/assistant_turn.rs`.
+- **Caught up, and folded.** After `caught_up()`, the worker also waits until the kind loop has folded every row the store holds. The kind loop keeps each writer's newest seq, which must cover `store.vector()`. `caught_up()` only says the rows are in the store, not that the cached home and conversation have applied them. After 5 s it reads the rows again itself. In the first 20 s after a start, "nothing connected" counts as caught up only when the person has no other device: no session yet isn't the same as none to have.
+- A Stop or New chat also ends the caught-up wait at once, so its "Stopped" comes without delay. The wait has no cap.
+- **"Stopped"** is `assistant_chat::STOPPED`, exactly "Stopped" (the failure words never wrap it).
+- **Quitting isn't Stop.** A turn cut off by Irori closing, or a run the window says it never ran (`ChatDone.later`), gets no `said` row, so the next start's scan answers it. The exception is a run that already changed something: its row says what changed, with "Stopped".
+- **`assistantChat`** stays true for the rest of the run once the hook was installed. Taking the hook away at quit doesn't republish, so the other devices go on to say "isn't connected", not "needs the latest Irori".
+- A failed auto-post leaves the draft with Post thread (card 4 shows it). Nothing logs it, since the window crate has no log.
+- `Node::skew(dev)` gives the asking device's skew. `Core::assistant_chat_ask`, `assistant_chat_stop` and `assistant_chat_turn` back the `assistant_chat_ask`, `assistant_chat_stop` and `assistant_chat_watch` commands, wrapped in `host.ts` as `AssistantService.ChatAsk`, `ChatStop` and `ChatWatch`.
 
 ### Markers
 
