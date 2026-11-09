@@ -14,8 +14,17 @@ import {
 } from "react"
 
 import { agentsNowDefault } from "./agents-now"
-import { onChange } from "./changes"
+import { onChange, type Notice } from "./changes"
 import { BoardService, Browser, Events } from "./host"
+import {
+  doneWakes,
+  Follows,
+  IdleEveryMs,
+  liveCards,
+  refsToDrop,
+  trailing,
+  type RefEntry,
+} from "./small-lists"
 import { timedRead } from "./window-log"
 import { checkUploads, uploadOf } from "./uploads"
 import {
@@ -819,34 +828,45 @@ export function sampleCardRef(r: string): RefTarget | null {
   }
 }
 
-// refCache keeps each looked-up ref until the board changes, so a long
+// refCache keeps each looked-up ref until a change to its card, so a long
 // thread full of "#12" asks once per change; a minute at most, as a net.
-const refCache = new Map<string, { at: number; v: Promise<RefTarget | null> }>()
+// Each entry remembers the card it resolved to (card #1152), so a notice
+// that names cards drops those entries, and the ones that found no card or
+// have not answered yet (a new card, or a renumber, always comes with ids).
+type RefCached = RefEntry & { at: number; v: Promise<RefTarget | null> }
+const refCache = new Map<string, RefCached>()
 const RefTTL = 60_000
 
-// refGen counts board changes while some chip watches (card #343): each
-// one drops the cache, and every useCardRef asks again, so a looked-up
-// card's chip moves with the card, no reload. One subscription for all.
+// refGen counts the refreshes while some chip watches (card #343): each one
+// drops what the notices staled, and every useCardRef asks again, so a
+// looked-up card's chip moves with the card, no reload. One subscription
+// for all.
 let refGen = 0
 // RefRefreshMs is the wait that gathers a burst of board changes into one
 // refresh of the chips.
 export const RefRefreshMs = 1500
 let refTimer: ReturnType<typeof setTimeout> | undefined
+// The refs a notice staled, until the burst's refresh drops them.
+const refStale = new Set<string>()
 const refWatchers = new Set<() => void>()
 let refOff: (() => void) | null = null
+// refNotice takes a notice: the entries it stales wait for the burst's end.
+export function refNotice(n: Notice): void {
+  for (const r of refsToDrop(n, refCache)) refStale.add(r)
+  if (!refStale.size || refTimer !== undefined) return
+  refTimer = setTimeout(() => {
+    refTimer = undefined
+    for (const r of refStale) refCache.delete(r)
+    refStale.clear()
+    refGen++
+    for (const w of refWatchers) w()
+  }, RefRefreshMs)
+}
 function watchRefs(fn: () => void): () => void {
   refWatchers.add(fn)
-  refOff ??= subscribe(() => {
-    // One refresh per burst (card #1136): a busy board changes many times
-    // a minute, and each change used to ask for every chip again.
-    if (refTimer !== undefined) return
-    refTimer = setTimeout(() => {
-      refTimer = undefined
-      refCache.clear()
-      refGen++
-      for (const w of refWatchers) w()
-    }, RefRefreshMs)
-  })
+  // One refresh per burst (card #1136): a busy board changes many times a
+  // minute, and each change used to ask for every chip again.
+  refOff ??= subscribeIds(refNotice)
   return () => {
     refWatchers.delete(fn)
     if (!refWatchers.size && refOff) {
@@ -854,12 +874,42 @@ function watchRefs(fn: () => void): () => void {
       refOff = null
       clearTimeout(refTimer)
       refTimer = undefined
+      refStale.clear()
     }
   }
 }
 
+// resetRefs is for tests.
+export function resetRefs(): void {
+  refCache.clear()
+  refStale.clear()
+  clearTimeout(refTimer)
+  refTimer = undefined
+  refGen = 0
+}
+
+// refEntry asks for r, or has the answer it asked for (card #1152).
+export function refEntry(r: string): RefCached {
+  let e = refCache.get(r)
+  if (!e || Date.now() - e.at > RefTTL) {
+    const made: RefCached = {
+      at: Date.now(),
+      id: "",
+      settled: false,
+      v: timedRead("refs", () => cardRef(r)).catch(() => null),
+    }
+    void made.v.then((v) => {
+      made.id = v?.id ?? ""
+      made.settled = true
+    })
+    refCache.set(r, made)
+    e = made
+  }
+  return e
+}
+
 // useCardRef is cardRef(r) for a component: undefined while it first
-// loads, then the target or null, fresh on every board change (the last
+// loads, then the target or null, fresh on a change to its card (the last
 // answer stays while the next loads). Off (r "") it asks nothing.
 export function useCardRef(r: string): RefTarget | null | undefined {
   const [got, setGot] = useState<{ r: string; v: RefTarget | null } | null>(
@@ -873,15 +923,7 @@ export function useCardRef(r: string): RefTarget | null | undefined {
   useEffect(() => {
     if (!r) return
     let live = true
-    let e = refCache.get(r)
-    if (!e || Date.now() - e.at > RefTTL) {
-      e = {
-        at: Date.now(),
-        v: timedRead("refs", () => cardRef(r)).catch(() => null),
-      }
-      refCache.set(r, e)
-    }
-    void e.v.then((v) => live && setGot({ r, v }))
+    void refEntry(r).v.then((v) => live && setGot({ r, v }))
     return () => {
       live = false
     }
@@ -2652,20 +2694,44 @@ function subscribe(fn: () => void, focus = false): () => void {
   }
 }
 
+// subscribeIds is subscribe for a list that reads from the ids a card change
+// names (card #1152): fn gets the notice, `all` for a devices change. The
+// sample has no ids, so a change there is `all`.
+function subscribeIds(fn: (n: Notice) => void, focus = false): () => void {
+  if (!inWails()) {
+    const all = () => fn({ signal: "board:changed", all: true })
+    sampleListeners.add(all)
+    return () => sampleListeners.delete(all)
+  }
+  const offBoard = onChange(EventBoardChanged, fn, {
+    follow: Follows.cards,
+    focus,
+  })
+  const offDevices = onChange(EventDevicesChanged, fn)
+  return () => {
+    offBoard()
+    offDevices()
+  }
+}
+
 // useFresh re-reads on every card change, when the window regains focus,
 // and once a few seconds after a failed read. With inbox, on every
 // inbox:changed too (coalesced to 4 a second on the Go side): the card
 // page's "queued for / sent to, not read yet" lines come from the inbox,
 // so they change when a delivery does, not when the card does.
+//
+// wake, when given, is what a change calls in place of reload() (the idle
+// line reads at most every 5 s); the mount's read and the retry stay direct.
 function useFresh(
   reload: () => Promise<void>,
   error: string | null,
-  inbox = false
+  inbox = false,
+  wake?: () => void
 ) {
   useEffect(() => {
     void reload()
-    return subscribe(() => void reload(), true)
-  }, [reload])
+    return subscribe(wake ?? (() => void reload()), true)
+  }, [reload, wake])
 
   useEffect(() => {
     if (!inbox || !inWails()) return
@@ -2754,7 +2820,10 @@ export function useCards(): CardsState {
   // to data that already says so changes nothing). Not the empty list
   // before the first read lands, where every card would seem gone.
   useEffect(() => {
-    if (!loading && !error) pending.observeSummaries(value)
+    if (loading || error) return
+    pending.observeSummaries(value)
+    // The Done tab reads when a card leaves this list (card #1152).
+    liveCards.note(value.map((c) => c.id))
   }, [value, loading, error])
   const v = useSyncExternalStore(pending.subscribe, pending.version)
   const cards = useMemo(
@@ -2788,13 +2857,27 @@ export function useIdleReport(
     IdleReport(),
     "idle"
   )
-  useFresh(reload, error)
+  // At most one read every IdleEveryMs (card #1152): the line is an
+  // aggregate with no rows to patch, and a busy board changes it far more
+  // often than anyone reads it.
+  const slow = useMemo(
+    () => trailing(() => void reload(), IdleEveryMs),
+    [reload]
+  )
+  useEffect(() => () => slow.cancel(), [slow])
+  useFresh(reload, error, false, slow.call)
   const statuses = agents
     .map((a) => `${a.status}/${a.deviceState ?? ""}`)
     .join(",")
+  const firstStatuses = useRef(true)
   useEffect(() => {
-    void reload()
-  }, [statuses, reload])
+    // The mount's read is useFresh's.
+    if (firstStatuses.current) {
+      firstStatuses.current = false
+      return
+    }
+    slow.call()
+  }, [statuses, slow])
   return value
 }
 
@@ -2903,10 +2986,23 @@ export function useDoneCards(active: boolean, scope = ""): DoneState {
     void reload()
   }, [st, reload])
 
+  // Only a change to a card on the page, or a card the grid had and no
+  // longer has (it closed), reads the Done tab again (card #1152).
+  const onPage = useRef(new Set<string>())
+  useEffect(() => {
+    onPage.current = new Set(st.cards.map((c) => c.id))
+  }, [st.cards])
   useEffect(() => {
     if (!active) return
     void reload()
-    return subscribe(() => void reload(), true)
+    const off = subscribeIds((n) => {
+      if (doneWakes(n, onPage.current, liveCards)) void reload()
+    }, true)
+    const offLeft = liveCards.onLeft(() => void reload())
+    return () => {
+      off()
+      offLeft()
+    }
   }, [active, reload])
 
   useEffect(() => {

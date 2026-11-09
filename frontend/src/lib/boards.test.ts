@@ -9,7 +9,9 @@ import {
   MaxBoardDescription,
   presenceLine,
   reloadBoards,
+  reloadPersonal,
   subscribeBoards,
+  subscribePersonal,
   suggestTag,
   validTag,
   type SummaryMember,
@@ -44,11 +46,12 @@ describe("the shared boards list (card #233)", () => {
     expect(after.some((x) => x.boardId === made.boardId)).toBe(true)
     expect(a).toBeGreaterThan(1)
     expect(b).toBeGreaterThan(1)
-    // A page opening later (a new reader) gets the same list, not its own.
+    // A page opening later (a new reader) gets the same list, with no read
+    // of its own (card #1152).
     let c = 0
     const offC = subscribeBoards(() => c++)
     await settled()
-    expect(c).toBeGreaterThan(0)
+    expect(c).toBe(0)
     expect(boardsNow().boards.map((x) => x.boardId)).toEqual(
       after.map((x) => x.boardId)
     )
@@ -56,6 +59,49 @@ describe("the shared boards list (card #233)", () => {
     offB()
     offC()
     await boards.leave(made.boardId)
+  })
+
+  test("Home's first load reads boards_list once, however many tiles mount (card #1152)", async () => {
+    const real = boards.list
+    let reads = 0
+    boards.list = async () => {
+      reads++
+      return real()
+    }
+    try {
+      // The grid's OwnerChip on every tile reads the list.
+      const offs = Array.from({ length: 30 }, () => subscribeBoards(() => {}))
+      await settled()
+      expect(reads).toBe(1)
+      for (const off of offs) off()
+      // Once every reader has gone the store stops following; the next
+      // first reader reads again.
+      const off = subscribeBoards(() => {})
+      await settled()
+      expect(reads).toBe(2)
+      off()
+    } finally {
+      boards.list = real
+    }
+  })
+
+  test("personal boards are one store too (card #1152)", async () => {
+    const real = boards.personal
+    let reads = 0
+    boards.personal = async () => {
+      reads++
+      return real()
+    }
+    try {
+      const offs = Array.from({ length: 5 }, () => subscribePersonal(() => {}))
+      await settled()
+      expect(reads).toBe(1)
+      await reloadPersonal()
+      expect(reads).toBe(2)
+      for (const off of offs) off()
+    } finally {
+      boards.personal = real
+    }
   })
 
   test("an older read that finishes last doesn't win", async () => {

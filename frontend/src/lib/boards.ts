@@ -4,7 +4,7 @@
 // here, never from src/gen. In a plain browser it runs on two sample
 // boards, and sharing moves a sample card onto one.
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 
 import { BoardsService, Events } from "./host"
 import { onChange } from "./changes"
@@ -970,21 +970,20 @@ export const boards = {
 
 // ---- hooks ------------------------------------------------------------------
 
-// touched are readers to tell when this window changed a board itself,
-// so the header and the page over it (separate readers of Personal's
-// boards) never disagree, whether or not a boards:changed follows.
-const touched = new Set<() => void>()
-
 function boardsTouched() {
   void reloadBoards()
-  for (const fn of touched) fn()
+  void reloadPersonal()
 }
 
 // The boards list is one list for the whole window (card #233): the
 // sidebar's Pinned boards, the space picker and every other reader share
 // it, so they can never disagree. It loads when its first reader mounts,
 // again on every boards:changed (a board opened, went or was renamed, or
-// a board synced from another device got its rows), and on reload.
+// a board synced from another device got its rows), and on reload. A
+// reader that mounts later doesn't read it again (card #1152): the grid's
+// OwnerChip on every tile used to start one read each, so Home's first load
+// is one boards_list. The store reads when its first reader mounts and
+// follows boards:changed until its last reader goes.
 
 // loaded is false until the window's first read ends, either way (card
 // #598): before it, an empty list is not yet "no boards".
@@ -1030,13 +1029,15 @@ export async function reloadBoards(): Promise<void> {
   for (const fn of listState.readers) fn()
 }
 
-// subscribeBoards adds a reader of the shared list; the first one starts
-// following boards:changed and the last one stops it. Every new reader
-// reads the list again, so a page that opens shows it as it is now.
+// subscribeBoards adds a reader of the shared list; the first one reads it
+// and starts following boards:changed, and the last one stops it. A reader
+// that joins a followed list reads nothing: the store is current already.
 export function subscribeBoards(reader: () => void): () => void {
   listState.readers.add(reader)
-  listState.off ??= onBoardsMoved(() => void reloadBoards())
-  void reloadBoards()
+  if (!listState.off) {
+    listState.off = onBoardsMoved(() => void reloadBoards())
+    void reloadBoards()
+  }
   return () => {
     listState.readers.delete(reader)
     if (listState.readers.size === 0) {
@@ -1067,6 +1068,51 @@ export function useBoards(): {
   return { boards: value, error, loaded, reload: reloadBoards }
 }
 
+// Personal's boards are one store for the window too (card #1152): the
+// header, the page over it and every picker share one read, made when the
+// first reader mounts and again on each boards:changed.
+type PersonalList = { boards: SpaceBoard[]; error: string | null }
+
+const personalState = {
+  value: { boards: [], error: null } as PersonalList,
+  readers: new Set<() => void>(),
+  off: null as (() => void) | null,
+  req: 0,
+}
+
+// reloadPersonal reads Personal's boards again and hands them to every
+// reader; an older read that ends after a newer one is dropped.
+export async function reloadPersonal(): Promise<void> {
+  const n = ++personalState.req
+  let next: PersonalList
+  try {
+    const list = await timedRead("personal boards", () => boards.personal())
+    next = { boards: list, error: null }
+  } catch (err) {
+    next = { ...personalState.value, error: errorText(err) }
+  }
+  if (n !== personalState.req) return
+  personalState.value = next
+  for (const fn of personalState.readers) fn()
+}
+
+export function subscribePersonal(reader: () => void): () => void {
+  personalState.readers.add(reader)
+  if (!personalState.off) {
+    personalState.off = onBoardsMoved(() => void reloadPersonal())
+    void reloadPersonal()
+  }
+  return () => {
+    personalState.readers.delete(reader)
+    if (personalState.readers.size === 0) {
+      personalState.off?.()
+      personalState.off = null
+    }
+  }
+}
+
+const personalNow = () => personalState.value
+
 // usePersonalBoards reads Personal's boards, and again when they may have
 // moved: added here, or on another of the person's devices.
 export function usePersonalBoards(): {
@@ -1074,32 +1120,12 @@ export function usePersonalBoards(): {
   error: string | null
   reload: () => Promise<void>
 } {
-  const [state, setState] = useState<{
-    boards: SpaceBoard[]
-    error: string | null
-  }>({
-    boards: [],
-    error: null,
-  })
-  const reload = useCallback(async () => {
-    try {
-      const list = await timedRead("personal boards", () => boards.personal())
-      setState({ boards: list, error: null })
-    } catch (err) {
-      setState((s) => ({ ...s, error: errorText(err) }))
-    }
-  }, [])
-  useEffect(() => {
-    void reload()
-    const on = () => void reload()
-    touched.add(on)
-    const off = onBoardsMoved(on)
-    return () => {
-      touched.delete(on)
-      off()
-    }
-  }, [reload])
-  return { ...state, reload }
+  const state = useSyncExternalStore(
+    subscribePersonal,
+    personalNow,
+    personalNow
+  )
+  return { ...state, reload: reloadPersonal }
 }
 
 // useInvite follows the open (or last) invite while active. An invite that
