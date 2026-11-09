@@ -614,6 +614,38 @@ pub async fn board_start_agent(w: W<'_>, id: String, note: String) -> R<()> {
     w.start_agent(&id, &note)
 }
 
+/// Start an agent / Not now on a card given to the person (decision 69).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_say_given(w: W<'_>, id: String, say: String) -> R<()> {
+    blocking(&w, move |w| w.say_given(&id, &say)).await
+}
+
+/// Give a card back to its owner, with a reason if there is one.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_give_back(w: W<'_>, id: String, reason: String) -> R<()> {
+    blocking(&w, move |w| w.give_back(&id, &reason)).await
+}
+
+/// Give new tasks or cards already on a space's board to one member.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_give_batch(
+    w: W<'_>,
+    space: String,
+    board: String,
+    to: String,
+    tasks: Vec<crate::board::GiveTask>,
+    cards: Vec<String>,
+    note: String,
+) -> R<Vec<String>> {
+    blocking(&w, move |w| {
+        w.give_batch(&space, &board, &to, &tasks, &cards, &note)
+    })
+    .await
+}
+
 /// "Hand to an agent" on an item whose agent is gone (card #485).
 #[tauri::command]
 #[specta::specta]
@@ -2532,6 +2564,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_ask_with_files,
             board_ask_again,
             board_start_agent,
+            board_say_given,
+            board_give_back,
+            board_give_batch,
             board_hand_on,
             board_ask_repos,
             board_mention_candidates,

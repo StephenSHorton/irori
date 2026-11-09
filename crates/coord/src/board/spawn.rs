@@ -164,6 +164,60 @@ pub struct Spawned {
     /// does whatever it goes on to start.
     pub counted: bool,
     pub at: GoTime,
+    /// Every item the agent has served, the origin first, then each
+    /// `agent.took` in log order (agent-continuity A.3).
+    pub items: Vec<SpawnedItem>,
+    /// The item it serves now, filled in when a copy is handed out of the
+    /// fold ([`Spawned::current`]); empty inside the fold.
+    pub now: String,
+}
+
+/// One item (card) a spawned agent serves: the origin from `task.spawned`,
+/// later ones from `agent.took`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SpawnedItem {
+    pub task_id: String,
+    pub life: i64,
+    pub at: GoTime,
+}
+
+impl Spawned {
+    /// The item the agent serves now: the newest not yet settled, else the
+    /// newest. `settled` says whether a card has ended; a card it can't
+    /// see counts as not settled.
+    pub fn current_by(&self, settled: &dyn Fn(&str) -> bool) -> &str {
+        self.items
+            .iter()
+            .rev()
+            .find(|i| !settled(&i.task_id))
+            .or(self.items.last())
+            .map_or(self.task_id.as_str(), |i| i.task_id.as_str())
+    }
+
+    /// The item it serves now, for a copy [`Coord::spawned`] handed out.
+    pub fn current(&self) -> &str {
+        if self.now.is_empty() {
+            &self.task_id
+        } else {
+            &self.now
+        }
+    }
+
+    /// When the agent took up the item it serves now (the mark's time for
+    /// the origin).
+    pub fn current_since(&self) -> GoTime {
+        let cur = self.current();
+        self.items
+            .iter()
+            .rev()
+            .find(|i| i.task_id == cur)
+            .map_or(self.at, |i| i.at)
+    }
+
+    /// Whether `id` is the origin or one of its items.
+    pub fn serves(&self, id: &str) -> bool {
+        !id.is_empty() && (self.task_id == id || self.items.iter().any(|i| i.task_id == id))
+    }
 }
 
 /// What the Core asks for when it starts an agent for a card.
@@ -241,6 +295,12 @@ impl Fold {
         self.spawned.get(key)
     }
 
+    /// The item `s` serves now: its newest not yet settled card, else its
+    /// newest (agent-continuity A.3).
+    pub(crate) fn spawned_now<'a>(&self, s: &'a Spawned) -> &'a str {
+        s.current_by(&|c| self.tasks.get(c).is_some_and(|t| is_terminal(&t.state)))
+    }
+
     /// Whether `key` may be handed card t: never a spawned agent, except
     /// its own card and that card's subtasks (§6).
     /// Whether Irori may hand agent `key` work nobody gave it (card #453):
@@ -250,12 +310,39 @@ impl Fold {
         self.spawned_for(key).is_none() && self.offers.as_ref().is_none_or(|f| f(key))
     }
 
+    /// Whether agent `key` may take another item (agent-continuity §5, A.2):
+    /// the context of its last call is at or under the person's budget, it
+    /// never compacted, and that call was under 55 minutes ago by this
+    /// fold's own clock, so its cache is warm. -1 is "always fresh". An
+    /// agent with no figure yet, or no function wired, is reusable.
+    pub(crate) fn reusable(&self, key: &str) -> bool {
+        let Some(r) = self.reusable.as_ref().and_then(|f| f(key)) else {
+            return true;
+        };
+        if r.budget < 0 || r.compacted {
+            return false;
+        }
+        let budget = if r.budget == 0 {
+            super::DEFAULT_CTX_BUDGET
+        } else {
+            r.budget as u64
+        };
+        if r.ctx > budget {
+            return false;
+        }
+        if r.ctx_at.is_zero() {
+            return true;
+        }
+        let ago = (self.stamp().unix_nano() - r.ctx_at.unix_nano()) / 1_000_000_000;
+        ago < super::WARM_FOR_SECS
+    }
+
     /// Whether Irori may hand card t to agent `key`: a spawned agent only
     /// its own card and its subtasks, any other agent per
     /// [`Fold::takes_handout`].
     pub(crate) fn may_hand_to(&self, key: &str, t: &Task) -> bool {
         match self.spawned_for(key) {
-            Some(s) => s.task_id == t.id || t.parent == s.task_id,
+            Some(s) => s.serves(&t.id) || s.serves(&t.parent) || self.made_from_agents_thread(s, t),
             None => self.offers.as_ref().is_none_or(|f| f(key)),
         }
     }
@@ -265,8 +352,48 @@ impl Fold {
     pub(crate) fn spawned_may_take(&self, key: &str, t: &Task) -> bool {
         match self.spawned_for(key) {
             None => true,
-            Some(s) => s.task_id == t.id || t.parent == s.task_id || t.created_by == key,
+            Some(s) => {
+                s.serves(&t.id)
+                    || s.serves(&t.parent)
+                    || t.created_by == key
+                    || self.made_from_agents_thread(s, t)
+            }
         }
+    }
+
+    /// Whether the thread `id` is still wanted (card #1208): a card made
+    /// from it is open, so its agent is kept past the idle limit; a thread
+    /// with none keeps the short clock.
+    pub(crate) fn thread_wanted(&self, id: &str) -> bool {
+        self.tasks.get(id).is_some_and(|th| {
+            th.made
+                .iter()
+                .any(|m| self.tasks.get(m).is_some_and(|c| !is_terminal(&c.state)))
+        })
+    }
+
+    /// The live spawned agent keys serving thread `id` (card #1208).
+    pub(crate) fn thread_agents(&self, id: &str) -> Vec<String> {
+        let mut v: Vec<String> = self
+            .spawned
+            .iter()
+            .filter(|(_, s)| s.serves(id))
+            .map(|(k, _)| k.clone())
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// Whether card t was made from the thread spawned agent `s` serves
+    /// (card #1208): that agent may be given it, where any other spawned
+    /// agent serves only its own card. Only while the thread is open.
+    pub(crate) fn made_from_agents_thread(&self, s: &Spawned, t: &Task) -> bool {
+        !t.from.is_empty()
+            && s.serves(&t.from)
+            && self
+                .tasks
+                .get(&t.from)
+                .is_some_and(|th| th.open_ask().is_some() && !is_terminal(&th.state))
     }
 
     /// Whether a `task.spawn`/`task.spawned` row came from someone who may
@@ -400,6 +527,64 @@ impl Fold {
         });
     }
 
+    /// agent.took: agent `key` took up another item. The origin must be
+    /// marked already (rows of one device arrive in order); the item must be
+    /// in this log when the log is a shared board's, and written by the
+    /// device of the person it serves for their own agent, the same rule
+    /// as the mark.
+    pub(crate) fn fold_took(&mut self, ev: &Event, at: &dyn Fn(GoTime) -> GoTime) {
+        let Some(p) = row::<AgentTookRow>(&ev.payload) else {
+            return;
+        };
+        if p.key.is_empty()
+            || p.task_id.is_empty()
+            || !self.spawned.contains_key(&p.key)
+            || !self.spawn_writer_ok(ev, &p.by, &p.task_id)
+        {
+            self.ignore(&ev.device_id);
+            return;
+        }
+        if self.on_board {
+            let Some(kp) = &self.key_person else {
+                return;
+            };
+            let serves = self
+                .tasks
+                .get(&p.task_id)
+                .map(|t| self.serving_person(t))
+                .unwrap_or_default();
+            if serves.is_empty() || kp(&p.key) != serves {
+                self.ignore(&ev.device_id);
+                return;
+            }
+        }
+        let Some(m) = self.spawned.get_mut(&p.key) else {
+            return;
+        };
+        if m.items
+            .iter()
+            .any(|i| i.task_id == p.task_id && i.life == p.life)
+        {
+            return;
+        }
+        m.items.push(SpawnedItem {
+            task_id: p.task_id.clone(),
+            life: p.life,
+            at: at(p.at),
+        });
+        let holder = self
+            .tasks
+            .get(&p.task_id)
+            .map(|t| t.holder.clone())
+            .unwrap_or_default();
+        self.note(Change {
+            kind: TASK_CHANGED.into(),
+            task_id: p.task_id,
+            holder,
+            ..Change::default()
+        });
+    }
+
     pub(crate) fn fold_spawned(&mut self, ev: &Event, at: &dyn Fn(GoTime) -> GoTime) {
         let Some(p) = row::<TaskSpawnedRow>(&ev.payload) else {
             return;
@@ -440,9 +625,24 @@ impl Fold {
             .write()
             .unwrap_or_else(|e| e.into_inner())
             .insert(p.key.clone());
+        // A repeat of the origin's own mark keeps the items it took since.
+        let mut items = self
+            .spawned
+            .get(&p.key)
+            .map(|m| m.items.clone())
+            .unwrap_or_default();
+        if items.is_empty() {
+            items.push(SpawnedItem {
+                task_id: p.task_id.clone(),
+                life: 0,
+                at: at(p.at),
+            });
+        }
         self.spawned.insert(
             p.key.clone(),
             Spawned {
+                items,
+                now: String::new(),
                 task_id: p.task_id.clone(),
                 generation: p.generation,
                 step: p.step.clone(),
@@ -748,6 +948,7 @@ impl Fold {
                         by: SWEEPER.into(),
                         at: now,
                         note: String::new(),
+                        ..TaskAssignedRow::default()
                     },
                 )?;
             }
@@ -767,7 +968,7 @@ impl Fold {
         let Some(m) = self.spawned_for(key) else {
             return Ok(false);
         };
-        if m.task_id != id || !m.step.is_empty() || !m.subtask.is_empty() {
+        if self.spawned_now(m) != id || !m.step.is_empty() || !m.subtask.is_empty() {
             return Ok(false);
         }
         let Some(t) = self.tasks.get(id) else {
@@ -1070,6 +1271,17 @@ impl Fold {
             && self.person_of(by) != self.person_of(to)
     }
 
+    /// Whether card t has an agent on it (any holder that isn't a person)
+    /// or one starting (a spawn request still pending).
+    pub(crate) fn agent_on_or_starting(&self, t: &Task) -> bool {
+        let now = self.stamp();
+        t.holders
+            .iter()
+            .any(|h| !h.starts_with(kinds::PERSON_ACTOR_PREFIX))
+            || t.spawn_request()
+                .is_some_and(|s| s.pending() && !s.stale(&now))
+    }
+
     /// A card with an agent on it, or one starting, can't be given: its
     /// agent would be orphaned on its person's device. A parent card's
     /// agents are its parts' (card #573).
@@ -1098,15 +1310,7 @@ impl Fold {
                 t.short_ref()
             )));
         }
-        let agent = t
-            .holders
-            .iter()
-            .any(|h| !h.starts_with(kinds::PERSON_ACTOR_PREFIX));
-        let now = self.stamp();
-        if agent
-            || t.spawn_request()
-                .is_some_and(|s| s.pending() && !s.stale(&now))
-        {
+        if self.agent_on_or_starting(t) {
             return Err(bad_state(format!(
                 "{} has an agent on it: end it before giving the card to someone",
                 t.short_ref()
@@ -1201,7 +1405,7 @@ impl Fold {
             return false;
         }
         match ev.kind.as_str() {
-            kinds::TASK_SPAWN | kinds::TASK_SPAWNED => true,
+            kinds::TASK_SPAWN | kinds::TASK_SPAWNED | kinds::AGENT_TOOK => true,
             kinds::TASK_ASSIGNED => ev.actor == SWEEPER,
             kinds::TASK_STATUS => row::<TaskStateRow>(&ev.payload)
                 .is_some_and(|p| p.blocker.is_some_and(|b| b.question == GIVEN_QUESTION)),
@@ -1492,8 +1696,30 @@ impl Fold {
         if t.review_of.is_empty() || t.given.is_none() || !standing {
             return self.ask_given(by, id, context);
         }
+        self.raise_and_start(
+            by,
+            id,
+            context,
+            "A read-only reviewer starts on this computer.",
+        )
+        .map(|_| ())
+    }
+
+    /// Raises "OK to start an agent on this?" on given card `id` and
+    /// answers it Start an agent in the person's name in the same breath:
+    /// the two rows a click would write, so the asker, the generation and
+    /// the one-yes-one-agent rules stand. False when the question did not
+    /// end up this device's (decision 69).
+    pub(crate) fn raise_and_start(
+        &mut self,
+        by: &str,
+        id: &str,
+        context: &str,
+        start_why: &str,
+    ) -> Result<bool> {
+        let t = self.open_task(id)?.clone();
         let Some(p) = t.given.as_ref().map(|g| g.person.clone()) else {
-            return Ok(());
+            return Ok(false);
         };
         let now = self.stamp();
         let opt = |answer: &str, why: &str| BlockerOption {
@@ -1511,7 +1737,7 @@ impl Fold {
             GIVEN_QUESTION,
             context,
             vec![
-                opt(GIVEN_START, "A read-only reviewer starts on this computer."),
+                opt(GIVEN_START, start_why),
                 opt(GIVEN_NOT_NOW, "The card stays yours, with no agent."),
             ],
             Some(BlockedBy {
@@ -1527,7 +1753,7 @@ impl Fold {
         )?;
         // The question stands only if it is theirs on this device.
         if nt.given.as_ref().is_none_or(|g| g.question != b.id) {
-            return Ok(());
+            return Ok(false);
         }
         let restored = if super::cards::count_open(&nt) == 1 {
             self.restore_for(&nt).to_string()
@@ -1548,7 +1774,7 @@ impl Fold {
                 ..BlockerResolvedRow::default()
             },
         )?;
-        Ok(())
+        Ok(true)
     }
 
     /// Whether card t's last request lets a new one go now: none is

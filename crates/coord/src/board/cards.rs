@@ -783,6 +783,8 @@ impl Fold {
                 attachments: capped(add_files(Vec::new(), &br.attachments), MAX_ATTACHMENTS),
                 done_check: br.done_check,
                 transfer: br.transfer,
+                given_back: br.given_back,
+                batch: br.batch.clone(),
                 later: br.later.clone(),
                 permission: br.permission.clone(),
                 ..Blocker::default()
@@ -1225,6 +1227,7 @@ impl Fold {
             false,
             false,
             nb.permission,
+            None,
         )
     }
 
@@ -1422,6 +1425,7 @@ impl Fold {
             done_check,
             transfer,
             None,
+            None,
         )
     }
 
@@ -1443,6 +1447,7 @@ impl Fold {
         done_check: bool,
         transfer: bool,
         permission: Option<PermissionWait>,
+        given_back: Option<String>,
     ) -> Result<(Task, Blocker)> {
         if t.open_ask().is_some() {
             return Err(super::asks::ask_refusal(
@@ -1516,6 +1521,8 @@ impl Fold {
             done_check,
             transfer,
             permission,
+            given_back: given_back.is_some(),
+            batch: given_back.unwrap_or_default(),
             ..BlockerRow::default()
         };
         if reason_only
@@ -1834,6 +1841,13 @@ impl Fold {
                 }
                 _ => {}
             }
+        }
+        // A card given back (decision 69): Keep it is a plain resolve; Cancel
+        // it cancels the card, which closes the item.
+        if b.given_back
+            && let Some(t) = self.answer_given_back(&by, &t, &b, a.pick)?
+        {
+            return Ok((t, Vec::new()));
         }
         // The person's say on the crash question goes on its thread and
         // puts the card back on the Board, whichever way it came (card

@@ -426,37 +426,65 @@ impl Fold {
         note: &str,
     ) -> Result<(Task, bool)> {
         let (by, to) = (trim_space(by).to_string(), trim_space(to).to_string());
+        if let Some(t) = self.check_assign(&by, id, &to)? {
+            return Ok((t, false));
+        }
+        let t = self.write_assign(&by, id, &to, note, "", false)?;
+        Ok((t, true))
+    }
+
+    /// The checks of [`Self::assign`], writing nothing: `Ok(Some(card))`
+    /// when the give is already so (no row to write), `Ok(None)` when it
+    /// goes ahead.
+    pub(crate) fn check_assign(&self, by: &str, id: &str, to: &str) -> Result<Option<Task>> {
+        let (by, to) = (trim_space(by), trim_space(to));
         if by.is_empty() || to.is_empty() {
             return Err(invalid("assign needs a caller and an assignee"));
         }
-        check_key(&to)?;
+        check_key(to)?;
         let t = self.open_task(id)?.clone();
         if t.open_ask().is_some() {
             return Err(super::asks::ask_refusal(&t, "nobody is assigned one"));
         }
-        self.parked_take_refusal(&by, &t)?;
+        self.parked_take_refusal(by, &t)?;
         // After their Not now, a give from someone else asks them again.
-        if is_holder(&t, &to) && !self.gives_again(&t, &by, &to) {
-            return Ok((t, false));
+        if is_holder(&t, to) && !self.gives_again(&t, by, to) {
+            return Ok(Some(t));
         }
-        self.check_give(&t, &by, &to)?;
+        self.check_give(&t, by, to)?;
         // An agent hands a card only to a device that runs its side, unless
         // the person asked (card #496).
-        self.check_side_assign(&by, &t, &to)?;
-        self.end_park(&by, id, "the person handed it on")?;
+        self.check_side_assign(by, &t, to)?;
+        Ok(None)
+    }
+
+    /// The write half of [`Self::assign`], after [`Self::check_assign`]:
+    /// ends a hold, then writes the give with its batch and note.
+    pub(crate) fn write_assign(
+        &mut self,
+        by: &str,
+        id: &str,
+        to: &str,
+        note: &str,
+        batch: &str,
+        assistant: bool,
+    ) -> Result<Task> {
+        self.end_park(by, id, "the person handed it on")?;
         let at = self.stamp();
         self.write(
-            &by,
+            by,
             kinds::TASK_ASSIGNED,
             &TaskAssignedRow {
                 task_id: id.into(),
-                to,
-                by: by.clone(),
+                to: to.into(),
+                by: by.into(),
                 at,
                 note: note.into(),
+                batch: batch.into(),
+                assistant,
             },
         )?;
-        Ok((self.tasks[id].clone(), true))
+        Ok(self.tasks[id].clone())
     }
 
     pub(crate) fn set_task_state(

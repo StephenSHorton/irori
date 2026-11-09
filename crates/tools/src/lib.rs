@@ -131,7 +131,8 @@ pub const ASSISTANT_TOOLS: [&str; 15] = [
 ];
 
 pub use assistant_writes::{
-    ASSISTANT_WRITE_TOOLS, Grant, Grants, TOOL_COMMENT, TOOL_SEND, grants_for,
+    ASSISTANT_WRITE_TOOLS, Grant, Grants, TOOL_CLOSE, TOOL_COMMENT, TOOL_SEND, TOOL_TICK,
+    grants_for,
 };
 
 /// Who is calling, established by the transport (attach secret or member
@@ -368,6 +369,12 @@ pub struct OwnDevice {
 /// Shared boards to show (Go `BoardViewer`).
 pub trait BoardViewer: Send + Sync {
     fn board_views(&self, f: &coord::BoardFilter) -> Vec<coord::BoardView>;
+    /// The search docs of every shared space's cards and comments the
+    /// person can see, their keys as this device knows them (card #1198):
+    /// capture indexes only Personal's log, so search adds these.
+    fn space_docs(&self) -> Vec<search::Doc> {
+        Vec::new()
+    }
 }
 
 /// A huddle as the Core sees it now (card #1055).
@@ -458,6 +465,11 @@ pub trait Backend: Send + Sync {
     /// what happens next, or why not.
     fn agent_start(&self, _caller: &str, _task_id: &str) -> Result<String, String> {
         Err("agents can't start agents here".into())
+    }
+    /// The person starts card `task_id`, given to them (decision 69,
+    /// §3.2): Core's `start_given_card`. What happened, or why not.
+    fn given_start(&self, _person_key: &str, _task_id: &str) -> Result<String, String> {
+        Err("this backend can't start a given card".into())
     }
     /// What `agent_start` would refuse before anything is made, for a
     /// thread `caller` is about to open for a fresh agent (card #1027).
@@ -609,7 +621,7 @@ const CALLER_READS: [&str; 10] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 72] = [
+    let list: [(&'static str, Handler); 73] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -637,6 +649,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("board_leave", board::board_leave),
         ("board_move", board::board_move),
         ("board_assign", board::board_assign),
+        ("board_give", board::board_give),
         ("board_status", board::board_status),
         ("assistant_close", assistant_writes::assistant_close),
         ("assistant_tick", assistant_writes::assistant_tick),
@@ -792,7 +805,7 @@ Claude Code: the Irori mod attaches your session; reload it if this persists.",
         if !trim(&c.sender.key).is_empty() && name != "slot_release" {
             slots::renew(x, c);
         }
-        let out = x.around_board(name, args, || h(x, c, args));
+        let out = x.around_board(c, name, args, || h(x, c, args));
         Ok(clip(&out, MAX_RESULT))
     }
 }

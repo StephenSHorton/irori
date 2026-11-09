@@ -59,6 +59,8 @@ export function sampleAgents(): AgentsSettings {
     assistantModels: ["sonnet", "opus", "haiku"],
     idleMins: 30,
     idleChoices: [10, 30, 60, 120, 240],
+    ctxBudgetK: 200,
+    ctxBudgetChoices: [80, 120, 200, 300, -1],
     crashLimit: 2,
     startTries: 3,
     defaultCrashLimit: 2,
@@ -212,6 +214,12 @@ export function idleLabel(m: number, def = 30): string {
   const n =
     m % 60 === 0 ? `${m / 60} hour${m === 60 ? "" : "s"}` : `${m} minutes`
   return m === def ? `${n} (default)` : n
+}
+
+// A context budget choice (card #1213): thousands of tokens, -1 never reuses.
+export function budgetLabel(k: number, def = 200): string {
+  if (k < 0) return "Always start a fresh agent"
+  return k === def ? `${k}k (default)` : `${k}k`
 }
 
 // "My agents may start agents on my cards" (card #575): the person's own
@@ -456,6 +464,7 @@ export function useAgents(open: boolean, boardId = "") {
         assistantModel: c.assistantModel ?? null,
         assistantEffort: c.assistantEffort ?? null,
         idleMins: c.idleMins ?? null,
+        ctxBudgetK: c.ctxBudgetK ?? null,
         crashLimit: c.crashLimit ?? null,
         startTries: c.startTries ?? null,
       }
@@ -474,6 +483,7 @@ export function useAgents(open: boolean, boardId = "") {
           assistantModel: c.assistantModel ?? x.assistantModel,
           assistantEffort: c.assistantEffort ?? x.assistantEffort,
           idleMins: c.idleMins ?? x.idleMins,
+          ctxBudgetK: c.ctxBudgetK ?? x.ctxBudgetK,
           crashLimit: c.crashLimit ?? x.crashLimit,
           startTries: c.startTries ?? x.startTries,
         }

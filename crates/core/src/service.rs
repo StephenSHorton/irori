@@ -79,6 +79,7 @@ mod desk_review;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
+mod given_follow;
 pub mod huddle_canvas;
 mod huddle_divide;
 mod huddle_end;
@@ -546,6 +547,11 @@ impl tools::Backend for ToolsView {
     fn agent_start(&self, caller: &str, task_id: &str) -> Result<String, String> {
         self.0.agent_start(caller, task_id)
     }
+    fn given_start(&self, _person_key: &str, task_id: &str) -> Result<String, String> {
+        self.0
+            .start_given_card(task_id)?
+            .ok_or_else(|| format!("no card {task_id} is given to you"))
+    }
     fn agent_end(&self, caller: &str, key: &str) -> Result<String, String> {
         self.0.agent_end(caller, key)
     }
@@ -737,6 +743,9 @@ impl tools::BoardViewer for ToolsView {
     fn board_views(&self, f: &coord::BoardFilter) -> Vec<coord::BoardView> {
         self.0.board_views(f)
     }
+    fn space_docs(&self) -> Vec<search::Doc> {
+        self.0.space_search_docs()
+    }
 }
 
 /// The mesh roster's card as presence holds it ([`roster_card`] undone).
@@ -765,6 +774,9 @@ fn presence_card(c: AgentCard) -> presence::AgentCard {
         repo_key: c.repo_key,
         permission_mode: c.permission_mode,
         last_tool: c.last_tool,
+        ctx: c.ctx.max(0) as u64,
+        ctx_at: c.ctx_at,
+        compacted: c.compacted,
         device_state: c.device_state,
         waiting_for: c.waiting_for,
         device_seen: c.device_seen,
@@ -801,6 +813,9 @@ fn roster_card(c: presence::AgentCard) -> AgentCard {
         repo_key: c.repo_key,
         permission_mode: c.permission_mode,
         last_tool: c.last_tool,
+        ctx: c.ctx.min(i64::MAX as u64) as i64,
+        ctx_at: c.ctx_at,
+        compacted: c.compacted,
         device_state: c.device_state,
         waiting_for: c.waiting_for,
         device_seen: c.device_seen,
@@ -969,6 +984,14 @@ struct DeviceStarted<'a> {
     version: &'a str,
 }
 
+/// What [`Core::context_of`] reports for one agent.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AgentContext {
+    pub ctx: u64,
+    pub ctx_at: gocompat::time::GoTime,
+    pub compacted: bool,
+}
+
 /// The `agent.status` payload (a Go map: keys sorted).
 #[derive(Serialize)]
 struct AgentStatus<'a> {
@@ -979,6 +1002,25 @@ struct AgentStatus<'a> {
     #[serde(rename = "permissionMode", skip_serializing_if = "str::is_empty")]
     permission_mode: &'a str,
     status: &'a str,
+    /// Context tokens of the newest main-chain call (agent-continuity §4).
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    ctx: u64,
+    #[serde(rename = "ctxAt", skip_serializing_if = "presence_time_is_zero")]
+    ctx_at: gocompat::time::GoTime,
+    #[serde(skip_serializing_if = "is_false")]
+    compacted: bool,
+}
+
+fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+fn presence_time_is_zero(t: &gocompat::time::GoTime) -> bool {
+    t.is_zero()
 }
 
 /// The `agent.gone` payload.
@@ -1434,6 +1476,17 @@ impl Core {
                                 .get(key)
                                 .copied()
                                 .unwrap_or(false)
+                        })
+                    }),
+                    // Context and budget per local agent (card #1213).
+                    reusable: Some({
+                        let reuse = spawn_state.reuse.clone();
+                        Arc::new(move |key: &str| {
+                            reuse
+                                .read()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .get(key)
+                                .copied()
                         })
                     }),
                     // A working card on a shared board counts here too:
@@ -3054,6 +3107,19 @@ impl Core {
         self.s.roster.agents()
     }
 
+    /// An agent's context measure (agent-continuity §4), local or on another
+    /// device: tokens of its newest main-chain call, when that call was
+    /// made, and whether it was ever compacted. None when no card holds the
+    /// key or no measure has been taken (`ctx` 0 and not compacted).
+    pub fn context_of(&self, key: &str) -> Option<AgentContext> {
+        let c = self.s.roster.agents().into_iter().find(|a| a.key == key)?;
+        (c.ctx > 0 || c.compacted).then(|| AgentContext {
+            ctx: c.ctx.max(0) as u64,
+            ctx_at: c.ctx_at,
+            compacted: c.compacted,
+        })
+    }
+
     /// The word a new agent started from `seed` would get now (card #472):
     /// the name pick a spawn makes, for tests.
     #[doc(hidden)]
@@ -3531,6 +3597,13 @@ impl Core {
 
     pub fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
         self.s.start_agent(id, note)
+    }
+
+    /// Start on a card given to the person (decision 69, §3.2), from any
+    /// device: what happened ("Started …", or "Asked {device} to start
+    /// it"), or `None` when `id` is no card given to them.
+    pub fn start_given_card(&self, id: &str) -> Result<Option<String>, String> {
+        self.s.start_given_card(id)
     }
 
     /// Pause agents (card #665): whether this device starts no agents now.
@@ -5656,6 +5729,9 @@ impl Services {
                                     name_source: &card.name_source,
                                     permission_mode: &card.permission_mode,
                                     status: &card.status,
+                                    ctx: card.ctx,
+                                    ctx_at: card.ctx_at,
+                                    compacted: card.compacted,
                                 },
                             )
                             .map(|_| ())

@@ -23,6 +23,8 @@ export type AssistantAskSent = B.AssistantAskSent
 export type AssistantChatAct = B.AssistantChatAct
 export type AssistantChatActIn = B.AssistantChatActIn
 export type AssistantChatDraft = B.AssistantChatDraft
+export type AssistantChatFrom = B.AssistantChatFrom
+export type AssistantChatFromIn = B.AssistantChatFromIn
 export type AssistantChatItem = B.AssistantChatItem
 export type AssistantChatPage = B.AssistantChatPage
 export type AssistantChatPosted = B.AssistantChatPosted
@@ -115,6 +117,7 @@ export type DonePage = B.DonePage
 export type Event = B.Event
 export type FileRef = B.FileRef
 export type Folder = B.Folder
+export type GiveTask = B.GiveTask
 export type GoneSession = B.GoneSession
 export type GoneWait = B.GoneWait
 export type HoldReason = B.HoldReason
@@ -269,7 +272,7 @@ export function AgentsPauseView(p: Partial<B.AgentsPauseView> = {}): B.AgentsPau
 
 /** AgentsSettings with Go's zero values for every field left out. */
 export function AgentsSettings(p: Partial<B.AgentsSettings> = {}): B.AgentsSettings {
-  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "lightModel": "", "lightEffort": "", "heavyModel": "", "heavyEffort": "", "assistantModel": "", "assistantEffort": "", "assistantModels": [], "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
+  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "lightModel": "", "lightEffort": "", "heavyModel": "", "heavyEffort": "", "assistantModel": "", "assistantEffort": "", "assistantModels": [], "idleMins": 0, "idleChoices": [], "ctxBudgetK": 0, "ctxBudgetChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
 }
 
 /** AgentStartsView with Go's zero values for every field left out. */
@@ -325,6 +328,16 @@ export function AssistantChatActIn(p: Partial<B.AssistantChatActIn> = {}): B.Ass
 /** AssistantChatDraft with Go's zero values for every field left out. */
 export function AssistantChatDraft(p: Partial<B.AssistantChatDraft> = {}): B.AssistantChatDraft {
   return { "request": "", "post": "", "space": "", "asker": "", "text": "", "device": "", "at": 0, ...p } as B.AssistantChatDraft
+}
+
+/** AssistantChatFrom with Go's zero values for every field left out. */
+export function AssistantChatFrom(p: Partial<B.AssistantChatFrom> = {}): B.AssistantChatFrom {
+  return { "name": "", "words": "", ...p } as B.AssistantChatFrom
+}
+
+/** AssistantChatFromIn with Go's zero values for every field left out. */
+export function AssistantChatFromIn(p: Partial<B.AssistantChatFromIn> = {}): B.AssistantChatFromIn {
+  return { "name": "", "words": "", ...p } as B.AssistantChatFromIn
 }
 
 /** AssistantChatItem with Go's zero values for every field left out. */
@@ -765,6 +778,11 @@ export function FileRef(p: Partial<B.FileRef> = {}): B.FileRef {
 /** Folder with Go's zero values for every field left out. */
 export function Folder(p: Partial<B.Folder> = {}): B.Folder {
   return { "path": "", "why": "", ...p } as B.Folder
+}
+
+/** GiveTask with Go's zero values for every field left out. */
+export function GiveTask(p: Partial<B.GiveTask> = {}): B.GiveTask {
+  return { ...p } as B.GiveTask
 }
 
 /** GoneSession with Go's zero values for every field left out. */

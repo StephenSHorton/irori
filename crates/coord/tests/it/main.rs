@@ -62,6 +62,7 @@ mod prstate_test;
 mod rename_test;
 mod repo_case_test;
 mod resource_test;
+mod reusable_test;
 mod review_card_test;
 mod review_pick_test;
 mod review_test;

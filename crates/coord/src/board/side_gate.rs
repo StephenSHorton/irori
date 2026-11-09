@@ -120,7 +120,7 @@ impl Fold {
         }
         if self
             .spawned_for(key)
-            .is_some_and(|s| s.task_id == t.id || (!t.parent.is_empty() && t.parent == s.task_id))
+            .is_some_and(|s| s.serves(&t.id) || (!t.parent.is_empty() && s.serves(&t.parent)))
         {
             return true;
         }

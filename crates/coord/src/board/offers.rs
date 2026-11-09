@@ -217,7 +217,7 @@ impl Fold {
                 ErrorKind::NotAllowed,
                 format!(
                     "coord: you were started for {} and take only that card: leave {} for another agent.",
-                    self.ref_of(&s.task_id),
+                    self.ref_of(self.spawned_now(s)),
                     t.short_ref()
                 ),
             ));

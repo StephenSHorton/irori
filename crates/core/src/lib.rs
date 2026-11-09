@@ -68,6 +68,7 @@ pub mod usage;
 
 pub use crate::members::Member;
 pub use crate::meshnode::BoardParts;
+pub use crate::service::AgentContext;
 pub use crate::service::assistant_answers;
 pub use crate::service::assistant_ask;
 pub use crate::service::assistant_chat;

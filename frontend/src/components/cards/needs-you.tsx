@@ -27,7 +27,9 @@ import { AgentsService } from "@/lib/host"
 import { sampleTrustAndStart } from "@/lib/trust-sample"
 import {
   GIVEN_QUESTION,
+  givenGroups,
   goneTitle,
+  isGiven,
   loopLine,
   NOT_TRUSTED,
   refOf,
@@ -53,6 +55,7 @@ import {
   type Delivery,
 } from "@/lib/talk"
 import { EarlierRound } from "./done-rounds"
+import { GivenBatch } from "./needs-given"
 
 export function NeedsYou({
   needs,
@@ -79,6 +82,9 @@ export function NeedsYou({
   // Start an agent's outcome: its row goes as the message becomes a card.
   const [started, setStarted] = useState("")
   const rows = needs.filter((n) => n.kind !== "heldQuiet")
+  // Decision 69: the cards other people gave them, one block per giver
+  // and batch, in Core's order and ahead of the rest.
+  const groups = givenGroups(needs)
   const quiet = needs.find((n) => n.kind === "heldQuiet")
   return (
     <section aria-labelledby="needs-you" className="grid min-w-0 gap-2.5">
@@ -98,36 +104,45 @@ export function NeedsYou({
       )}
       {rows.length > 0 && (
         <ul className="grid min-w-0 gap-2.5" aria-label="What needs you">
-          {rows.map((n) => (
-            <li key={`${n.kind}:${n.id}`} className="min-w-0">
-              {n.kind === "check" || n.kind === "decision" ? (
-                <CardNeed need={n} onOpen={onOpenCard} />
-              ) : n.kind === "gone" ? (
-                <GoneNeed need={n} onOpen={onOpenCard} />
-              ) : n.kind === "noAgent" ? (
-                <NoAgentNeed need={n} onOpen={onOpenCard} />
-              ) : n.kind === "trust" ? (
-                <TrustRow need={n} onOpen={onOpenCard} />
-              ) : n.kind === "loop" || n.kind === "stuck" ? (
-                <StuckNeed need={n} onOpen={onOpenCard} />
-              ) : n.kind === "thread" ? (
-                <ThreadNeed
-                  need={n}
-
-                  space={spaceName?.(n.thread.spaceId ?? "") ?? ""}
-                  onOpen={() => onOpenThread?.(n.id)}
-                />
-              ) : n.kind === "held" ? (
-                <HeldNeed
-                  d={n.delivery}
-
-                  name={name}
-                  repo={repo}
-                  onStarted={setStarted}
-                />
-              ) : null}
+          {groups.map((g) => (
+            <li key={`given:${g.id}`} className="min-w-0">
+              <GivenBatch group={g} onOpen={onOpenCard} />
             </li>
           ))}
+          {rows.map((n) =>
+            n.kind === "given" ? null : (
+              <li key={`${n.kind}:${n.id}`} className="min-w-0">
+                {n.kind === "check" ||
+                n.kind === "decision" ||
+                n.kind === "marked" ? (
+                  <CardNeed need={n} onOpen={onOpenCard} />
+                ) : n.kind === "gone" ? (
+                  <GoneNeed need={n} onOpen={onOpenCard} />
+                ) : n.kind === "noAgent" ? (
+                  <NoAgentNeed need={n} onOpen={onOpenCard} />
+                ) : n.kind === "trust" ? (
+                  <TrustRow need={n} onOpen={onOpenCard} />
+                ) : n.kind === "loop" || n.kind === "stuck" ? (
+                  <StuckNeed need={n} onOpen={onOpenCard} />
+                ) : n.kind === "thread" ? (
+                  <ThreadNeed
+                    need={n}
+
+                    space={spaceName?.(n.thread.spaceId ?? "") ?? ""}
+                    onOpen={() => onOpenThread?.(n.id)}
+                  />
+                ) : n.kind === "held" ? (
+                  <HeldNeed
+                    d={n.delivery}
+
+                    name={name}
+                    repo={repo}
+                    onStarted={setStarted}
+                  />
+                ) : null}
+              </li>
+            )
+          )}
         </ul>
       )}
       {started && (
@@ -157,6 +172,8 @@ const kinds = {
   // Card #573: another person gave them the card; nothing starts without
   // their yes.
   given: { label: "Given to you", variant: "info" },
+  // Decision 69: Irori asks to start an agent on a card nobody gave them.
+  marked: { label: "Made after reading others' text", variant: "info" },
   message: { label: "Message", variant: "info" },
   held: { label: "Held", variant: "warning" },
   // Card #1001: a thread waiting on the person, from any space.
@@ -624,7 +641,7 @@ function CardNeed({
   need,
   onOpen,
 }: {
-  need: Extract<Need, { kind: "check" | "decision" }>
+  need: Extract<Need, { kind: "check" | "decision" | "marked" }>
   onOpen: (id: string) => void
 }) {
   const c = need.card
@@ -639,7 +656,11 @@ function CardNeed({
     : []
   const blockers = detail
     ? detail.blockers.filter(
-        (b) => waitsOnYou(b) && !(spawn === "permission" && isPerm(b))
+        (b) =>
+          waitsOnYou(b) &&
+          !(spawn === "permission" && isPerm(b)) &&
+          // The given question is in its giver's block (decision 69).
+          !(isGiven(c) && b.question === GIVEN_QUESTION)
       )
     : []
   const who = c.working.find((w) => w.spawned && !w.assigned)

@@ -432,6 +432,9 @@ impl Inner {
             c.last_text = t.last_text.clone();
             c.last_activity = t.last_activity;
             c.last_tool = t.last_tool.clone();
+            c.ctx = t.ctx;
+            c.ctx_at = t.ctx_at;
+            c.compacted = t.compacted;
             c.permission_mode = t.permission_mode.clone();
         }
         c.ai_title = t.ai.clone();
@@ -563,6 +566,13 @@ impl Inner {
             if t.permission_mode.is_empty() {
                 t.permission_mode = old.permission_mode.clone();
             }
+            // No assistant row in the window (a huge tool result filled it):
+            // keep the last measure. A compaction stays set.
+            if t.ctx_at.is_zero() && t.ctx == 0 {
+                t.ctx = old.ctx;
+                t.ctx_at = old.ctx_at;
+            }
+            t.compacted |= old.compacted;
             if instant(&t.last_activity) < instant(&old.last_activity) {
                 t.last_activity = old.last_activity;
             }
@@ -602,7 +612,13 @@ impl Inner {
                 Some(old) => {
                     // Keep the published card so sub-second activity drift
                     // doesn't accumulate unseen.
-                    let old = old.clone();
+                    let mut old = old.clone();
+                    // The context measure moves on every call and is not
+                    // part of `changed()`: the snapshot still gets it, no
+                    // change goes out.
+                    old.ctx = c.ctx;
+                    old.ctx_at = c.ctx_at;
+                    old.compacted = c.compacted;
                     next.insert(k, old);
                 }
             }

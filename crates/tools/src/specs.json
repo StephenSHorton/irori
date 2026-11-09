@@ -16,7 +16,7 @@
   },
   {
     "name": "search",
-    "description": "Search what Irori recorded: turns (prompts and replies), edits, commits, pull requests, decisions, Board cards and comments, and messages you sent or received. Every word must match; an empty query lists the newest; a card's short ref (#12) finds that card first. One line per hit with its ref; expand one with show, page with offset.",
+    "description": "Search what Irori recorded: turns (prompts and replies), edits, commits, pull requests, decisions, Board cards and comments (in every space you can see), and messages you sent or received. Every word must match; an empty query lists the newest; a card's short ref (#12, or tag#12 for a shared space's card) finds that card first. One line per hit with its ref; expand one with show, page with offset.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -72,13 +72,13 @@
   },
   {
     "name": "show",
-    "description": "Show one item in detail by its ref, as other tools print it: #12 or task:\u003cid\u003e for a card, comment:\u003cid\u003e, msg:\u003cid\u003e, turn:\u003cid\u003e, edit:\u003cid\u003e, commit:\u003csha\u003e, pr:\u003cowner\u003e/\u003cname\u003e#\u003cn\u003e, decision:\u003cid\u003e or agent:\u003ckey\u003e. Long items come in pages (offset); related refs are listed.",
+    "description": "Show one item in detail by its ref, as other tools print it: #12, tag#12 (a card in a shared space) or task:\u003cid\u003e for a card, comment:\u003cid\u003e, msg:\u003cid\u003e, turn:\u003cid\u003e, edit:\u003cid\u003e, commit:\u003csha\u003e, pr:\u003cowner\u003e/\u003cname\u003e#\u003cn\u003e, decision:\u003cid\u003e or agent:\u003ckey\u003e. Long items come in pages (offset); related refs are listed.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "ref": {
           "type": "string",
-          "description": "The ref to show, e.g. #12, task:01J… or commit:3fa2c1d."
+          "description": "The ref to show, e.g. #12, mlg#12, task:01J… or commit:3fa2c1d."
         },
         "offset": {
           "type": "integer",
@@ -448,6 +448,10 @@
         "done": {
           "type": "boolean",
           "description": "List the newest done cards too (default false: only their count)."
+        },
+        "space": {
+          "type": "string",
+          "description": "Only one space's cards: personal, a shared space's name, or the tag of one of its boards (the list at the end names them). Default: every space."
         }
       },
       "required": [],
@@ -1390,6 +1394,102 @@
       },
       "required": [
         "task_id",
+        "to"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": [
+      "claude",
+      "grok"
+    ]
+  },
+  {
+    "name": "board_give",
+    "description": "Give a batch of up to 20 tasks to one member (a person) of a shared space: new tasks made on board (tasks), or cards already there (task_ids). They answer each: start an agent, not now, or give back; none of their agents is woken. You watch the cards and hear it. note says why (at most 2000 characters). Under Ask me, new tasks are refused: ask your person. The Irori Board is a shared scratch pad for live coordination between running agents and people: what you are working on now, what blocks you, and hand-offs. Keep cards short. Do not use it for long-term information (plans, specs, decisions, backlogs, notes, docs): put those where this project or your instructions say (Linear, Notion, GitHub issues, the repo's docs), and add a link on the card if it helps. When a card's work is done, check it yourself (tests, and the real app for anything the person sees). If it changed code, land it: open its PR, board_link it and raise one board_block, \u201cCan I merge PR #N (covers #a, #b)?\u201d, with options Merge it (recommended) and Not yet; on Merge it, merge it yourself and check main. If other cards' work is ready to land too, land it together so the checks run once: put your branch on one merge card (start it and board_join it, or comment on the open one) and board_block your card on task #M (the merge card); the merge card's agent combines the branches into one PR, closes the PRs it replaces and asks as above. Once the work is on main, set it completed with proof: what changed, how you checked it, the commit, and screenshots of a UI change; a merge card's agent does this for each card it covers. The person confirms it (Done) or says why not, and it comes back to you. Never raise a wait on a PR, nor set completed while it is open; just merged it? Retry once gh pr view says merged. When what is left is the person's choice or action, raise a board_block for it instead of setting completed. Post new work unheld: Irori hands it out, one free agent at a time. Hold one card in progress at a time (board_join refuses a second). Take only cards on a side your device runs. board_assign only when one agent is clearly right: the person chose it, or it built the piece being changed. If Irori hands you a card, board_join it and start, or board_leave it so it goes on. Anything the person posts or asks for is work to start now, unless they say it is for later or it can't start yet: then make it Not yet with board_later, saying what brings it back. Never start a Not yet card. When cards must be done in order, give after, not a blocker. Give a card you take steps (board_steps) and tick them with board_step; at each step commit and push your branch (WIP is fine) and give left_off: what's done, what's next. When a card's purpose changes, board_edit its title, objective and done-when, and redo its steps. When you need the person, raise one board_block per question, with context a newcomer can decide on, options when there are real choices, and your pick marked. When they answer, resolve it (board_unblock, with a note on what you'll do) in the same turn you act on the answer. When they reply with a question, answer it (board_comment blocker_id), then resolve it, or revise it (board_block blocker_id) with options that fit now, or none; never offer the same options again. A plain reply leaves it with you: to ask them something back, give missing or revise it. When the person must act somewhere, give the full URL (https://\u2026) and the exact command in backticks (`hf auth login`). Coordinate about a card on the card (board_comment, or task_id when you send). When the person comments on a card, its holder answers there; a watcher only if asked. When a card grows past one agent's work, board_split it into subtasks (one level) so others work in parallel. An ask is the person talking to the room: if Irori hands you one you can't take now, board_leave it; else talk it through on the card and ask_close it with what it became.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string",
+          "description": "The member by name or person: key (a person, never an agent): the cards go to them, and their Irori asks them before it starts an agent."
+        },
+        "board": {
+          "type": "string",
+          "description": "The space or one of its boards, by tag or boardId (the board tool lists them). Needed for tasks; with task_ids it may be left out."
+        },
+        "tasks": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "The task's short title."
+              },
+              "objective": {
+                "type": "string",
+                "description": "Optional: what it does."
+              },
+              "done_when": {
+                "type": "string",
+                "description": "Optional: how to tell it is done."
+              },
+              "steps": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional: the task's steps, as new texts."
+              },
+              "weight": {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "light",
+                      "normal",
+                      "heavy"
+                    ],
+                    "description": "heavy: thinking is the job; normal: building to a plan; light: busy work that follows a pattern."
+                  },
+                  "why": {
+                    "type": "string",
+                    "description": "One line on why (at most 200 characters)."
+                  }
+                },
+                "required": [
+                  "level",
+                  "why"
+                ],
+                "additionalProperties": false,
+                "description": "Optional: how heavy this task's work is, with one line on why: it picks the agent's model. Leave it out for normal."
+              }
+            },
+            "required": [
+              "title"
+            ],
+            "additionalProperties": false
+          },
+          "description": "New tasks to make on board and give, up to 20. Give tasks or task_ids, not both."
+        },
+        "task_ids": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string"
+          },
+          "description": "Cards already on one shared board to give, up to 20: short refs (mlg#12) or task:\u003cid\u003e."
+        },
+        "note": {
+          "type": "string",
+          "description": "Optional note to them for the whole batch: why, and what you hope for (at most 2000 characters)."
+        }
+      },
+      "required": [
         "to"
       ],
       "additionalProperties": false

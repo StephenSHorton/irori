@@ -28,6 +28,10 @@ use super::boards::BoardLog;
 use super::spawn::{BriefMore, Spawner, build_brief, spawn_permissions};
 use crate::logf;
 
+/// What the Start answer says it does when the person starts a card after
+/// their Not now.
+pub(super) const GIVEN_START_WHY: &str = "It starts under your own settings and cap.";
+
 /// Why a held card's starting agent was called off.
 const HELD: &str = "the card is Not yet";
 
@@ -147,7 +151,7 @@ impl Services {
 
     /// The question's context: who gave it, what it asks, and why the
     /// last yes didn't start one if it didn't.
-    fn given_context(&self, log: &SpawnLog, t: &Task) -> String {
+    pub(super) fn given_context(&self, log: &SpawnLog, t: &Task) -> String {
         let giver = t
             .given
             .as_ref()
@@ -278,39 +282,83 @@ impl Services {
         }
     }
 
-    /// The person asks for an agent on a card given to them after their
-    /// Not now: the question comes back on this device, which then starts
-    /// it on their yes. False when `id` is no such card.
-    pub(crate) fn ask_given_again(&self, id: &str) -> Result<bool, String> {
+    /// Start on a card given to the person, from any device (decision 69,
+    /// §3.2). `None` when `id` is no such card, so the caller carries on.
+    /// Otherwise exactly one of: answer its open question Start; on the
+    /// spawn device, raise the question and answer Start in one step (the
+    /// card is in Not now); or ask the spawn device to do that. The line
+    /// says which.
+    pub(crate) fn start_given_card(&self, id: &str) -> Result<Option<String>, String> {
         for b in self.visible_boards() {
             let co = b.coord();
             let Some(t) = co.get_task(id) else {
                 continue;
             };
-            if !co.mine_to_serve(&t) || t.given_said.as_ref().is_none_or(|y| y.yes) {
-                return Ok(false);
+            if t.given.is_none() || !co.mine_to_serve(&t) {
+                return Ok(None);
             }
-            // The device that asks is the one that starts it: a phone, or a
-            // computer without its repo, can't take that on.
+            let me = self.person_actor();
+            // 1. The question is open: Start is its answer.
+            if t.blockers
+                .iter()
+                .any(|q| q.open() && q.question == coord::GIVEN_QUESTION)
+            {
+                co.say_given(&me, id, coord::GivenSay::Start)
+                    .map_err(|e| e.to_string())?;
+                self.asks_kick.kick();
+                return Ok(Some(format!("Started {}", t.short_ref())));
+            }
+            // 2 and 3. After their Not now.
+            let Some(question) = Self::not_now_question(&t) else {
+                // Not in Not now: say_given's own refusal says why.
+                co.say_given(&me, id, coord::GivenSay::Start)
+                    .map_err(|e| e.to_string())?;
+                return Ok(None);
+            };
             let runs = self
                 .spawn
                 .spawner
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .is_some();
-            if !runs || self.spawn_device(&t).is_none_or(|d| d != self.device.id) {
+            let device = self.spawn_device(&t);
+            if runs && device.as_deref() == Some(self.device.id.as_str()) {
+                let log = SpawnLog::board(self, &b);
+                let context = self.given_context(&log, &t);
+                if !co
+                    .raise_and_start(&me, id, &context, GIVEN_START_WHY)
+                    .map_err(|e| e.to_string())?
+                {
+                    logf(format_args!(
+                        "start {}: the question did not end up this device's",
+                        t.short_ref()
+                    ));
+                    return Err(format!("{} isn't yours to start here", t.short_ref()));
+                }
+                self.asks_kick.kick();
+                return Ok(Some(format!("Started {}", t.short_ref())));
+            }
+            let Some(device) = device else {
                 return Err(format!(
-                    "{} can't start on this device: press Start an agent on the computer with its repo",
+                    "{} can't start yet: no computer with its repo is free to run it",
                     t.short_ref()
                 ));
-            }
-            let log = SpawnLog::board(self, &b);
-            let context = self.given_context(&log, &t);
-            co.ask_given(&self.person_actor(), id, &context)
-                .map_err(|e| e.to_string())?;
-            return Ok(true);
+            };
+            self.write_given_start_request(id, &question)?;
+            return Ok(Some(format!(
+                "Asked {} to start it",
+                self.named_device(&device)
+            )));
         }
-        Ok(false)
+        Ok(None)
+    }
+
+    /// The question id a card given to the person sits in Not now on: the
+    /// question was answered Not now, and nothing has changed since.
+    pub(crate) fn not_now_question(t: &Task) -> Option<String> {
+        let g = t.given.as_ref()?;
+        let said = t.given_said.as_ref()?;
+        (!said.yes && !g.question.is_empty()).then(|| g.question.clone())
     }
 
     fn spawn_board_card(&self, sp: &Spawner, b: &Arc<BoardLog>, t: &Task) -> Result<bool, String> {
@@ -607,7 +655,7 @@ impl Services {
     pub(crate) fn spawn_card_of(&self, key: &str) -> Option<(Arc<Coord>, Task, String)> {
         let m = self.coord.spawned(key)?;
         if m.board.is_empty() {
-            let t = self.coord.get_task(&m.task_id)?;
+            let t = self.coord.get_task(m.current())?;
             return Some((self.coord.clone(), t, key.to_string()));
         }
         // The board the mark names, only; its card there must be this
@@ -616,7 +664,7 @@ impl Services {
             return None;
         }
         let b = self.board(&m.board).ok()?;
-        let t = b.coord().get_task(&m.task_id)?;
+        let t = b.coord().get_task(m.current())?;
         if !b.coord().mine_to_serve(&t) {
             return None;
         }

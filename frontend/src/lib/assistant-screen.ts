@@ -7,13 +7,15 @@
 // The snapshot's first lines are read by the Rust side
 // (crates/window/src/assistant.rs, screen_label) for the status line:
 //   Page: Home
-//   Open: your own cards
+//   Open: cards from every space
 //   In view: card #12 “Title”
 
+import { boardsNow, type BoardSummary } from "./boards"
 import { cardsById, cardFromHash } from "./cards"
 import { TalkService } from "./host"
 import { inWails } from "./irori"
 import { sectionFromHash, type Section } from "./nav"
+import { boardsOf, Personal } from "./spaces"
 
 // StatusHead is how the "tool" event for the screen tool begins
 // (SCREEN_STATUS on the Rust side); the chat keys "Looked at" on it.
@@ -55,15 +57,36 @@ export function pageName(s: Section): string {
   }
 }
 
+// spaceOpen names a space's page by the space's name and its boards'
+// tags (card #1198), which the assistant's tools take: a raw id means
+// nothing to it. An id it can't find is said as it is.
+function spaceOpen(id: string, board: string | undefined, all: BoardSummary[]) {
+  if (id === Personal) {
+    return board ? `a board in Personal (private)` : "Personal (private)"
+  }
+  const sp = all.find((b) => b.boardId === id)
+  if (!sp)
+    return board ? `board ${board} in space ${id}` : `the boards of space ${id}`
+  const name = quoted(sp.name || sp.tag || "(unnamed)")
+  const boards = boardsOf(sp)
+  if (board) {
+    const b = boards.find((x) => x.boardId === board)
+    if (b) return `board ${b.tag} ${quoted(b.name)} in shared space ${name}`
+  }
+  const tags = boards.map((b) => b.tag).filter(Boolean)
+  return `the boards of shared space ${name}${tags.length ? ` (tags ${tags.join(", ")})` : ""}`
+}
+
 // openOn is what a section has open beyond its page.
-export function openOn(s: Section): string {
+export function openOn(
+  s: Section,
+  boards: BoardSummary[] = boardsNow().boards
+): string {
   switch (s.kind) {
     case "home":
-      return "your own cards"
+      return "cards from every space"
     case "board":
-      return s.board
-        ? `board ${s.board} in space ${s.id}`
-        : `the boards of space ${s.id}`
+      return spaceOpen(s.id, s.board, boards)
     case "desk":
       return s.repo ? `the desk of repo ${s.repo}` : "all merge desks"
     case "storage":

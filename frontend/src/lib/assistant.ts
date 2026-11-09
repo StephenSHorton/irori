@@ -29,6 +29,7 @@ import {
   type SeenStore,
   type WorkThread,
 } from "./assistant-follow"
+import { boardsNow, type BoardSummary } from "./boards"
 import { cards, threads } from "./cards"
 import { goesByItself, splitGo, type GoTarget } from "./goto"
 import { sampleDivideReply } from "./sample-huddle"
@@ -52,6 +53,7 @@ import { onChange } from "./changes"
 import { EventDevicesChanged, inWails } from "./irori"
 import { previewFlag } from "./preview"
 import { checkUploads, uploadOf } from "./uploads"
+import { boardsOf } from "./spaces"
 
 export type { AssistantEvent, AssistantFile, AssistantHomeStatus }
 export type { Act, WorkThread }
@@ -105,6 +107,11 @@ export type ChatEntry = {
   at?: number
   // A quiet line: a held line or a tap's record. No dot.
   quiet?: boolean
+  // Decision 69: another person's words a follow-up line quotes (a
+  // give-back's reason), shown as a quote and never as the assistant's own.
+  quote?: { name: string; words: string }
+  // What the display fold joined into this given line (see foldGiven).
+  givenFold?: GivenFold
   // The reply was stopped or failed before it ended, so a draft it never
   // closed is cut short (splitDraft's ended).
   cutOff?: boolean
@@ -824,6 +831,12 @@ export function entriesFrom(page: readonly AssistantChatItem[]): ChatEntry[] {
       if (quietKey(u.key)) e.quiet = true
       if (u.act && u.act.kind === "answer" && u.act.card && u.act.blocker)
         e.act = { kind: "answer", card: u.act.card, blocker: u.act.blocker }
+      if (u.from?.words) e.quote = { name: u.from.name, words: u.from.words }
+      const g = givenLine(u.key, u.thread, u.text, u.at)
+      if (g) {
+        if (foldGiven(out, g)) continue
+        e.givenFold = g
+      }
       out.push(e)
       continue
     }
@@ -902,8 +915,89 @@ export function quietKey(key: string): boolean {
     key.startsWith("held:") ||
     key.startsWith("req:") ||
     key.startsWith(SentKey) ||
-    key.startsWith(DismissedKey)
+    key.startsWith(DismissedKey) ||
+    givenOutcome(key) === GIVEN_START_FACT ||
+    givenOutcome(key) === GIVEN_NOT_NOW_FACT
   )
+}
+
+// ---- cards given to people: what the sender hears (decision 69) ---------------
+// Core writes one row per card outcome (given_follow.rs) on the sender's
+// assistant's computer; these are the strings both sides use. The thread is
+// given:<batch>, or given:<giver> with no batch, and the key is
+// updateKey(thread, <fact>:<card>:<which>).
+export const GIVEN_THREAD = "given:"
+export const GIVEN_START_FACT = "start"
+export const GIVEN_NOT_NOW_FACT = "notnow"
+export const GIVEN_BACK_FACT = "back"
+export const GIVEN_START_VERB = " started an agent on "
+export const GIVEN_NOT_NOW_VERB = " put "
+export const GIVEN_NOT_NOW_TAIL = " aside for now"
+export const GIVEN_BACK_VERB = " gave back "
+// Lines of one thread and outcome this close together are shown as one.
+const GIVEN_FOLD_MS = 2 * 60 * 1000
+
+// givenOutcome is the fact (start, notnow or back) of a given: row's key,
+// or "" for any other row.
+export function givenOutcome(key: string): string {
+  if (!key.startsWith(GIVEN_THREAD)) return ""
+  const i = key.indexOf("|")
+  if (i < 0) return ""
+  return key.slice(i + 1).split(":", 1)[0]
+}
+
+// GivenFold is what a shown given line was made of.
+export type GivenFold = {
+  thread: string
+  outcome: string
+  name: string
+  refs: string[]
+  last: number
+}
+
+// givenLine reads a start or not-now row: who, which card, how it was said.
+function givenLine(
+  key: string,
+  thread: string,
+  text: string,
+  at: number
+): GivenFold | null {
+  const outcome = givenOutcome(key)
+  const m =
+    outcome === GIVEN_START_FACT
+      ? text.match(/^(.+?) started an agent on (\S+)\.$/)
+      : outcome === GIVEN_NOT_NOW_FACT
+        ? text.match(/^(.+?) put (\S+) aside for now\.$/)
+        : null
+  if (!m) return null
+  return { thread, outcome, name: m[1], refs: [m[2]], last: at }
+}
+
+// givenText is the line a fold shows: one card says it as Core did; more
+// join their refs.
+function givenText(f: GivenFold): string {
+  const refs = f.refs.join(", ")
+  if (f.outcome === GIVEN_START_FACT)
+    return f.refs.length === 1
+      ? `${f.name}${GIVEN_START_VERB}${refs}.`
+      : `${f.name} started agents on ${f.refs.length} of your tasks (${refs}).`
+  return `${f.name}${GIVEN_NOT_NOW_VERB}${refs}${GIVEN_NOT_NOW_TAIL}.`
+}
+
+// foldGiven joins the row `e` (a start or not-now line) onto the entry
+// before it when that is the same thread and outcome within a short while
+// (the display fold, not the rows: each card keeps its own row). It
+// returns true when it did. Give-back lines are never folded.
+function foldGiven(out: ChatEntry[], f: GivenFold): boolean {
+  const prev = out[out.length - 1]
+  const p = prev?.givenFold
+  if (!p || p.thread !== f.thread || p.outcome !== f.outcome) return false
+  if (p.name !== f.name || f.last - p.last > GIVEN_FOLD_MS) return false
+  if (p.refs.includes(f.refs[0])) return true
+  p.refs.push(f.refs[0])
+  p.last = f.last
+  prev.text = givenText(p)
+  return true
 }
 
 // mergeLines puts the labelled lines among the conversation's entries by
@@ -1318,6 +1412,12 @@ function errorLine(err: unknown): string {
 export const DraftOpen = "<<thread>>"
 export const DraftOpenCheck = "<<thread check>>"
 export const DraftClose = "<</thread>>"
+// A thread for a shared space (card #1198) opens "<<thread in:mlg>>" (or
+// "<<thread check in:mlg>>") with one of the space's board tags. Everyone
+// there sees it, so it always waits for Post thread
+// (crates/core/src/assistant_draft.rs, find_open).
+// Matched as Rust matches it: the line exactly, only the tag in any case.
+const draftOpen = /<<thread( check)?(?: in:([A-Za-z][A-Za-z0-9-]{0,15}))?>>/
 
 export type Split = {
   // The reply without the draft.
@@ -1327,8 +1427,12 @@ export type Split = {
   // The draft is still being written, or was cut off (its closing line
   // never came).
   partial: boolean
-  // The person asked to check it first: only a tap posts it.
+  // The person asked to check it first, or it is for a shared space: only
+  // a tap posts it.
   check: boolean
+  // The board tag of the shared space it is for, lower case; "" for
+  // Personal.
+  space: string
 }
 
 // cutMarkerTail drops a marker's first characters from the end of text
@@ -1363,15 +1467,19 @@ const trailingGo = /\n[ \t]*<<go [^\n]*>>\s*$/
 // reply ended by itself (not stopped, failed or still being written), so
 // a draft it never closed runs to its end rather than being cut short.
 export function splitDraft(raw: string, ended = false): Split {
-  const open = /<<thread( check)?>>/.exec(raw)
+  const open = draftOpen.exec(raw)
   if (!open)
     return {
-      text: cutMarkerTail(cutMarkerTail(raw, DraftOpen), DraftOpenCheck).trim(),
+      text: cutOpenTail(
+        cutMarkerTail(cutMarkerTail(raw, DraftOpen), DraftOpenCheck)
+      ).trim(),
       draft: "",
       partial: false,
       check: false,
+      space: "",
     }
-  const check = open[1] !== undefined
+  const space = (open[2] ?? "").toLowerCase()
+  const check = open[1] !== undefined || space !== ""
   const before = raw.slice(0, open.index).trim()
   const rest = raw.slice(open.index + open[0].length)
   const close = draftClose.exec(rest)
@@ -1386,6 +1494,7 @@ export function splitDraft(raw: string, ended = false): Split {
       draft: cutCloseLine(cutMarkerTail(body, DraftClose)).trim(),
       partial: !ended,
       check,
+      space,
     }
   }
   const end = close.index
@@ -1395,7 +1504,31 @@ export function splitDraft(raw: string, ended = false): Split {
     draft: rest.slice(0, end).trim(),
     partial: false,
     check,
+    space,
   }
+}
+
+// cutOpenTail drops an opening line still being written at the end
+// ("…<<thread in:ml"), so it never flashes in the chat.
+function cutOpenTail(s: string): string {
+  const i = s.lastIndexOf("<<thread")
+  if (i < 0) return s
+  const tail = s.slice(i)
+  return tail.includes(">>") || tail.includes("\n") ? s : s.slice(0, i)
+}
+
+// spaceOfTag is the shared space a board tag is on, from the boards list
+// (card #1198): the space's id to post on, and its name.
+export function spaceOfTag(
+  tag: string,
+  all: BoardSummary[] = boardsNow().boards
+): { id: string; name: string } | null {
+  const t = tag.toLowerCase()
+  const sp = all.find(
+    (b) =>
+      !b.leaving && boardsOf(b).some((x) => (x.tag ?? "").toLowerCase() === t)
+  )
+  return sp ? { id: sp.boardId, name: sp.name || sp.tag || t } : null
 }
 
 // splitReply splits a reply as the chat shows it: the card and settle
@@ -1451,9 +1584,15 @@ export function postDraft(turn: string): Promise<Posted> {
   const going = posting.get(turn)
   if (going) return going
   // Split as the chat shows it, so only the draft it shows is posted.
-  const { draft, partial } = splitReply(entry.text, false, entry.cutOff)
+  const { draft, partial, space } = splitReply(entry.text, false, entry.cutOff)
   if (!draft || partial)
     return Promise.reject(new Error("That message has no thread to post."))
+  // A thread for a shared space goes on that space's board (card #1198).
+  const where = space ? spaceOfTag(space) : null
+  if (space && !where)
+    return Promise.reject(
+      new Error(`no shared space here has a board tagged ${space}`)
+    )
   const busy = (on: boolean) => {
     const s = assistantState()
     const next = new Set(s.posting)
@@ -1463,7 +1602,7 @@ export function postDraft(turn: string): Promise<Posted> {
   }
   busy(true)
   const p = threads
-    .start(draft, [], [], "", null, { assistant: true })
+    .start(draft, [], [], where?.id ?? "", null, { assistant: true })
     .then(async (res) => {
       const posted: Posted = { id: res.task.id, short: res.task.short ?? "" }
       if (res.task.tag) posted.tag = res.task.tag
@@ -1516,6 +1655,7 @@ let follower: Follower | null = null
 export function updateEntries(id: string, lines: readonly Fact[]): ChatEntry[] {
   return lines.map((f) => {
     const e: ChatEntry = { role: "assistant", text: f.text, update: id }
+    if (quietKey(updateKey(id, f.key))) e.quiet = true
     if (f.act) e.act = f.act
     return e
   })

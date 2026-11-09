@@ -1242,6 +1242,14 @@ function summary(c: CardDetail): CardSummary {
     waitStuck: c.waitStuck,
     cantStart: c.cantStart,
     noAgent: c.noAgent,
+    givenNo: c.givenNo,
+    givenBy: c.givenBy,
+    givenBatch: c.givenBatch,
+    givenQuestion: c.givenQuestion,
+    givenRank: c.givenRank,
+    givenViaAssistant: c.givenViaAssistant,
+    givenSaid: c.givenSaid,
+    givenNote: c.givenNote,
     starting: c.starting,
     atCap: c.atCap,
     queuePlace: c.queuePlace,
@@ -2358,6 +2366,19 @@ export const cards = {
     if (inWails()) return BoardService.StartAgent(id, note)
     const c = sampleCard(id)
     c.state = TaskState.Submitted
+    sampleChanged()
+  },
+
+  // sayGiven is Start an agent / Not now on a card given to the person
+  // (decision 69): the card's open question, answered, nothing else.
+  async sayGiven(id: string, say: "start" | "notnow"): Promise<void> {
+    if (inWails()) return BoardService.SayGiven(id, say)
+    sampleChanged()
+  },
+
+  // giveBack returns a given card to its owner, with an optional reason.
+  async giveBack(id: string, reason: string): Promise<void> {
+    if (inWails()) return BoardService.GiveBack(id, reason)
     sampleChanged()
   },
 

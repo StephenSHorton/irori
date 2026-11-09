@@ -49,7 +49,7 @@ impl Fold {
             for b in t.blockers.iter().filter(|b| b.done_check) {
                 let Some(run) = self
                     .spawned_for(&b.raised_by)
-                    .filter(|m| m.task_id == t.id)
+                    .filter(|m| m.serves(&t.id))
                     .and_then(|m| runs.get(&m.generation))
                 else {
                     continue;

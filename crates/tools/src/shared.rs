@@ -83,6 +83,15 @@ pub struct PersonalBoard {
     pub closed: bool,
 }
 
+/// One space the board tool lists by itself (card #1198), by the log its
+/// cards are on: a shared space's id, or `None` for Personal. A tag alone
+/// can't say, as a space joined later may share a tag with Personal's.
+#[derive(Debug, Clone)]
+pub(crate) struct SpaceFilter {
+    pub(crate) label: String,
+    space: Option<String>,
+}
+
 /// The id of Personal's default board, as Core names it
 /// (`irori_core::PERSONAL_BOARD`), and the word that names it in `board`.
 pub const PERSONAL_DEFAULT: &str = "personal";
@@ -446,13 +455,14 @@ impl Inner {
     /// board tool also lists the boards the agent may post on.
     pub(crate) fn around_board(
         &self,
+        c: &Caller,
         name: &str,
         args: &[u8],
         run: impl FnOnce() -> String,
     ) -> String {
         if name == "board" {
             let out = run();
-            return match self.boards_section() {
+            return match self.boards_section(c) {
                 Some(s) => format!("{out}\n{s}"),
                 None => out,
             };
@@ -481,17 +491,23 @@ impl Inner {
     }
 
     /// The board tool's list of boards to post on: Personal's, when it has
-    /// more than its default (card #698), then the spaces.
-    fn boards_section(&self) -> Option<String> {
-        let parts: Vec<String> = [self.personal_section(), self.spaces_section()]
-            .into_iter()
-            .flatten()
-            .collect();
+    /// more than its default (card #698), then the spaces. The window's
+    /// assistant posts nothing, so its list says how to open each space
+    /// instead (card #1198).
+    pub(crate) fn boards_section(&self, c: &Caller) -> Option<String> {
+        let assistant = c.sender.kind == crate::CLIENT_ASSISTANT;
+        let parts: Vec<String> = [
+            self.personal_section(assistant),
+            self.spaces_section(assistant),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         (!parts.is_empty()).then(|| parts.join("\n"))
     }
 
     /// Personal's boards past its default, private like every Personal card.
-    fn personal_section(&self) -> Option<String> {
+    fn personal_section(&self, assistant: bool) -> Option<String> {
         let all = self.b.personal_boards();
         let boards: Vec<String> = all
             .iter()
@@ -515,6 +531,13 @@ impl Inner {
             .iter()
             .find(|b| b.is_default())
             .map_or("Personal", |b| b.name.as_str());
+        if assistant {
+            return Some(format!(
+                "Personal's boards (private: only the person sees them; board space=personal lists Personal's cards): {}; and its default, {}.",
+                boards.join(", "),
+                crate::format::q(&one_line(default, 80))
+            ));
+        }
         Some(format!(
             "Personal's boards (board_create board=<board tag>, or board_share one of your person's private cards onto one; private: only your person sees them): {}; leave board out for its default, {}.",
             boards.join(", "),
@@ -524,14 +547,16 @@ impl Inner {
 
     /// The spaces, each with who sees it, the agents' autonomy there and
     /// its boards (card #558).
-    fn spaces_section(&self) -> Option<String> {
+    fn spaces_section(&self, assistant: bool) -> Option<String> {
         let all = self.shared()?.boards();
         if all.is_empty() {
             return None;
         }
-        let mut s = String::from(
-            "Spaces you may post on (board_create board=<board tag>; anything there is seen by everyone in the space):",
-        );
+        let mut s = String::from(if assistant {
+            "Shared spaces (board space=<name or board tag> lists one space's cards; a card there is <board tag>#<n>; anything there is seen by everyone in the space):"
+        } else {
+            "Spaces you may post on (board_create board=<board tag>; anything there is seen by everyone in the space):"
+        });
         // A closed board takes no cards, so it isn't listed (card #690).
         let live: Vec<&BoardInfo> = all.iter().filter(|b| !b.closed).collect();
         let mut seen: Vec<&str> = Vec::new();
@@ -562,6 +587,98 @@ impl Inner {
             }
         }
         Some(s)
+    }
+
+    /// Keeps only space `sp`'s cards in `v` (card #1198).
+    pub(crate) fn keep_space(&self, sp: &SpaceFilter, v: &mut coord::BoardView) {
+        let sb = self.shared();
+        let on = |t: &Task| sb.and_then(|sb| sb.board_of(&t.id)).map(|b| b.board_id);
+        for g in [
+            &mut v.needs_you,
+            &mut v.blocked,
+            &mut v.working,
+            &mut v.open,
+            &mut v.later,
+            &mut v.done,
+        ] {
+            g.retain(|cd| on(&cd.task) == sp.space);
+        }
+        v.leases.clear();
+    }
+
+    /// The space `named` names for the board tool's `space` (card #1198):
+    /// "personal", a space's name, or the tag of any board in it. `None`
+    /// for an empty name; an unknown one is refused with the spaces there
+    /// are.
+    pub(crate) fn space_named(&self, named: &str) -> Result<Option<SpaceFilter>, String> {
+        let want = named.trim().trim_end_matches('#').to_lowercase();
+        if want.is_empty() {
+            return Ok(None);
+        }
+        let shared: Vec<BoardInfo> = self.shared().map(|sb| sb.boards()).unwrap_or_default();
+        let personal = PERSONAL_DEFAULT == want
+            || self
+                .b
+                .personal_boards()
+                .iter()
+                .any(|b| b.tag.to_lowercase() == want || b.name.to_lowercase() == want);
+        let mut hits: Vec<&BoardInfo> = Vec::new();
+        for b in &shared {
+            let named = b.tag.to_lowercase() == want
+                || b.space().to_lowercase() == want
+                || b.name.to_lowercase() == want;
+            if named && !hits.iter().any(|h| h.board_id == b.board_id) {
+                hits.push(b);
+            }
+        }
+        let spaces = |only: &[&BoardInfo]| -> Vec<String> {
+            let mut names: Vec<String> = Vec::new();
+            for b in only {
+                let n = format!("{} ({})", q(&one_line(b.space(), 80)), b.tag);
+                if !b.closed && !names.contains(&n) {
+                    names.push(n);
+                }
+            }
+            names
+        };
+        // "personal" is always Personal; another name for two spaces is
+        // asked again by a tag, never picked.
+        match (personal, hits.as_slice()) {
+            (true, []) => {}
+            (true, _) if want == PERSONAL_DEFAULT => {}
+            (false, [hit]) => {
+                return Ok(Some(SpaceFilter {
+                    label: format!("space {}", q(&one_line(hit.space(), 80))),
+                    space: Some(hit.board_id.clone()),
+                }));
+            }
+            (false, []) => {
+                let mut names = vec!["personal".to_string()];
+                names.extend(spaces(&shared.iter().collect::<Vec<_>>()));
+                return Err(err_text(&format!(
+                    "no space here is called {}: give personal, a space's name or one of its board tags: {}.",
+                    q(&one_line(named, 80)),
+                    names.join(", ")
+                )));
+            }
+            (p, many) => {
+                let mut names = if p {
+                    vec!["personal".to_string()]
+                } else {
+                    vec![]
+                };
+                names.extend(spaces(many));
+                return Err(err_text(&format!(
+                    "{} names more than one space: {}; give the board tag of the one you mean.",
+                    q(&one_line(named, 80)),
+                    names.join(", ")
+                )));
+            }
+        }
+        Ok(Some(SpaceFilter {
+            label: "Personal".into(),
+            space: None,
+        }))
     }
 
     /// Creates the card on the board as `agent` and assigns it.
@@ -773,6 +890,195 @@ pub(crate) fn create_on_board(
         Ok(out) => out,
         Err(e) => err_text(&e),
     }
+}
+
+// --- board_give ---
+
+/// board_give (decision 69, §6.3): up to [`coord::MAX_BATCH`] new tasks made
+/// on a space's board, or existing cards on it, given to one member as one
+/// batch. It is not in [`CARD_WRITES`]: `around_board` finds a board from a
+/// single `task_id`, and a batch has none. Everything is checked before the
+/// first row is written (Coord's `give_batch` does the same).
+pub(crate) fn give_on_board(s: &Inner, c: &Caller, a: &crate::args::Args) -> String {
+    let tasks = a.structs("tasks");
+    let refs = a.strs("task_ids");
+    let want = trim(a.str("to"));
+    if want.is_empty() {
+        return err_text(
+            "give to: the member's name or person: key (the board tool lists who is on a board).",
+        );
+    }
+    if tasks.is_empty() == refs.is_empty() {
+        return err_text("give tasks (new cards) or task_ids (existing cards), one of them.");
+    }
+    if tasks.len().max(refs.len()) > coord::MAX_BATCH {
+        return err_text(&format!(
+            "a batch holds at most {} cards: give them in more than one call.",
+            coord::MAX_BATCH
+        ));
+    }
+    // The cards given, resolved, and the board they are on.
+    let mut ids = Vec::with_capacity(refs.len());
+    for r in &refs {
+        match s.task_id(r) {
+            Ok(id) => ids.push(id),
+            Err(m) => return m,
+        }
+    }
+    let board = trim(a.str("board"));
+    let b = if !board.is_empty() {
+        match s.find_board(board) {
+            Ok(b) => b,
+            Err(e) => return e,
+        }
+    } else if tasks.is_empty() {
+        let Some(sb) = s.shared() else {
+            return err_text(
+                "shared spaces aren't on here: board_give gives cards on a shared board.",
+            );
+        };
+        let mut found: Option<BoardInfo> = None;
+        for (id, r) in ids.iter().zip(&refs) {
+            let Some(own) = sb.board_of(id) else {
+                return err_text(&format!(
+                    "{} isn't on a shared board, and board_give gives cards on one. Share it first (board_share).",
+                    one_line(r, 40)
+                ));
+            };
+            match &found {
+                Some(f) if (&f.board_id, &f.space_board) != (&own.board_id, &own.space_board) => {
+                    return err_text(
+                        "task_ids are on more than one board: give the cards of one board per call.",
+                    );
+                }
+                Some(_) => {}
+                None => found = Some(own),
+            }
+        }
+        found.unwrap_or_default()
+    } else {
+        return err_text("give board: the space or board (by tag or boardId) the new tasks go on.");
+    };
+    if b.closed {
+        return err_text(&format!(
+            "{} is closed, so it takes no new cards. Reopen it in Irori first, or pick another board (the board tool lists them).",
+            b.label()
+        ));
+    }
+    if !board.is_empty()
+        && let Some(sb) = s.shared()
+    {
+        for (id, r) in ids.iter().zip(&refs) {
+            match sb.board_of(id) {
+                Some(own) if (&own.board_id, &own.space_board) == (&b.board_id, &b.space_board) => {
+                }
+                _ => {
+                    return err_text(&format!(
+                        "{} isn't on {}: give cards of the board the batch goes to.",
+                        one_line(r, 40),
+                        b.label()
+                    ));
+                }
+            }
+        }
+    }
+    // A person: an agent, a non-member and a private board get no batch.
+    let Some(to) = s.member_key(&b.board_id, want) else {
+        return err_text(&format!(
+            "{} isn't a member of {} I can give to: board_give gives to a person, by name or person: key. To hand a card to an agent use board_assign.",
+            crate::format::q(&one_line(want, 80)),
+            b.label()
+        ));
+    };
+    let mut news = Vec::with_capacity(tasks.len());
+    for (i, st) in tasks.iter().enumerate() {
+        if trim(st.str("title")).is_empty() {
+            return err_text(&format!("task {} needs a title.", i + 1));
+        }
+        let (weight, weight_reason) = crate::board::new_weight(st);
+        news.push(NewTask {
+            title: trim(st.str("title")).into(),
+            objective: trim(st.str("objective")).into(),
+            done_criteria: trim(st.str("done_when")).into(),
+            steps: st
+                .strs("steps")
+                .into_iter()
+                .map(|text| coord::Step {
+                    text,
+                    ..coord::Step::default()
+                })
+                .collect(),
+            board: b.space_board.clone(),
+            board_named: true,
+            weight,
+            weight_reason,
+            ..NewTask::default()
+        });
+    }
+    let note = trim(a.str("note"));
+    // One scrub over every text, before anything is written.
+    let mut texts: Vec<&str> = vec![note];
+    for t in &news {
+        texts.extend([
+            t.title.as_str(),
+            t.objective.as_str(),
+            t.done_criteria.as_str(),
+            t.weight_reason.as_str(),
+        ]);
+        texts.extend(t.steps.iter().map(|st| st.text.as_str()));
+    }
+    let reasons = reasons_in(&texts);
+    if !reasons.is_empty() {
+        return refusal(&b, &reasons);
+    }
+    // New tasks are the agent's own words on the board, so Ask me keeps
+    // them for the person; cards already there may be given, as with
+    // board_assign.
+    if !news.is_empty() && s.b.inbox().autonomy(&b.board_id) == inbox::autonomy::ASK {
+        return err_text(&format!(
+            "your autonomy on {} is Ask me, so you can't give new tasks there yourself: ask your person to give them",
+            b.tag
+        ));
+    }
+    let me = c.sender.key.clone();
+    let Some(sb) = s.shared() else {
+        return err_text("shared spaces aren't on here");
+    };
+    let (co, keys) = match sb.board_coord(&b.board_id, &[me, to.clone()]) {
+        Ok(v) => v,
+        Err(e) => return map_err(e),
+    };
+    let new_count = news.len();
+    let items = if news.is_empty() {
+        coord::GiveItems::Cards(ids)
+    } else {
+        coord::GiveItems::Tasks(news)
+    };
+    let given = match co.give_batch(&keys[0], &b.space_board, &keys[1], items, note, false) {
+        Ok(v) => v,
+        Err(e) => return map_err(e),
+    };
+    let n = s.roster();
+    let who = n.who(&to);
+    let mut out = format!(
+        "Gave {} {} to {} on {} as one batch.",
+        given.len(),
+        if new_count > 0 { "new tasks" } else { "cards" },
+        who,
+        b.label()
+    );
+    for t in &given {
+        out += &format!(
+            "\n{} {}",
+            t.short_ref(),
+            crate::format::quoted(&one_line(&t.title, 160), 160)
+        );
+    }
+    out += &format!(
+        "\n{who} is asked before any agent starts on them, and none of your agents or theirs is woken. You watch these cards, so you hear what they do with them at your next turn.\n{}",
+        b.visible_to()
+    );
+    out
 }
 
 // --- talk_thread in a space ---
