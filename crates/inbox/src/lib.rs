@@ -614,7 +614,8 @@ pub struct Change {
     pub delivery_id: String,
     /// The delivery's first row folded here: it was made, or it reached
     /// this device (Talk shows an agent's message as a DM from then,
-    /// list-signals.md §3.2).
+    /// list-signals.md §3.2). A delivery that came before its message is
+    /// noted `created` again when the message folds.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub created: bool,
     /// The delivery's recipient before this row (empty: nobody yet), when
