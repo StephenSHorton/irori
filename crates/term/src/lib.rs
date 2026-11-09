@@ -90,7 +90,10 @@ pub struct TailInfo {
     /// The run's claude task id.
     pub run: String,
     /// `None` while the run goes on; then its exit code, `Some(None)` when
-    /// it ended with no code (killed, or its file went away).
+    /// it ended with no code (killed, or its file went away). On the wire
+    /// the field is absent while the run goes on and `null` for no code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
     pub exit: Option<Option<i32>>,
     /// The person pressed Stop ([`Terms::mark_stopped`]); the view says
     /// "Stopped" whatever end follows.
@@ -209,5 +212,27 @@ mod tests {
         assert_eq!(back, Scope::Device);
         let back: Scope = serde_json::from_str(r#"{"kind":"card","id":"t1"}"#).unwrap();
         assert_eq!(back, Scope::Card("t1".into()));
+    }
+
+    #[test]
+    fn a_tails_end_keeps_running_and_no_code_apart() {
+        let j = |exit| {
+            serde_json::to_string(&super::TailInfo {
+                label: "l".into(),
+                run: "b1".into(),
+                exit,
+                stopped: false,
+            })
+            .unwrap()
+        };
+        assert_eq!(j(None), r#"{"label":"l","run":"b1","stopped":false}"#);
+        assert_eq!(
+            j(Some(None)),
+            r#"{"label":"l","run":"b1","exit":null,"stopped":false}"#
+        );
+        assert_eq!(
+            j(Some(Some(-1))),
+            r#"{"label":"l","run":"b1","exit":-1,"stopped":false}"#
+        );
     }
 }

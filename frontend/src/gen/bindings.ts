@@ -3679,6 +3679,28 @@ export type SummaryMember = {
 	avatar?: string,
 };
 
+/**
+ *  A tail terminal's run (live-tasks.md section 5.1), so a remounted tab
+ *  shows how it ended at once.
+ */
+export type TailInfo = {
+	/**  The tab's name: the run's command. */
+	label: string,
+	/**  The run's claude task id. */
+	run: string,
+	/**
+	 *  `None` while the run goes on; then its exit code, `Some(None)` when
+	 *  it ended with no code (killed, or its file went away). On the wire
+	 *  the field is absent while the run goes on and `null` for no code.
+	 */
+	exit?: number | null,
+	/**
+	 *  The person pressed Stop ([`Terms::mark_stopped`]); the view says
+	 *  "Stopped" whatever end follows.
+	 */
+	stopped: boolean,
+};
+
 /**  One person's assistant in a huddle's roster (card #1049). */
 export type TalkAssistant = {
 	/**  The person, as a key. */
@@ -4062,8 +4084,16 @@ export type TermInfo = {
 	cwd: string,
 	/**  The shell's title, as the program last set it. */
 	title: string,
-	/**  The shell still runs (false: it exited, and the view offers Restart). */
+	/**
+	 *  The shell still runs (false: it exited, and the view offers Restart).
+	 *  For a tail: its run has not ended yet.
+	 */
 	running: boolean,
+	/**
+	 *  Set when this terminal is a read-only tail of a run's output file
+	 *  (live-tasks.md section 5.1), not a shell.
+	 */
+	tail?: TailInfo | null,
 };
 
 /**
@@ -4076,7 +4106,12 @@ export type TermMsg = { t: "title"; title: string } | { t: "bell" } |
  *  OSC 52: a program asked to copy. The view offers it; Irori never
  *  writes the clipboard on its own (design section 5).
  */
-{ t: "clip"; text: string } | { t: "exit"; code: number | null } | { t: "shell"; integrated: boolean; cwd: string; program: boolean; prompts: number } | { t: "done"; exit: number | null; command: string } | 
+{ t: "clip"; text: string } | 
+/**
+ *  The shell exited, or a tail's run ended (`None`: no code, as when
+ *  a run was killed or its file went away).
+ */
+{ t: "exit"; code: number | null } | { t: "shell"; integrated: boolean; cwd: string; program: boolean; prompts: number } | { t: "done"; exit: number | null; command: string } | 
 /**  An image's bytes (base64), once, before it is placed. */
 { t: "img"; id: number; name: string; path: string | null; format: number; w: number; h: number; z: boolean; data: string } | { t: "imgdrop"; ids: number[] } | 
 /**  Images on screen: [image, row, col, cols, rows, z, inline, crop x, y, w, h]. */

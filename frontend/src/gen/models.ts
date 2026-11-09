@@ -193,6 +193,7 @@ export type StorageKind = B.StorageKind
 export type StorageReport = B.StorageReport
 export type SubtaskPreview = B.SubtaskPreview
 export type SummaryMember = B.SummaryMember
+export type TailInfo = B.TailInfo
 export type TalkAssistant = B.TalkAssistant
 export type TalkCall = B.TalkCall
 export type TalkCanvasItem = B.TalkCanvasItem
@@ -1118,6 +1119,11 @@ export function SubtaskPreview(p: Partial<B.SubtaskPreview> = {}): B.SubtaskPrev
 /** SummaryMember with Go's zero values for every field left out. */
 export function SummaryMember(p: Partial<B.SummaryMember> = {}): B.SummaryMember {
   return { "personId": "", "name": "", "me": false, "presence": "", "working": 0, "free": 0, ...p } as B.SummaryMember
+}
+
+/** TailInfo with Go's zero values for every field left out. */
+export function TailInfo(p: Partial<B.TailInfo> = {}): B.TailInfo {
+  return { "label": "", "run": "", "stopped": false, ...p } as B.TailInfo
 }
 
 /** TalkAssistant with Go's zero values for every field left out. */
