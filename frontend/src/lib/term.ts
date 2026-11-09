@@ -346,16 +346,35 @@ export function newestShell(ts: readonly TermInfo[]): number | null {
   return shells.length ? shells[shells.length - 1].id : null
 }
 
-// mergeTails adds the run tabs a fresh list has to the ones shown, and
-// takes their newer end; shells and the order stay as they are.
+// mergeTails adds the run tabs a fresh list has to the ones shown, takes
+// their newer end, and drops the ones the Core closed (the card went Done,
+// §5.2); shells and the order stay as they are.
 export function mergeTails(
   shown: readonly TermInfo[],
   fresh: readonly TermInfo[]
 ): TermInfo[] {
   const byId = new Map(fresh.map((t) => [t.id, t]))
-  const kept = shown.map((t) => (isTail(t) ? (byId.get(t.id) ?? t) : t))
+  const kept = shown.flatMap((t) => (isTail(t) ? (byId.get(t.id) ?? []) : [t]))
   const have = new Set(shown.map((t) => t.id))
   return [...kept, ...fresh.filter((t) => isTail(t) && !have.has(t.id))]
+}
+
+// tailEnded is a run tab with its run's end, as its Terminal heard it, so
+// a remount shows "Exited with code N" before the next list.
+export function tailEnded(
+  ts: readonly TermInfo[],
+  id: number,
+  code: number | null
+): TermInfo[] {
+  return ts.map((t) =>
+    t.id !== id
+      ? t
+      : {
+          ...t,
+          running: false,
+          tail: t.tail && { ...t.tail, exit: code ?? t.tail.exit ?? null },
+        }
+  )
 }
 
 // onCardChanged runs fn when the card changes (a run started or ended on

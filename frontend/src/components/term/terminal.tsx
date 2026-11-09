@@ -17,6 +17,7 @@ import { ConfirmButton } from "@/components/common/confirm-button"
 import { Button } from "@/components/ui/button"
 import { cards } from "@/lib/cards"
 import { copyText } from "@/lib/clipboard"
+import { plainLine } from "@/lib/irori"
 import { endText, running, stopRun, type CardRun } from "@/lib/runs"
 import {
   attachTerm,
@@ -42,6 +43,7 @@ export function Terminal({
   fill = false,
   onCwd,
   tail,
+  tailRunning = true,
   run,
   onEnded,
 }: {
@@ -57,9 +59,12 @@ export function Terminal({
   // typing does nothing, it never takes focus, and its end reads
   // "Exited with code N" or "Stopped" with no Restart. run is the card's
   // record of it, for Stop; onEnded hears the run end.
+  // tailRunning is the list's running: false mounts an ended run tab
+  // with its end shown at once (whatever shape tail.exit has).
   tail?: TailInfo
+  tailRunning?: boolean
   run?: CardRun
-  onEnded?: () => void
+  onEnded?: (code: number | null) => void
 }) {
   const box = useRef<HTMLDivElement>(null)
   // The latest onCwd, so a new callback doesn't remount the view.
@@ -69,7 +74,7 @@ export function Terminal({
   })
   const [exit, setExit] = useState<{ code: number | null } | null>(() =>
     // A run tab mounted after its run ended shows the end at once.
-    tail && tail.exit !== undefined ? { code: tail.exit } : null
+    tail && !tailRunning ? { code: tail.exit ?? null } : null
   )
   // Stop pressed here: the end that follows reads "Stopped".
   const [stopped, setStopped] = useState(false)
@@ -107,7 +112,7 @@ export function Terminal({
         if (m.cwd) cwdTo.current?.(m.cwd)
       } else if (m.t === "exit") {
         setExit({ code: m.code })
-        endedTo.current?.()
+        endedTo.current?.(m.code)
       } else if (m.t === "clip") {
         // A program's copy is offered, never written for it (design 5).
         setClip(m.text)
@@ -265,7 +270,7 @@ export function Terminal({
           code={exit?.code ?? null}
           stopped={stopped || tail.stopped || !!run?.stopped}
           run={run}
-          onStop={() => setStopped(true)}
+          onStopped={() => setStopped(true)}
         />
       )}
       {exit && !tail && (
@@ -295,13 +300,14 @@ function TailFooter({
   code,
   stopped,
   run,
-  onStop,
+  onStopped,
 }: {
   ended: boolean
   code: number | null
   stopped: boolean
   run?: CardRun
-  onStop: () => void
+  // onStopped: the Core took the Stop (a refused one stays unstopped).
+  onStopped: () => void
 }) {
   if (ended)
     return (
@@ -316,12 +322,9 @@ function TailFooter({
         <ConfirmButton
           label="Stop"
           variant="destructive"
-          question={`Stop ${run.cmd || "this run"}?`}
+          question={`Stop ${plainLine(run.cmd) || "this run"}?`}
           confirmLabel="Stop it"
-          onConfirm={() => {
-            onStop()
-            return stopRun(run)
-          }}
+          onConfirm={() => stopRun(run).then(onStopped)}
         />
       )}
     </div>
