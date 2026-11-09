@@ -1,5 +1,7 @@
 //! The window's assistant (card #783): the small chat in the corner. Each
-//! question is one headless `claude -p` turn on Haiku, through the
+//! question was one headless `claude -p` turn; since one-assistant card 8
+//! the chat's questions go to one held `claude` on the assistant's computer
+//! (`assistant_held`), with the same argv. Either way it runs through the
 //! person's own Claude Code sign-in, with only Irori's read tools and the
 //! two writes the person's own message can allow (card #987): `irori mcp`
 //! started with the Core's assistant secret, which the API reads as the

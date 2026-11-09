@@ -876,7 +876,10 @@ impl Fold {
                     lines.push(format!(
                         "- The person asked: {}\n  The reply: {}",
                         with_files(&t.asked),
-                        reply_text(&said.text, t.posted.as_ref()).trim()
+                        cut_chars(
+                            reply_text(&said.text, t.posted.as_ref()).trim(),
+                            SINCE_REPLY
+                        )
                     ));
                 }
                 ChatEntry::Update(u) if place > lo && place < hi => {
@@ -934,14 +937,23 @@ impl Fold {
     }
 }
 
+/// The most of another computer's reply a since line carries, in
+/// characters: the message stays smaller than a seed.
+const SINCE_REPLY: usize = 600;
+
+/// `s` cut to `max` characters, with an ellipsis when cut.
+fn cut_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let cut: String = s.chars().take(max - 1).collect();
+    format!("{}\u{2026}", cut.trim_end())
+}
+
 /// A question cut to one short line, for a since line.
 fn short_line(text: &str) -> String {
     let one = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if one.chars().count() <= 80 {
-        return one;
-    }
-    let cut: String = one.chars().take(79).collect();
-    format!("{}\u{2026}", cut.trim_end())
+    cut_chars(&one, 80)
 }
 
 /// A question's words for the history, with a line naming its files, those
