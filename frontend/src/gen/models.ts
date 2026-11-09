@@ -90,6 +90,7 @@ export type CardWaitOn = B.CardWaitOn
 export type CardWeight = B.CardWeight
 export type CardWhere = B.CardWhere
 export type CardsChange = B.CardsChange
+export type CardsPatch = B.CardsPatch
 export type Change = B.Change
 export type ChangeKind = B.ChangeKind
 export type ClearedCard = B.ClearedCard
@@ -211,6 +212,7 @@ export type TermInfo = B.TermInfo
 export type TermMsg = B.TermMsg
 export type ThreadCard = B.ThreadCard
 export type ThreadSummary = B.ThreadSummary
+export type ThreadsById = B.ThreadsById
 export type Told = B.Told
 export type Trust = B.Trust
 export type TrustNeed = B.TrustNeed
@@ -613,6 +615,11 @@ export function CardRound(p: Partial<B.CardRound> = {}): B.CardRound {
 /** CardsChange with Go's zero values for every field left out. */
 export function CardsChange(p: Partial<B.CardsChange> = {}): B.CardsChange {
   return { "seq": 0, "all": false, "cards": [], "notes": [], "desk": false, ...p } as B.CardsChange
+}
+
+/** CardsPatch with Go's zero values for every field left out. */
+export function CardsPatch(p: Partial<B.CardsPatch> = {}): B.CardsPatch {
+  return { "rows": [], "order": [], ...p } as B.CardsPatch
 }
 
 /** CardSubtask with Go's zero values for every field left out. */
@@ -1188,6 +1195,11 @@ export function TermInfo(p: Partial<B.TermInfo> = {}): B.TermInfo {
 /** ThreadCard with Go's zero values for every field left out. */
 export function ThreadCard(p: Partial<B.ThreadCard> = {}): B.ThreadCard {
   return { "id": "", "short": "", "tag": "", "title": "", "state": "", ...p } as B.ThreadCard
+}
+
+/** ThreadsById with Go's zero values for every field left out. */
+export function ThreadsById(p: Partial<B.ThreadsById> = {}): B.ThreadsById {
+  return { "rows": [], "gone": [], ...p } as B.ThreadsById
 }
 
 /** ThreadSummary with Go's zero values for every field left out. */

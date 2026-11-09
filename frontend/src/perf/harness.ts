@@ -185,7 +185,17 @@ function answer(cmd: string, args: Record<string, unknown>): unknown {
     case "core_ready":
       return null
     case "board_cards":
+    case "board_cards_cold":
       return current()
+    case "board_cards_patch": {
+      // The rows named and the whole order (card #1147).
+      const ids = args.ids as string[]
+      const all = current()
+      return {
+        rows: all.filter((c) => ids.includes(c.id)),
+        order: all.map((c) => c.id),
+      }
+    }
     case "board_card":
     case "board_cards_by_id": {
       const ids = cmd === "board_card" ? [args.id] : (args.ids as string[])

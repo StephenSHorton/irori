@@ -35,6 +35,7 @@ import {
   CardMessage,
   CardResolution,
   CardSummary,
+  type CardsPatch,
   CardLater,
   CardThreadItem,
   CommentResult,
@@ -79,6 +80,14 @@ import {
 } from "./irori"
 import { safeHref } from "./rich"
 import { EventInboxChanged, useLatest } from "./talk"
+import { usePatched, type Follow, type Want } from "./patched"
+import {
+  mergeThreads,
+  readThreads,
+  threadFollow,
+  type ThreadList,
+  type ThreadPatch,
+} from "./thread-list"
 import {
   NoteItem,
   sampleAgents,
@@ -683,10 +692,19 @@ export const threads = {
 
   // byId is just these threads' rows, for Ask Irori's follower, which
   // follows a few (card #1136).
-  async byId(ids: string[]): Promise<ThreadSummary[]> {
-    if (inWails()) return (await BoardService.ThreadsById(ids)) ?? []
+  // gone are the ids with no row (not a thread, withdrawn, cleared, or no
+  // longer on this device), for a list to drop (card #1149).
+  async byId(
+    ids: string[]
+  ): Promise<{ rows: ThreadSummary[]; gone: string[] }> {
+    if (inWails()) {
+      const got = await BoardService.ThreadsById(ids)
+      return { rows: got?.rows ?? [], gone: got?.gone ?? [] }
+    }
     const want = new Set(ids)
-    return sampleThreads(null).filter((t) => want.has(t.id))
+    const rows = sampleThreads(null).filter((t) => want.has(t.id))
+    const have = new Set(rows.map((t) => t.id))
+    return { rows, gone: ids.filter((id) => !have.has(id)) }
   },
 
   // start is the header box's message as a thread: the agents on the
@@ -1111,65 +1129,76 @@ export function withStarted(
   return fresh.length ? [...fresh, ...rows] : rows
 }
 
-// useThreads is the Threads panel's rows, fresh on every card change.
+// useThreads is the Threads panel's rows. A card change or a read cursor
+// (card #1149) reads just the threads it names; anything else reads the list.
 export function useThreads(boardId = ""): {
   threads: ThreadSummary[]
   // True until the first read lands (card #598), never on a reload.
   loading: boolean
   error: string | null
 } {
-  const load = useCallback(async () => {
-    const asOf = startedSeq
-    return { rows: await threads.list(boardId), asOf }
-  }, [boardId])
-  const { value, loading, error, reload } = useLatest(
-    load,
-    { rows: [] as ThreadSummary[], asOf: startedSeq },
-    "threads"
-  )
-  useFresh(reload, error, true)
-  const started = useSyncExternalStore(onStarted, () => startedThreads)
-  const list = useMemo(
-    () => withStarted(value.rows, value.asOf, boardId, started),
-    [value, boardId, started]
-  )
+  const { list, loading, error } = useThreadList("threads", boardId, boardId)
   return { threads: list, loading, error }
 }
 
-// useAllThreads is every thread on this device, fresh on every card change.
+// useAllThreads is every thread on this device, fresh on a change to any of
+// them. A thread's read marker is a Talk read cursor (card #719): reading
+// one here or on another of the person's devices names it in
+// talk:changed.convs. Nothing in a row comes from the inbox, so
+// inbox:changed doesn't wake it.
 export function useAllThreads(): {
   threads: ThreadSummary[]
   // True until the first read lands (card #598), never on a reload.
   loading: boolean
   error: string | null
 } {
-  const load = useCallback(async () => {
-    const asOf = startedSeq
-    return { rows: await threads.listAll(), asOf }
-  }, [])
-  const { value, loading, error, reload } = useLatest(
-    load,
-    { rows: [] as ThreadSummary[], asOf: startedSeq },
-    "threads-all"
+  const { list, loading, error } = useThreadList("threads-all", null, null)
+  return { threads: list, loading, error }
+}
+
+// useThreadList is both: one board's threads (boardId; "" is Personal's), or
+// every board's (null).
+function useThreadList(
+  name: string,
+  boardId: string | null,
+  rekey: string | null
+) {
+  const shown = useRef<ThreadSummary[]>([])
+  const { value, loading, error, reload } = usePatched<ThreadList, ThreadPatch>(
+    {
+      name,
+      initial: { rows: [], asOf: startedSeq },
+      follow: threadFollow,
+      rekey: rekey ?? undefined,
+      read: (want) =>
+        readThreads(want, {
+          startedSeq: () => startedSeq,
+          full: () =>
+            boardId === null ? threads.listAll() : threads.list(boardId),
+          byId: (ids) => threads.byId(ids),
+          current: () => shown.current,
+        }),
+      merge: (cur, patch) => mergeThreads(cur, patch, boardId),
+      rows: (v) => v.rows.map((r) => [r.id, r]),
+    }
   )
-  useFresh(reload, error, true)
+  useEffect(() => {
+    shown.current = value.rows
+  }, [value])
+  // The preview's cards change without events.
+  useEffect(() => {
+    if (inWails()) return
+    return subscribe(() => void reload())
+  }, [reload])
   // A thread just started on any board is in it at once (card #780): a
   // board's Threads panel and its ask box open it in Talk, which finds it
   // here, before the next read has it.
   const started = useSyncExternalStore(onStarted, () => startedThreads)
   const list = useMemo(
-    () => withStarted(value.rows, value.asOf, null, started),
-    [value, started]
+    () => withStarted(value.rows, value.asOf, boardId, started),
+    [value, boardId, started]
   )
-  // A thread's read marker is a Talk read cursor (card #719): reading one
-  // here or on another of the person's devices fires talk:changed
-  // (conversations.ts's EventTalkChanged), not board:changed.
-  useEffect(() => {
-    if (!inWails()) return
-    // Held while the window is hidden, like the other lists.
-    return onChange("talk:changed", () => void reload())
-  }, [reload])
-  return { threads: list, loading, error }
+  return { list, loading, error }
 }
 
 function sampleChanged() {
@@ -2806,15 +2835,86 @@ export type CardsState = {
   error: string | null
 }
 
+// CardsRead is one grid read: every row with no order (a full read), or
+// the rows named with every live card's id in grid order (a patch).
+export type CardsRead = { rows: CardSummary[]; order: string[] | null }
+
+// The grid's ids in a notice: board:changed's cards.
+export const CardsBucket = "board:changed.cards"
+
+// The grid follows card changes (the focus read rides on them) and device
+// changes, whose names and colours show on every row (always `all`).
+const cardsFollow: readonly Follow[] = [
+  { signal: EventBoardChanged, buckets: ["cards"], focus: true },
+  { signal: EventDevicesChanged },
+]
+
+export type CardsHost = {
+  Cards(): Promise<CardSummary[] | null>
+  CardsCold(): Promise<CardSummary[] | null>
+  CardsPatch(ids: string[]): Promise<CardsPatch | null>
+}
+
+// readGrid is the grid's one read (card #1147, list-signals.md §6.1): a
+// drift sample reads cold on the host (never from its summary cache, which
+// it then replaces), `all` reads the whole grid, and a notice's cards read
+// just their rows with the whole order.
+export async function readGrid(
+  want: Want,
+  host: CardsHost
+): Promise<CardsRead> {
+  if (want.drift) return { rows: (await host.CardsCold()) ?? [], order: null }
+  if (want.full) return { rows: (await host.Cards()) ?? [], order: null }
+  const p = await host.CardsPatch(want.ids[CardsBucket] ?? [])
+  return { rows: p?.rows ?? [], order: p?.order ?? [] }
+}
+
+// mergeCards puts a read on the grid: a full read replaces it; a patch
+// upserts its rows and lays them out in the host's order, so a card the
+// order leaves out (closed) goes, and an id with no row yet is skipped
+// (its own notice brings the row). The result is always the whole grid,
+// which pending.observeSummaries needs: a card missing from it is gone.
+export function mergeCards(
+  current: CardSummary[],
+  read: CardsRead,
+  want: Want
+): CardSummary[] {
+  if (want.full || read.order === null) return read.rows
+  const byId = new Map(current.map((c) => [c.id, c]))
+  for (const r of read.rows) byId.set(r.id, r)
+  return read.order.flatMap((id) => {
+    const c = byId.get(id)
+    return c ? [c] : []
+  })
+}
+
 // useCards is the grid: every live card, cards waiting on a decision first,
-// with the person's pending changes on them (card #644).
+// with the person's pending changes on them (card #644). It patches (card
+// #1147): a card change reads only the rows it names.
 export function useCards(): CardsState {
-  const { value, loading, error, reload } = useLatest<CardSummary[]>(
-    loadCards,
-    [],
-    "cards"
-  )
-  useFresh(reload, error)
+  const { value, loading, error, reload } = usePatched<
+    CardSummary[],
+    CardsRead
+  >({
+    name: "cards",
+    initial: [],
+    follow: cardsFollow,
+    read: (want) =>
+      inWails()
+        ? readGrid(want, BoardService)
+        : loadCards().then((rows) => ({ rows, order: null })),
+    merge: mergeCards,
+    rows: (v) => v.map((c) => [c.id, c]),
+  })
+  // The sample has no host signals: its changes read it whole.
+  useEffect(() => {
+    if (inWails()) return
+    const fn = () => void reload()
+    sampleListeners.add(fn)
+    return () => {
+      sampleListeners.delete(fn)
+    }
+  }, [reload])
   // A read the person sees ends the changes it agrees with: after it is
   // shown, so the old state never paints in between (the change applied
   // to data that already says so changes nothing). Not the empty list

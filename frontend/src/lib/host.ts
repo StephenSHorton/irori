@@ -198,6 +198,11 @@ export const NotificationService = {
 
 export const BoardService = {
   Cards: () => call(commands.boardCards()),
+  // The grid's patch read (card #1147): the rows named, and every live
+  // card's id in grid order.
+  CardsPatch: (ids: string[]) => call(commands.boardCardsPatch(ids)),
+  // The grid's drift read: built afresh on the host, never from its cache.
+  CardsCold: () => call(commands.boardCardsCold()),
   IdleReport: () => call(commands.boardIdleReport()),
   Card: (id: string) => call(commands.boardCard(id)),
   // have: the rev of each card the caller already holds (card #1136); one

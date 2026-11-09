@@ -118,9 +118,9 @@ describe('editPolicy', () => {
     expect('error' in editPolicy(p, 'block', '  ')).toBe(true)
   })
 
-  test('pause and resume', () => {
+  test('pause is gone, resume lifts the old Pause all', () => {
     const paused = editPolicy(base, 'pause', '')
-    expect('policy' in paused && paused.policy.paused).toBe(true)
+    expect('error' in paused && paused.error).toContain('Stop here')
     const resumed = editPolicy({ ...base, paused: true }, 'resume', '')
     expect('policy' in resumed && resumed.policy.paused).toBe(false)
   })

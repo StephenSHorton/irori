@@ -43,7 +43,19 @@ export const commands = {
 	inboxPolicy: () => __TAURI_INVOKE<Policy>("inbox_policy"),
 	inboxSetPolicy: (p: PolicyInput) => __TAURI_INVOKE<null>("inbox_set_policy", { p }),
 	inboxSetPaused: (paused: boolean) => __TAURI_INVOKE<null>("inbox_set_paused", { paused }),
+	/**  Every live card for the grid, from the summary cache (card #1147). */
 	boardCards: () => __TAURI_INVOKE<CardSummary[]>("board_cards"),
+	/**
+	 *  The grid's patch read (card #1147): the live rows among `ids` and
+	 *  every live card's id in grid order.
+	 */
+	boardCardsPatch: (ids: string[]) => __TAURI_INVOKE<CardsPatch>("board_cards_patch", { ids }),
+	/**
+	 *  The grid's drift read (card #1147): every card built afresh, never
+	 *  from the cache, which it then replaces; irori.log gets
+	 *  `drift cards-cache <n>`.
+	 */
+	boardCardsCold: () => __TAURI_INVOKE<CardSummary[]>("board_cards_cold"),
 	boardCard: (id: string) => __TAURI_INVOKE<CardDetail>("board_card", { id }),
 	/**  Several cards in one call, each with its card or why not (card #468). */
 	boardCardsById: (ids: string[], have: CardHave[]) => __TAURI_INVOKE<CardRead[]>("board_cards_by_id", { ids, have }),
@@ -179,7 +191,7 @@ export const commands = {
 	/**  Every thread on this device, each with its space (card #558). */
 	boardThreadsAll: () => __TAURI_INVOKE<ThreadSummary[]>("board_threads_all"),
 	/**  Just these threads' rows (card #1136). */
-	boardThreadsById: (ids: string[]) => __TAURI_INVOKE<ThreadSummary[]>("board_threads_by_id", { ids }),
+	boardThreadsById: (ids: string[]) => __TAURI_INVOKE<ThreadsById>("board_threads_by_id", { ids }),
 	/**  What a #ref in text names (card #144), or null. */
 	boardCardRef: (r: string) => __TAURI_INVOKE<RefTarget | null>("board_card_ref", { r }),
 	/**  The person has a thread open: what is in it now is read (card #719). */
@@ -2339,6 +2351,16 @@ export type CardsChange = {
 	desk: boolean,
 };
 
+/**
+ *  A patch read's answer (`board_cards_patch`): the rows asked for that
+ *  are still live, freshly built, and every live card's id in grid order.
+ *  A card that closed is missing from `order`.
+ */
+export type CardsPatch = {
+	rows: CardSummary[],
+	order: string[],
+};
+
 /**  presence.Change. */
 export type Change = {
 	kind: ChangeKind,
@@ -4074,6 +4096,15 @@ export type ThreadSummary = {
 	 *  agent's own thread is unread until the person first opens it.
 	 */
 	unread: boolean,
+};
+
+/**
+ *  ThreadsById's answer (card #1149): the rows asked for that exist, and
+ *  the ids that don't, for the page to drop.
+ */
+export type ThreadsById = {
+	rows: ThreadSummary[],
+	gone: string[],
 };
 
 /**  Who an action's notice went to. */

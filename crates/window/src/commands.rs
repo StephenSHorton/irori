@@ -328,10 +328,28 @@ pub async fn inbox_set_paused(w: W<'_>, paused: bool) -> R<()> {
 
 // ---- BoardService ----------------------------------------------------------------
 
+/// Every live card for the grid, from the summary cache (card #1147).
 #[tauri::command]
 #[specta::specta]
 pub async fn board_cards(w: W<'_>) -> R<Vec<CardSummary>> {
-    Ok(w.cards())
+    blocking(&w, |w| Ok(w.cards())).await
+}
+
+/// The grid's patch read (card #1147): the live rows among `ids` and
+/// every live card's id in grid order.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_cards_patch(w: W<'_>, ids: Vec<String>) -> R<crate::cards_cache::CardsPatch> {
+    blocking(&w, move |w| Ok(w.cards_patch(&ids))).await
+}
+
+/// The grid's drift read (card #1147): every card built afresh, never
+/// from the cache, which it then replaces; irori.log gets
+/// `drift cards-cache <n>`.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_cards_cold(w: W<'_>) -> R<Vec<CardSummary>> {
+    blocking(&w, |w| Ok(w.cards_cold())).await
 }
 
 #[tauri::command]
@@ -876,10 +894,7 @@ pub async fn board_threads_all(w: W<'_>) -> R<Vec<crate::threads::ThreadSummary>
 /// Just these threads' rows (card #1136).
 #[tauri::command]
 #[specta::specta]
-pub async fn board_threads_by_id(
-    w: W<'_>,
-    ids: Vec<String>,
-) -> R<Vec<crate::threads::ThreadSummary>> {
+pub async fn board_threads_by_id(w: W<'_>, ids: Vec<String>) -> R<crate::threads::ThreadsById> {
     blocking(&w, move |w| Ok(w.threads_by_id(&ids))).await
 }
 
@@ -2491,6 +2506,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             inbox_set_policy,
             inbox_set_paused,
             board_cards,
+            board_cards_patch,
+            board_cards_cold,
             board_card,
             board_cards_by_id,
             board_done_cards,

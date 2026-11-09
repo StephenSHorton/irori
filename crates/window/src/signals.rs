@@ -213,22 +213,24 @@ pub enum Bucket {
     Pin,
     /// `desk: true`.
     Desk,
+    /// The holder's cards, through the rows that show it (§3.3 step 3).
+    Lease,
     /// Read everything.
     All,
 }
 
 /// Board change kind → bucket. A kind that isn't here is [`Bucket::All`].
-/// The lease kinds are `All` until card 6's agent index can name the
-/// holder's cards.
+/// The lease kinds name their holder, whose rows the summary cache knows
+/// (card #1147).
 pub const KINDS: &[(&str, Bucket)] = &[
     (coord::TASK_CHANGED, Bucket::Card),
     (coord::COMMENT_ADDED, Bucket::Card),
     (coord::NOTE_CHANGED, Bucket::Note),
     (coord::BOARD_PIN_CHANGED, Bucket::Pin),
     (coord::DESK_CHANGED, Bucket::Desk),
-    (coord::LEASE_CHANGED, Bucket::All),
-    (coord::LEASE_EXPIRED, Bucket::All),
-    (coord::LEASE_REFUSED, Bucket::All),
+    (coord::LEASE_CHANGED, Bucket::Lease),
+    (coord::LEASE_EXPIRED, Bucket::Lease),
+    (coord::LEASE_REFUSED, Bucket::Lease),
     (coord::RESYNC, Bucket::All),
     (irori_core::spawn_capable::AGENTS_CHANGED, Bucket::All),
 ];
@@ -247,6 +249,14 @@ pub struct Folded {
     pub all: bool,
     /// Events were lost: the expansion's indexes can't be trusted.
     pub lost: bool,
+    /// A change the grid's summary cache can't follow: it starts again
+    /// (card #1147). Not `AGENTS_CHANGED`, which moves only what every
+    /// read builds anew.
+    pub cold: bool,
+    /// Lease holders the batch names: their rows show a conflict.
+    pub holders: Vec<String>,
+    /// The batch held a lease change.
+    pub lease: bool,
     pub cards: Vec<String>,
     pub notes: Vec<String>,
     pub desk: bool,
@@ -273,15 +283,23 @@ pub fn fold_board(batch: &[CoreEvent]) -> Folded {
             CoreEvent::Board(ch) => {
                 f.board_or_inbox = true;
                 match bucket_of(&ch.kind) {
-                    Bucket::Card if ch.task_id.is_empty() => f.all = true,
+                    Bucket::Card if ch.task_id.is_empty() => {
+                        f.all = true;
+                        f.cold = true;
+                    }
                     Bucket::Card => add_id(&mut f.cards, &ch.task_id),
                     Bucket::Note if ch.resource.is_empty() => f.all = true,
                     Bucket::Note => add_id(&mut f.notes, &ch.resource),
                     Bucket::Pin => f.pin = true,
                     Bucket::Desk => f.desk = true,
+                    Bucket::Lease => {
+                        f.lease = true;
+                        add_id(&mut f.holders, &ch.holder);
+                    }
                     Bucket::All => {
                         f.all = true;
                         f.lost |= ch.kind == coord::RESYNC;
+                        f.cold |= ch.kind != irori_core::spawn_capable::AGENTS_CHANGED;
                     }
                 }
             }
@@ -307,6 +325,7 @@ pub fn fold_board(batch: &[CoreEvent]) -> Folded {
             _ => {}
         }
     }
+    f.cold |= f.lost;
     f
 }
 
@@ -335,6 +354,15 @@ pub struct Expander {
     held_until: Option<i64>,
     /// Card → when its row changes by the clock (ms).
     due: HashMap<String, i64>,
+    /// Each lease holder in a conflict, with its resource, as of the last
+    /// lease change (a conflict names only its winner).
+    conflicts: Option<HashMap<String, String>>,
+    /// Threads in the resolved lists, and whether one left them since the
+    /// last batch (reopened, withdrawn, gone). The page keeps only the
+    /// newest few resolved per bucket, so a thread leaving can't bring back
+    /// the one it pushed out: that batch sends `all` (card #1149).
+    resolved: HashSet<String>,
+    left_resolved: bool,
 }
 
 impl Expander {
@@ -368,11 +396,25 @@ impl Expander {
         self.due.remove(id);
     }
 
+    /// Tracks whether thread `id` is resolved; sets `left_resolved` when it
+    /// was and no longer is. Not while the index is being built.
+    fn track_resolved(&mut self, id: &str, t: Option<&Task>, built: bool) {
+        let now = t.is_some_and(|t| {
+            crate::threads::is_thread(t) && !t.withdrawn && crate::threads::is_resolved(t)
+        });
+        if now {
+            self.resolved.insert(id.to_string());
+        } else if self.resolved.remove(id) && built {
+            self.left_resolved = true;
+        }
+    }
+
     /// Takes card `id`'s edges, thread cards, agents and clock times from
     /// `t` (`None`: it is gone). Returns the neighbours it had and has now.
     fn refresh(&mut self, id: &str, t: Option<&Task>, co: Option<&Coord>, now: i64) -> Vec<String> {
         let mut touched: Vec<String> = self.fwd.get(id).cloned().unwrap_or_default();
         self.clear_card(id);
+        self.track_resolved(id, t, self.built);
         let Some(t) = t else { return touched };
         let mut edges: Vec<String> = Vec::new();
         add_id(&mut edges, &t.parent);
@@ -512,6 +554,7 @@ impl Window {
     }
 
     fn rebuild(&self, ex: &mut Expander, coords: &[Arc<Coord>], now: i64) {
+        let before = std::mem::take(&mut ex.resolved);
         *ex = Expander::default();
         for co in coords {
             for t in co.list_tasks(&TaskFilter::default()) {
@@ -519,6 +562,8 @@ impl Window {
             }
         }
         ex.built = true;
+        // A thread that was resolved and is not now left the lists.
+        ex.left_resolved = before.iter().any(|id| !ex.resolved.contains(id));
     }
 
     /// Turns a folded board batch into the `board:changed` payload's ids
@@ -533,11 +578,16 @@ impl Window {
         if f.lost {
             ex.built = false;
         }
+        if f.cold {
+            self.cache_clear();
+        }
         let queue = self.core.spawn_queue();
         let no_agent = self.core.no_agent();
         let held_until = queue.held_until.map(|h| h.unix_milli_value());
         let mut ids: Vec<String> = Vec::new();
-        if !f.all {
+        // The indexes follow every batch they can trust, `all` or not: a
+        // card change missed here would leave its edges stale.
+        if !f.lost {
             if !ex.built {
                 self.rebuild(ex, &coords, now);
             }
@@ -546,12 +596,25 @@ impl Window {
             for c in self.deliveries_cards(&f.deliveries) {
                 add_id(&mut t_ids, &c);
             }
-            // The cards whose rows show an agent that moved.
-            for k in &f.agents {
+            // The cards whose rows show an agent that moved, or a lease
+            // holder whose conflict did.
+            let mut keys: Vec<String> = f.agents.clone();
+            for h in &f.holders {
+                add_id(&mut keys, h);
+            }
+            if f.lease {
+                for k in self.conflicts_moved(ex) {
+                    add_id(&mut keys, &k);
+                }
+            }
+            for k in &keys {
                 if let Some(cs) = ex.held_by.get(k) {
                     for c in cs {
                         add_id(&mut ids, c);
                     }
+                }
+                for c in self.cache_rows_of(k) {
+                    add_id(&mut ids, &c);
                 }
             }
             if f.roster {
@@ -565,14 +628,18 @@ impl Window {
                 for c in others {
                     add_id(&mut ids, c);
                 }
+                for c in self.cache_rows_of_others() {
+                    add_id(&mut ids, &c);
+                }
             }
+            let mut changed: Vec<(String, Vec<String>)> = Vec::new();
             for c in &t_ids {
                 add_id(&mut ids, c);
                 let co = coords.iter().find(|co| co.get_task(c).is_some());
                 let t = co.and_then(|co| co.get_task(c));
                 let touched = ex.refresh(c, t.as_ref(), co.map(|co| co.as_ref()), now);
-                for n in touched {
-                    add_id(&mut ids, &n);
+                for n in &touched {
+                    add_id(&mut ids, n);
                 }
                 for n in ex.rev.get(c).into_iter().flatten() {
                     add_id(&mut ids, n);
@@ -580,6 +647,13 @@ impl Window {
                 for n in ex.made_by.get(c).into_iter().flatten() {
                     add_id(&mut ids, n);
                 }
+                changed.push((c.clone(), touched));
+            }
+            // The rows that read a changed card, or a card it pointed at
+            // before or points at now, and the loops of waits that moved
+            // (the summary cache's index, list-signals.md §6.1).
+            for c in self.cache_batch(&changed) {
+                add_id(&mut ids, &c);
             }
         }
         // Queue words: one card starting moves every queued card's place.
@@ -615,7 +689,8 @@ impl Window {
         for m in moved {
             add_id(&mut ids, &m);
         }
-        let all = f.all || ids.len() > MAX_IDS;
+        let left_resolved = std::mem::take(&mut ex.left_resolved);
+        let all = f.all || left_resolved || ids.len() > MAX_IDS;
         if !all && ids.is_empty() && f.notes.is_empty() && !f.desk {
             return None;
         }
@@ -630,6 +705,35 @@ impl Window {
             },
             desk: f.desk,
         })
+    }
+
+    /// The holders whose lease conflict began or ended since the last
+    /// lease change: a conflict's note names only its winner, and its end
+    /// clears the other side's unnamed. The first call names nobody.
+    fn conflicts_moved(&self, ex: &mut Expander) -> Vec<String> {
+        let now: HashMap<String, String> = self
+            .core
+            .coord()
+            .leases()
+            .into_iter()
+            .filter(|l| !l.conflict.is_empty())
+            .map(|l| (l.holder, l.resource))
+            .collect();
+        let mut out: Vec<String> = Vec::new();
+        if let Some(was) = &ex.conflicts {
+            for (k, v) in &now {
+                if was.get(k) != Some(v) {
+                    add_id(&mut out, k);
+                }
+            }
+            for k in was.keys() {
+                if !now.contains_key(k) {
+                    add_id(&mut out, k);
+                }
+            }
+        }
+        ex.conflicts = Some(now);
+        out
     }
 
     /// The cards whose rows change by the clock now (§3.3 step 5), taken
