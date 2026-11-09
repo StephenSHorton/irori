@@ -634,6 +634,22 @@ export const commands = {
 	 */
 	assistantChatImport: (entries: AssistantImportEntry[]) => __TAURI_INVOKE<AssistantImported>("assistant_chat_import", { entries }),
 	/**
+	 *  The spaces where the person has an Office Assistant: its card and the
+	 *  space's #office-assistants channel (assistants-talk.md §8).
+	 */
+	assistantTalkCards: () => __TAURI_INVOKE<AssistantTalkCard[]>("assistant_talk_cards"),
+	/**
+	 *  Let it answer: a tap on question `post` of `space`, from any device. The
+	 *  assistant's computer answers it, or says why not in the chat. Returns the
+	 *  request's id.
+	 */
+	assistantAnswerRequest: (post: string, space: string, how: string) => __TAURI_INVOKE<string>("assistant_answer_request", { post, space, how }),
+	/**
+	 *  One toast for a chat line that waits on the person; a click opens the
+	 *  Office Assistant chat. False when no card was shown.
+	 */
+	assistantTalkToast: (conv: string, title: string, body: string) => __TAURI_INVOKE<boolean>("assistant_talk_toast", { conv, title, body }),
+	/**
 	 *  Streams a turn's reply as this computer runs it: from now until the turn
 	 *  ends, starting with what it has said so far. On another device the
 	 *  events come over the mesh from the assistant's computer (card 7); if
@@ -1190,6 +1206,20 @@ export type AssistantImported = {
 export type AssistantSignal = {
 	seq: number,
 	all: boolean,
+};
+
+/**
+ *  A space where the person has an assistant (assistants-talk.md §8): what
+ *  the chat reads the channel with to build its labelled lines.
+ */
+export type AssistantTalkCard = {
+	space: string,
+	/**  The person's assistant card on the space (`agent:<card>` posts). */
+	card: string,
+	/**  The space's `#office-assistants` channel. */
+	conv: string,
+	/**  The person's name as the space knows it. */
+	owner: string,
 };
 
 /**  One comment file as the window shows it. */

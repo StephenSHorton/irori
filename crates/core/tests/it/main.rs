@@ -13,6 +13,7 @@ mod assistant_home;
 mod assistant_import;
 mod assistant_label;
 mod assistant_names;
+mod assistant_requests;
 mod assistant_stream;
 mod assistant_turns;
 mod assistant_weighs;

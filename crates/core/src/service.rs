@@ -60,6 +60,7 @@ pub mod assistant_chat;
 pub mod assistant_home;
 mod assistant_name;
 pub mod assistant_packet;
+mod assistant_requests;
 mod assistant_turns;
 pub mod boards;
 mod boards_members;
@@ -2254,6 +2255,11 @@ impl Core {
                         // written here was folded when it was written.
                         if s.assistant_chat.apply(&ev) {
                             s.hub.publish(CoreEvent::AssistantChat);
+                        }
+                        // A tap on Let it answer, from any device: the
+                        // assistant's computer serves it (card #1062).
+                        if ev.kind == kinds::ASSISTANT_ANSWER_REQUESTED {
+                            s.serve_answer_requests();
                         }
                     } else if ev.kind == coord::notifications::POSTED
                         || ev.kind == coord::notifications::READ

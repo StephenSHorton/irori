@@ -1875,6 +1875,63 @@
     ]
   },
   {
+    "name": "slot_take",
+    "description": "Take one of a named pool of slots, so at most limit agents or runs do something heavy at once (a full check, a build, a GPU job). Everyone who takes the same name shares its limit. When all slots are held, you are told who holds them; pass wait_seconds to wait for one. The slot is yours until you slot_release it or you go away, and stays yours while you keep working.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The pool: a plain name such as check/mac, the same for everyone who shares it."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "description": "How many may hold the pool at once."
+        },
+        "wait_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 120,
+          "description": "Optional: wait up to this long for a slot to free (default 0: answer at once)."
+        }
+      },
+      "required": [
+        "name",
+        "limit"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": [
+      "claude",
+      "grok"
+    ]
+  },
+  {
+    "name": "slot_release",
+    "description": "Give back the slot you took with slot_take, as soon as you are done.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The pool, as you gave it to slot_take."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": [
+      "claude",
+      "grok"
+    ]
+  },
+  {
     "name": "timeline",
     "description": "What an agent has been doing, newest first: its turns (prompt and reply excerpts, tool counts, edited paths), its commits and pull requests, and the messages it sent or received. agent defaults to you; page back with before.",
     "inputSchema": {
