@@ -229,11 +229,17 @@ impl Fold {
 
     /// Whether card `id` links the PR `res` names (the PR card links its
     /// own).
+    /// Whether card `id` links the PR `res`. A PR card always links its
+    /// own PR, fixed by its creation row: anyone can remove a link, and
+    /// that must not stop its asks counting.
     fn links_res(&self, id: &str, res: &str) -> bool {
         self.tasks.get(id).is_some_and(|t| {
-            t.links.iter().any(|l| {
-                pr_link(l).is_some() && pr_claim_resource(&l.reference).as_deref() == Some(res)
-            })
+            t.pr_card
+                .as_ref()
+                .is_some_and(|c| pr_claim_resource(&c.pr).as_deref() == Some(res))
+                || t.links.iter().any(|l| {
+                    pr_link(l).is_some() && pr_claim_resource(&l.reference).as_deref() == Some(res)
+                })
         })
     }
 
@@ -392,11 +398,15 @@ impl Fold {
             return Ok(None);
         } else {
             // What folded since the caller decided may have ended the
-            // pick: a claim, a verdict, an approval.
+            // pick: a claim, a verdict, an approval, or the picked agent
+            // declining.
             match self.review_phase(card) {
                 ReviewPhase::Waiting => {}
                 ReviewPhase::Asked { ask } if Some(&ask.pos) == after.as_ref() => {}
                 _ => return Ok(None),
+            }
+            if self.declined(card).contains_key(&to) {
+                return Ok(None);
             }
         }
         let at = self.stamp();

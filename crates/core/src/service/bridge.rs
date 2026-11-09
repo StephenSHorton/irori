@@ -993,10 +993,14 @@ fn links_pr(t: &Task, pr: &str) -> bool {
     let Some(want) = coord::pr_claim_resource(pr) else {
         return false;
     };
-    t.links.iter().any(|l| {
-        coord::pr_link(l).is_some()
-            && coord::pr_claim_resource(&l.reference).as_deref() == Some(&want)
-    })
+    // A PR card always links its own PR, whatever links were removed.
+    t.pr_card
+        .as_ref()
+        .is_some_and(|c| coord::pr_claim_resource(&c.pr).as_deref() == Some(&want))
+        || t.links.iter().any(|l| {
+            coord::pr_link(l).is_some()
+                && coord::pr_claim_resource(&l.reference).as_deref() == Some(&want)
+        })
 }
 
 /// A card row's plan: a comment, an assignment, a blocker change, a review

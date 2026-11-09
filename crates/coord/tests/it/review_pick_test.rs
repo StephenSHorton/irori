@@ -382,7 +382,7 @@ fn the_review_phase_follows_asks_claims_verdicts_and_heads() {
     assert_eq!(asked_to(&a.c.review_phase(&id)), CARD2);
 
     // A decline by the asked agent after the ask: Waiting. A pick of it
-    // after the decline (one that crossed it) is answered by it too.
+    // once its decline has folded writes nothing.
     let id8 = pr_card(&[&a, &b], 8);
     let r8 = a.c.pick_ask(P1, &id8, CARD2, false, None).unwrap().unwrap();
     sync(&a, &b);
@@ -390,9 +390,11 @@ fn the_review_phase_follows_asks_claims_verdicts_and_heads() {
     sync(&a, &b);
     assert_eq!(a.c.review_phase(&id8), ReviewPhase::Waiting);
     assert!(a.c.declined(&id8).contains_key(CARD2));
-    a.c.pick_ask(P1, &id8, CARD2, false, Some(r8.pos))
-        .unwrap()
-        .unwrap();
+    assert!(
+        a.c.pick_ask(P1, &id8, CARD2, false, Some(r8.pos))
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(a.c.review_phase(&id8), ReviewPhase::Waiting);
     // An agent's ask naming it after the decline stands: it was asked
     // knowing.
@@ -881,4 +883,30 @@ fn another_agents_claim_holds_the_ask_out_once_it_ends() {
             .unwrap()
             .is_some()
     );
+}
+
+#[test]
+fn removing_the_pr_cards_own_link_keeps_its_ask() {
+    let (a, b, _) = two_people();
+    let id = pr_card(&[&a, &b], 7);
+    a.c.pick_ask(P1, &id, CARD2, false, None).unwrap().unwrap();
+    // Any member may remove a link; the PR card's own PR is fixed by its
+    // creation row, so its ask still stands and isn't written again.
+    b.c.remove_link(P2, &id, &pr(7)).unwrap();
+    sync(&a, &b);
+    for s in [&a, &b] {
+        assert_eq!(asked_to(&s.c.review_phase(&id)), CARD2);
+        assert_eq!(s.c.missed_review_asks().len(), 1);
+    }
+    assert!(a.c.pick_ask(P1, &id, CARD2, false, None).unwrap().is_none());
+}
+
+#[test]
+fn a_pick_never_asks_an_agent_that_declined() {
+    let (a, b, _) = two_people();
+    let id = pr_card(&[&a, &b], 7);
+    b.c.decline_review(CARD2, &pr(7), "not my area").unwrap();
+    sync(&a, &b);
+    assert!(a.c.pick_ask(P1, &id, CARD2, false, None).unwrap().is_none());
+    assert_eq!(count(&a, kinds::REVIEW_REQUESTED), 0);
 }

@@ -523,6 +523,8 @@ Tier 7 runs when nobody fits. A reviewer has to be someone other than the author
 - "Answered on GitHub" and the verdict that ends a claim compare GitHub's times with board times across clocks (B4).
 - An agent already on the board whose person has receive Closed can be asked and sit in Asked: the author's device can't see that setting. The receive check only stops new agents being put on PR boards (B4).
 - `wanting_review` costs a comment scan per PR card on each sweep of a device that has an idle agent to offer (B4).
+- The live bridge delivers a review row only once the fold took it. A row the fold holds back behind a give in flight on that card is not sent when it is later freed; the catch-up re-sends only the newest ask of a PR card in Asked, so an older or plain-card ask can be lost then (B4).
+- A member's person can make a PR card for someone else's PR (B2a's fold can't check GitHub logins), and the lowest id stands among duplicates, so a lower-id card would stand in for the author's and stop their device picking. B3's `review_claim` still checks GitHub's author. Left for its own card (B4).
 
 ### 12.12 Build plan
 

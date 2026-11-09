@@ -144,6 +144,15 @@ pub(crate) fn rank(
 /// Whether tier 7 (a new reviewer) may go ahead (§12.5): another member's
 /// device put an agent on the board since the card was made, or the card
 /// has stood for [`TIER7_POLLS`] polls.
+/// Whether another agent than the asked one took a claim after the ask.
+/// The ask told the asked agent to comment then, so what its person says
+/// on GitHub no longer shows it working on the ask.
+pub(crate) fn claimed_by_another(f: &PickFacts, ask: &coord::ReviewRequest) -> bool {
+    f.claims
+        .iter()
+        .any(|c| c.holder != ask.to && c.pos > ask.pos)
+}
+
 pub(crate) fn tier7_allowed(polls_standing: u32, member_card_since: bool) -> bool {
     member_card_since || polls_standing >= TIER7_POLLS
 }
@@ -450,15 +459,20 @@ impl Services {
                     .activity_last(id, &p.url)
                     .map(|a| a.comments)
                     .unwrap_or_default();
+                // Once another agent claimed after the ask, the asked
+                // agent was told to comment instead: its person's words
+                // on GitHub no longer show it working on the ask.
+                let other_claimed = claimed_by_another(&facts, ask);
                 AskedNow {
                     gone,
                     turn_ended: !gone && turn_ended(b, &ask.to, &ask.pos),
-                    answered: answered_on_github(
-                        &login(&key_person(b, &ask.to)),
-                        &ask.at,
-                        &comments,
-                        &facts.pr_state.reviews,
-                    ),
+                    answered: !other_claimed
+                        && answered_on_github(
+                            &login(&key_person(b, &ask.to)),
+                            &ask.at,
+                            &comments,
+                            &facts.pr_state.reviews,
+                        ),
                 }
             }
             _ => AskedNow::default(),
@@ -1239,5 +1253,17 @@ mod tests {
         assert!(!touches(REPO, "src/**", REPO, &[]));
         // A path that is no glob doesn't match everything.
         assert!(!touches("", "docs/**", REPO, &["a:b".to_string()]));
+    }
+
+    #[test]
+    fn another_agents_claim_after_the_ask_stops_github_words_counting() {
+        let mut f = facts();
+        let a = ask("agent:x", 10);
+        f.claims = vec![claim("agent:x", 1, 11)];
+        assert!(!claimed_by_another(&f, &a), "its own claim");
+        f.claims = vec![claim("agent:z", 1, 9)];
+        assert!(!claimed_by_another(&f, &a), "a claim before the ask");
+        f.claims.push(claim("agent:z", 2, 12));
+        assert!(claimed_by_another(&f, &a));
     }
 }
