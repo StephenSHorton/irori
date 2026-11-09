@@ -103,6 +103,9 @@ const MAX_PENDING: usize = 8;
 pub type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
 pub type NowFn = Arc<dyn Fn() -> SystemTime + Send + Sync>;
 pub type IgnoredFn = Arc<dyn Fn() -> BTreeMap<String, i64> + Send + Sync>;
+/// Hears that a removed device's removal settled here (card #1240): the
+/// Devices list no longer has its row.
+pub type SettledFn = Arc<dyn Fn(&str) + Send + Sync>;
 /// Opens a running (or waiting) turn's frames for an `assistant/<turn>`
 /// stream (card #1107): `None` when this device runs no such turn.
 pub type AssistantTurnsFn =
@@ -130,6 +133,8 @@ pub struct Options {
     /// The assistant's computer's running turns, for `assistant/<turn>`
     /// streams; `None` serves none.
     pub assistant_turns: Option<AssistantTurnsFn>,
+    /// Hears each removal that settles here (card #1240).
+    pub on_settled: Option<SettledFn>,
     pub logf: Option<LogFn>,
     pub now: Option<NowFn>,
 }
@@ -198,6 +203,10 @@ pub(crate) struct State {
     restoring: String,
     restore_to: i64,
     retry: BTreeMap<String, RetryState>,
+    /// Removed devices whose removal every remaining device had when it
+    /// was checked: they are forgotten here for good (card #1240,
+    /// `mesh-removed.json`).
+    pub(crate) settled: BTreeSet<String>,
 }
 
 impl State {
@@ -280,6 +289,7 @@ impl Node {
                 restoring: String::new(),
                 restore_to: 0,
                 retry: BTreeMap::new(),
+                settled: crate::peers::load_removed(o.data_dir.as_deref()),
             }),
             fetching: Mutex::new(BTreeMap::new()),
             own_boards: Mutex::new(None),
@@ -502,6 +512,7 @@ impl Node {
             return;
         }
         self.adopt_pending();
+        self.settle_removals();
         let cur = self.o.ident.current().epoch;
         for s in self.session_list() {
             let peer = s.conn.id();
@@ -1319,6 +1330,69 @@ impl Node {
             .map_err(|e| format!("mesh: record the rotation: {e}"))?;
         self.person_changed().await; // drops dev, and hands the new key on
         Ok(())
+    }
+
+    /// Records each removal that has now settled (card #1240): every
+    /// remaining device has the revoke ([`Node::removal_seen`]). Once
+    /// settled it stays so, saved in `mesh-removed.json`, and what this
+    /// device kept about the removed one goes: its `mesh-peers.json`
+    /// entry, the rows and clock it was last heard by. The chain keeps the
+    /// revoke, which refuses its later rows.
+    pub(crate) fn settle_removals(&self) {
+        let open: Vec<String> = {
+            let g = self.lock();
+            self.o
+                .chain
+                .devices()
+                .into_iter()
+                .filter(|d| d.revoked && d.cert.device_id != self.self_id)
+                .map(|d| d.cert.device_id)
+                .filter(|id| !g.settled.contains(id))
+                .collect()
+        };
+        if open.is_empty() {
+            return;
+        }
+        let known = self.lock().known.clone();
+        let now: Vec<String> = open
+            .into_iter()
+            .filter(|id| {
+                let (seen, of, _) = self.removal_seen(id, &known);
+                seen >= of
+            })
+            .collect();
+        if now.is_empty() {
+            return;
+        }
+        let all = {
+            let mut g = self.lock();
+            for id in &now {
+                g.settled.insert(id.clone());
+                g.known.remove(id);
+                g.rows.remove(id);
+                g.ahead.remove(id);
+            }
+            g.settled.clone()
+        };
+        if let Some(dir) = &self.o.data_dir {
+            let _g = self.peers_mu.lock().unwrap_or_else(|e| e.into_inner());
+            if let Err(e) = crate::peers::save_removed(dir, &all) {
+                self.log(&format!("mesh: save {}: {e}", crate::peers::REMOVED_FILE));
+            }
+        }
+        self.save_peers();
+        for id in &now {
+            self.log(&format!("mesh: {id}'s removal settled; forgotten here"));
+            if let Some(f) = &self.o.on_settled {
+                f(id);
+            }
+        }
+    }
+
+    /// Whether removed device `dev`'s removal has settled here (card
+    /// #1240): it no longer shows anywhere.
+    pub fn removal_settled(&self, dev: &str) -> bool {
+        self.lock().settled.contains(dev)
     }
 
     /// Saves every known device's epoch and key, best effort.

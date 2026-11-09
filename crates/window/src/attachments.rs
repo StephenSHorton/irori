@@ -155,8 +155,10 @@ impl Window {
         Ok(r)
     }
 
+    /// What the device that attached a file is called: "" for none or a
+    /// removed device (card #1240), else its name, else its id.
     fn device_name(&self, id: &str) -> String {
-        if id.is_empty() {
+        if id.is_empty() || self.core.device_removed(id) {
             return String::new();
         }
         match self.core.device_label(id) {

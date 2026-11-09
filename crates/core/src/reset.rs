@@ -17,7 +17,7 @@ use crate::lockfile;
 pub const RESET_FILE: &str = "reset-pending";
 
 /// The data dir entries a Reset moves aside.
-pub const RESET_MOVES: [&str; 12] = [
+pub const RESET_MOVES: [&str; 13] = [
     "irori.db",
     "irori.db-wal",
     "irori.db-shm",
@@ -26,6 +26,8 @@ pub const RESET_MOVES: [&str; 12] = [
     irori_identity::person::DEVICE_KEY_FILE,
     irori_identity::person::PERSON_FILE,
     "mesh-peers.json",
+    // The settled removals (card #1240): a new person starts with none.
+    "mesh-removed.json",
     "pair-rows.json",
     "capture-cursors.json",
     "files",

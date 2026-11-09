@@ -1210,6 +1210,8 @@ pub(crate) struct People {
     /// Every agent key → the last name it went by, gone ones too (#98).
     known: std::collections::BTreeMap<String, String>,
     paired: bool,
+    /// The person's removed devices: no chip names them (card #1240).
+    removed: std::collections::HashSet<String>,
     colors: BTreeMap<String, String>,
     conflicts: HashMap<String, String>,
     unsent: std::collections::HashSet<String>,
@@ -1424,6 +1426,8 @@ impl Window {
         for d in c.certified_devices() {
             if !d.revoked {
                 live += 1;
+            } else {
+                p.removed.insert(d.cert.device_id);
             }
         }
         p.paired = live > 1;
@@ -1471,9 +1475,10 @@ impl People {
         }
     }
 
-    /// The device chip for something `dev` wrote.
+    /// The device chip for something `dev` wrote: none for a removed
+    /// device (card #1240).
     fn chip(&self, dev: &str) -> String {
-        if !self.paired || dev.is_empty() || dev == self.self_id {
+        if !self.paired || dev.is_empty() || dev == self.self_id || self.removed.contains(dev) {
             return String::new();
         }
         self.where_(dev)

@@ -815,6 +815,30 @@ fn an_ask_stays_with_an_owner_that_does_not_read_moves() {
     );
 }
 
+/// Card #1240: a removed device can't run agents even when the Core's
+/// list leaves it out: a computer takes its waiting ask.
+#[test]
+fn a_removed_owner_cant_run_agents_whatever_the_list_says() {
+    let devs = Arc::new(RwLock::new(AgentDevices {
+        homes: vec!["dev-b".into()],
+        moves: HashSet::from(["dev-a".to_string(), "dev-b".to_string()]),
+        ..AgentDevices::default()
+    }));
+    let (mut mac, t) = phone_thread_on_mac(devs.clone());
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-a", "the phone runs it");
+    let revoked: KeyFn = Arc::new(|d: &str| d == "dev-a");
+    let d = devs.clone();
+    mac.c = mac.reopen_with(Options {
+        spawning: Some(Arc::new(|| true)),
+        agent_devices: Some(Arc::new(move || d.read().unwrap().clone())),
+        revoked: Some(revoked),
+        ..mac.opts()
+    });
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-b");
+}
+
 /// Card #686: dev-a and dev-b are computers, `full` the ones with no free
 /// slot; dev-a comes first, so it is the ask home the old rule pulls to.
 fn computers(full: &[&str]) -> Arc<RwLock<AgentDevices>> {
@@ -1203,6 +1227,60 @@ fn a_person_post_from_another_device_wakes_a_parked_agents_thread() {
     assert!(e.c.cards_to_spawn().is_empty(), "a quiet post");
     // The person's post from their phone does.
     post(3, 13, "user", "c-phone", true);
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&t.id));
+}
+
+/// Card #1247 (seen on #1125): the person's own thread, owned by this
+/// device, answered by an agent that has since gone. Their follow-up from
+/// another device reached nobody there (`unheard`) and writes no take row:
+/// the owner's sweep sends the thread out again. A post some live agent
+/// heard doesn't.
+#[test]
+fn an_unheard_post_from_another_device_sends_a_person_thread_out_again() {
+    let owner: KeyFn = Arc::new(|k: &str| k == USER || k == "user:dev-b");
+    let mut e = Env::with("dev-a", Some(owner));
+    let _r = rig(&mut e, &[]);
+    let t = post(&e, "Can the pipeline make a car?", true, &[]);
+    e.ros.set(ALICE, "idle");
+    e.c.add_comment(ALICE, &t.id, "Yes, here's what I found.", false)
+        .unwrap();
+    e.c.sweep_asks(&[]).unwrap();
+    // The agent that answered ends, and stays away past the grace.
+    e.ros.set(ALICE, "");
+    e.c.sweep_asks(&[]).unwrap();
+    e.clk.add(mins(10));
+    e.c.sweep_asks(&[]).unwrap();
+    let a = ask_of(&e, &t.id);
+    assert!(a.taker.is_empty() && a.reason == TAKE_ANSWERED, "{a:?}");
+    assert!(e.c.cards_to_spawn().is_empty());
+    let post = |seq: i64, min: u64, id: &str, unheard: bool| {
+        let at = plus(fixed_now(), mins(min));
+        e.remote(
+            "dev-b",
+            seq,
+            hlc_at(at),
+            "user",
+            store::kinds::TASK_COMMENT,
+            &TaskCommentRow {
+                task_id: t.id.clone(),
+                comment_id: id.into(),
+                by: "user:dev-b".into(),
+                text: "Still pretty bad, what next?".into(),
+                wake: true,
+                at,
+                unheard,
+                ..TaskCommentRow::default()
+            },
+        );
+        e.clk.add(mins(1));
+        e.c.sweep_asks(&[]).unwrap();
+        e.c.sweep_asks(&[]).unwrap();
+    };
+    // Heard by a live agent on the other device: it answers there.
+    post(1, 11, "c-heard", false);
+    assert!(e.c.cards_to_spawn().is_empty(), "a heard post");
+    // Nobody heard it: the owner sends it out again.
+    post(2, 12, "c-unheard", true);
     assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&t.id));
 }
 

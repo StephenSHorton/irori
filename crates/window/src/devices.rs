@@ -194,13 +194,20 @@ impl Window {
     pub fn devices(&self) -> Vec<DeviceView> {
         let colors = self.core.device_colors();
         let names = self.core.device_labels();
+        let renames = self.core.device_renames();
         let sides = self.core.device_sides();
         let mut out = self.seams.mesh.devices();
         for d in &mut out {
             d.color = colors.get(&d.device_id).cloned().unwrap_or_default();
             d.sides = sides.get(&d.device_id).cloned().unwrap_or_default();
-            // The person's name for it, when they gave one (card #184).
-            if let Some(n) = names.get(&d.device_id).filter(|n| !n.is_empty()) {
+            // The person's name for it, when they gave one (card #184). A
+            // removal still pending keeps its row until it settles (card
+            // #1240): labels leave it out, so take its rename alone.
+            if let Some(n) = names
+                .get(&d.device_id)
+                .or_else(|| renames.get(&d.device_id).filter(|_| d.revoked))
+                .filter(|n| !n.is_empty())
+            {
                 d.name = n.clone();
             }
             if let Some(n) = names.get(&d.via).filter(|n| !n.is_empty()) {
