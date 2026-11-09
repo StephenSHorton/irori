@@ -2543,7 +2543,7 @@ pub async fn window_log(line: String) -> R<()> {
         if let Some(l) = crate::readwatch::summary_line() {
             irori_core::log(&l);
         }
-        if let Some(l) = coord::lockwatch::summary_line(8) {
+        if let Some(l) = gocompat::lockwatch::summary_line(8) {
             irori_core::log(&l);
         }
     }

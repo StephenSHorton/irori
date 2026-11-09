@@ -829,8 +829,32 @@ impl Drop for Subscription {
     }
 }
 
-fn lock(m: &Mutex<Inner>) -> MutexGuard<'_, Inner> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
+/// The inbox lock, timed (card #1234): the timer drops after the guard.
+pub(crate) struct Locked<'a>(
+    MutexGuard<'a, Inner>,
+    #[allow(dead_code)] // held for its drop
+    gocompat::lockwatch::Taken,
+);
+
+impl std::ops::Deref for Locked<'_> {
+    type Target = Inner;
+    fn deref(&self) -> &Inner {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Locked<'_> {
+    fn deref_mut(&mut self) -> &mut Inner {
+        &mut self.0
+    }
+}
+
+#[track_caller]
+fn lock(m: &Mutex<Inner>) -> Locked<'_> {
+    let at = std::panic::Location::caller();
+    let asked = std::time::Instant::now();
+    let g = m.lock().unwrap_or_else(|e| e.into_inner());
+    Locked(g, gocompat::lockwatch::Taken::new(at, asked))
 }
 
 impl Inbox {
@@ -918,6 +942,7 @@ impl Inbox {
 
     /// Runs a mutation under the lock, then Go's `unlock()`: edges for the
     /// touched agents, then the changes to subscribers.
+    #[track_caller]
     pub(crate) fn mutate<R>(&self, f: impl FnOnce(&mut Inner) -> R) -> R {
         let mut g = lock(&self.inner);
         let r = f(&mut g);
@@ -926,6 +951,7 @@ impl Inbox {
     }
 
     /// A read under the lock (Go `mu.Lock(); defer mu.Unlock()`).
+    #[track_caller]
     pub(crate) fn read<R>(&self, f: impl FnOnce(&Inner) -> R) -> R {
         let g = lock(&self.inner);
         f(&g)

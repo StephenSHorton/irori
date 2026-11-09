@@ -496,7 +496,18 @@ impl Inbox {
     /// deferrals, front-desk succession, ended agents' work to its card or
     /// the person, and passed messages' text onto their cards.
     pub fn sweep(&self) -> Result<()> {
-        let hs = self.mutate(|b| b.sweep())?;
+        let t = std::time::Instant::now();
+        let (hs, open, agents) = self.mutate(|b| {
+            let hs = b.sweep();
+            (hs, b.open.len(), b.touched.len())
+        });
+        if t.elapsed() >= gocompat::lockwatch::SLOW {
+            gocompat::lockwatch::log(&format!(
+                "inbox sweep: {} ms under the inbox lock ({open} open deliveries, {agents} agents rechecked)",
+                t.elapsed().as_millis()
+            ));
+        }
+        let hs = hs?;
         let r = self.hand_off(&hs);
         self.fill_cards();
         r

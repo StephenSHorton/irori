@@ -1,6 +1,7 @@
-//! How long callers wait for and hold a board log's lock (card #1234).
+//! How long callers wait for and hold a hot lock (card #1234): each board
+//! log's (coord's `Coord`) and the inbox's.
 //!
-//! Every [`crate::Coord`] lock is timed: the wait before it is taken and
+//! Every such lock is timed: the wait before it is taken and
 //! the hold until it drops (its flush and unlock hook included). Totals go
 //! to two places:
 //!
@@ -32,7 +33,8 @@ pub fn set_logger(f: impl Fn(&str) + Send + Sync + 'static) {
     *LOGGER.write().unwrap_or_else(|e| e.into_inner()) = Some(Box::new(f));
 }
 
-fn log(line: &str) {
+/// Writes a line through the logger [`set_logger`] set (none: nowhere).
+pub fn log(line: &str) {
     if let Some(f) = LOGGER.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
         f(line);
     }
@@ -88,12 +90,13 @@ fn thread_name() -> String {
 
 fn short(at: &Location<'_>) -> String {
     let f = at.file();
-    let f = f.rsplit_once("src/").map_or(f, |(_, r)| r);
+    let f = f.rsplit_once("crates/").map_or(f, |(_, r)| r);
+    let f = f.replacen("/src/", "/", 1);
     format!("{f}:{}", at.line())
 }
 
 /// A lock was taken at `at` after waiting `wait`.
-pub(crate) fn waited(at: &'static Location<'static>, wait: Duration) {
+pub fn waited(at: &'static Location<'static>, wait: Duration) {
     THREAD.with(|c| {
         let (n, w, h) = c.get();
         c.set((n + 1, w + wait, h));
@@ -114,7 +117,7 @@ pub(crate) fn waited(at: &'static Location<'static>, wait: Duration) {
 }
 
 /// The lock taken at `at` was held `hold`.
-pub(crate) fn held(at: &'static Location<'static>, hold: Duration) {
+pub fn held(at: &'static Location<'static>, hold: Duration) {
     THREAD.with(|c| {
         let (n, w, h) = c.get();
         c.set((n, w, h + hold));
@@ -135,13 +138,13 @@ pub(crate) fn held(at: &'static Location<'static>, hold: Duration) {
 
 /// Times one take of a lock: [`Taken::new`] after the wait, dropped after
 /// the hold.
-pub(crate) struct Taken {
+pub struct Taken {
     at: &'static Location<'static>,
     since: Instant,
 }
 
 impl Taken {
-    pub(crate) fn new(at: &'static Location<'static>, asked: Instant) -> Taken {
+    pub fn new(at: &'static Location<'static>, asked: Instant) -> Taken {
         let since = Instant::now();
         waited(at, since - asked);
         Taken { at, since }

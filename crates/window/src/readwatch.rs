@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use coord::lockwatch;
+use gocompat::lockwatch;
 
 /// A read this slow is logged on its own.
 pub const SLOW: Duration = Duration::from_millis(1000);

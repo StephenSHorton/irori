@@ -529,7 +529,7 @@ pub fn with_inbox_lock_held<R>(f: impl FnOnce() -> R) -> R {
 struct Locked<'a>(
     MutexGuard<'a, Fold>,
     #[allow(dead_code)] // held for its drop
-    crate::lockwatch::Taken,
+    gocompat::lockwatch::Taken,
 );
 
 impl std::ops::Deref for Locked<'_> {
@@ -667,17 +667,17 @@ impl Coord {
         let at = std::panic::Location::caller();
         let asked = std::time::Instant::now();
         let g = self.f.lock().unwrap_or_else(|e| e.into_inner());
-        Locked(g, crate::lockwatch::Taken::new(at, asked))
+        Locked(g, gocompat::lockwatch::Taken::new(at, asked))
     }
 
     /// The fold under the raw guard (no flush, no unlock hook), timed as
     /// [`Coord::lock`] is.
     #[track_caller]
-    fn raw(&self) -> (MutexGuard<'_, Fold>, crate::lockwatch::Taken) {
+    fn raw(&self) -> (MutexGuard<'_, Fold>, gocompat::lockwatch::Taken) {
         let at = std::panic::Location::caller();
         let asked = std::time::Instant::now();
         let g = self.f.lock().unwrap_or_else(|e| e.into_inner());
-        (g, crate::lockwatch::Taken::new(at, asked))
+        (g, gocompat::lockwatch::Taken::new(at, asked))
     }
 
     /// The one-catch-up-at-a-time lock, timed (card #1234).
@@ -686,12 +686,12 @@ impl Coord {
         &self,
     ) -> (
         MutexGuard<'_, std::collections::HashMap<String, Event>>,
-        crate::lockwatch::Taken,
+        gocompat::lockwatch::Taken,
     ) {
         let at = std::panic::Location::caller();
         let asked = std::time::Instant::now();
         let g = self.catching.lock().unwrap_or_else(|e| e.into_inner());
-        (g, crate::lockwatch::Taken::new(at, asked))
+        (g, gocompat::lockwatch::Taken::new(at, asked))
     }
 
     /// The working card agent `key` has in hand in this log, as
