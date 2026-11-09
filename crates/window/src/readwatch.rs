@@ -2,7 +2,7 @@
 //! it queued for a thread, how long it waited for a board log's lock, and
 //! the rest (its own work and any other lock).
 //!
-//! A read of [`SLOW`] or more is logged on its own as `read: <command>`,
+//! A read of [`SLOW`] (3 s) or more is logged on its own as `read: <command>`,
 //! with its lock wait (a board log's and the inbox's together; the lock
 //! lines say which). On a scratch run (lockwatch totals kept) each
 //! command's totals are summed until [`summary_line`] reads them, which the
@@ -15,8 +15,9 @@ use std::time::{Duration, Instant};
 
 use gocompat::lockwatch;
 
-/// A read this slow is logged on its own.
-pub const SLOW: Duration = Duration::from_millis(1000);
+/// A read this slow is logged on its own (the lists line counts those
+/// over 1 s already; this one says where the time went).
+pub const SLOW: Duration = Duration::from_millis(3000);
 
 #[derive(Default, Clone, Copy)]
 struct Stat {

@@ -10,8 +10,9 @@
 //! - per thread, so a command can say how much of its own time was lock
 //!   wait ([`thread_mark`], [`thread_since`]).
 //!
-//! A single wait or hold of [`SLOW`] or more goes to the log at once, with
-//! its caller and thread. With no logger set ([`set_logger`]) nothing is
+//! A single hold of [`SLOW`] or more goes to the log at once, with its
+//! caller and thread, and a wait of [`SLOW_WAIT`] or more (a long hold
+//! keeps many waiters, so the hold is the line that names the cause). With no logger set ([`set_logger`]) nothing is
 //! written. The per-thread totals cost two clock reads per lock; the
 //! per-caller totals take a global mutex per lock, so they are kept only
 //! once [`keep_totals`] turns them on (the dev probe does, for a scratch
@@ -24,8 +25,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-/// A wait or hold this long is logged on its own.
+/// A hold this long is logged on its own.
 pub const SLOW: Duration = Duration::from_millis(1000);
+
+/// A wait this long is logged on its own.
+pub const SLOW_WAIT: Duration = Duration::from_millis(5000);
 
 static TOTALS: AtomicBool = AtomicBool::new(false);
 
@@ -117,7 +121,7 @@ pub fn waited(at: &'static Location<'static>, wait: Duration) {
         let (n, w, h) = c.get();
         c.set((n + 1, w + wait, h));
     });
-    if wait >= SLOW {
+    if wait >= SLOW_WAIT {
         log(&format!(
             "lock: waited {} ms at {} on {}",
             wait.as_millis(),
