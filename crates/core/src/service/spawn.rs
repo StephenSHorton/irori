@@ -3908,8 +3908,7 @@ impl Services {
     pub(crate) fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
         let Some(t) = self.coord.get_task(id) else {
             // A card given to them, after their Not now (card #573).
-            if self.ask_given_again(id)? {
-                self.asks_kick.kick();
+            if self.start_given_card(id)?.is_some() {
                 return Ok(());
             }
             return self.start_board_agent(id);

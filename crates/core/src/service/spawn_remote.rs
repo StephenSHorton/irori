@@ -24,11 +24,11 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use coord::roster::Agents;
-use coord::{SPAWN_CANCELED, SPAWN_FAILED, Spawn, SpawnAsk, Task};
+use coord::{Coord, SPAWN_CANCELED, SPAWN_FAILED, Spawn, SpawnAsk, Task};
 use gocompat::time::GoTime;
 use irori_identity::owner::device_of;
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,7 @@ use store::{Event, Filter, kinds};
 
 use super::Services;
 use super::spawn::{BriefMore, NOT_TRUSTED_PREFIX, Spawner, build_brief, spawn_permissions};
+use super::spawn_boards::{GIVEN_START_WHY, SpawnLog};
 use crate::logf;
 
 const SWEEPER: &str = "irori";
@@ -144,6 +145,14 @@ pub struct StartRequest {
     /// after its own checks, and the start counts toward their limit.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub agent: bool,
+    /// The person starts a card given to them after their Not now, from a
+    /// device that can't run it (decision 69, §3.2): the spawn device raises
+    /// the question and answers Start, when `question` is still the card's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub given: bool,
+    /// The given question their Not now answered; with `given`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub question: String,
     pub by: String,
     #[serde(default)]
     pub at_device: String,
@@ -1045,16 +1054,28 @@ impl Services {
     /// The person asks for card `id`'s agent now from a device that
     /// doesn't hand it out: the card's own device acts on it.
     pub(crate) fn request_start(&self, id: &str, note: &str) -> Result<(), String> {
-        self.write_start_request(id, note, false)
+        self.write_start_request(id, note, false, "")
+    }
+
+    /// The person starts card `id`, given to them and in Not now, from a
+    /// device that can't run it: the spawn device raises and answers.
+    pub(crate) fn write_given_start_request(&self, id: &str, question: &str) -> Result<(), String> {
+        self.write_start_request(id, "", false, question)
     }
 
     /// An agent's ask, passed to the device that hands the card out, after
     /// [`Services::agent_start`]'s checks (card #575).
     pub(crate) fn request_agent_start(&self, id: &str) -> Result<(), String> {
-        self.write_start_request(id, "", true)
+        self.write_start_request(id, "", true, "")
     }
 
-    fn write_start_request(&self, id: &str, note: &str, agent: bool) -> Result<(), String> {
+    fn write_start_request(
+        &self,
+        id: &str,
+        note: &str,
+        agent: bool,
+        question: &str,
+    ) -> Result<(), String> {
         // The card's own log: it may be a shared board's (card #575).
         let generation = self
             .route(id)
@@ -1067,6 +1088,8 @@ impl Services {
             generation,
             note: note.trim().to_string(),
             agent,
+            given: !question.is_empty(),
+            question: question.to_string(),
             by: format!("user:{}", self.device.id),
             at_device: self.device.id.clone(),
             at: (self.now)(),
@@ -1084,14 +1107,20 @@ impl Services {
                 self.mark_seen(&ev);
                 continue;
             };
-            let Some((co, t)) = self
+            let Some((bid, co, t)) = self
                 .route(&r.task_id)
                 .ok()
-                .and_then(|(_, co)| co.get_task(&r.task_id).map(|t| (co, t)))
+                .and_then(|(bid, co)| co.get_task(&r.task_id).map(|t| (bid, co, t)))
             else {
                 // The card hasn't reached this device yet: next sweep.
                 continue;
             };
+            // A start of a given card in Not now has its own rules, and
+            // marks itself seen (decision 69, §3.2).
+            if r.given {
+                self.serve_given_start(&ev, &r, &bid, &co, &t);
+                continue;
+            }
             self.mark_seen(&ev);
             // An agent's ask is read here too, for its count after a restart.
             if (ev.device_id == self.device.id && !r.agent)
@@ -1117,6 +1146,66 @@ impl Services {
                 self.release_usage_hold();
             }
             self.asks_kick.kick();
+        }
+    }
+
+    /// A `given` start request: the person started a card given to them,
+    /// in Not now, from a device that can't run it. Served only when it is
+    /// the person's own row from another device, the card is still theirs
+    /// in the very Not now they saw, and this is the spawn device. Writes
+    /// nothing when dropped; the card's own state shows why.
+    fn serve_given_start(
+        &self,
+        ev: &Event,
+        r: &StartRequest,
+        bid: &str,
+        co: &Arc<Coord>,
+        t: &Task,
+    ) {
+        let me = self.device.id.clone();
+        let short = t.short_ref();
+        if r.agent || ev.device_id == me || !self.by_person(ev, &r.by) {
+            self.mark_seen(ev);
+            return;
+        }
+        let still = co.mine_to_serve(t)
+            && !r.question.is_empty()
+            && Self::not_now_question(t).as_deref() == Some(r.question.as_str())
+            && t.spawn_request()
+                .is_none_or(|s| s.generation <= r.generation);
+        if !still {
+            logf(format_args!(
+                "spawn: dropped the start of {short}: it is no longer in the Not now it was asked in"
+            ));
+            self.mark_seen(ev);
+            return;
+        }
+        let runs = self
+            .spawn
+            .spawner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some();
+        match self.spawn_device(t) {
+            // Waiting for a machine: look again next sweep.
+            None if runs => return,
+            Some(d) if runs && d == me => {}
+            _ => {
+                self.mark_seen(ev);
+                return;
+            }
+        }
+        self.mark_seen(ev);
+        let Ok(b) = self.board(bid) else {
+            return;
+        };
+        let context = self.given_context(&SpawnLog::board(self, &b), t);
+        match co.raise_and_start(&self.person_actor(), &t.id, &context, GIVEN_START_WHY) {
+            Ok(true) => self.asks_kick.kick(),
+            Ok(false) => logf(format_args!(
+                "spawn: the start of {short} did not end up this device's"
+            )),
+            Err(e) => logf(format_args!("spawn: the start of {short}: {e}")),
         }
     }
 
