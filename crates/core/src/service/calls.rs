@@ -847,6 +847,44 @@ impl Services {
         )
     }
 
+    /// Huddle `call_id` as the tools show it to an agent (card #1055):
+    /// whether it is over, who is in it now and whose assistant is
+    /// connected. `None` for a huddle this device doesn't know.
+    pub(crate) fn huddle_now(&self, call_id: &str) -> Option<tools::HuddleNow> {
+        self.talk.call_conv(call_id)?;
+        let over = self.call_over(call_id);
+        if over {
+            return Some(tools::HuddleNow {
+                over,
+                ..tools::HuddleNow::default()
+            });
+        }
+        let me = self.person_id();
+        let me_key = self.user_sender().key;
+        let people = self
+            .call_people_now(call_id)
+            .0
+            .into_iter()
+            .map(|p| {
+                if p == me {
+                    me_key.clone()
+                } else {
+                    format!("{}{p}", store::kinds::PERSON_ACTOR_PREFIX)
+                }
+            })
+            .collect();
+        let assistants = self
+            .call_assistants(call_id)
+            .into_iter()
+            .map(|a| (a.person, a.state))
+            .collect();
+        Some(tools::HuddleNow {
+            over,
+            people,
+            assistants,
+        })
+    }
+
     /// The person ids in huddle `call_id` now, as this device knows (card
     /// #1049), and its space.
     pub(super) fn call_people_now(&self, call_id: &str) -> (Vec<String>, String) {

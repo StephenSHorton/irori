@@ -609,6 +609,9 @@ impl tools::Backend for ToolsView {
     fn talk(&self) -> Option<&Arc<coord::talk::Talk>> {
         Some(&self.0.talk)
     }
+    fn huddle_now(&self, call: &str) -> Option<tools::HuddleNow> {
+        self.0.huddle_now(call)
+    }
     fn notes(&self) -> Option<&dyn tools::NotesBackend> {
         Some(self)
     }

@@ -1080,7 +1080,12 @@ pub fn posts(b: &dyn Backend, reader: &str, conv: &str) -> Result<Vec<Post>, Str
 /// exception (card #1047, call-agents.md section 10): an agent of either
 /// person reads the lines marked `agents` directly, not the DM's own posts,
 /// and none at all of a huddle no line of which carries the mark.
-fn call_parent(b: &dyn Backend, talk: &Talk, reader: &str, id: &str) -> Result<String, String> {
+pub(crate) fn call_parent(
+    b: &dyn Backend,
+    talk: &Talk,
+    reader: &str,
+    id: &str,
+) -> Result<String, String> {
     let parent = talk
         .call_conv(id)
         .ok_or_else(|| format!("no huddle {}. talk_list shows yours.", one_line(id, 80)))?;
@@ -1119,6 +1124,11 @@ fn call_lines(talk: &Talk, reader: &str, id: &str) -> Vec<Post> {
     } else {
         lines
     }
+}
+
+/// How many lines of huddle `id` `reader` may read (card #1055).
+pub(crate) fn visible_lines(talk: &Talk, reader: &str, id: &str) -> usize {
+    call_lines(talk, reader, id).len()
 }
 
 /// Whether `reader` may read `conv`, by [`posts`]'s rule, without listing
@@ -1471,7 +1481,7 @@ fn tell_mentions(
 
 // ---- the tools ----------------------------------------------------------
 
-fn me(c: &Caller) -> &str {
+pub(crate) fn me(c: &Caller) -> &str {
     &c.sender.key
 }
 
@@ -1845,15 +1855,45 @@ pub(crate) fn talk_read(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         )
     };
     if all.is_empty() {
-        return format!("No posts in {conv} yet.");
+        return match &target {
+            Target::Call(id) => format!(
+                "No posts in {conv} yet.\n{}",
+                crate::huddle::live_tail(b, talk, id.strip_prefix(ct::CALL_PREFIX).unwrap_or(id))
+            ),
+            _ => format!("No posts in {conv} yet."),
+        };
     }
     let n = s.roster();
     let now = s.now();
     let mut out = String::new();
+    // A huddle read ends with the "still going" line while it is live
+    // (card #1055), so its page is budgeted before the cursor moves: what
+    // the clip would cut stays unread and the line is never cut.
+    let live = match &target {
+        Target::Call(id) => {
+            crate::huddle::live_tail(b, talk, id.strip_prefix(ct::CALL_PREFIX).unwrap_or(id))
+        }
+        _ => String::new(),
+    };
     if let Target::Call(_) = &target {
         out += &call_head(talk, &n, &conv);
     }
     out += &format!("{head} in {conv}, oldest first:\n");
+    let mut shown = shown;
+    if is_call {
+        let reserve = 700 + live.len();
+        let mut used = out.len();
+        let mut keep = 0;
+        for p in &shown {
+            let len = call_line_len(&n, &now, p);
+            if keep > 0 && used + len + reserve > crate::MAX_RESULT {
+                break;
+            }
+            used += len;
+            keep += 1;
+        }
+        shown.truncate(keep);
+    }
     for p in &shown {
         out += &format!(
             "- [{}] {} ({}): {}\n",
@@ -1890,7 +1930,7 @@ pub(crate) fn talk_read(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             if let Some(up_to) = next.encode() {
                 let _ = talk.mark_read(&conv, &up_to, me(c));
             }
-            return out + untrusted();
+            return out + &live + untrusted();
         }
         // Reading moves the caller's cursor (never back).
         let cur = talk.cursor(me(c), &conv);
@@ -1904,6 +1944,22 @@ pub(crate) fn talk_read(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         }
     }
     out + untrusted()
+}
+
+/// How long one post prints in talk_read: its line and its files.
+fn call_line_len(n: &crate::Names<'_>, now: &GoTime, p: &Post) -> usize {
+    let line = format!(
+        "- [{}] {} ({}): {}\n",
+        p.post_id,
+        n.who(&p.by),
+        ago(now, &p.at),
+        one_line(&p.text, READ_TEXT)
+    );
+    line.len()
+        + p.files
+            .iter()
+            .map(|f| f.describe().len() + 32)
+            .sum::<usize>()
 }
 
 pub(crate) fn talk_list(s: &Inner, c: &Caller, _: &[u8]) -> String {
@@ -2059,7 +2115,7 @@ impl Lines {
 }
 
 /// Where a huddle was, for a line about it: `#name`, or the DM with whom.
-fn call_place(talk: &Talk, n: &crate::Names<'_>, conv: &str) -> String {
+pub(crate) fn call_place(talk: &Talk, n: &crate::Names<'_>, conv: &str) -> String {
     if let Some(ch) = talk.channel(conv) {
         return format!("#{}", one_line(&ch.name, 80));
     }
@@ -2070,7 +2126,7 @@ fn call_place(talk: &Talk, n: &crate::Names<'_>, conv: &str) -> String {
 }
 
 /// The huddle `conv` (`call:<id>`) names, as talk_list knows it.
-fn call_info(talk: &Talk, conv: &str) -> Option<ct::CallInfo> {
+pub(crate) fn call_info(talk: &Talk, conv: &str) -> Option<ct::CallInfo> {
     let id = conv.strip_prefix(ct::CALL_PREFIX)?;
     talk.calls().into_iter().find(|c| c.call_id == id)
 }
