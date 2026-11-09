@@ -429,7 +429,8 @@ fn write_own(s: &Services, fold: &Shared, keys: Option<&[String]>) {
                 Ok(_) => lock(fold).wrote(&r, op),
                 Err(e) => {
                     logf(format_args!("runs: writing agent.run: {e}"));
-                    return;
+                    // Its end waits for the next sweep; other runs go on.
+                    break;
                 }
             }
         }
@@ -655,5 +656,10 @@ mod tests {
         assert!(!json.contains("output"), "{json}");
         assert!(json.contains("\"op\":\"end\""), "{json}");
         assert!(json.contains("\"peakMemMb\":4"), "{json}");
+        // The store marshals as Go does: the float survives it.
+        let go = String::from_utf8(gocompat::json::marshal(&end).unwrap()).unwrap();
+        assert!(go.contains("\"peakCores\":3.46"), "{go}");
+        let back: RunRow = serde_json::from_str(&go).unwrap();
+        assert_eq!(back, end);
     }
 }
