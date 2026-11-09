@@ -630,6 +630,6 @@ impl Services {
         }
         self.request_end(key)?;
         logf(format_args!("spawn: {caller} ended {key}"));
-        Ok(m.task_id)
+        Ok(m.current().to_string())
     }
 }

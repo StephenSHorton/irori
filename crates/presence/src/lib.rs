@@ -44,6 +44,14 @@ pub const SOURCE_USER: &str = "user";
 /// The friendly name Irori gave a session nobody named.
 pub const SOURCE_IRORI: &str = "irori";
 
+fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 fn is_empty(s: &str) -> bool {
     s.is_empty()
 }
@@ -122,6 +130,17 @@ pub struct AgentCard {
     /// Stays on this device, like lastText.
     #[serde(rename = "lastTool", skip_serializing_if = "is_empty")]
     pub last_tool: String,
+    /// The context of the newest main-chain API call, in tokens (agent-
+    /// continuity §4); 0 when unknown. Not part of `changed()`: it moves on
+    /// every call and must not write a row each time.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub ctx: u64,
+    /// When that call was made.
+    #[serde(rename = "ctxAt", default, skip_serializing_if = "GoTime::is_zero")]
+    pub ctx_at: GoTime,
+    /// A compaction was seen; stays set.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub compacted: bool,
     /// Set on another device's card in the mesh roster: "connected",
     /// "recent" or "offline". "" on this device's own.
     #[serde(rename = "deviceState", skip_serializing_if = "is_empty")]

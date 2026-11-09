@@ -45,6 +45,10 @@ import {
   USAGE_PATH,
   usageBody,
   measureMovedLimits,
+  PERMISSION_PATH,
+  permissionAnswer,
+  permissionBody,
+  reportsPermission,
   accountFromConfig,
   claudeConfigPath,
 } from './lib'
@@ -775,6 +779,43 @@ async function withHeld<R extends { additionalContext?: string[] }>($: EngineInt
   }
 }
 
+/** Prompts this load has reported, to give each its own id (the Core keys the wait by it). */
+let permissionSeq = 0
+
+/**
+ * A permission prompt in this session (GitHub #322): the Core puts it on the
+ * card the session holds, with Allow once / Always allow / Deny when it can
+ * answer, and this waits for the person's pick. Claude Code runs the hook
+ * beside the prompt, so the prompt stays answerable in the terminal; either
+ * answer ends the wait (the Core clears the item when the session is past
+ * it). The wait is `$.http` time, which a hook's budget does not count. Any
+ * failure leaves the prompt to the terminal.
+ */
+async function askPermission<R extends { decision?: unknown }>(
+  $: EngineInterface,
+  e: Record<string, unknown>,
+  result: R,
+  signal: { aborted: boolean } | undefined,
+): Promise<R> {
+  try {
+    if (result?.decision || !reportsPermission(e.permission_mode)) return result
+    if (!api || !attachSecret) return result
+    const id = `${String(e.session_id ?? '')}:${++permissionSeq}:${String(e.tool_name ?? '')}`
+    const body = permissionBody(id, e)
+    for (let polls = 0; polls < 5_000 && !signal?.aborted; polls++) {
+      const answer = await callCore($, 'POST', PERMISSION_PATH, body)
+      // A Core that doesn't know the route, or can't raise it: terminal only.
+      if (!answer.ok) return result
+      const got = permissionAnswer(answer.body)
+      if (got.kind === 'none') return result
+      if (got.kind === 'decide') return { ...result, decision: got.decision }
+    }
+  } catch {
+    // Observing a prompt must never break it.
+  }
+  return result
+}
+
 async function onSessionStart($: EngineInterface, cwd: string) {
   await $.command.register({
     name: 'irori',
@@ -806,6 +847,12 @@ export const register: Register = (on, options) => {
   on('classic.SessionStart', async ($, e, next) => withTitle($, await next(e), e.session_title))
   on('classic.UserPromptSubmit', async ($, e, next) =>
     withHeld($, await withTitle($, await next(e), e.session_title)),
+  )
+
+  // A tracked session stopped on a permission prompt (GitHub #322): a blocker
+  // on its card, answerable from Irori. Sessions that skip permissions pass.
+  on('classic.PermissionRequest', async ($, e, next) =>
+    askPermission($, e as unknown as Record<string, unknown>, await next(e), next.signal),
   )
 
   on('session.end', async ($, e, next) => {

@@ -773,6 +773,9 @@ fn presence_card(c: AgentCard) -> presence::AgentCard {
         repo_key: c.repo_key,
         permission_mode: c.permission_mode,
         last_tool: c.last_tool,
+        ctx: c.ctx.max(0) as u64,
+        ctx_at: c.ctx_at,
+        compacted: c.compacted,
         device_state: c.device_state,
         waiting_for: c.waiting_for,
         device_seen: c.device_seen,
@@ -809,6 +812,9 @@ fn roster_card(c: presence::AgentCard) -> AgentCard {
         repo_key: c.repo_key,
         permission_mode: c.permission_mode,
         last_tool: c.last_tool,
+        ctx: c.ctx.min(i64::MAX as u64) as i64,
+        ctx_at: c.ctx_at,
+        compacted: c.compacted,
         device_state: c.device_state,
         waiting_for: c.waiting_for,
         device_seen: c.device_seen,
@@ -977,6 +983,14 @@ struct DeviceStarted<'a> {
     version: &'a str,
 }
 
+/// What [`Core::context_of`] reports for one agent.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AgentContext {
+    pub ctx: u64,
+    pub ctx_at: gocompat::time::GoTime,
+    pub compacted: bool,
+}
+
 /// The `agent.status` payload (a Go map: keys sorted).
 #[derive(Serialize)]
 struct AgentStatus<'a> {
@@ -987,6 +1001,25 @@ struct AgentStatus<'a> {
     #[serde(rename = "permissionMode", skip_serializing_if = "str::is_empty")]
     permission_mode: &'a str,
     status: &'a str,
+    /// Context tokens of the newest main-chain call (agent-continuity §4).
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    ctx: u64,
+    #[serde(rename = "ctxAt", skip_serializing_if = "presence_time_is_zero")]
+    ctx_at: gocompat::time::GoTime,
+    #[serde(skip_serializing_if = "is_false")]
+    compacted: bool,
+}
+
+fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+fn presence_time_is_zero(t: &gocompat::time::GoTime) -> bool {
+    t.is_zero()
 }
 
 /// The `agent.gone` payload.
@@ -3060,6 +3093,19 @@ impl Core {
     /// routing, the tools and the window.
     pub fn mesh_agents(&self) -> Vec<AgentCard> {
         self.s.roster.agents()
+    }
+
+    /// An agent's context measure (agent-continuity §4), local or on another
+    /// device: tokens of its newest main-chain call, when that call was
+    /// made, and whether it was ever compacted. None when no card holds the
+    /// key or no measure has been taken (`ctx` 0 and not compacted).
+    pub fn context_of(&self, key: &str) -> Option<AgentContext> {
+        let c = self.s.roster.agents().into_iter().find(|a| a.key == key)?;
+        (c.ctx > 0 || c.compacted).then(|| AgentContext {
+            ctx: c.ctx.max(0) as u64,
+            ctx_at: c.ctx_at,
+            compacted: c.compacted,
+        })
     }
 
     /// The word a new agent started from `seed` would get now (card #472):
@@ -5671,6 +5717,9 @@ impl Services {
                                     name_source: &card.name_source,
                                     permission_mode: &card.permission_mode,
                                     status: &card.status,
+                                    ctx: card.ctx,
+                                    ctx_at: card.ctx_at,
+                                    compacted: card.compacted,
                                 },
                             )
                             .map(|_| ())
