@@ -329,12 +329,16 @@ pub fn parse(reply: &str) -> Verdict {
         let rest = rest.strip_prefix(':')?;
         Some(rest.trim_start_matches(['*', '_']).trim().to_string())
     };
-    if let Some(l) = lines.iter().find_map(|l| tag(l, "NEEDS_OWNER")) {
-        return Verdict::NeedsOwner(l);
-    }
-    let Some(at) = lines.iter().position(|l| tag(l, "ANSWER").is_some()) else {
+    // The first verdict line decides.
+    let Some(at) = lines
+        .iter()
+        .position(|l| tag(l, "ANSWER").is_some() || tag(l, "NEEDS_OWNER").is_some())
+    else {
         return Verdict::NeedsOwner("the reply had no verdict".into());
     };
+    if let Some(l) = tag(lines[at], "NEEDS_OWNER") {
+        return Verdict::NeedsOwner(l);
+    }
     // A reason before the verdict: its tag's line and the lines after it.
     let reason = lines[..at]
         .iter()
@@ -350,8 +354,17 @@ pub fn parse(reply: &str) -> Verdict {
     if reason.trim().is_empty() {
         return Verdict::NeedsOwner("the reply gave no reason first".into());
     }
+    // The answer runs to the end, or to a NEEDS_OWNER line after it. One
+    // that says there's nothing for the owner ("NEEDS_OWNER: none", which
+    // Haiku writes) is dropped; any other means the owner has to answer.
     let mut body = tag(lines[at], "ANSWER").unwrap_or_default();
     for l in &lines[at + 1..] {
+        if let Some(rest) = tag(l, "NEEDS_OWNER") {
+            if filler(&rest) {
+                break;
+            }
+            return Verdict::NeedsOwner(rest);
+        }
         body.push('\n');
         body.push_str(l);
     }
@@ -368,6 +381,18 @@ pub fn parse(reply: &str) -> Verdict {
         return Verdict::NeedsOwner(body);
     }
     Verdict::Answer(body)
+}
+
+/// A trailing verdict that says nothing: "none", "n/a", "-", "".
+fn filler(s: &str) -> bool {
+    let s = s
+        .trim()
+        .trim_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace())
+        .to_ascii_lowercase();
+    matches!(
+        s.as_str(),
+        "" | "none" | "n/a" | "na" | "no" | "nothing" | "not needed" | "none needed"
+    )
 }
 
 /// The turn's system prompt for `p`.
@@ -393,7 +418,7 @@ Never commit {owner} to anything and never speak as {owner}: not their time, a r
 \n\
 Reply in exactly this form, nothing before it:\n\
 REASON: <one or two sentences: what in the packet bears on the question, or that nothing does>\n\
-then one line that starts with one of:\n\
+then exactly one line that starts with one of these two, never both:\n\
 ANSWER: <your answer to the asker, plain text, at most 1,200 characters>\n\
 NEEDS_OWNER: <one line on what {owner} has to answer>"
     )
@@ -870,6 +895,21 @@ mod tests {
         );
     }
 
+    /// Measured on Haiku (card #1061's real run): a good answer, then
+    /// "NEEDS_OWNER: none". The filler is dropped, never posted.
+    #[test]
+    fn parse_drops_a_trailing_verdict_that_says_nothing() {
+        for tail in ["none", "None.", "N/A", "-", "", "no", "*none*"] {
+            assert_eq!(
+                parse(&format!(
+                    "REASON: r\nANSWER: Kit holds it.\nNEEDS_OWNER: {tail}\nmore"
+                )),
+                Verdict::Answer("Kit holds it.".into()),
+                "{tail:?}"
+            );
+        }
+    }
+
     #[test]
     fn parse_sends_everything_else_to_the_owner() {
         let owner = |r: &str| matches!(parse(r), Verdict::NeedsOwner(_));
@@ -900,9 +940,12 @@ mod tests {
         );
         // A tag must end at its colon.
         assert!(owner("REASON: r\nANSWERS: yes"));
-        // Both verdicts: the owner's wins, wherever it is.
-        assert!(owner("REASON: r\nANSWER: yes\nNEEDS_OWNER: no"));
+        // Both verdicts: the first decides, and a trailing NEEDS_OWNER
+        // that says something means the owner has to answer.
         assert!(owner("REASON: r\nNEEDS_OWNER: x\nANSWER: yes"));
+        assert!(owner(
+            "REASON: r\nANSWER: yes\nNEEDS_OWNER: whether Bob agrees"
+        ));
     }
 
     #[test]
