@@ -760,6 +760,15 @@ export const AssistantService = {
   // it is. again is the turn Ask again repeats.
   ChatAsk: (text: string, screen: string, again?: string) =>
     call(commands.assistantChatAsk(text, screen, again ?? null)),
+  // Post thread: the reply's draft became this thread (every device then
+  // hides the button). New chat hides the conversation so far, everywhere.
+  ChatPosted: (turn: string, id: string, short: string, tag: string) =>
+    done(commands.assistantChatPosted(turn, id, short, tag)),
+  ChatClear: () => done(commands.assistantChatClear()),
+  // A follow-up line about a thread the chat posted; the first row per key
+  // wins on every device.
+  ChatUpdate: (line: B.AssistantChatUpdateIn) =>
+    done(commands.assistantChatUpdate(line)),
   // Stops a question, from any device.
   ChatStop: (turn: string) => done(commands.assistantChatStop(turn)),
   // The reply of a turn this computer runs, as it streams: what it has said

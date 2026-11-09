@@ -1,26 +1,28 @@
 // Ask Irori (card #783): the small chat in the window's bottom-right corner.
 // The person asks anything about their cards, threads and agents, and a
 // read-only helper answers in plain words from what Irori knows (the Rust
-// side runs it on Haiku through the person's own Claude Code sign-in). It
-// is not an agent: it never shows on the roster and never takes cards.
+// side runs it through the person's own Claude Code sign-in). It is not an
+// agent: it never shows on the roster and never takes cards.
 //
-// This module is the chat's state: the conversation (kept on this device
-// in localStorage, the last HistoryCap messages), whether the panel is
-// open, and the reply being written. The reply is folded from the host's
-// AssistantEvents by foldEvent, a pure reducer. Outside the app (the bun
-// preview) a stand-in streams a canned answer that cites sample cards.
+// One assistant per person (docs/design/one-assistant.md): this module is
+// the chat's state, built from the conversation's rows (assistant_chat_list,
+// read again on assistant:changed). A question is a row the assistant's
+// computer answers, wherever the person typed it. A reply streams under its
+// question where it runs; elsewhere it appears when its row does. Outside
+// the app (the bun preview) a stand-in keeps the entries and answers.
 
 import type {
+  AssistantChatItem,
   AssistantEvent,
   AssistantFile,
-  AssistantTurn,
+  AssistantHomeStatus,
 } from "../gen/bindings"
 import {
   createFollower,
-  finished,
   listenCards,
   parseSeen,
   readWork,
+  silentOnly,
   type Act,
   type Fact,
   type Follower,
@@ -30,12 +32,12 @@ import {
 import { cards, threads } from "./cards"
 import { goesByItself, splitGo, type GoTarget } from "./goto"
 import { screenLabel, screenSnapshot, StatusHead } from "./assistant-screen"
-import { AssistantService } from "./host"
-import { inWails } from "./irori"
+import { AssistantService, Events } from "./host"
+import { EventDevicesChanged, inWails } from "./irori"
 import { previewFlag } from "./preview"
 import { checkUploads, uploadOf } from "./uploads"
 
-export type { AssistantEvent, AssistantFile, AssistantTurn }
+export type { AssistantEvent, AssistantFile, AssistantHomeStatus }
 export type { Act, WorkThread }
 
 // ChatEntry is one message in the chat. A note is a plain line of the
@@ -64,9 +66,18 @@ export type ChatEntry = {
   act?: Act
   to?: string
   files?: AssistantFile[]
-  // The exact text the assistant read off the screen for this reply
-  // (card #1009), shown under it as "Looked at: …".
+  // The label of the screen the assistant read for this reply (card
+  // #1009), shown under it as "Looked at: …".
   looked?: string
+  // Rows (one-assistant card 4): a stable key, the turn it belongs to, a
+  // question with no reply yet, the device it was typed on, the turn it
+  // asks again, and a note the person may Ask again from.
+  id?: string
+  turn?: string
+  pending?: boolean
+  device?: string
+  again?: string
+  retry?: boolean
 }
 
 export type Posted = { id: string; short: string; tag?: string }
@@ -146,45 +157,6 @@ export const HistoryCap = 50
 
 export function capHistory<T>(entries: readonly T[], n = HistoryCap): T[] {
   return entries.length > n ? entries.slice(entries.length - n) : [...entries]
-}
-
-// historyFor is the conversation as the host takes it: the person's and
-// the assistant's own words, without the chat's notes. A posted draft
-// says which thread it became, and a reply sent on a thread says where,
-// so the assistant can look them up (card #785).
-// The chat's own lines on the work it follows go in as one turn per run,
-// marked as the chat's, so they don't crowd out the conversation.
-export function historyFor(entries: readonly ChatEntry[]): AssistantTurn[] {
-  const out: AssistantTurn[] = []
-  let ups: string[] = []
-  const flush = () => {
-    if (ups.length)
-      out.push({
-        role: "assistant",
-        text: `(The chat's own lines on the work it follows:)\n${ups.map((u) => `- ${u}`).join("\n")}`,
-      })
-    ups = []
-  }
-  for (const e of entries) {
-    if (e.note) continue
-    if (e.update) {
-      ups.push(e.text)
-      continue
-    }
-    flush()
-    const turn: AssistantTurn = { role: e.role, text: turnText(e) }
-    if (e.files?.length) turn.files = e.files
-    out.push(turn)
-  }
-  flush()
-  return capHistory(out)
-}
-
-function turnText(e: ChatEntry): string {
-  if (e.to) return `(My reply on ${e.to}) ${e.text}`
-  if (e.posted)
-    return `${e.text}\n\n(This draft was posted as thread ${e.posted.tag ?? ""}#${e.posted.short}.)`
-  return e.text
 }
 
 // parseHistory reads saved history back, keeping only well-formed entries
@@ -299,41 +271,13 @@ function waitsOnPerson(text: string): boolean {
 }
 
 export function serializeHistory(entries: readonly ChatEntry[]): string {
-  return JSON.stringify(capKeeping(entries, live))
-}
-
-// live is the threads the chat still follows (card #785): their posted
-// messages stay through the cap, or following would stop while the work
-// goes on (the follower's own lines would push them out).
-const live = new Set<string>()
-
-// capKeeping is capHistory that drops the oldest messages other than the
-// posted ones of threads in keep.
-export function capKeeping(
-  entries: readonly ChatEntry[],
-  keep: ReadonlySet<string>,
-  n = HistoryCap
-): ChatEntry[] {
-  let drop = entries.length - n
-  if (drop <= 0) return [...entries]
-  const out: ChatEntry[] = []
-  for (const e of entries) {
-    if (drop > 0 && !(e.posted && keep.has(e.posted.id))) {
-      drop--
-      continue
-    }
-    out.push(e)
-  }
-  return out
-}
-
-function capChat(entries: readonly ChatEntry[]): ChatEntry[] {
-  return capKeeping(entries, live)
+  return JSON.stringify(capHistory(entries))
 }
 
 const storeKey = "irori.assistant.history"
 
-function loadHistory(): ChatEntry[] {
+// loadHistory reads this device's old history (before chats were shared).
+export function loadHistory(): ChatEntry[] {
   try {
     return parseHistory(localStorage.getItem(storeKey))
   } catch {
@@ -341,34 +285,37 @@ function loadHistory(): ChatEntry[] {
   }
 }
 
-function saveHistory(entries: readonly ChatEntry[]) {
-  try {
-    if (entries.length)
-      localStorage.setItem(storeKey, serializeHistory(entries))
-    else localStorage.removeItem(storeKey)
-  } catch {
-    // Private mode or blocked storage: the chat still works, unsaved.
-  }
-}
-
 // ---- the shared state ----------------------------------------------------------
+
+// The chat is the one conversation of rows (one-assistant card 4, design
+// §5): entries are built from assistant_chat_list and read again on
+// assistant:changed. Nothing is kept here but per-device conveniences: the
+// panel, the turns this page asked, what streams, the "seen up to" mark.
+// Outside the app (the bun preview) a stand-in keeps the entries locally.
 
 export type AssistantState = {
   open: boolean
+  // The conversation, oldest first.
   entries: ChatEntry[]
-  // The answer being written, or null when none is.
-  reply: Reply | null
-  // A reply ended while the panel was closed.
+  // The replies being written, by turn (assistant_chat_watch): only on the
+  // assistant's computer; elsewhere nothing streams.
+  streams: Readonly<Record<string, Reply>>
+  // Something waits on the person: a reply to a question this page asked
+  // that came in while the panel was closed, or a follow-up line past
+  // "seen up to".
   unread: boolean
-  // The work of each thread the chat posted, as last read (card #785):
-  // the posted draft lists the cards made from it. Not kept: read again.
+  // One of this page's questions is waiting or being answered.
+  busy: boolean
+  // The work of each thread the chat posted (card #785): the posted draft
+  // lists the cards made from it. Not kept: read again.
   work: Record<string, WorkThread>
-  // The message whose thread is posting by itself (card #988), so its
-  // draft says so rather than offering Post thread.
-  autoPosting: ChatEntry | null
-  // Why a message's thread couldn't post by itself: its draft says so
-  // beside Post thread. Not kept: after a reload the button is enough.
-  autoFailed: ReadonlyMap<ChatEntry, string>
+  // Turns whose draft is being posted by a tap, and why a post failed.
+  posting: ReadonlySet<string>
+  postFailed: Readonly<Record<string, string>>
+  // Where the assistant runs (assistant_home_status), null until read.
+  home: AssistantHomeStatus | null
+  // Older entries remain beyond those loaded.
+  more: boolean
 }
 
 let state: AssistantState | null = null
@@ -378,7 +325,18 @@ const subs = new Set<() => void>()
 // ?assistant=busy with a reply half written (lib/preview.ts).
 function initial(): AssistantState {
   const flag = typeof window === "undefined" ? null : previewFlag("assistant")
-  const base = { work: {}, autoPosting: null, autoFailed: new Map() }
+  const base: AssistantState = {
+    open: false,
+    entries: [],
+    streams: {},
+    unread: false,
+    busy: false,
+    work: {},
+    posting: new Set(),
+    postFailed: {},
+    home: null,
+    more: false,
+  }
   // ?assistant=follow: a thread the chat posted, sample #20, followed
   // from nothing said, so the first read says what waits on the person.
   if (flag === "follow")
@@ -393,33 +351,35 @@ function initial(): AssistantState {
           posted: { id: "sample-thread-1", short: "20" },
         },
       ],
-      reply: null,
-      unread: false,
     }
-  if (flag === "open" || flag === "busy")
+  if (flag === "open" || flag === "busy") {
+    if (flag === "open") return { ...base, open: true, entries: sampleHistory }
+    const turn = "sample-busy"
     return {
       ...base,
       open: true,
-      entries: sampleHistory,
-      reply:
-        flag === "busy"
-          ? {
-              ...freshReply,
-              text: "Two cards are waiting on you. ",
-              status: "Reading the Board",
-            }
-          : null,
-      unread: false,
+      busy: true,
+      entries: [
+        ...sampleHistory,
+        {
+          id: `q:${turn}`,
+          role: "person",
+          text: "What needs me?",
+          turn,
+          pending: true,
+        },
+      ],
+      streams: {
+        [turn]: {
+          ...freshReply,
+          text: "Two cards are waiting on you. ",
+          status: "Reading the Board",
+        },
+      },
     }
+  }
   // ?assistant=files: messages with files (card #999).
-  if (flag === "files")
-    return {
-      ...base,
-      open: true,
-      entries: sampleFileChat,
-      reply: null,
-      unread: false,
-    }
+  if (flag === "files") return { ...base, open: true, entries: sampleFileChat }
   if (flag === "go")
     return {
       ...base,
@@ -428,11 +388,41 @@ function initial(): AssistantState {
         { role: "person", text: "Where do I turn off pausing agents?" },
         { role: "assistant", text: sampleAnswer("pausing agents").text },
       ],
-      reply: null,
-      unread: false,
     }
-  if (flag === "new")
-    return { ...base, open: true, entries: [], reply: null, unread: false }
+  if (flag === "new") return { ...base, open: true }
+  // ?assistant=waiting: a question another device asked, no reply yet.
+  if (flag === "waiting")
+    return {
+      ...base,
+      open: true,
+      entries: [
+        ...sampleHistory,
+        {
+          id: "q:w1",
+          role: "person",
+          text: "Who is on the lobby card?",
+          turn: "w1",
+          pending: true,
+        },
+        {
+          id: "q:w2",
+          role: "person",
+          text: "And the release notes?",
+          turn: "w2",
+          pending: true,
+        },
+      ],
+      home: {
+        device: "mac",
+        name: "Mac",
+        here: false,
+        state: "connected",
+        lastSeenMs: 0,
+        claude: true,
+        chat: true,
+        none: "",
+      },
+    }
   if (flag === "draft")
     return {
       ...base,
@@ -449,18 +439,11 @@ function initial(): AssistantState {
           text: sampleWork(
             "Add a changelog page to the release notes, check with me first"
           ),
+          turn: "sample-draft",
         },
       ],
-      reply: null,
-      unread: false,
     }
-  return {
-    ...base,
-    open: false,
-    entries: loadHistory(),
-    reply: null,
-    unread: false,
-  }
+  return base
 }
 
 export function assistantState(): AssistantState {
@@ -474,97 +457,345 @@ export function subscribeAssistant(f: () => void): () => void {
 }
 
 function set(next: Partial<AssistantState>) {
-  const was = assistantState()
-  state = { ...was, ...next }
-  if (next.entries && next.entries !== was.entries) saveHistory(next.entries)
+  state = { ...assistantState(), ...next }
   for (const f of subs) f()
 }
 
 export function setAssistantOpen(open: boolean) {
   const s = assistantState()
   if (s.open === open) return
-  set(open ? { open, unread: false } : { open })
+  if (open) {
+    replyDot = false
+    markSeen()
+    set({ open, unread: false })
+    void refreshHome()
+  } else set({ open })
 }
 
-// newChat clears the conversation (stopping a reply being written). The
-// threads it posted are no longer followed.
+// newChat appends a New chat row: every device hides the conversation so
+// far. The turns being answered stop; the threads it posted are no longer
+// followed.
 export function newChat() {
-  stopAsking()
-  set({ entries: [], reply: null, work: {}, autoFailed: new Map() })
+  if (!inWails()) {
+    for (const t of [...localRuns.keys()]) stopTurn(t)
+    set({ entries: [], streams: {}, busy: false, work: {} })
+    return
+  }
+  items = []
+  limit = PageSize
+  derive()
+  void AssistantService.ChatClear()
+    .catch(() => {})
+    .finally(() => void refresh())
+}
+
+// ---- the rows ------------------------------------------------------------------
+
+const PageSize = 50
+// Entries loaded, newest first, and how many a read asks for.
+let items: AssistantChatItem[] = []
+let limit = PageSize
+let more = false
+
+// stateText is the text of a turn's reply as the chat shows it.
+const STOPPED = "Stopped"
+
+// entriesFrom builds the shown conversation, oldest first, from the list's
+// items (newest first). A question with no reply is pending. Only the
+// person's questions and the assistant's replies, notes and follow-up lines
+// are entries; a drafted answer (assistants-talk) isn't shown here yet.
+export function entriesFrom(page: readonly AssistantChatItem[]): ChatEntry[] {
+  const out: ChatEntry[] = []
+  for (let i = page.length - 1; i >= 0; i--) {
+    const it = page[i]
+    if (it.kind === "update" && it.update) {
+      const u = it.update
+      const e: ChatEntry = {
+        id: `u:${u.key}`,
+        role: "assistant",
+        text: u.text,
+        update: u.thread || u.key,
+      }
+      if (u.act && u.act.kind === "answer" && u.act.card && u.act.blocker)
+        e.act = { kind: "answer", card: u.act.card, blocker: u.act.blocker }
+      out.push(e)
+      continue
+    }
+    const t = it.turn
+    if (it.kind !== "turn" || !t) continue
+    const q: ChatEntry = {
+      id: `q:${t.turn}`,
+      role: "person",
+      text: t.text,
+      turn: t.turn,
+      device: t.device,
+    }
+    if (t.again) q.again = t.again
+    const r = t.reply
+    if (!r) q.pending = true
+    out.push(q)
+    if (!r) continue
+    if (r.text.trim()) {
+      const a: ChatEntry = {
+        id: `a:${t.turn}`,
+        role: "assistant",
+        text: r.text,
+        turn: t.turn,
+      }
+      if (t.posted)
+        a.posted = {
+          id: t.posted.id,
+          short: t.posted.short,
+          ...(t.posted.tag ? { tag: t.posted.tag } : {}),
+        }
+      if (r.looked) a.looked = r.looked
+      out.push(a)
+    }
+    r.changed.forEach((line, n) => {
+      if (line.trim())
+        out.push({
+          id: `c:${t.turn}:${n}`,
+          role: "assistant",
+          text: line,
+          note: true,
+          changed: true,
+          turn: t.turn,
+        })
+    })
+    const why = r.error.trim()
+    if (r.skipped || why)
+      out.push({
+        id: `e:${t.turn}`,
+        role: "assistant",
+        text:
+          why === STOPPED
+            ? "Stopped."
+            : why ||
+              "The assistant's computer didn't get to this. Ask again to send it now.",
+        note: true,
+        turn: t.turn,
+        retry: true,
+      })
+  }
+  return out
+}
+
+// postedIds is the threads the chat's messages posted, oldest first.
+export function postedIds(entries: readonly ChatEntry[]): string[] {
+  const out: string[] = []
+  for (const e of entries)
+    if (e.posted && !out.includes(e.posted.id)) out.push(e.posted.id)
+  return out
+}
+
+// The turns this page asked in this run of the app, and when (ms). Only a
+// reply to one of these may go somewhere by itself or light the dot, and
+// only once, as it arrives (design §5, Markers and The dot).
+const asked = new Map<string, number>()
+const handled = new Set<string>()
+// A reply to one of this page's questions came in while the panel was shut.
+let replyDot = false
+// The ten minutes after which a reply no longer goes anywhere by itself.
+const GoWithinMs = 10 * 60 * 1000
+
+let loaded = false
+
+// derive rebuilds the shown entries from the loaded items and opens a
+// watch for each question still waiting.
+function derive() {
+  const entries = entriesFrom(items)
+  const s = assistantState()
+  const pending = entries.filter((e) => e.pending && e.turn)
+  watchTurns(pending.map((e) => e.turn as string))
+  const busy = pending.some((e) => asked.has(e.turn as string))
+  set({
+    entries,
+    more,
+    busy,
+    unread: s.open ? false : replyDot || updatesUnread(),
+  })
   follower?.poke()
+}
+
+let reading = false
+let again = false
+
+// refresh reads the conversation again (assistant:changed, or after a
+// write) and treats what newly arrived: a reply to this page's question
+// may go to its page and light the dot.
+export async function refresh(): Promise<void> {
+  if (!inWails()) return
+  if (reading) {
+    again = true
+    return
+  }
+  reading = true
+  try {
+    do {
+      again = false
+      const page = await AssistantService.ChatList("", limit)
+      items = page.items
+      more = page.more
+      const first = !loaded
+      loaded = true
+      if (!first) arrived()
+      else for (const it of items) if (it.turn?.reply) handled.add(it.turn.turn)
+      derive()
+    } while (again)
+  } catch {
+    // The host couldn't read: the next change reads again.
+  } finally {
+    reading = false
+  }
+}
+
+// arrived acts on replies that came in since the last read, for questions
+// this page asked: Take me there (card #784) once, and the dot.
+function arrived() {
+  for (const it of items) {
+    const t = it.turn
+    if (!t?.reply || handled.has(t.turn)) continue
+    handled.add(t.turn)
+    const at = asked.get(t.turn)
+    if (at === undefined) continue
+    const s = assistantState()
+    const r = t.reply
+    if (!r.error && !r.skipped && Date.now() - at < GoWithinMs) {
+      const go = splitReply(r.text).go
+      if (go && s.open && goesByItself(go)) goHandler?.(go)
+    }
+    if (!s.open) replyDot = true
+  }
+}
+
+// loadOlder shows 50 more of the conversation.
+export function loadOlder() {
+  if (!more) return
+  limit += PageSize
+  void refresh()
+}
+
+// ---- the dot -------------------------------------------------------------------
+
+// Each device keeps its own "seen up to" (a cursor) in localStorage: a
+// per-device convenience, not part of the conversation.
+const seenKey = "irori.assistant.seen"
+
+// after says cursor a sorts after b: cursors read `later.hlc.seq.device`.
+export function cursorAfter(a: string, b: string): boolean {
+  const pa = a.split(".")
+  const pb = b.split(".")
+  for (let i = 0; i < 3; i++) {
+    const x = Number(pa[i])
+    const y = Number(pb[i])
+    if (x !== y) return x > y
+  }
+  return pa.slice(3).join(".") > pb.slice(3).join(".")
+}
+
+function readSeen(): string | null {
+  try {
+    return localStorage.getItem(seenKey)
+  } catch {
+    return null
+  }
+}
+
+// newestUpdate is the newest follow-up line's cursor (not an imported one).
+function newestUpdate(): string {
+  let best = ""
+  for (const it of items) {
+    if (it.kind !== "update" || it.update?.imported) continue
+    if (!best || cursorAfter(it.cursor, best)) best = it.cursor
+  }
+  return best
+}
+
+// updatesUnread: a follow-up line past "seen up to", whether it came live
+// or while this device was closed: it waits on the person wherever they
+// are. With nothing seen yet, what is there now counts as seen.
+function updatesUnread(): boolean {
+  const newest = newestUpdate()
+  if (!newest) return false
+  const seen = readSeen()
+  if (seen === null) {
+    markSeen()
+    return false
+  }
+  return cursorAfter(newest, seen)
+}
+
+function markSeen() {
+  const newest = newestUpdate()
+  if (!newest) return
+  try {
+    localStorage.setItem(seenKey, newest)
+  } catch {
+    // Blocked storage: the dot may light again after a restart.
+  }
+}
+
+// ---- where the assistant runs --------------------------------------------------
+
+export async function refreshHome(): Promise<void> {
+  if (!inWails()) return
+  try {
+    const home = await AssistantService.HomeStatus()
+    const was = assistantState().home
+    if (JSON.stringify(was) !== JSON.stringify(home)) set({ home })
+  } catch {
+    // Not readable now: the line keeps what it had.
+  }
+}
+
+// ---- the streamed reply --------------------------------------------------------
+
+// A watch is opened for each question still waiting that this computer may
+// run, and kept until the turn ends. Elsewhere it only gets a stream when
+// card 7 lands.
+const watched = new Set<string>()
+
+function watchTurns(turns: string[]) {
+  for (const turn of turns) {
+    if (watched.has(turn)) continue
+    watched.add(turn)
+    void AssistantService.ChatWatch(turn, (ev) => onStream(turn, ev)).catch(
+      () => {}
+    )
+  }
+  // A turn that has its reply no longer streams.
+  const still = new Set(turns)
+  const s = assistantState()
+  const gone = Object.keys(s.streams).filter((t) => !still.has(t))
+  if (gone.length) {
+    const streams = { ...s.streams }
+    for (const t of gone) delete streams[t]
+    set({ streams })
+  }
+}
+
+function onStream(turn: string, ev: AssistantEvent) {
+  if (ev.kind === "changed") return
+  const s = assistantState()
+  const r = foldEvent(s.streams[turn] ?? freshReply, ev)
+  // The row, not the stream, is the reply: when it lands it replaces this.
+  set({ streams: { ...s.streams, [turn]: r } })
 }
 
 // ---- asking --------------------------------------------------------------------
 
-// A run is one question being answered. Events can come before Ask
-// returns the host's id, so a run is known by a token of ours; a Stop
-// pressed before the id arrives is sent once it does.
-type Run = { token: number; id: number | null }
-let run: Run | null = null
-let tokens = 0
-const stoppedEarly = new Set<number>()
-
-function finish(r: Reply) {
-  run = null
-  const s = assistantState()
-  set({
-    entries: capChat([...s.entries, ...settled(r)]),
-    reply: null,
-    unread: !s.open,
-  })
-  // Take me there (card #784): a whole reply with a go line, come in
-  // while the chat is open, goes there by itself, once. Never from saved
-  // history, never a reply stopped or cut short, never a PR (that opens
-  // the browser: only a tap does).
-  const go = r.end === "done" ? splitReply(r.text).go : null
-  if (go && s.open && goesByItself(go)) goHandler?.(go)
-  // A whole reply's thread posts by itself, once (card #988), the panel
-  // open or not: the person asked for the work, and Stop is how to call it
-  // off. Only here, where a live reply ends: saved history never comes
-  // through, so a reload or a reopened chat can't post.
-  if (postsByItself(r)) autoPost()
-}
-
-// autoPost posts the thread of the reply just added at the chat's end. It
-// stays in the chat, naming the thread; it doesn't open it, as a tap does.
-// If it fails the draft says why, and keeps Post thread to retry.
-function autoPost() {
-  const { entries } = assistantState()
-  const entry = entries[entries.length - 1]
-  set({ autoPosting: entry })
-  postDraft(entries.length - 1)
-    .catch((err) => {
-      const failed = new Map(assistantState().autoFailed)
-      failed.set(entry, errorLine(err))
-      set({ autoFailed: failed })
-    })
-    .finally(() => set({ autoPosting: null }))
-}
-
 // addNote puts a plain line of the chat's own at its end (a go that
-// couldn't get there, card #784).
+// couldn't get there, card #784). It lives with this page only.
 export function addNote(text: string) {
   const s = assistantState()
   set({
-    entries: capHistory([
+    entries: [
       ...s.entries,
-      { role: "assistant", text, note: true },
-    ]),
+      { id: `n:${++notes}`, role: "assistant", text, note: true },
+    ],
   })
 }
-
-// addChanged says what a run stopped early had already changed.
-function addChanged(line: string) {
-  const text = line.trim()
-  if (!text) return
-  const s = assistantState()
-  set({
-    entries: capHistory([
-      ...s.entries,
-      { role: "assistant", text, note: true, changed: true },
-    ]),
-  })
-}
+let notes = 0
 
 // The chat's way to go somewhere (components/assistant/assistant-chat.tsx
 // registers it while it is mounted).
@@ -594,81 +825,36 @@ export function unreadableNote(files: readonly AssistantFile[]): string {
   return `Can't read ${names.join(", ")}: the assistant reads pictures, PDFs and text files.`
 }
 
-// ask sends the person's question and files with the chat so far. Nothing
-// while a reply is being written. With no words and no file it can read
-// there is nothing to answer: the chat says so and the model isn't run.
+// ask sends the person's question as a row; the assistant's computer
+// answers it, wherever it is. The composer stays on while questions wait:
+// a second one may follow the first. again is the turn Ask again repeats.
 export async function ask(
   text: string,
-  files: AssistantFile[] = []
+  files: AssistantFile[] = [],
+  again = ""
 ): Promise<void> {
   const body = text.trim()
-  const s = assistantState()
-  if ((!body && !files.length) || run || s.reply) return
-  const history = historyFor(s.entries)
-  const mine: ChatEntry[] = [
-    files.length
-      ? { role: "person", text: body, files }
-      : { role: "person", text: body },
-  ]
-  const note = unreadableNote(files)
-  if (note) mine.push({ role: "assistant", text: note, note: true })
-  if (!body && files.every((f) => f.can_read === false)) {
-    set({ entries: capChat([...s.entries, ...mine]) })
+  if (!body && !files.length) return
+  if (!inWails()) return localAsk(body, files)
+  if (!body) return
+  try {
+    // What the window shows, sent along for the screen tool (card #1009).
+    const screen = await screenSnapshot().catch(() => "")
+    const turn = await AssistantService.ChatAsk(body, screen, again)
+    asked.set(turn, Date.now())
+    await refresh()
+  } catch (err) {
+    addNote(errorLine(err))
+  }
+}
+
+// stopTurn stops one question: from any device, before or while it runs.
+export function stopTurn(turn: string) {
+  if (!inWails()) {
+    localStop(turn)
     return
   }
-  const token = ++tokens
-  run = { token, id: null }
-  set({
-    entries: capChat([...s.entries, ...mine]),
-    reply: freshReply,
-  })
-  // What the window shows, sent along for the screen tool (card #1009).
-  let screen = ""
-  const onEvent = (ev: AssistantEvent) => {
-    // Card #987: a change made before Stop still happened, so say so.
-    if (ev.kind === "changed" && run?.token !== token) {
-      addChanged(ev.text)
-      return
-    }
-    if (run?.token !== token) return
-    let r = foldEvent(assistantState().reply ?? freshReply, ev)
-    // It called the screen tool: keep the exact text it read.
-    if (ev.kind === "tool" && ev.text.startsWith(StatusHead) && screen)
-      r = { ...r, looked: screen }
-    if (r.end) finish(r)
-    else set({ reply: r })
-  }
-  try {
-    screen = await screenSnapshot().catch(() => "")
-    const id = inWails()
-      ? await AssistantService.Ask(history, body, files, screen, onEvent)
-      : sampleAsk(body, files, onEvent, screen)
-    if (stoppedEarly.delete(token)) void stopRun(id)
-    else if (run?.token === token) run.id = id
-  } catch (err) {
-    if (run?.token !== token) return
-    const r = assistantState().reply ?? freshReply
-    finish({ ...r, status: "", end: "error", error: errorLine(err) })
-  }
-}
-
-// stopAsking stops the reply being written: what it wrote so far stays,
-// with "Stopped." after it. Later events from that run are dropped.
-export function stopAsking() {
-  const r = run
-  if (!r && !assistantState().reply) return
-  if (r?.id === null) stoppedEarly.add(r.token)
-  else if (r) void stopRun(r.id)
-  const reply = assistantState().reply ?? freshReply
-  finish({ ...reply, status: "", end: "error", error: "Stopped." })
-}
-
-function stopRun(id: number): Promise<void> {
-  if (!inWails()) {
-    sampleStop(id)
-    return Promise.resolve()
-  }
-  return AssistantService.Stop(id).catch(() => {})
+  void AssistantService.ChatStop(turn).catch(() => {})
 }
 
 function errorLine(err: unknown): string {
@@ -738,27 +924,6 @@ export function splitDraft(raw: string): Split {
   }
 }
 
-// A thread that posts by itself is a block as the prompt lays it out: its
-// lines alone, ending the reply (a go line may follow).
-const postableBlock =
-  /(?:^|\n)[ \t]*<<thread>>[ \t]*\n[\s\S]*?\n[ \t]*<<\/thread>>\s*(?:<<go [^\n]*>>\s*)?$/
-
-// postsByItself is whether an ended reply's thread posts with no tap: the
-// reply finished (not Stopped or failed), and it holds a whole thread the
-// person didn't ask to check first. The markers merely quoted in a reply
-// ("a thread goes between <<thread>> and…") or any odd layout don't: the
-// chat shows those with Post thread.
-export function postsByItself(r: Reply): boolean {
-  if (r.end !== "done") return false
-  const { draft, partial, check } = splitDraft(r.text)
-  if (!draft || partial || check) return false
-  const block = postableBlock.exec(r.text)
-  return (
-    block !== null &&
-    r.text.indexOf("<<thread") === r.text.indexOf(DraftOpen, block.index)
-  )
-}
-
 // splitReply splits a reply as the chat shows it: its drafted thread
 // (splitDraft) and its go line (card #784, lib/goto.ts), taken only from
 // the text outside the draft, so the draft posts exactly as shown.
@@ -772,63 +937,87 @@ export function splitReply(
   return { ...d, text: g.text, go: g.go }
 }
 
-// postDraft posts the draft of the chat's message at index as a thread,
-// as the ask box does (lib/cards' threads.start: the room's thread, its
-// #refs telling the agents on those cards), marked as the assistant's so
-// Irori doesn't rename it (card #991). It notes the thread on the
-// message and returns it. Posted already: that thread again; being
-// posted (a tap while it posts by itself, or a second tap after the panel
-// closed and opened): that post.
-const posting = new Map<ChatEntry, Promise<Posted>>()
+// postDraft posts the draft of the reply at `turn` as a thread, as the
+// ask box does (lib/cards' threads.start: the room's thread, its #refs
+// telling the agents on those cards), marked as the assistant's so Irori
+// doesn't rename it (card #991). A tap does this only when the reply did not
+// post by itself (the assistant's computer posts a whole draft itself, and
+// says so in its row). It then appends `posted`, so every device hides the
+// button. Posted already: that thread again; being posted (a second tap
+// meanwhile): that post.
+const posting = new Map<string, Promise<Posted>>()
 
-export function postDraft(index: number): Promise<Posted> {
-  const entry = assistantState().entries[index]
-  if (!entry || entry.role !== "assistant" || entry.note)
+export function postDraft(turn: string): Promise<Posted> {
+  const entry = assistantState().entries.find(
+    (e) => e.turn === turn && e.role === "assistant" && !e.note && !e.update
+  )
+  if (!entry)
     return Promise.reject(new Error("That message is no longer in the chat."))
   if (entry.posted) return Promise.resolve(entry.posted)
-  const going = posting.get(entry)
+  const going = posting.get(turn)
   if (going) return going
   const { draft, partial } = splitDraft(entry.text)
   if (!draft || partial)
     return Promise.reject(new Error("That message has no thread to post."))
+  const busy = (on: boolean) => {
+    const s = assistantState()
+    const next = new Set(s.posting)
+    if (on) next.add(turn)
+    else next.delete(turn)
+    set({ posting: next })
+  }
+  busy(true)
   const p = threads
     .start(draft, [], [], "", null, { assistant: true })
-    .then((res) => {
+    .then(async (res) => {
       const posted: Posted = { id: res.task.id, short: res.task.short ?? "" }
       if (res.task.tag) posted.tag = res.task.tag
-      // The chat may have moved on while it posted: find the message again.
-      const now = assistantState().entries
-      const i = now[index] === entry ? index : now.indexOf(entry)
-      if (i >= 0) {
-        const entries = [...now]
-        entries[i] = { ...entry, posted }
+      if (inWails()) {
+        await AssistantService.ChatPosted(
+          turn,
+          posted.id,
+          posted.short,
+          posted.tag ?? ""
+        ).catch(() => {})
+        await refresh()
+      } else {
+        const entries = assistantState().entries.map((e) =>
+          e === entry ? { ...e, posted } : e
+        )
         set({ entries })
         follower?.follow(posted.id)
       }
+      const failed = { ...assistantState().postFailed }
+      delete failed[turn]
+      set({ postFailed: failed })
       return posted
     })
-    .finally(() => posting.delete(entry))
-  posting.set(entry, p)
+    .catch((err) => {
+      set({
+        postFailed: { ...assistantState().postFailed, [turn]: errorLine(err) },
+      })
+      throw err
+    })
+    .finally(() => {
+      posting.delete(turn)
+      busy(false)
+    })
+  posting.set(turn, p)
   return p
 }
 
 // ---- following the work it posted (card #785) -------------------------------------
 
 // The chat follows each thread it posted (lib/assistant-follow.ts) and
-// says in the chat, as updates, what waits on the person. What it has said is
-// kept on this device beside the history.
-const seenKey = "irori.assistant.follow"
+// says as follow-up rows what waits on the person: the first row per key
+// wins, so every device saying it at once shows one line. What it has said
+// comes from the rows. The facts it never says (taken, made, started, done,
+// closed) are kept on this device only, in `irori.assistant.follow.silent`.
+const silentKey = "irori.assistant.follow.silent"
 let follower: Follower | null = null
 
-// postedIds is the threads the chat's messages posted, oldest first.
-export function postedIds(entries: readonly ChatEntry[]): string[] {
-  const out: string[] = []
-  for (const e of entries)
-    if (e.posted && !out.includes(e.posted.id)) out.push(e.posted.id)
-  return out
-}
-
-// updateEntries is a thread's new lines as the chat's messages.
+// updateEntries is a thread's new lines as the chat's messages (the
+// preview, which has no rows).
 export function updateEntries(id: string, lines: readonly Fact[]): ChatEntry[] {
   return lines.map((f) => {
     const e: ChatEntry = { role: "assistant", text: f.text, update: id }
@@ -837,13 +1026,28 @@ export function updateEntries(id: string, lines: readonly Fact[]): ChatEntry[] {
   })
 }
 
+// updateKey is the row key of a thread's fact.
+export function updateKey(thread: string, fact: string): string {
+  return `${thread}|${fact}`
+}
+
+// shownKeys is the facts the rows say a thread already had said.
+function shownKeys(thread: string): string[] {
+  const out: string[] = []
+  for (const it of items) {
+    const u = it.update
+    if (it.kind !== "update" || !u || u.thread !== thread) continue
+    const i = u.key.indexOf("|")
+    if (i >= 0) out.push(u.key.slice(i + 1))
+  }
+  return out
+}
+
 function said(id: string, lines: Fact[], work: WorkThread | null) {
   const s = assistantState()
   // The chat may have moved on (New chat) while it read.
   if (!postedIds(s.entries).includes(id)) return
   const next: Partial<AssistantState> = {}
-  if (work && !finished(work)) live.add(id)
-  else live.delete(id)
   if (work) {
     if (JSON.stringify(s.work[id]) !== JSON.stringify(work))
       next.work = { ...s.work, [id]: work }
@@ -853,14 +1057,27 @@ function said(id: string, lines: Fact[], work: WorkThread | null) {
     next.work = w
   }
   if (lines.length) {
-    next.entries = capChat([...s.entries, ...updateEntries(id, lines)])
-    if (!s.open) next.unread = true
+    if (inWails()) {
+      for (const f of lines)
+        void AssistantService.ChatUpdate({
+          key: updateKey(id, f.key),
+          thread: id,
+          text: f.text,
+          act: f.act
+            ? { kind: f.act.kind, card: f.act.card, blocker: f.act.blocker }
+            : null,
+        }).catch(() => {})
+    } else {
+      next.entries = [...s.entries, ...updateEntries(id, lines)]
+      if (!s.open) next.unread = true
+    }
   }
   if (Object.keys(next).length) set(next)
 }
 
-// startFollowing starts the follower for the window's life (the chat's
-// corner button mounts once); it returns its stop.
+// startFollowing starts the chat's live parts for the window's life (the
+// chat's corner button mounts once): it reads the conversation, listens for
+// changes and follows the threads it posted. It returns its stop.
 export function startFollowing(): () => void {
   if (follower) return () => {}
   const flag = previewFlag("assistant")
@@ -872,12 +1089,13 @@ export function startFollowing(): () => void {
     ids: () => postedIds(assistantState().entries),
     read: readWork,
     listen: listenCards,
+    shown: shownKeys,
     // Card #1136: at most one read of the threads and cards in 3 s.
     minGapMs: 3000,
     load: () => {
       if (!kept) return mem
       try {
-        return parseSeen(localStorage.getItem(seenKey))
+        return parseSeen(localStorage.getItem(silentKey))
       } catch {
         return {}
       }
@@ -887,10 +1105,11 @@ export function startFollowing(): () => void {
         mem = st
         return
       }
+      const silent = silentOnly(st)
       try {
-        if (Object.keys(st).length)
-          localStorage.setItem(seenKey, JSON.stringify(st))
-        else localStorage.removeItem(seenKey)
+        if (Object.keys(silent).length)
+          localStorage.setItem(silentKey, JSON.stringify(silent))
+        else localStorage.removeItem(silentKey)
       } catch {
         // Blocked storage: it may say a line again after a restart.
       }
@@ -898,11 +1117,30 @@ export function startFollowing(): () => void {
     say: said,
   })
   const f = follower
+  const offs: Array<() => void> = []
+  if (inWails()) {
+    offs.push(
+      Events.OnShown(EventAssistantChanged, () => void refresh()),
+      Events.OnShown(EventAssistantHome, () => void refreshHome()),
+      Events.OnShown(EventDevicesChanged, () => void refreshHome())
+    )
+    const timer = setInterval(() => {
+      if (assistantState().open) void refreshHome()
+    }, HomeRefreshMs)
+    offs.push(() => clearInterval(timer))
+    void refresh()
+    void refreshHome()
+  }
   return () => {
+    for (const off of offs) off()
     f.stop()
     if (follower === f) follower = null
   }
 }
+
+const EventAssistantChanged = "assistant:changed"
+const EventAssistantHome = "assistant:home"
+const HomeRefreshMs = 5000
 
 // answerAsk answers a card's open item from the chat, as its card page
 // does: option is an index into its options, or -1 with the person's own
@@ -922,8 +1160,8 @@ export async function answerAsk(
 // ?assistant-ask=<question> opens the chat on a new conversation and asks
 // it, through the real assistant in the app, and with assistant-post then
 // posts the drafted thread as a tap on Post thread would (a check-first
-// one too; one posting by itself is the same post), handing it to
-// onPosted. Once a page load; nothing without the flag.
+// one too), handing it to onPosted. Once a page load; nothing without the
+// flag.
 let autoAsked = false
 export function autoAsk(onPosted: (p: Posted) => void) {
   const q = previewFlag("assistant-ask")
@@ -936,12 +1174,12 @@ export function autoAsk(onPosted: (p: Posted) => void) {
   if (!post) return
   const off = subscribeAssistant(() => {
     const s = assistantState()
-    if (s.reply) return
+    if (s.busy) return
+    const last = s.entries[s.entries.length - 1]
+    if (last?.role !== "assistant" || !last.turn || last.posted) return
+    if (!splitDraft(last.text).draft) return
     off()
-    const i = s.entries.length - 1
-    const last = s.entries[i]
-    if (last?.role !== "assistant" || !splitDraft(last.text).draft) return
-    postDraft(i).then(onPosted, () => {})
+    postDraft(last.turn).then(onPosted, () => {})
   })
 }
 
@@ -1217,4 +1455,94 @@ export function liftOver(
     lift = Math.max(lift, viewport.height - b.top)
   }
   return Math.round(lift)
+}
+
+// ---- the preview's chat (no host, so no rows) -------------------------------------
+
+// Outside the app the entries live here and the stand-in answers.
+const localRuns = new Map<string, number>()
+let localTurns = 0
+
+function localAsk(body: string, files: readonly AssistantFile[]) {
+  const s = assistantState()
+  const turn = `local-${++localTurns}`
+  const mine: ChatEntry[] = [
+    {
+      id: `q:${turn}`,
+      role: "person",
+      text: body,
+      turn,
+      pending: true,
+      ...(files.length ? { files: [...files] } : {}),
+    },
+  ]
+  const note = unreadableNote(files)
+  if (note) mine.push({ role: "assistant", text: note, note: true })
+  if (!body && files.every((f) => f.can_read === false)) {
+    mine[0] = { ...mine[0], pending: false }
+    set({ entries: [...s.entries, ...mine] })
+    return
+  }
+  set({
+    entries: [...s.entries, ...mine],
+    streams: { ...s.streams, [turn]: freshReply },
+    busy: true,
+  })
+  const screen = ""
+  const id = sampleAsk(
+    body,
+    files,
+    (ev) => {
+      if (!localRuns.has(turn)) return
+      const cur = assistantState()
+      let r = foldEvent(cur.streams[turn] ?? freshReply, ev)
+      if (ev.kind === "tool" && ev.text.startsWith(StatusHead) && screen)
+        r = { ...r, looked: screenLabel(screen) }
+      if (!r.end) {
+        set({ streams: { ...cur.streams, [turn]: r } })
+        return
+      }
+      localRuns.delete(turn)
+      const streams = { ...cur.streams }
+      delete streams[turn]
+      const entries = cur.entries.flatMap((e) =>
+        e.turn === turn && e.pending
+          ? [
+              { ...e, pending: false },
+              ...settled(r).map((x) => ({ ...x, turn })),
+            ]
+          : [e]
+      )
+      set({ entries, streams, busy: localRuns.size > 0, unread: !cur.open })
+      if (r.end === "done" && cur.open) {
+        const go = splitReply(r.text).go
+        if (go && goesByItself(go)) goHandler?.(go)
+      }
+    },
+    screen
+  )
+  localRuns.set(turn, id)
+}
+
+function localStop(turn: string) {
+  const id = localRuns.get(turn)
+  if (id === undefined) return
+  sampleStop(id)
+  localRuns.delete(turn)
+  const cur = assistantState()
+  const r = cur.streams[turn] ?? freshReply
+  const streams = { ...cur.streams }
+  delete streams[turn]
+  const entries = cur.entries.flatMap((e) =>
+    e.turn === turn && e.pending
+      ? [
+          { ...e, pending: false },
+          ...settled({ ...r, end: "error", error: "Stopped." }).map((x) => ({
+            ...x,
+            turn,
+          })),
+        ]
+      : [e]
+  )
+  set({ entries, streams, busy: localRuns.size > 0 })
 }

@@ -615,6 +615,15 @@ export const commands = {
 	 *  and a running one ends at once.
 	 */
 	assistantChatStop: (turn: string) => __TAURI_INVOKE<null>("assistant_chat_stop", { turn }),
+	/**  Post thread: the person posted a reply's draft as thread `id`. */
+	assistantChatPosted: (turn: string, id: string, short: string, tag: string) => __TAURI_INVOKE<null>("assistant_chat_posted", { turn, id, short, tag }),
+	/**  New chat: hides the conversation so far, on every device. */
+	assistantChatClear: () => __TAURI_INVOKE<null>("assistant_chat_clear"),
+	/**
+	 *  A follow-up line about a thread the chat posted: the first row per key
+	 *  wins on every device.
+	 */
+	assistantChatUpdate: (line: AssistantChatUpdateIn) => __TAURI_INVOKE<null>("assistant_chat_update", { line }),
 	/**
 	 *  Streams a turn's reply as this computer runs it: from now until the turn
 	 *  ends, starting with what it has said so far. Only the assistant's
@@ -970,6 +979,12 @@ export type AssistantChatAct = {
 	blocker: string,
 };
 
+export type AssistantChatActIn = {
+	kind: string,
+	card: string,
+	blocker: string,
+};
+
 /**  An owner's-OK draft of an answer to another person. */
 export type AssistantChatDraft = {
 	request: string,
@@ -1052,6 +1067,14 @@ export type AssistantChatUpdate = {
 	act?: AssistantChatAct | null,
 	at: number,
 	imported: boolean,
+};
+
+/**  A follow-up line to write (see [`Window::assistant_chat_update`]). */
+export type AssistantChatUpdateIn = {
+	key: string,
+	thread: string,
+	text: string,
+	act: AssistantChatActIn | null,
 };
 
 /**
