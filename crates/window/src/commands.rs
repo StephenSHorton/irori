@@ -1184,6 +1184,29 @@ pub async fn storage_clean(
     .await
 }
 
+/// Ends a process that holds a worktree (card #1118): Storage's End it.
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_end_holder(w: W<'_>, tree: String, pid: u32) -> R<String> {
+    timed(
+        "storage_end_holder",
+        blocking(&w, move |w| w.storage_end_holder(&tree, pid)),
+    )
+    .await
+}
+
+/// Deletes a canceled card's worktree whole (card #1118): Storage's
+/// "delete anyway".
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_delete_tree(w: W<'_>, tree: String) -> R<()> {
+    timed(
+        "storage_delete_tree",
+        blocking(&w, move |w| w.storage_delete_tree(&tree)),
+    )
+    .await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn storage_cleared(w: W<'_>) -> R<Vec<crate::storage::ClearedCard>> {
@@ -2480,6 +2503,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             storage_log,
             storage_items,
             storage_clean,
+            storage_end_holder,
+            storage_delete_tree,
             storage_cleared,
             storage_unclear,
             threads_clear_count,

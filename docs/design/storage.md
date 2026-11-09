@@ -95,7 +95,9 @@ Both go through `Files::place_file`.
 |---|---|
 | `storage_report` | `StorageReport { dir, kinds: StorageKind[] }`. Builds and Claude's folder come back with `measured: false`. |
 | `storage_log` | `LogPart[]` (conversations, messages, cards, talk, notes, code, agents, other) |
-| `storage_items {kind}` | `StorageItem[] { id, name, bytes, at, detail, cards, cleanable, keep, onlyHere }` |
+| `storage_items {kind}` | `StorageItem[] { id, name, bytes, at, detail, cards, cleanable, keep, onlyHere, pinned, holders, deleteAnyway }` |
+| `storage_end_holder {tree, pid}` | Who was ended (`name (pid N)`) (#1118) |
+| `storage_delete_tree {tree}` | Nothing; a canceled card's tree, deleted whole (#1118) |
 | `storage_clean {kind, ids}` | `StorageCleaned { removed, freed, kept[] }`. Empty `ids` means every item that may go. Ids are plain names inside their folder, never paths. |
 | `storage_cleared` | `ClearedCard[]` |
 | `storage_unclear {ids}` | The number of cards put back |
@@ -112,6 +114,16 @@ Both go through `Files::place_file`.
 - `crates/core/tests/it/prefetch.rs` `a_file_deleted_from_storage_is_not_picked_up_again`
 - `crates/window/tests/it/storage.rs`
 - `frontend/src/lib/storage.test.ts`, `nav.test.ts`
+
+## 7a. What pins a worktree (card #1118)
+
+The sweep keeps some trees for many looks. Storage and the sweep now say why, instead of calling the tree live:
+
+- **A process holds it.** A process whose current folder is in the tree (an orphaned `cat.exe` still reading a transcript, a dev server) is named with its pid: "held by cat.exe (pid 4242)". The sweep's kept line, the card's comment (from the third look in a row) and Storage's row all say it. Storage's **End it** ends that process (`storage_end_holder {tree, pid}`; on Windows `taskkill /T /F`, which takes its children too, elsewhere `kill`). The pid is looked up in the tree again first, so a pid that has gone, or been reused by a process outside the tree, is refused, and Irori's own process is never ended. A tree with a holder is not offered to Clean, since the clean would keep it too.
+- **Its card isn't done.** The row says "Kept: waiting for Done" (`pinned`).
+- **Its card is canceled.** The sweep keeps it for work only the folder holds (gate 5 and the checks before it). The row says "Kept: canceled, 3 unpushed commits" and offers **Delete anyway** (`storage_delete_tree {tree}`): `git worktree remove --force`, so uncommitted and unpushed work in the folder goes with it. The branch stays. It is offered only when every card of the tree is canceled, nobody is in it (sessions, `claude agents`, holders), and the tree holds no repo, worktree or link (git can't remove a junction cleanly). The page asks to confirm.
+
+**What it can't see.** Windows lists no process's folder without admin rights, so only MSYS processes (Git Bash and the shells and tools it starts: `cat`, `sleep`, `less`) are named, through Git's own `sh`. A native process (a `node` or `bun` started by cmd or PowerShell) still keeps the tree, since `git worktree move` is refused, but with no name: the reason stays "in use". Linux reads `/proc/<pid>/cwd` and `comm`; the Mac reads `lsof -F pcn`.
 
 ## 8. Not in scope
 

@@ -536,6 +536,17 @@ function ItemRow({
   now: Date
 }) {
   const at = i.at && !i.at.startsWith("0001") ? new Date(i.at) : null
+  const [busy, setBusy] = useState(false)
+  const [fail, setFail] = useState("")
+  // End it and Delete anyway: the list refreshes through storage's change
+  // feed, so a failure is all this row has to say.
+  const run = (f: () => Promise<void>) => {
+    setBusy(true)
+    setFail("")
+    f()
+      .catch((err: unknown) => setFail(errorText(err)))
+      .finally(() => setBusy(false))
+  }
   return (
     <li className="flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0">
       {pickable && (
@@ -553,11 +564,49 @@ function ItemRow({
             i.detail,
             at ? relativeTime(at, now) : "",
             i.keep ? `Stays: ${i.keep}` : "",
+            i.pinned ? `Kept: ${i.pinned}` : "",
           ]
             .filter(Boolean)
             .join(" · ")}
         </span>
+        {fail && (
+          <span className="text-[12px] text-destructive" role="alert">
+            {fail}
+          </span>
+        )}
       </span>
+      {i.holders.map((h) => (
+        <Button
+          key={h.pid}
+          size="xs"
+          variant="ghost"
+          disabled={busy}
+          onClick={() =>
+            run(() => storage.endHolder(i.id, h.pid).then(() => undefined))
+          }
+          aria-label={`End ${h.name} (pid ${h.pid}), which holds ${i.name}`}
+        >
+          End it ({h.name})
+        </Button>
+      ))}
+      {i.deleteAnyway && (
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => {
+            if (
+              window.confirm(
+                `Delete ${i.name} (${i.pinned}) and everything in it? The branch stays; unpushed work in the folder is lost.`
+              )
+            )
+              run(() => storage.deleteTree(i.id))
+          }}
+          aria-label={`Delete ${i.name} anyway`}
+        >
+          Delete anyway
+        </Button>
+      )}
       {i.cards.length > 0 && (
         <Button
           size="xs"
