@@ -645,6 +645,16 @@ export const commands = {
 	 */
 	assistantAnswerRequest: (post: string, space: string, how: string) => __TAURI_INVOKE<string>("assistant_answer_request", { post, space, how }),
 	/**
+	 *  An ask the chat's reply drafted (assistants-talk.md §9): its target and
+	 *  the exact normalised text a tap on Send posts. Posts nothing.
+	 */
+	assistantAskPrepare: (person: string, space: string, text: string) => __TAURI_INVOKE<AssistantAskPrepared>("assistant_ask_prepare", { person, space, text }),
+	/**
+	 *  The tap on Send: posts the ask as the person's assistant card, after the
+	 *  scrub. The only way an ask is posted.
+	 */
+	assistantAskSend: (space: string, person: string, text: string) => __TAURI_INVOKE<AssistantAskSent>("assistant_ask_send", { space, person, text }),
+	/**
 	 *  One toast for a chat line that waits on the person; a click opens the
 	 *  Office Assistant chat. False when no card was shown.
 	 */
@@ -995,6 +1005,29 @@ export type Ask = {
 export type AskRepo = {
 	repoKey: string,
 	label: string,
+};
+
+/**
+ *  An ask as the chat shows it (assistants-talk.md §9): where it goes and
+ *  the exact text a tap posts.
+ */
+export type AssistantAskPrepared = {
+	space: string,
+	spaceName: string,
+	person: string,
+	name: string,
+	/**  The normalised text: what Send posts, character for character. */
+	text: string,
+	/**  Why it can't be sent, "" when it can. */
+	held: string,
+};
+
+/**  What a tap on Send posted. */
+export type AssistantAskSent = {
+	postId: string,
+	conv: string,
+	space: string,
+	text: string,
 };
 
 /**  What a follow-up line lets the person do. */

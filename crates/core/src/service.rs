@@ -56,6 +56,7 @@ use crate::timers::{self, Kick, Ticker};
 use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
 pub mod assistant_answers;
+pub mod assistant_ask;
 pub mod assistant_chat;
 pub mod assistant_home;
 mod assistant_name;

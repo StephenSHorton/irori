@@ -806,6 +806,12 @@ export const AssistantService = {
   TalkCards: () => call(commands.assistantTalkCards()),
   AnswerRequest: (post: string, space: string, how: "let" | "draft") =>
     call(commands.assistantAnswerRequest(post, space, how)),
+  // Ask someone's assistant from the chat (card #1063): the ask a reply
+  // drafted, as the host normalises it (posts nothing), and the tap on Send.
+  AskPrepare: (person: string, space: string, text: string) =>
+    call(commands.assistantAskPrepare(person, space, text)),
+  AskSend: (space: string, person: string, text: string) =>
+    call(commands.assistantAskSend(space, person, text)),
   TalkToast: (conv: string, title: string, body: string) =>
     call(commands.assistantTalkToast(conv, title, body)),
   // Rewrite in the Start a thread box (card #981): the checked wording.
