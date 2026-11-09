@@ -22,8 +22,11 @@ export const commands = {
 	rosterRecent: (limit: number) => __TAURI_INVOKE<Event[]>("roster_recent", { limit }),
 	rosterGone: (limit: number) => __TAURI_INVOKE<GoneSession[]>("roster_gone", { limit }),
 	rosterRevive: (sessionId: string) => __TAURI_INVOKE<string>("roster_revive", { sessionId }),
-	/**  This device's check slots held now, by `scripts/check.sh` runs. */
-	rosterCheckSlots: () => __TAURI_INVOKE<CheckSlot[]>("roster_check_slots"),
+	/**
+	 *  Every slot of any pool held now by a run on this device, pools in name
+	 *  order, slots in number order.
+	 */
+	rosterSlots: () => __TAURI_INVOKE<SlotHeld[]>("roster_slots"),
 	inboxList: (limit: number) => __TAURI_INVOKE<Delivery[]>("inbox_list", { limit }),
 	inboxHeld: () => __TAURI_INVOKE<Delivery[]>("inbox_held"),
 	inboxHeldHistory: (limit: number) => __TAURI_INVOKE<Delivery[]>("inbox_held_history", { limit }),
@@ -2238,16 +2241,6 @@ export type Change = {
 /**  presence.ChangeKind. */
 export type ChangeKind = "added" | "updated" | "removed";
 
-/**
- *  A check slot held now (card #437): the run in it (check.sh's name for
- *  itself) and when its lease ends unless the run renews it.
- */
-export type CheckSlot = {
-	resource: string,
-	run: string,
-	until: string,
-};
-
 /**  A card or thread the person cleared from the lists (#138). */
 export type ClearedCard = {
 	id: string,
@@ -3272,6 +3265,18 @@ export type SharedCopy = {
 	taskId: string,
 	ref: string,
 	withdrawn?: boolean,
+};
+
+/**
+ *  One slot held now in a pool (card #1167): the pool's name as its creator
+ *  gave it, the run holding the slot, and the slot's number out of `limit`.
+ */
+export type SlotHeld = {
+	pool: string,
+	run: string,
+	slot: number,
+	limit: number,
+	until: string,
 };
 
 /**  One board of a space (card #392). */

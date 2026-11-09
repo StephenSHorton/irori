@@ -86,7 +86,6 @@ export type CardWeight = B.CardWeight
 export type CardWhere = B.CardWhere
 export type Change = B.Change
 export type ChangeKind = B.ChangeKind
-export type CheckSlot = B.CheckSlot
 export type ClearedCard = B.ClearedCard
 export type Comment = B.Comment
 export type CommentResult = B.CommentResult
@@ -169,6 +168,7 @@ export type Sender = B.Sender
 export type SharePreview = B.SharePreview
 export type ShareSourceView = B.ShareSourceView
 export type SharedCopy = B.SharedCopy
+export type SlotHeld = B.SlotHeld
 export type SpaceBoard = B.SpaceBoard
 export type StartedAgent = B.StartedAgent
 export type State = B.State
@@ -616,11 +616,6 @@ export function Change(p: Partial<B.Change> = {}): B.Change {
   return { "kind": "", "card": AgentCard(), ...p } as B.Change
 }
 
-/** CheckSlot with Go's zero values for every field left out. */
-export function CheckSlot(p: Partial<B.CheckSlot> = {}): B.CheckSlot {
-  return { "resource": "", "run": "", "until": "", ...p } as B.CheckSlot
-}
-
 /** ClearedCard with Go's zero values for every field left out. */
 export function ClearedCard(p: Partial<B.ClearedCard> = {}): B.ClearedCard {
   return { "id": "", "short": "", "title": "", "board": "", "thread": false, "updatedAt": "", ...p } as B.ClearedCard
@@ -984,6 +979,11 @@ export function SharePreview(p: Partial<B.SharePreview> = {}): B.SharePreview {
 /** ShareSourceView with Go's zero values for every field left out. */
 export function ShareSourceView(p: Partial<B.ShareSourceView> = {}): B.ShareSourceView {
   return { "id": "", "kind": "", "title": "", "app": "", "width": 0, "height": 0, ...p } as B.ShareSourceView
+}
+
+/** SlotHeld with Go's zero values for every field left out. */
+export function SlotHeld(p: Partial<B.SlotHeld> = {}): B.SlotHeld {
+  return { "pool": "", "run": "", "slot": 0, "limit": 0, "until": "", ...p } as B.SlotHeld
 }
 
 /** SpaceBoard with Go's zero values for every field left out. */

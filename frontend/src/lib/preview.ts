@@ -32,7 +32,7 @@
 //   ?description=<board> opens that board's Edit description on its page
 //   ?close=<board>  opens that board's Close board dialog on its page
 //   ?closed         opens the Closed boards fold under a space's tiles
-//   ?slots          shows two check.sh runs in the sidebar's Check slots
+//   ?slots          shows three held slots in the sidebar's Slots
 //   ?from=<card>    the grid as that card's Back leaves it (App.tsx)
 //   ?filter=done    the grid on that filter tab (App.tsx)
 //   ?theme=<id>     a theme without saving it: blue, hearth, midnight,
