@@ -754,6 +754,10 @@ impl Node {
         let task = async move {
             s.run(cancel).await;
             me.lock().sessions.retain(|x| !Arc::ptr_eq(x, &s));
+            if s.hello_done() {
+                let why = s.conn.err().unwrap_or_else(|| "ended".into());
+                me.log(&format!("mesh: {peer}: session down: {why}"));
+            }
             me.schedule_reconnect(&peer);
         };
         let h = match rt {

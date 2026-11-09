@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::time::Duration;
 
 use common::chat::{self, apart, holds_for, meet, skewed, spawner};
-use common::mesh::{Dev, person, person_with};
+use common::mesh::{Dev, NetEdit, person, person_net, person_with};
 use common::wait_for;
 use gocompat::time::GoTime;
 use irori_core::SpawnHost;
@@ -292,6 +292,171 @@ fn a_core_that_is_not_caught_up_does_not_claim() {
     assert!(home_rows(&pc.core).iter().all(|(w, _)| *w != id(&pc)));
     mac.core.close().unwrap();
     pc.core.close().unwrap();
+}
+
+/// `d`'s newest `spawn.host` row in `c`'s log says it can hold the
+/// assistant.
+fn says_able(c: &Core, d: &str) -> bool {
+    c.store()
+        .list(&Filter {
+            kinds: vec![kinds::SPAWN_HOST.into()],
+            device_id: d.to_string(),
+            desc: true,
+            limit: 1,
+            ..Filter::default()
+        })
+        .unwrap()
+        .first()
+        .and_then(|e| serde_json::from_slice::<SpawnHost>(&e.payload).ok())
+        .is_some_and(|h| h.assistant_turn && h.assistant_chat)
+}
+
+/// A computer doesn't claim while another one that could have claimed is
+/// still about (its rows reached here within 10 minutes) but has no
+/// session with it: that one's claim may not have arrived. Once the other
+/// has been offline for real, it claims.
+#[test]
+fn a_core_does_not_claim_while_an_able_computer_is_recent() {
+    let (skew_mac, skew_pc) = (Arc::new(AtomicI64::new(0)), Arc::new(AtomicI64::new(0)));
+    let sks = [skew_mac.clone(), skew_pc.clone()];
+    let mut devs = person_with("stephen", 2, |i| Some(skewed(sks[i].clone())));
+    let (pc, mac) = (devs.pop().unwrap(), devs.pop().unwrap());
+    // The Mac's clock runs five minutes ahead: the PC holds the Mac's rows
+    // back, so it never catches up and never claims, while its own rows
+    // still reach the Mac.
+    skew_mac.store(300, Ordering::SeqCst);
+    let held = serde_json::json!({"key": format!("{}/held", id(&mac)), "agent": "claude"});
+    mac.core
+        .store()
+        .append("irori", kinds::AGENT_SEEN, &held)
+        .unwrap();
+    wait_for(WAIT, "the PC is behind the Mac", || {
+        !pc.core.mesh().caught_up()
+    });
+    let _rp = able(&pc);
+    wait_for(WAIT, "the Mac holds the PC's able spawn.host", || {
+        says_able(&mac.core, &id(&pc))
+    });
+    assert!(home_rows(&mac.core).is_empty(), "nobody claimed yet");
+    let pc_id = id(&pc);
+    pc.core.close().unwrap();
+    wait_for(WAIT, "the PC reads recent on the Mac", || {
+        mac.core
+            .mesh()
+            .devices(false)
+            .iter()
+            .any(|r| r.device_id == pc_id && r.state == "recent")
+    });
+    let _rm = able(&mac);
+    holds_for(12, "the Mac claimed while the PC was recent", || {
+        home_rows(&mac.core).is_empty() && !mac.core.is_assistant_home()
+    });
+    // Twelve minutes on, the PC is offline: the Mac claims.
+    skew_mac.store(300 + 720, Ordering::SeqCst);
+    wait_for(WAIT, "the Mac claims once the PC is offline", || {
+        home_is(&mac, &id(&mac))
+    });
+    mac.core.close().unwrap();
+}
+
+/// Admits as the Core would, but refuses the private mesh while `shut`:
+/// the pair keeps a shared board's connection and loses its session.
+#[derive(Debug)]
+struct NoSession {
+    inner: Arc<dyn irori_net::admit::Admit>,
+    shut: Arc<AtomicBool>,
+}
+
+impl irori_net::admit::Admit for NoSession {
+    fn admits(&self, alpn: &[u8], id: &iroh::EndpointId) -> bool {
+        if alpn == irori_net::transport::MESH_ALPN && self.shut.load(Ordering::SeqCst) {
+            return false;
+        }
+        self.inner.admits(alpn, id)
+    }
+}
+
+fn no_session(shut: Arc<AtomicBool>) -> NetEdit {
+    Arc::new(move |nc: &mut irori_net::transport::NetConfig| {
+        nc.admit = Arc::new(NoSession {
+            inner: nc.admit.clone(),
+            shut: shut.clone(),
+        });
+    })
+}
+
+/// A computer doesn't claim while another one that could have claimed is
+/// on a shared board's connection with no session, even once it reads
+/// `offline` (the PC at 23:31 on 2026-11-08). Once that connection is
+/// gone too, it claims.
+#[test]
+fn a_core_does_not_claim_while_an_able_computer_is_on_a_board() {
+    let (skew_mac, skew_pc) = (Arc::new(AtomicI64::new(0)), Arc::new(AtomicI64::new(0)));
+    let sks = [skew_mac.clone(), skew_pc.clone()];
+    let shut = Arc::new(AtomicBool::new(false));
+    let mut devs = person_net(
+        "stephen",
+        2,
+        |i| Some(skewed(sks[i].clone())),
+        |_| Some(no_session(shut.clone())),
+    );
+    let (pc, mac) = (devs.pop().unwrap(), devs.pop().unwrap());
+    let pc_id = id(&pc);
+    // A board both hold, while the session is up to carry it.
+    let board = mac.core.create_board("shared", "shared").unwrap();
+    let on_board =
+        |c: &Core, other: &str| c.net().board_conns(&board).iter().any(|x| x.peer == other);
+    wait_for(WAIT, "the Mac and the PC share the board", || {
+        pc.core.boards().contains(&board) && on_board(&mac.core, &pc_id)
+    });
+    // The Mac's clock runs five minutes ahead: the PC holds the Mac's rows
+    // back, so it never catches up and never claims.
+    skew_mac.store(300, Ordering::SeqCst);
+    let held = serde_json::json!({"key": format!("{}/held", id(&mac)), "agent": "claude"});
+    mac.core
+        .store()
+        .append("irori", kinds::AGENT_SEEN, &held)
+        .unwrap();
+    wait_for(WAIT, "the PC is behind the Mac", || {
+        !pc.core.mesh().caught_up()
+    });
+    let _rp = able(&pc);
+    wait_for(WAIT, "the Mac holds the PC's able spawn.host", || {
+        says_able(&mac.core, &pc_id)
+    });
+    // The session goes and can't come back; the board's connection does.
+    shut.store(true, Ordering::SeqCst);
+    mac.core.net().drop_device(&pc_id, "test");
+    wait_for(WAIT, "the PC is back on the board with no session", || {
+        on_board(&mac.core, &pc_id) && mac.core.net().conns().iter().all(|x| x.peer != pc_id)
+    });
+    // Twelve minutes on, the PC reads offline on the Mac.
+    skew_mac.store(300 + 720, Ordering::SeqCst);
+    let pc_state = || {
+        mac.core
+            .mesh()
+            .devices(false)
+            .into_iter()
+            .find(|r| r.device_id == pc_id)
+            .map(|r| r.state)
+    };
+    wait_for(WAIT, "the PC reads offline on the Mac", || {
+        pc_state().as_deref() == Some("offline")
+    });
+    assert!(home_rows(&mac.core).is_empty(), "nobody claimed yet");
+    let _rm = able(&mac);
+    holds_for(12, "the Mac claimed while the PC was on the board", || {
+        home_rows(&mac.core).is_empty() && !mac.core.is_assistant_home()
+    });
+    assert_eq!(pc_state().as_deref(), Some("offline"));
+    // The PC goes: no board connection either. The Mac claims.
+    pc.core.close().unwrap();
+    wait_for(
+        WAIT,
+        "the Mac claims once the board connection is gone",
+        || home_is(&mac, &id(&mac)),
+    );
+    mac.core.close().unwrap();
 }
 
 /// The status of an assistant's computer that doesn't exist yet reads the

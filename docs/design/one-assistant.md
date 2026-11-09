@@ -77,6 +77,7 @@ In `sweep_spawns` (`crates/core/src/service/spawn.rs`), after `refresh_agent_dev
 - This device's own `spawn.host` says `assistantTurn`. From card 3 on, it must also say `assistantChat` (below).
 - Today's ranking, `assistant_home_of(homes, hosts)`, names this device, taken over only the computers whose newest `spawn.host` says every field the claim needs (from card 3, `assistantChat` too). Two connected desktops then agree on which of them claims, and a desktop left on an older build never blocks an updated one.
 - **This device is caught up with every one of the person's devices it is connected to** (below). That keeps a newly paired desktop, or one back from a long absence, from claiming before the existing claim has reached it.
+- **No other able desktop is about without a session.** No other of the person's desktops whose newest `spawn.host` says `assistantTurn` and `assistantChat` reads `recent` (its rows reached this device within 10 minutes) or is on a shared board's connection while it has no session with this one. That one may have claimed already, and its claim can't arrive until the session is back. The claim waits until that desktop has a session (then the ranking decides), or reads `offline` and is on no shared board's connection. A `connected` one is left to the ranking.
 
 A device only ever claims itself. It never writes an automatic row naming another device, and writes nothing while there is an assistant's computer, even one that has been offline for days.
 
@@ -93,7 +94,7 @@ Nothing else moves it: not being offline, asleep or unreachable, not a slow link
 
 A new `Node::caught_up() -> bool` (`crates/mesh/src/node.rs`): true when, for every one of the person's devices this one has a live session with, this device's vector covers that device's newest vector (the same `covers` check `check_step` makes). It leaves out writers in the node's `stopped` map (a fork or a bad HLC order: their rows will never arrive) and revoked devices' rows past their cut, so a stuck writer can't hold the assistant forever. With no own device connected, it is true. Both the claim and the worker (§5) use it.
 
-*Built in card 1 (#1101).* The peer's vector it compares with is the one the peer last sent: at connect and after it takes rows. Rows a peer wrote since arrive by push and are not in that vector, so `caught_up` can be true for a moment while a peer's newest rows are on their way. It is false while the peer's rows are held back (a clock ahead) once the peer has said so. Until a session is up it is true (a device that has just started and is not yet connected can claim; the sweep runs several seconds after start).
+*Built in card 1 (#1101).* The peer's vector it compares with is the one the peer last sent: at connect and after it takes rows. Rows a peer wrote since arrive by push and are not in that vector, so `caught_up` can be true for a moment while a peer's newest rows are on their way. It is false while the peer's rows are held back (a clock ahead) once the peer has said so. Until a session is up it is true. So the claim doesn't lean on it alone: a desktop that has just started, or lost its session, doesn't claim while another able desktop still reads `recent` or is on a shared board's connection (§3's claim rules); it claims once that one has a session (then the ranking decides), or reads `offline` and is on no shared board's connection. Two desktops that share a board and never get a session never claim.
 
 ### Saying it can answer from other devices
 
@@ -472,6 +473,8 @@ Done when tests show:
 - An automatic claim for the Mac, then a person's row for the PC, then the PC revoked: no assistant's computer, then a connected PC2 claims, and the Mac's old claim doesn't come back. Revoking changes the cached answer with no other row arriving.
 - A computer whose `spawn.host` drops `assistantTurn`, for a moment or for good, stays the assistant's computer, no other Core claims, and the status says Claude Code is missing there.
 - A Core that is connected to another of the person's devices but not caught up with it doesn't claim.
+- A Core doesn't claim while another able desktop reads `recent` with no session, and claims once that one reads `offline`.
+- A Core doesn't claim while another able desktop is on a shared board's connection with no session, even once it reads `offline`, and claims once that connection is gone.
 - `assistant_home_status` reports `setting_up`, `needs_update` and `no_claude` in their cases, with `assistantChat` set directly in hand-written `spawn.host` rows.
 - A person's row naming a revoked device, sorted after the revocation, is ignored.
 - A change of the folded answer publishes `assistant:home`.

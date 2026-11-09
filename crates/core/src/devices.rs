@@ -96,6 +96,7 @@ pub fn default_net_config(
     cfg.ip = irori_net::endpoint::IpMode::AnyV4;
     cfg.guests = guests.clone();
     cfg.pair_lan = irori_net::pairnet::PairLan::new(guests.clone());
+    cfg.logf = Some(Arc::new(|l: &str| crate::log(l)));
     // Dev builds move the port with IRORI_DEV_PORT_OFFSET (architecture
     // §3.2); a bad value turns the lookup off rather than leave it on Go's.
     match irori_lan::dev_lan_port() {
