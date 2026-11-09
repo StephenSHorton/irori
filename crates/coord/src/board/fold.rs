@@ -877,12 +877,20 @@ impl Fold {
                     self.given_ever.insert(p.task_id.clone());
                     // A say and a question were about the last give.
                     super::cards::close_given_question(&mut t, at(p.at));
+                    let by_person = self
+                        .key_person
+                        .as_ref()
+                        .map_or_else(String::new, |kp| kp(&p.by));
                     t.given = Some(Given {
                         key: p.to.clone(),
                         person,
                         by: p.by.clone(),
                         asker: String::new(),
                         question: String::new(),
+                        batch: p.batch.clone(),
+                        note: trim_space(&p.note).to_string(),
+                        assistant: p.assistant,
+                        by_person,
                     });
                     t.given_said = None;
                 } else if back {

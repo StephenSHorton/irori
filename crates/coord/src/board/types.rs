@@ -276,6 +276,15 @@ pub struct Given {
     /// The question's blocker id, once they raised it themselves: only
     /// an answer on that one is their say.
     pub question: String,
+    /// The batch this give belongs to (decision 69); "" for a single give.
+    pub batch: String,
+    /// The give's hand-off note.
+    pub note: String,
+    /// The person's office assistant made the give.
+    pub assistant: bool,
+    /// The giving person's id, whoever's key gave it (an agent's give
+    /// reads "Spencer gave you…").
+    pub by_person: String,
 }
 
 /// A person's last say on "OK to start an agent on this?" (card #573).
@@ -369,6 +378,14 @@ pub struct Blocker {
     /// the other person, Decline leaves it with its owner.
     #[serde(skip_serializing_if = "omit")]
     pub transfer: bool,
+    /// The receiver gave the card back (decision 69): this item asks its
+    /// owner to keep it or cancel it. Found by this flag, never by words.
+    #[serde(skip_serializing_if = "omit")]
+    pub given_back: bool,
+    /// The batch the card was given in (decision 69), kept after `given`
+    /// is cleared.
+    #[serde(skip_serializing_if = "omit")]
+    pub batch: String,
     /// What brings a held card back (card #570): this item is its Not yet.
     /// [`Blocker::back`] reads it. Empty on every other item.
     #[serde(skip_serializing_if = "omit")]

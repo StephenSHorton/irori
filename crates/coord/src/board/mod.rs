@@ -21,6 +21,11 @@ mod comments;
 mod desk;
 mod error;
 mod fold;
+mod given;
+pub use given::{
+    GIVEN_BACK_CANCEL, GIVEN_BACK_KEEP, GIVEN_BACK_KEEP_ONLY, GIVEN_BACK_QUESTION, GiveItems,
+    GivenItem, GivenSay, MAX_BATCH,
+};
 mod idle;
 mod later;
 pub use later::{Back, OrderLoops};
@@ -2054,6 +2059,46 @@ impl Coord {
     /// Asks the person `by` about card `id` given to them (card #573).
     pub fn ask_given(&self, by: &str, id: &str, context: &str) -> Result<()> {
         self.lock().ask_given(by, id, context)
+    }
+    /// Answers card `id`'s given question Start or Not now (decision 69).
+    pub fn say_given(&self, by: &str, id: &str, say: GivenSay) -> Result<Task> {
+        self.lock().say_given(by, id, say)
+    }
+    /// The person it was given to returns card `id` to its owner, with a
+    /// reason if they give one (decision 69).
+    pub fn give_back(&self, by: &str, id: &str, reason: &str) -> Result<Task> {
+        self.lock().give_back(by, id, reason)
+    }
+    /// Gives up to [`MAX_BATCH`] cards on `board` to one person as one
+    /// batch: every check first, then every write, under one lock
+    /// (decision 69).
+    pub fn give_batch(
+        &self,
+        by: &str,
+        board: &str,
+        to: &str,
+        items: GiveItems,
+        note: &str,
+        assistant: bool,
+    ) -> Result<Vec<Task>> {
+        self.lock()
+            .give_batch(by, board, to, items, note, assistant)
+    }
+    /// What is given to `viewer`, in a fixed order (decision 69).
+    pub fn given_to(&self, viewer: &str) -> Vec<GivenItem> {
+        self.lock().given_to(viewer)
+    }
+    /// Raises the given question on card `id` and answers it Start an
+    /// agent in one step (decision 69). False when the question did not end
+    /// up this device's.
+    pub fn raise_and_start(
+        &self,
+        by: &str,
+        id: &str,
+        context: &str,
+        start_why: &str,
+    ) -> Result<bool> {
+        self.lock().raise_and_start(by, id, context, start_why)
     }
     /// Starts review card `id` given to the person without asking
     /// (merge-desk §12.10): see [`Fold::start_given`].
