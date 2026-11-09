@@ -24,7 +24,7 @@ pub(crate) const FIXED: &str = "Sam can review it; ask them.";
 /// The fake turn's reply: a reason, then the answer (card 5's form).
 const FIXED_REPLY: &str = "REASON: the packet names Sam.\nANSWER: Sam can review it; ask them.";
 
-fn ready_spawner() -> Spawner {
+pub(crate) fn ready_spawner() -> Spawner {
     Spawner {
         ready: Some(Arc::new(|| true)),
         spawn: Arc::new(|r| {

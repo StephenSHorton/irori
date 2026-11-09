@@ -39,6 +39,7 @@ import {
 import { AgentCards } from "@/components/cards/agent-hover"
 import { RichText } from "@/components/common/rich-text"
 import { FromLine } from "./from-line"
+import { AskDraftCard } from "./ask-draft"
 import { go as goSection } from "@/lib/nav"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Button } from "@/components/ui/button"
@@ -989,7 +990,7 @@ function Entry({
   // A draft cut short (Stopped, or a failure before it closed) shows with
   // no Post thread: it isn't the whole thread. A reply that ended by itself
   // without closing it has the whole draft.
-  const { text, draft, partial, go, cards, settle } = splitReply(
+  const { text, draft, partial, go, cards, settle, ask } = splitReply(
     entry.text,
     false,
     entry.cutOff
@@ -1002,6 +1003,12 @@ function Entry({
           <DivideDrafts cards={cards} settle={settle} />
         )}
         {go && <GoButton target={go} onGo={onGo} />}
+        {ask && (
+          <AskDraftCard
+            key={`${ask.person}|${ask.space}|${ask.text}`}
+            ask={entry.cutOff ? { ...ask, partial: true } : ask}
+          />
+        )}
         {entry.looked && <LookedAt label={entry.looked} />}
         {draft && (
           <DraftThread
@@ -1324,12 +1331,18 @@ function Waiting({
 // Answering is the reply being written: what it looks at now, then the
 // words so far, and a thread it is drafting (posted only once it's done).
 function Answering({ reply }: { reply: Reply }) {
-  const { text, draft, partial } = splitReply(reply.text, true)
+  const { text, draft, partial, ask } = splitReply(reply.text, true)
   // A Divide reply's blocks are cut from the text as they are written.
   const drafting = takeDrafts(reply.text).partial
   const status =
     reply.status ||
-    (drafting ? "Drafting cards" : partial ? "Drafting a thread" : "")
+    (drafting
+      ? "Drafting cards"
+      : partial
+        ? "Drafting a thread"
+        : ask
+          ? "Drafting a question"
+          : "")
   return (
     <Message>
       <MessageContent className="gap-1.5 text-[13.5px] leading-relaxed">
