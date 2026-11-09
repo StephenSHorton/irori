@@ -69,6 +69,7 @@ pub use crate::members::Member;
 pub use crate::meshnode::BoardParts;
 pub use crate::service::assistant_answers;
 pub use crate::service::assistant_chat;
+pub use crate::service::assistant_home;
 pub use crate::service::boards::{
     BOARDS_DIR, BoardAgent, BoardIdentity, BoardInfo, BoardMember, BoardSummary,
     Error as BoardError, SPACES_DIR, SharePreview, SharedCopy, SubtaskPreview, SummaryMember,
@@ -99,6 +100,7 @@ pub use crate::service::spawn_capable;
 pub use crate::service::spawn_limits;
 pub use crate::service::spawn_pause;
 pub use crate::service::spawn_permissions;
+pub use crate::service::spawn_remote::SpawnHost;
 pub use crate::service::spawn_stop;
 pub use crate::service::spawn_waiting;
 pub use crate::service::spawn_why;

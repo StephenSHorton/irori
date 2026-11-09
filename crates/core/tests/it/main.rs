@@ -9,6 +9,7 @@ mod ask_spawn;
 mod assistant_answers;
 mod assistant_card;
 mod assistant_chat;
+mod assistant_home;
 mod assistant_label;
 mod assistant_names;
 mod assistant_weighs;

@@ -737,6 +737,11 @@ export const AssistantService = {
   // Rewrite in the Start a thread box (card #981): the checked wording.
   Rewrite: (text: string, mentions: string[]) =>
     call(commands.assistantRewrite(text, mentions)),
+  // Where the one assistant runs and whether it can be reached (one-assistant
+  // card 1); the host sends assistant:home with the same shape when it moves.
+  HomeStatus: () => call(commands.assistantHomeStatus()),
+  // The person picks the computer that runs the assistant, from any device.
+  HomeSet: (device: string) => done(commands.assistantHomeSet(device)),
   // "Name new threads" (card #782): on unless the person turned it off.
   Names: () => call(commands.assistantNames()),
   NamesSet: (on: boolean) => done(commands.assistantNamesSet(on)),

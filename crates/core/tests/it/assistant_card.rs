@@ -148,3 +148,40 @@ fn a_device_that_cant_run_the_turn_never_mints() {
     assert!(assistant_rows(&d.core, &a).is_empty());
     d.core.close().unwrap();
 }
+
+/// One assistant, card 1: the card is minted on the recorded computer, not
+/// on whichever computer can run the turn. The person picks the PC (which
+/// has no Claude Code): the Mac, the only one that could, mints nothing; it
+/// does again when the person picks it back.
+#[test]
+fn only_the_recorded_computer_mints() {
+    let mut devs = person("stephen", 2);
+    let (pc, mac) = (devs.pop().unwrap(), devs.pop().unwrap());
+    let (mac_id, pc_id) = (
+        mac.core.device_id().to_string(),
+        pc.core.device_id().to_string(),
+    );
+    mac.core.set_spawner(Some(ready_spawner()));
+    wait_for(90, "the Mac is the assistant's computer on both", || {
+        mac.core.assistant_home().as_deref() == Some(&*mac_id)
+            && pc.core.assistant_home().as_deref() == Some(&*mac_id)
+    });
+    mac.core.set_assistant_home(&pc_id).unwrap();
+    wait_for(90, "the person's pick of the PC is followed", || {
+        mac.core.assistant_home().as_deref() == Some(&*pc_id)
+    });
+    assert!(!mac.core.is_assistant_home());
+    let a = mac.core.create_board("Wind Waker", "wind").unwrap();
+    std::thread::sleep(Duration::from_secs(10));
+    assert!(
+        assistant_rows(&mac.core, &a).is_empty() && pointer(&mac.core, &a).is_empty(),
+        "a computer that isn't recorded minted a card"
+    );
+    mac.core.set_assistant_home(&mac_id).unwrap();
+    wait_for(90, "the Mac mints once it is the recorded computer", || {
+        !pointer(&mac.core, &a).is_empty()
+    });
+    assert_eq!(assistant_rows(&mac.core, &a).len(), 1);
+    mac.core.close().unwrap();
+    pc.core.close().unwrap();
+}

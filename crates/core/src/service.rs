@@ -57,6 +57,7 @@ use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
 pub mod assistant_answers;
 pub mod assistant_chat;
+pub mod assistant_home;
 mod assistant_name;
 pub mod boards;
 mod boards_members;
@@ -369,6 +370,9 @@ struct Services {
     call_settings: call_settings::CallSettings,
     /// Irori's assistant naming the person's new threads (card #782).
     naming: thread_names::Naming,
+    /// The Office Assistant's computer, folded from `assistant.home` rows
+    /// (one-assistant card 1).
+    assistant_home: assistant_home::HomeState,
     /// Irori's assistant weighing new cards (card #965).
     weighing: card_weights::Weighing,
     /// Office Assistants answering other people (assistants-talk card 4).
@@ -1704,6 +1708,7 @@ impl Core {
             ),
             call_settings,
             naming,
+            assistant_home: assistant_home::HomeState::default(),
             weighing,
             asst: Default::default(),
             held: Default::default(),
@@ -1784,6 +1789,7 @@ impl Core {
         // decision before anything serves an attach stream that could wake
         // them.
         s.inbox.catch_up();
+        s.follow_assistant_home();
         laps.lap("catch-up");
         let changes = Arc::new(s.presence.subscribe());
         core.start_loops(
@@ -2135,6 +2141,13 @@ impl Core {
                         s.follow_names_themes();
                         s.follow_names_on();
                         s.follow_weighs_on();
+                        s.follow_assistant_home();
+                    } else if ev.kind == kinds::ASSISTANT_HOME
+                        || ev.kind == kinds::PERSON_DEVICE_REVOKED
+                    {
+                        // The recorded assistant's computer, or a removal
+                        // that may end its rows (one-assistant card 1).
+                        s.follow_assistant_home();
                     } else if ev.kind == kinds::ASSISTANT_NAMES_SET {
                         // Another device's "Name new threads" (card #782).
                         s.follow_names_on();
@@ -3022,6 +3035,37 @@ impl Core {
     /// The person turns "Weigh new cards" on or off, from the app only.
     pub fn set_weighs_on(&self, on: bool) -> Result<(), String> {
         self.s.set_weighs_on(on)
+    }
+
+    /// The Office Assistant's computer, folded from the person's
+    /// `assistant.home` rows; `None` before one claims itself.
+    pub fn assistant_home(&self) -> Option<String> {
+        self.s.assistant_home()
+    }
+
+    /// Whether this device is the recorded assistant's computer. It reads
+    /// the fold, so it never moves for a device that is offline or a Claude
+    /// Code that is missing.
+    pub fn is_assistant_home(&self) -> bool {
+        self.s.is_assistant_home()
+    }
+
+    /// Where the assistant runs and whether it can be reached, for the chat
+    /// and Settings.
+    pub fn assistant_home_status(&self) -> assistant_home::HomeStatus {
+        self.s.assistant_home_status()
+    }
+
+    /// The person picks which computer runs the assistant. From any of
+    /// their devices, the phone included.
+    pub fn set_assistant_home(&self, device: &str) -> Result<(), String> {
+        self.s.set_assistant_home(device)
+    }
+
+    /// Runs `f` with the new answer whenever the assistant's computer
+    /// changes (the one-assistant worker's catch-up scan hangs off this).
+    pub fn set_assistant_home_listener(&self, f: Option<assistant_home::HomeListener>) {
+        self.s.set_assistant_home_listener(f);
     }
 
     /// "Name new threads" (card #782): on unless the person turned it off.

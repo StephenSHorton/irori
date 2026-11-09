@@ -226,6 +226,10 @@ kinds! {
     /// card. `{on, by, at}`, actor `user`, newest wins, none means on. Set
     /// in the app only.
     ASSISTANT_WEIGHS_SET = "assistant.weighs.set" => Replicated, Refuses;
+    /// The Office Assistant's computer (one-assistant card 1): `{device,
+    /// how: "auto" | "person", by, at}`, actor `user`. The first automatic
+    /// claim wins, a person's pick beats it, a removal ends older rows.
+    ASSISTANT_HOME = "assistant.home" => Replicated, Refuses;
     /// The Office Assistant's one conversation (card #1102,
     /// docs/design/one-assistant.md §4): private rows every one of the
     /// person's devices folds the same (`core::service::assistant_chat`).
