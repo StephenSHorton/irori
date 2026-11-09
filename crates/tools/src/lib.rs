@@ -46,6 +46,7 @@
 //!   attach or member secret resolved to.
 
 mod args;
+mod assistant_needs;
 pub mod assistant_writes;
 mod attachments;
 mod avatar;
@@ -78,7 +79,9 @@ use gocompat::time::GoTime;
 
 pub use attachments::Attacher;
 pub use explore::spawned_lines;
-pub use format::{clip, clip_mcp, one_line};
+pub use format::{
+    MAX_NAME, SENDER_NOTE, SENDER_TAG, clip, clip_mcp, escape, fence_sender, one_line,
+};
 pub use notes::NotesBackend;
 pub use notify::{Action, Note, Notifier};
 pub use observe::redact;
@@ -131,7 +134,8 @@ pub const ASSISTANT_TOOLS: [&str; 15] = [
 ];
 
 pub use assistant_writes::{
-    ASSISTANT_WRITE_TOOLS, Grant, Grants, TOOL_CLOSE, TOOL_COMMENT, TOOL_SEND, TOOL_TICK,
+    ASSISTANT_WRITE_TOOLS, Grant, Grants, ItemState, SnapItem, SnapPerson, Snapshot, TOOL_CLOSE,
+    TOOL_COMMENT, TOOL_GIVE, TOOL_GIVE_BACK, TOOL_NOT_NOW, TOOL_SEND, TOOL_START, TOOL_TICK,
     grants_for,
 };
 

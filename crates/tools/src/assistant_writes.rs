@@ -15,6 +15,11 @@
 //! [`grants_for`] is deliberately narrow. A message it doesn't recognise
 //! as a plain instruction grants nothing, and the person is asked to say
 //! it plainly.
+//!
+//! Decision 69 adds four for Needs you: start, not now and give back on a
+//! card given to the person, and give their own cards to another person.
+//! Those targets resolve against the [`Snapshot`] Core took when the turn
+//! began (`super::assistant_needs`), and a grant is one yes for one card.
 
 use std::sync::Mutex;
 
@@ -29,9 +34,26 @@ pub const TOOL_TICK: &str = "assistant_tick";
 pub const TOOL_SEND: &str = "assistant_send";
 /// Comments on a named card as the person.
 pub const TOOL_COMMENT: &str = "assistant_comment";
+/// Starts an agent on a card given to the person: their yes.
+pub const TOOL_START: &str = "assistant_start";
+/// Puts a card given to the person in Not now.
+pub const TOOL_NOT_NOW: &str = "assistant_not_now";
+/// Gives a card given to the person back to its owner.
+pub const TOOL_GIVE_BACK: &str = "assistant_give_back";
+/// Gives the person's own cards to another person.
+pub const TOOL_GIVE: &str = "assistant_give";
 /// The tools the assistant may change things with, each only against a
 /// [`Grant`]. Beside `ASSISTANT_TOOLS`, which only read.
-pub const ASSISTANT_WRITE_TOOLS: [&str; 4] = [TOOL_CLOSE, TOOL_TICK, TOOL_SEND, TOOL_COMMENT];
+pub const ASSISTANT_WRITE_TOOLS: [&str; 8] = [
+    TOOL_CLOSE,
+    TOOL_TICK,
+    TOOL_SEND,
+    TOOL_COMMENT,
+    TOOL_START,
+    TOOL_NOT_NOW,
+    TOOL_GIVE_BACK,
+    TOOL_GIVE,
+];
 
 /// One change the person's message asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +75,132 @@ pub enum Grant {
         card: String,
         text: String,
     },
+    /// Start an agent on card `card` (its id), given to the person: the
+    /// snapshot's refs for it are what the model may name it by.
+    Start {
+        card: String,
+        refs: Vec<String>,
+    },
+    NotNow {
+        card: String,
+        refs: Vec<String>,
+    },
+    /// `reason` is the person's own words, maybe empty.
+    GiveBack {
+        card: String,
+        refs: Vec<String>,
+        reason: String,
+    },
+    /// Give the cards the person named (refs as typed) to the person `to`
+    /// (`person:<id>`) as one batch.
+    Give {
+        to: String,
+        /// Their name as the snapshot had it, which the model may send.
+        name: String,
+        cards: Vec<String>,
+    },
+}
+
+/// Where a card given to the person stands, as Needs you says it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ItemState {
+    /// It asks "OK to start an agent on this?".
+    #[default]
+    Asked,
+    /// They said Not now.
+    NotNow,
+    /// An agent is on it or starting.
+    Starting,
+    /// It hasn't been asked yet (no computer with its repo has asked).
+    NotAsked,
+}
+
+impl ItemState {
+    pub fn word(self) -> &'static str {
+        match self {
+            ItemState::Asked => "asked",
+            ItemState::NotNow => "Not now",
+            ItemState::Starting => "starting",
+            ItemState::NotAsked => "not asked yet",
+        }
+    }
+}
+
+/// One card given to the person, in the snapshot.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SnapItem {
+    /// The card's id.
+    pub id: String,
+    /// Every way Needs you prints it, lower case: `ops#12`, and a bare
+    /// `#12` only when no other item has that number.
+    pub refs: Vec<String>,
+    pub giver_key: String,
+    pub giver_name: String,
+    pub batch: String,
+    pub state: ItemState,
+}
+
+/// Someone the person shares a space with.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SnapPerson {
+    /// `person:<id>`.
+    pub person_key: String,
+    pub name: String,
+}
+
+/// What was given to the person, and who they can give to, when the turn
+/// began (decision 69, §5.1). Grants resolve against this and nothing
+/// else: never tool output, the screen or the model's words.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Snapshot {
+    pub items: Vec<SnapItem>,
+    pub people: Vec<SnapPerson>,
+}
+
+impl Snapshot {
+    /// The snapshot of `items`, each with its short ref (`ops#12`), in
+    /// Needs you's order: the refs are filled in here, a bare `#12` only
+    /// for a number no other item has.
+    pub fn new(items: Vec<(SnapItem, String)>, people: Vec<SnapPerson>) -> Snapshot {
+        let num = |r: &str| {
+            r.split_once('#')
+                .map(|(_, n)| format!("#{}", n.to_lowercase()))
+        };
+        let nums: Vec<Option<String>> = items.iter().map(|(_, r)| num(r)).collect();
+        let items = items
+            .into_iter()
+            .enumerate()
+            .map(|(i, (mut it, short))| {
+                let full = norm_ref(&short);
+                it.refs = vec![full.clone()];
+                if let Some(n) = &nums[i]
+                    && *n != full
+                    && nums.iter().filter(|x| x.as_ref() == Some(n)).count() == 1
+                {
+                    it.refs.push(n.clone());
+                }
+                it
+            })
+            .collect();
+        Snapshot { items, people }
+    }
+}
+
+/// Whether the model's `task_id` names granted card `card`: one of the
+/// refs the person's grant was read from, its id, or a ref that resolves
+/// to it.
+fn names_item(
+    card: &str,
+    refs: &[String],
+    task_id: &str,
+    resolve: &dyn Fn(&str) -> Option<String>,
+) -> bool {
+    let t = task_id.trim();
+    let bare = t.strip_prefix("task:").unwrap_or(t);
+    !t.is_empty()
+        && (bare == card
+            || refs.contains(&norm_ref(t))
+            || resolve(&typed_ref(t)).is_some_and(|c| c == card))
 }
 
 #[derive(Default)]
@@ -109,6 +257,28 @@ impl Grants {
         resolve: &dyn Fn(&str) -> Option<String>,
     ) -> Option<String> {
         let step = step_id.trim().to_lowercase();
+        let mut s = self.lock();
+        // Start and Not now: the card is the snapshot's, named by the refs
+        // the person's grant was read from.
+        let given = s.open.iter().position(|g| match (tool, g) {
+            (TOOL_START, Grant::Start { card, refs })
+            | (TOOL_NOT_NOW, Grant::NotNow { card, refs }) => {
+                names_item(card, refs, task_id, resolve)
+            }
+            _ => false,
+        });
+        if let Some(i) = given {
+            return match s.open.remove(i) {
+                Grant::Start { card, .. } | Grant::NotNow { card, .. } => {
+                    Some(format!("task:{card}"))
+                }
+                _ => None,
+            };
+        }
+        if tool == TOOL_START || tool == TOOL_NOT_NOW {
+            return None;
+        }
+        drop(s);
         let want = resolve(&typed_ref(task_id))?;
         let mut s = self.lock();
         let i = s.open.iter().position(|g| match (tool, g) {
@@ -132,6 +302,17 @@ impl Grants {
         target: &str,
         resolve: &dyn Fn(&str) -> Option<String>,
     ) -> Option<(String, String)> {
+        if tool == TOOL_GIVE_BACK {
+            let mut s = self.lock();
+            let i = s.open.iter().position(|g| match g {
+                Grant::GiveBack { card, refs, .. } => names_item(card, refs, target, resolve),
+                _ => false,
+            })?;
+            return match s.open.remove(i) {
+                Grant::GiveBack { card, reason, .. } => Some((format!("task:{card}"), reason)),
+                _ => None,
+            };
+        }
         let want = match tool {
             TOOL_COMMENT => Some(resolve(&typed_ref(target))?),
             _ => None,
@@ -147,6 +328,57 @@ impl Grants {
         match s.open.remove(i) {
             Grant::Send { to, text } => Some((to, text)),
             Grant::Comment { text, .. } => Some((format!("task:{}", want?), text)),
+            _ => None,
+        }
+    }
+
+    /// Spends the give grant for exactly these cards to this person and
+    /// gives back the person's key and the cards, as `task:<id>`, from the
+    /// person's own refs. `to` is the person's key or name as the model
+    /// sent it; `task_ids` must name the granted cards, no more and no
+    /// fewer.
+    pub fn take_give(
+        &self,
+        to: &str,
+        task_ids: &[String],
+        resolve: &dyn Fn(&str) -> Option<String>,
+    ) -> Option<(String, Vec<String>)> {
+        let mut sent: Vec<String> = vec![];
+        for t in task_ids {
+            let id = resolve(&typed_ref(t))?;
+            if sent.contains(&id) {
+                return None;
+            }
+            sent.push(id);
+        }
+        let to = to.trim();
+        let mut s = self.lock();
+        let i = s.open.iter().position(|g| match g {
+            Grant::Give {
+                to: key,
+                name,
+                cards,
+            } => {
+                let who = *key == to || (!name.is_empty() && name.eq_ignore_ascii_case(to));
+                let mut want: Vec<String> = vec![];
+                for c in cards {
+                    match resolve(c) {
+                        Some(id) if !want.contains(&id) => want.push(id),
+                        _ => return false,
+                    }
+                }
+                let mut a = want.clone();
+                let mut b = sent.clone();
+                a.sort();
+                b.sort();
+                who && !a.is_empty() && a == b
+            }
+            _ => false,
+        })?;
+        match s.open.remove(i) {
+            Grant::Give { to, .. } => {
+                Some((to, sent.iter().map(|c| format!("task:{c}")).collect()))
+            }
             _ => None,
         }
     }
@@ -170,7 +402,7 @@ impl Grants {
 // ---- reading the person's message -------------------------------------------
 
 /// Any of these and the sentence isn't a plain instruction to do it now.
-const HOLD_BACK: &[&str] = &[
+pub(crate) const HOLD_BACK: &[&str] = &[
     "don't",
     "dont",
     "do",
@@ -196,7 +428,7 @@ const HOLD_BACK: &[&str] = &[
     "wait",
     "actually",
 ];
-const OPENERS: &[&str] = &[
+pub(crate) const OPENERS: &[&str] = &[
     "please", "pls", "kindly", "ok", "okay", "yes", "yep", "yeah", "sure", "now", "then", "and",
     "also", "hey", "great", "thanks", "cool", "good", "perfect",
 ];
@@ -219,15 +451,36 @@ const POINTING: &[&str] = &["this", "that", "it"];
 
 /// What the person's `text` asks to change. `earlier` is what they typed
 /// before it, oldest first: "close it" means the one they last named.
-pub fn grants_for(text: &str, earlier: &[&str]) -> Vec<Grant> {
+/// `snap` is what was given to them when the turn began (decision 69);
+/// Needs you targets resolve against it alone. [`Snapshot::default`] when
+/// there is none.
+pub fn grants_for(text: &str, earlier: &[&str], snap: &Snapshot) -> Vec<Grant> {
     // A paste or a list isn't a plain instruction, and a hold-back word
     // anywhere ("Close #5. But only if it passes.") takes the whole message.
     if text.trim().contains('\n') {
         return vec![];
     }
     // The words after "tell ringo" are the person's to say whatever they
-    // are, so this reads before the hold-back words do.
-    if let Some(g) = message_grant(text) {
+    // are, so this reads before the hold-back words do. "tell Spencer
+    // it's too big, give back #15" isn't a message, though, when Spencer
+    // gave them cards: there it is the reason for the give-back.
+    let told = message_grant(text);
+    let to_giver = match &told {
+        Some(Grant::Send { to, .. }) => snap.items.iter().any(|it| {
+            let n = it.giver_name.to_lowercase();
+            n == *to || n.split_whitespace().next() == Some(to.as_str())
+        }),
+        _ => false,
+    };
+    if let Some(g) = told.clone().filter(|_| !to_giver) {
+        return vec![g];
+    }
+    match super::assistant_needs::read(text, earlier, snap) {
+        super::assistant_needs::Read::Grants(g) => return g,
+        super::assistant_needs::Read::Refused => return vec![],
+        super::assistant_needs::Read::Not => {}
+    }
+    if let Some(g) = told {
         return vec![g];
     }
     let sentences = sentences(text);
@@ -321,7 +574,7 @@ fn words(s: &str) -> Vec<String> {
 }
 
 /// A card's short ref: `#12`, `#12a`, or `tag#12` on a space's board.
-fn is_ref(w: &str) -> bool {
+pub(crate) fn is_ref(w: &str) -> bool {
     let Some((tag, n)) = w.split_once('#') else {
         return false;
     };
@@ -354,7 +607,7 @@ fn typed_ref(s: &str) -> String {
 }
 
 /// A ref as grants compare it.
-fn norm_ref(s: &str) -> String {
+pub(crate) fn norm_ref(s: &str) -> String {
     let t = s.trim().to_lowercase();
     if !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()) {
         format!("#{t}")
@@ -377,7 +630,7 @@ fn is_verb(words: &[String], i: usize) -> bool {
 }
 
 /// Past the opening words; also whether they asked ("can you").
-fn opening(w: &[String]) -> (usize, bool) {
+pub(crate) fn opening(w: &[String]) -> (usize, bool) {
     let at = |i: usize, s: &str| w.get(i).is_some_and(|x| x == s);
     let (mut i, mut asked) = (0, false);
     loop {
@@ -885,7 +1138,7 @@ mod tests {
                 vec![close("#5"), tick("#6", "s2")],
             ),
         ] {
-            assert_eq!(grants_for(text, &[]), want, "{text}");
+            assert_eq!(grants_for(text, &[], &Snapshot::default()), want, "{text}");
         }
     }
 
@@ -911,14 +1164,18 @@ mod tests {
             "tick #5",
             "mark #5",
         ] {
-            assert_eq!(grants_for(text, &[]), vec![], "{text}");
+            assert_eq!(
+                grants_for(text, &[], &Snapshot::default()),
+                vec![],
+                "{text}"
+            );
         }
     }
 
     #[test]
     fn close_acts_only_on_what_it_names() {
         assert_eq!(
-            grants_for("close #5 because #6 replaced it", &[]),
+            grants_for("close #5 because #6 replaced it", &[], &Snapshot::default()),
             vec![close("#5")]
         );
         for text in [
@@ -935,26 +1192,53 @@ mod tests {
             "Close #5. Wait, no, leave it open.",
             "The agent recommends:\n1. Close #5\n2. Close #6",
         ] {
-            assert_eq!(grants_for(text, &[]), vec![], "{text}");
+            assert_eq!(
+                grants_for(text, &[], &Snapshot::default()),
+                vec![],
+                "{text}"
+            );
         }
         for text in ["resolve this bug", "close this chat", "close that PR"] {
-            assert_eq!(grants_for(text, &["why does #5 fail?"]), vec![], "{text}");
+            assert_eq!(
+                grants_for(text, &["why does #5 fail?"], &Snapshot::default()),
+                vec![],
+                "{text}"
+            );
         }
     }
 
     #[test]
     fn it_means_the_one_the_person_last_named() {
-        assert_eq!(grants_for("close it", &["what's #5?"]), vec![close("#5")]);
         assert_eq!(
-            grants_for("resolve that thread", &["about #4", "and #5?"]),
+            grants_for("close it", &["what's #5?"], &Snapshot::default()),
             vec![close("#5")]
         );
-        assert_eq!(grants_for("that's resolved", &["#5?"]), vec![close("#5")]);
-        assert_eq!(grants_for("Look at #5. Close it.", &[]), vec![close("#5")]);
-        assert_eq!(grants_for("tick s2", &["#5?"]), vec![tick("#5", "s2")]);
+        assert_eq!(
+            grants_for(
+                "resolve that thread",
+                &["about #4", "and #5?"],
+                &Snapshot::default()
+            ),
+            vec![close("#5")]
+        );
+        assert_eq!(
+            grants_for("that's resolved", &["#5?"], &Snapshot::default()),
+            vec![close("#5")]
+        );
+        assert_eq!(
+            grants_for("Look at #5. Close it.", &[], &Snapshot::default()),
+            vec![close("#5")]
+        );
+        assert_eq!(
+            grants_for("tick s2", &["#5?"], &Snapshot::default()),
+            vec![tick("#5", "s2")]
+        );
         // Two named at once: which one isn't known.
-        assert_eq!(grants_for("close it", &["#4 or #5?"]), vec![]);
-        assert_eq!(grants_for("close it", &[]), vec![]);
+        assert_eq!(
+            grants_for("close it", &["#4 or #5?"], &Snapshot::default()),
+            vec![]
+        );
+        assert_eq!(grants_for("close it", &[], &Snapshot::default()), vec![]);
     }
 
     /// A resolver for tests without a board: every ref names itself.
@@ -975,7 +1259,7 @@ mod tests {
             }
         };
         let g = Grants::default();
-        let run = g.begin(grants_for("close mlg#12", &[]));
+        let run = g.begin(grants_for("close mlg#12", &[], &Snapshot::default()));
         assert_eq!(g.take(TOOL_CLOSE, "#3", "", &resolve), None);
         assert_eq!(g.take(TOOL_CLOSE, "task:t-p3", "", &resolve), None);
         assert_eq!(g.take(TOOL_CLOSE, "#12", "", &resolve), None);
@@ -986,7 +1270,7 @@ mod tests {
         assert_eq!(g.take(TOOL_CLOSE, "mlg#12", "", &resolve), None, "spent");
         g.end(run);
 
-        let run = g.begin(grants_for("tick s1 on mlg#12", &[]));
+        let run = g.begin(grants_for("tick s1 on mlg#12", &[], &Snapshot::default()));
         assert_eq!(g.take(TOOL_TICK, "mlg#12", "s2", &resolve), None);
         assert_eq!(
             g.take(TOOL_TICK, "mlg#12", "S1", &resolve),
@@ -994,7 +1278,11 @@ mod tests {
         );
         g.end(run);
 
-        let run = g.begin(grants_for("comment on mlg#12: ship it", &[]));
+        let run = g.begin(grants_for(
+            "comment on mlg#12: ship it",
+            &[],
+            &Snapshot::default(),
+        ));
         assert_eq!(g.take_text(TOOL_COMMENT, "#3", &resolve), None);
         assert_eq!(
             g.take_text(TOOL_COMMENT, "task:t-mlg12", &resolve),
@@ -1003,7 +1291,7 @@ mod tests {
         g.end(run);
 
         // The person's bare #12 names two cards: the model can't pick one.
-        let run = g.begin(grants_for("close #12", &[]));
+        let run = g.begin(grants_for("close #12", &[], &Snapshot::default()));
         assert_eq!(g.take(TOOL_CLOSE, "mlg#12", "", &resolve), None);
         assert_eq!(g.take(TOOL_CLOSE, "task:t-mlg12", "", &resolve), None);
         g.end(run);
@@ -1070,7 +1358,11 @@ mod tests {
                 comment("ops#12", "ship it"),
             ),
         ] {
-            assert_eq!(grants_for(&text, &[]), vec![want], "{text}");
+            assert_eq!(
+                grants_for(&text, &[], &Snapshot::default()),
+                vec![want],
+                "{text}"
+            );
         }
     }
 
@@ -1099,15 +1391,19 @@ mod tests {
             "tell ringo hi\nand close #5",
             "Look at #5. Tell ringo hi",
         ] {
-            assert_eq!(grants_for(text, &[]), vec![], "{text}");
+            assert_eq!(
+                grants_for(text, &[], &Snapshot::default()),
+                vec![],
+                "{text}"
+            );
         }
         // A tell never carries a close with it.
         assert_eq!(
-            grants_for("tell ringo close #5", &[]),
+            grants_for("tell ringo close #5", &[], &Snapshot::default()),
             vec![send("ringo", "close #5")]
         );
         let long = format!("tell ringo {}", "x".repeat(MAX_BODY + 1));
-        assert_eq!(grants_for(&long, &[]), vec![]);
+        assert_eq!(grants_for(&long, &[], &Snapshot::default()), vec![]);
     }
 
     #[test]

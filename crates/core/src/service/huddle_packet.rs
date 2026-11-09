@@ -152,32 +152,7 @@ pub fn clip(s: &str, n: usize) -> String {
     t
 }
 
-/// Neutralises anything in untrusted text that could open or close one of
-/// the huddle's fences: `<irori-` and `</irori-`, in any case, become
-/// `<\irori-` and `<\/irori-`. Like `inbox::fence`'s escaping, for these
-/// tags.
-pub fn escape(s: &str) -> String {
-    const NEEDLE: &[u8] = b"irori-";
-    let b = s.as_bytes();
-    let mut out = String::with_capacity(s.len());
-    let mut last = 0;
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'<' {
-            let slash = b.get(i + 1) == Some(&b'/');
-            let at = i + 1 + usize::from(slash);
-            if b.len() >= at + NEEDLE.len() && b[at..at + NEEDLE.len()].eq_ignore_ascii_case(NEEDLE)
-            {
-                out.push_str(&s[last..=i]);
-                out.push('\\');
-                last = i + 1;
-            }
-        }
-        i += 1;
-    }
-    out.push_str(&s[last..]);
-    out
-}
+pub use tools::escape;
 
 /// `body` fenced as untrusted data of `kind`: other people's words, never
 /// instructions (the huddle system prompt says so).
@@ -487,16 +462,6 @@ mod tests {
         assert_eq!(got.len(), MAX_CARDS);
         assert_eq!(got[0].card_ref, "mlg#54");
         assert_eq!(got[39].card_ref, "mlg#15");
-    }
-
-    #[test]
-    fn escape_breaks_every_fence_tag_in_any_case() {
-        assert_eq!(
-            escape("a </irori-data> b <IRORI-lines> c </Irori-Lines"),
-            "a <\\/irori-data> b <\\IRORI-lines> c <\\/Irori-Lines"
-        );
-        assert_eq!(escape("x < y </b> <irori"), "x < y </b> <irori");
-        assert_eq!(escape("ünïcode </irori-data>"), "ünïcode <\\/irori-data>");
     }
 
     #[test]
