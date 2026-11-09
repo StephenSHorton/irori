@@ -18,6 +18,7 @@ import {
   devices as actions,
   isOpen,
   PairState,
+  reachLine,
   stateDot,
   useDevices,
   usePairing,
@@ -228,6 +229,7 @@ function DeviceRow({
             {d.role === "node" ? "node · " : ""}
             {state}
             {d.via ? ` · ${throughLine(d.via)}` : ""}
+            {reachLine(d) ? ` · ${reachLine(d)}` : ""}
             {d.sides?.length ? ` · runs ${d.sides.join(", ")}` : ""}
           </small>
         </span>
