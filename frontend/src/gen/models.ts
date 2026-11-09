@@ -905,7 +905,7 @@ export function Notification(p: Partial<B.Notification> = {}): B.Notification {
 
 /** NotificationAsk with Go's zero values for every field left out. */
 export function NotificationAsk(p: Partial<B.NotificationAsk> = {}): B.NotificationAsk {
-  return { "open": false, "actions": [], "choice": "", "answered": false, "until": "", ...p } as B.NotificationAsk
+  return { "id": "", "open": false, "actions": [], "choice": "", "answered": false, "until": "", ...p } as B.NotificationAsk
 }
 
 /** NotificationCard with Go's zero values for every field left out. */

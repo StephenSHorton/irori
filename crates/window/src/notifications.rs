@@ -33,6 +33,8 @@ pub struct NotificationCard {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NotificationAsk {
+    /// The ask's id, which `notifications:changed.asks` names.
+    pub id: String,
     pub open: bool,
     pub actions: Vec<String>,
     /// The answer once resolved: a button's label, or "" for a dismiss or
@@ -83,13 +85,26 @@ impl Window {
         if items.is_empty() {
             return Vec::new();
         }
+        self.notification_rows(items.into_iter().take(MAX_LISTED).collect())
+    }
+
+    /// Just these keys' rows, as `notifications` builds them (card #1151);
+    /// a key nothing is kept under is left out.
+    pub fn notifications_by_key(&self, keys: &[String]) -> Vec<Notification> {
+        let items = self.core.notifications_of(keys);
+        if items.is_empty() {
+            return Vec::new();
+        }
+        self.notification_rows(items)
+    }
+
+    fn notification_rows(&self, items: Vec<coord::notifications::Item>) -> Vec<Notification> {
         let p = self.people();
         let co = self.core.coord();
         let asks = self.core.asks();
         let now = GoTime::from_system(std::time::SystemTime::now());
         items
             .into_iter()
-            .take(MAX_LISTED)
             .map(|it| {
                 let mut r = it.posted;
                 let task = if r.task_id.is_empty() {
@@ -123,6 +138,7 @@ impl Window {
                 }
                 let ask = if r.kind == coord::notifications::KIND_ASK && !r.ask_id.is_empty() {
                     asks.get(&r.ask_id).map(|a| NotificationAsk {
+                        id: r.ask_id.clone(),
                         open: !a.resolved && a.until.unix_nano() > now.unix_nano(),
                         actions: a.actions.clone(),
                         choice: a.choice.clone(),
