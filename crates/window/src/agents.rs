@@ -107,6 +107,11 @@ pub struct AgentsSettings {
     pub idle_mins: u32,
     /// The idle limits Settings › Agents offers, in minutes.
     pub idle_choices: Vec<u32>,
+    /// "Retire an agent past" (card #1213): thousands of tokens of context,
+    /// -1 always starts a fresh agent.
+    pub ctx_budget_k: i32,
+    /// The budgets Settings › Agents offers.
+    pub ctx_budget_choices: Vec<i32>,
     /// How many of a card's agents may crash in a row before Irori stops
     /// and asks (card #576).
     pub crash_limit: u32,
@@ -205,6 +210,10 @@ pub struct AgentsChange {
     pub assistant_effort: Option<String>,
     #[serde(default)]
     pub idle_mins: Option<u32>,
+    /// A context budget in thousands of tokens, one of
+    /// [`spawn::CTX_BUDGETS_K`]; the default stores nothing.
+    #[serde(default)]
+    pub ctx_budget_k: Option<i32>,
     #[serde(default)]
     pub crash_limit: Option<u32>,
     #[serde(default)]
@@ -250,6 +259,11 @@ pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
             .collect(),
         idle_mins: (s.idle_limit().as_secs() / 60) as u32,
         idle_choices: IDLE_CHOICES.to_vec(),
+        ctx_budget_k: match s.ctx_budget() {
+            b if b < 0 => -1,
+            b => (b / 1000) as i32,
+        },
+        ctx_budget_choices: spawn::CTX_BUDGETS_K.iter().map(|k| *k as i32).collect(),
         crash_limit: or_default(s.crash_limit, i64::from(coord::MAX_SPAWN_CRASHES)),
         start_tries: or_default(
             s.start_tries,
@@ -307,6 +321,13 @@ pub(crate) fn apply(mut s: SpawnSetting, c: AgentsChange) -> SpawnSetting {
         // The default is stored as 0, so a later default change reaches it.
         let def = (spawn::IDLE_LIMIT.as_secs() / 60) as u32;
         s.idle_mins = if m == def { 0 } else { i64::from(m) };
+    }
+    if let Some(k) = c.ctx_budget_k {
+        s.ctx_budget_k = if i64::from(k) == spawn::CTX_BUDGET_K {
+            0
+        } else {
+            i64::from(k)
+        };
     }
     // A default is stored as 0, as the idle limit's is, so a later default
     // change reaches it.
@@ -381,6 +402,17 @@ fn valid_idle(c: &AgentsChange) -> Result<(), String> {
     match c.idle_mins {
         Some(m) if !IDLE_CHOICES.contains(&m) => Err(format!(
             "an idle limit is one of {IDLE_CHOICES:?} minutes, not {m}"
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// The person's choice of context budget: one of [`spawn::CTX_BUDGETS_K`].
+fn valid_budget(c: &AgentsChange) -> Result<(), String> {
+    match c.ctx_budget_k {
+        Some(k) if !spawn::CTX_BUDGETS_K.contains(&i64::from(k)) => Err(format!(
+            "a context budget is one of {:?}k, not {k}",
+            spawn::CTX_BUDGETS_K
         )),
         _ => Ok(()),
     }
@@ -795,6 +827,7 @@ impl Window {
     /// The person changes a board's switch, model or effort.
     pub fn agents_set(&self, c: AgentsChange) -> Result<AgentsSettings, String> {
         valid_idle(&c)?;
+        valid_budget(&c)?;
         let board_id = c.board_id.clone();
         let s = apply(self.core.spawn_setting(&board_id), c);
         self.core.set_spawn_setting(s)?;
@@ -805,6 +838,28 @@ impl Window {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_context_budget_round_trips_and_200k_stores_as_the_default() {
+        let c = |k| AgentsChange {
+            ctx_budget_k: Some(k),
+            ..AgentsChange::default()
+        };
+        assert_eq!(view(&SpawnSetting::default(), false).ctx_budget_k, 200);
+        for k in [80, 120, 300, -1] {
+            let s = apply(SpawnSetting::default(), c(k));
+            assert_eq!(
+                (s.ctx_budget_k, view(&s, true).ctx_budget_k),
+                (i64::from(k), k)
+            );
+            assert!(s.check().is_ok());
+        }
+        let s = apply(apply(SpawnSetting::default(), c(80)), c(200));
+        assert_eq!(s.ctx_budget_k, 0);
+        assert!(valid_budget(&c(100)).is_err());
+        assert!(valid_budget(&c(0)).is_err());
+        assert!(valid_budget(&c(-1)).is_ok());
+    }
 
     #[test]
     fn the_limits_round_trip_and_defaults_store_as_zero() {
