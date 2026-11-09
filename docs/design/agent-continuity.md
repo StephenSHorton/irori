@@ -161,7 +161,11 @@ The last row matters because Claude Code drops background sessions about 60 minu
 
 **What rest does:**
 1. **The hand-off**, through the exit protocol with rest wording: Where, Left off, and a closing comment in the shape of §12 on each item, plus a note proposal if it learned something about the repo. A resting agent may never wake again, so every stop Irori makes pays this one turn.
-2. **It lets go.** It leaves its card (`task.left`, finished), gives up any take, and its leases are released.
+2. **It lets go.** It leaves its card itself, gives up any take, and its leases are released. "Leaves the card as today" in the table above means the same point in time, not the same path. Today `return_gone` writes the leave after `agent.gone`, but a resting agent stays on the roster and writes no `agent.gone`. So rest writes `task.left` with a new reason, **`rested`**. That reason:
+   - counts no crash;
+   - sends no "nobody is on it" notice;
+   - shows on the card as "agent resting";
+   - records the agent as the card's last agent (A.2).
 3. **It writes `agent.rest`**, then stops the process with **`claude stop` only**. There is no `rm`: the job and its files stay, because a wake needs them.
 
 **A drop-off has no hand-off**, because the process is already gone. Irori writes "rested without a hand-off" on its items. When it wakes, its wake notice asks it to write Left off first.
@@ -425,7 +429,7 @@ The cards sit on the Board after #1209. Each has steps, files and done-when, and
 - **The pinned test.** `a_spawning_board_never_hands_a_new_card_to_an_idle_agent` (`coord/tests/it/offer_opt_in_test.rs:92`) becomes "never to an idle terminal agent without Offer it cards; first to a reusable spawned agent". Build it with `with_offers`: `e.opts()` leaves `offers` None, which counts every terminal agent as opted in.
 - **`turn_state`** (`asks.rs:1317`): add an arm so a resting holder of an offer counts as Gone. This is for safety, since resting agents aren't offered.
 - **Steps 1 and 2 assign** (`Coord::assign`, `tasks.rs:421`), which checks neither busy nor handed. Run the "holds nothing open" check before assigning. A wake that can't start unassigns.
-- **Last agent.** A card's last agent is the holder of its latest `task.left` with reason finished (an end, or the new rest-leave).
+- **Last agent.** The fold already keeps it: `Task.let_go` is set to the leaver's key when the last holder leaves (`fold.rs` about 978). A card's last agent is `let_go` when that leave's reason was `finished` or `rested`.
 
 ### A.3 The multi-item mark (card 4)
 
@@ -479,7 +483,17 @@ grep -rn '\.spawned\.get(\|\.spawned\.iter\|\.spawned\.contains_key' crates --in
   - A Wake from another device is `wake.requested {key, life}`, served like `EndRequest` (`spawn_remote.rs` about 992-1017).
 - **This device's roster.** It is presence plus members, not the mesh fold (`coord/src/roster.rs` 149-152, 267-274; the `local` closure at `core/src/service.rs` about 1203-1211). Presence drops a stopped session, so Core keeps the set of resting keys (current life has `agent.rest` and no `agent.retire`). The `local` closure adds a card with status `resting` for each one. That puts the agent in front of the inbox (`roster_cards`, `inbox/src/state.rs:1601`; `still_gone`, `inbox/src/sweep.rs:348`), mentions (`tools/src/mention.rs`), the namer and `key_gone_in` (`coord/src/board/stranded.rs` about 57-65).
 - **Other devices.** Add `agent.rest`, `agent.wake` and `agent.retire` to the roster's `KINDS` (`coord/src/roster.rs:74`) and `apply`: rest sets `resting`, wake sets `idle`, retire removes the card. The `DEVICE_STARTED` arm (about 389-393) keeps `resting` cards.
-- **`answers()`** (`coord/src/roster.rs:70`) stays as it is: resting is neither gone nor not-answering, so it counts as reachable for mentions, `talk_replying` and the thread liveness check. Resting agents hold no cards, so `observe` and `return_gone` have nothing to take back. Hand-out already requires `status == "idle"` (`offers.rs` about 293).
+- **`answers()`** (`coord/src/roster.rs:70`) stays as it is. Resting is neither gone nor not-answering, so it counts as reachable for mentions, `talk_replying` and the thread liveness check. Hand-out already requires `status == "idle"` (`offers.rs` about 293). Its other readers on d9cd094d, each fine:
+  - `observe` (`fold.rs` ~2015) and `return_gone` (`comments.rs` ~1893): a resting agent holds no card, so there is nothing to take back.
+  - `taker_gone` (`asks.rs` ~2161): it holds no take.
+  - The not-answering notices (`comments.rs` ~1814).
+  - The ask owner's device count (`asks.rs` ~1373).
+  - `turn_state` (`asks.rs` ~1329): gets the A.2 arm.
+  - An ask that names a resting agent (`asks.rs` ~1676) is handed to it, and that hand-out is a delivery that wakes it (§7).
+- **The rest-leave.** Rest writes `task.left {who: key, reason: "rested"}` itself (§6). Add `LEFT_RESTED` beside `LEFT_FINISHED` in `fold.rs` (about 72-82):
+  - no crash count (the crash branch about 986-992 already resets the count on any reason but `gone`);
+  - no `NOTICE_RETURNED`;
+  - `HolderLine` shows "agent resting".
 - **The inbox.** A wake-mode delivery to a resting key whose sender may wake it (§7) starts a wake instead of `hand_off` → `on_recipient_gone` → `record_for_finished` (`core/src/service.rs` about 1291-1330). A next-turn delivery stays queued.
 - **Thread follow-ups.** The `around` closure that `thread_follow_up` (`coord/src/board/threads.rs:331`) uses counts a resting replier on a device that can wake it as reachable.
   - Today's `ask_resting` (`coord/src/board/spawn.rs:901`) reads `ended_by_irori`. Make it also true while the request's last agent rests, so no second agent starts for that thread.
