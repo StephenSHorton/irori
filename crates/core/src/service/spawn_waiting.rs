@@ -563,10 +563,7 @@ impl Services {
                 }
             ),
             options,
-            blocked_by: Some(BlockedBy {
-                kind: coord::BLOCKED_ON_PERSON.into(),
-                ..BlockedBy::default()
-            }),
+            blocked_by: Some(self.perm_decider(board)),
             permission: Some(PermissionWait {
                 agent: key.to_string(),
                 tool,
@@ -613,6 +610,20 @@ impl Services {
     /// Who writes a permission item on `co`: Irori on the person's own
     /// log, the person on a shared board (Irori's own rows there count for
     /// nothing, and the item is theirs to answer).
+    /// Who an item waits on: the person whose agent is on the prompt. On a
+    /// shared board that is named, because the card's owner is whoever
+    /// made it (a review card's author), not who runs its agent.
+    fn perm_decider(&self, board: &str) -> BlockedBy {
+        BlockedBy {
+            kind: coord::BLOCKED_ON_PERSON.into(),
+            reference: if board.is_empty() {
+                String::new()
+            } else {
+                self.person_actor()
+            },
+        }
+    }
+
     fn perm_raiser(&self, board: &str) -> String {
         if board.is_empty() {
             SWEEPER.into()
@@ -779,10 +790,7 @@ impl Services {
                  list in Settings › Agents and start a fresh agent.",
                 t.short_ref()
             ),
-            blocked_by: Some(BlockedBy {
-                kind: coord::BLOCKED_ON_PERSON.into(),
-                ..BlockedBy::default()
-            }),
+            blocked_by: Some(self.perm_decider(board)),
             permission: Some(PermissionWait {
                 agent: a.key.clone(),
                 tool,
