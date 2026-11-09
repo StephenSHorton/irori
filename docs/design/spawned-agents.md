@@ -16,6 +16,7 @@ Nothing waits for a free agent any more, and no agent carries one card's context
 - The roster shows two groups: his terminal agents, and the agents on cards now, each marked "for #N" (sa-1, sa-8).
 - On a card he sees who is on it, with Attach, Logs, Stop and End beside each spawned agent (sa-2).
 - When a card is Done its agents go away, and the card keeps what they found. An ask or Talk thread's agent goes when the thread closes or goes quiet (§4, sa-10).
+- *Card #1209 (decision 70) changes this:* an agent now rests instead of going away and keeps its name and session; something that is its own wakes it, and it retires on a context budget. See [agent-continuity.md](agent-continuity.md).
 - **What it costs.** Every card starts a fresh context and pays for the irori tool descriptions again (the spike's probe was about $0.10 on Sonnet/low and $0.44 on Opus/medium), so the per-day spend follows how many cards he posts and how many split. Settings › Agents shows today's count and cost (sa-6), and Claude plan usage limits, not memory, are the likely ceiling on a busy day (§6).
 - **The first card in each repo stops on a trust prompt** on each device: "Can't start: <repo> isn't trusted for agents", with Trust and start (sa-7). Once per repo per device.
 - New things he decides once: the default model and permission mode, and the per-device cap (§7, §10).
@@ -127,6 +128,8 @@ Stephen: "they should all still talk to eachother where relevant in this eco sys
 
 **Reaching an agent that has gone.** A mention of, or a `send` to, a spawned agent that has been removed lands on the card it was spawned for, as a comment marked "for <name>, who has finished", and wakes the card's current holder if it has one. Today such a send is dropped, and the repo front desk (`crates/inbox/src/route.rs:200-222`) doesn't help because a spawned agent is never a front desk. **Redirected mentions, sends and comments never start an agent**: a message from another agent or person isn't an authorization (§7). If the card has nobody on it, the comment just waits on the thread for the next agent, which reads it in its brief.
 
+*Card #1209 (decision 70):* a mention or message for a **resting** agent wakes it when its sender is the person, Irori about its own item, or one of the person's own agents (decision 51); only a retired agent's mail lands on the card as below. See [agent-continuity.md](agent-continuity.md) §7.
+
 **Comments on a card whose agent has gone.** Stephen's comment has no next turn to ride (`crates/inbox/src/wake.rs:60-100`). It goes on the thread as now. If the card is open and unheld it already needs an agent and will get one; if it is waiting on him, his comment offers "Start an agent with this" beside it, which is an answer in the Posted sense (§2).
 
 **Asks and Talk threads get their own agent** (§13.15). Today an ask goes to one free agent (decision 38), and so does a Talk thread that names nobody (`docs/design/talk-channels.md:31`). With terminal agents no longer handed work, both spawn instead:
@@ -136,6 +139,8 @@ Stephen: "they should all still talk to eachother where relevant in this eco sys
 - if the ask becomes a card, the agent carries on as that card's agent (its mark moves to the card); a card made from a Talk thread is a new card and gets its own agent;
 - naming an agent still sends to that agent, as now; in a channel, naming nobody still wakes nobody.
 - *Card #1208:* **a card made from a thread (`board_create from=`) is offered first to that thread's agent**, while it is alive on this device and holds no other card (one made card at a time, standing for "its context is small" until #1209's budget replaces it in `thread_agent_reusable`). The card is assigned to it with a note (work code in its own worktree, since a thread agent starts in the main checkout), and `may_hand_to`/`spawned_may_take` let it take that card only. An @-mention or assign overrides, since an assigned card is never offered; with the agent gone, or busy with another made card, the card gets a fresh spawn as above. **A thread agent that is still wanted is not ended by the idle limit** (sa-10): while a card made from its thread is open and held by or assigned to it, even after the thread resolves. A thread with no such card keeps the idle-limit clock. Decision 68.
+
+*Card #1209 (decision 70):* a thread's agent rests instead of ending when the thread goes quiet, and a follow-up wakes it; a card made from its thread goes to it first (#1208), guarded by the context budget. See [agent-continuity.md](agent-continuity.md) §7-§8.
 
 sa-10 shows a Talk thread answered by a spawned agent that then goes, leaving its answer and a proposed note.
 
@@ -150,6 +155,7 @@ A terminal agent is any session Stephen started himself (`claude` in a terminal,
 **How they coexist:**
 - **No automatic hand-out.** Terminal agents are not offered unheld cards, asks or Talk threads once spawning is on for a board (§13.13). They get work when Stephen gives it: assign on create, `board_assign`, a mention, or the New card dialog's "Give to". That keeps their context his.
 - **Opt-in hand-out.** A per-agent switch, "Offer it cards", restores today's behaviour for that agent: it takes unheld cards when idle, before a spawn is considered. Useful for a terminal agent that already knows a repo well.
+- *Card #1209 (decision 70):* "Offer it cards" stays as it is for terminal agents. Spawned agents under the context budget are offered same-repo cards too, without a switch. See [agent-continuity.md](agent-continuity.md) §8, §10.
 - **"Keep this one for me".** On a spawned agent, this clears its `spawned_for` mark: it becomes a terminal agent, isn't ended when its card is Done, and keeps its context. Attach in a terminal and keep working there.
 - **Reuse a terminal agent for a card.** In the New card dialog, the card's Who's on it, or the roster: "Give to <terminal agent>". The card is then assigned as today and no spawn happens.
 - **Leads.** A terminal agent given a card is its lead and can ask for spawned helpers with `spawn: true` (§3). This is the main way Stephen's long-context agent makes use of spawned agents: it plans, Irori starts helpers, they report on the card, it merges.
