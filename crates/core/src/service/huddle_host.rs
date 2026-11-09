@@ -228,9 +228,12 @@ pub(crate) struct Hosting {
     unreach: Mutex<HashMap<String, SystemTime>>,
     /// When the last sweep ran, to see a sleep.
     last: Mutex<Option<SystemTime>>,
+    /// When this device first saw each huddle over (card #1053): the clock
+    /// of the chair's hand-on and of the end it owes.
+    pub(super) over: Mutex<HashMap<String, SystemTime>>,
 }
 
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(super) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -356,7 +359,10 @@ impl Services {
         };
         let want = conv.is_some() && !self.call_over(call);
         let mine_on = self.assist_on_here(call);
-        let v = if want {
+        // A host whose person left, or whose huddle ended, stays while it
+        // owes the end or may have to cover for the chair (card #1053).
+        let linger = !want && h.wrote_on && self.huddle_lingers(call, now);
+        let v = if want || linger {
             self.huddle_verdict(call, &h, now)
         } else {
             Verdict::Out
@@ -392,7 +398,12 @@ impl Services {
                         h.retry_at = None;
                     }
                 }
+                let conv = h.conv.clone();
                 lock(&self.hosting.calls).insert(call.to_string(), h);
+                // The chair from the rows, the title, and the end (#1053).
+                self.huddle_chair_row(call, &conv);
+                self.huddle_title_tick(call, now);
+                self.huddle_end_tick(call, now);
                 self.hub.publish(CoreEvent::Talk);
             }
             Verdict::Wait => {
@@ -476,7 +487,7 @@ impl Services {
     }
 
     /// How long each of this person's devices that is away has been away.
-    fn own_away_for(&self, agents: &coord::AgentDevices) -> BTreeMap<String, Duration> {
+    pub(super) fn own_away_for(&self, agents: &coord::AgentDevices) -> BTreeMap<String, Duration> {
         let now = (self.now)().unix_nano();
         agents
             .away
@@ -496,8 +507,28 @@ impl Services {
 
     /// Writes this device's `call.assist` row for `call`.
     fn write_assist(&self, conv: &str, call: &str, on: bool) -> Result<(), String> {
+        self.write_assist_as(conv, call, on, false)
+    }
+
+    /// [`Services::write_assist`] with the chair flag; the chair switch rides
+    /// every row (card #1053).
+    pub(super) fn write_assist_as(
+        &self,
+        conv: &str,
+        call: &str,
+        on: bool,
+        chair: bool,
+    ) -> Result<(), String> {
         self.talk
-            .write_assist(conv, call, &self.device.id, on, &self.user_sender().key)
+            .write_assist_as(
+                conv,
+                call,
+                &self.device.id,
+                on,
+                chair,
+                !self.huddle_chair_on(),
+                &self.user_sender().key,
+            )
             .map_err(|e| e.to_string())?;
         self.hub.publish(CoreEvent::Talk);
         Ok(())
@@ -620,7 +651,7 @@ impl Services {
     /// Adds to `away` how long devices that aren't this person's have been
     /// unreachable in `space`, for the `on` rows of other people (the
     /// first sighting starts the clock).
-    fn others_away_for(
+    pub(super) fn others_away_for(
         &self,
         space: &str,
         rows: &[AssistInfo],
@@ -777,6 +808,8 @@ mod tests {
             by: "user:x".into(),
             on,
             chair: false,
+            declines_chair: false,
+            first_on: 0,
         }
     }
 

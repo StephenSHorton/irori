@@ -167,6 +167,9 @@ const SINCE_GO_REFUSED: [&str; 38] = [
     kinds::ASSISTANT_NAMES_SET,
     // "Weigh new cards" (card #965).
     kinds::ASSISTANT_WEIGHS_SET,
+    // The two huddle switches (card #1053).
+    kinds::ASSISTANT_HUDDLE_NOTES_SET,
+    kinds::ASSISTANT_HUDDLE_CHAIR_SET,
     // The Office Assistant's one conversation (card #1102).
     kinds::ASSISTANT_CHAT_ASKED,
     kinds::ASSISTANT_CHAT_SAID,

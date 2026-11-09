@@ -299,6 +299,27 @@ impl Window {
         self.core.set_weighs_on(on)
     }
 
+    /// "Let my assistant add notes from what I say" (card #1053): on unless
+    /// the person turned it off.
+    pub fn assistant_huddle_notes(&self) -> bool {
+        self.core.huddle_notes_on()
+    }
+
+    /// Turns the notes switch on or off on all the person's devices.
+    pub fn assistant_huddle_notes_set(&self, on: bool) -> Result<(), String> {
+        self.core.set_huddle_notes_on(on)
+    }
+
+    /// "Let my assistant chair huddles I start" (card #1053).
+    pub fn assistant_huddle_chair(&self) -> bool {
+        self.core.huddle_chair_on()
+    }
+
+    /// Turns the chair switch on or off on all the person's devices.
+    pub fn assistant_huddle_chair_set(&self, on: bool) -> Result<(), String> {
+        self.core.set_huddle_chair_on(on)
+    }
+
     /// What this device can share: displays, then windows.
     pub fn share_sources(&self) -> Result<Vec<ShareSourceView>, String> {
         Ok(self

@@ -474,6 +474,8 @@ function AppPane() {
         <h3 className="text-sm font-medium text-ink">Voice and huddles</h3>
         <VoiceNote open />
         <TranscribeSwitch />
+        <HuddleNotesSwitch />
+        <HuddleChairSwitch />
       </section>
       <section className="grid gap-3" aria-label="Threads">
         <h3 className="text-sm font-medium text-ink">Threads</h3>
@@ -550,6 +552,34 @@ function NamesSwitch() {
       loading="Loading thread names"
       read={AssistantService.Names}
       write={AssistantService.NamesSet}
+    />
+  )
+}
+
+// HuddleNotesSwitch and HuddleChairSwitch are the two huddle switches (#1053):
+// on unless the person turns them off, on all their devices.
+function HuddleNotesSwitch() {
+  return (
+    <AssistantSwitch
+      setting="app.huddleNotes"
+      label="Let my assistant add notes from what I say"
+      hint="In a huddle, your assistant turns what you say into questions, decisions and tasks on the canvas. Off, it adds none of its own; it still answers when you or someone calls it, and when a question matches your work. Applies on all your devices."
+      loading="Loading huddle notes"
+      read={AssistantService.HuddleNotes}
+      write={AssistantService.HuddleNotesSet}
+    />
+  )
+}
+
+function HuddleChairSwitch() {
+  return (
+    <AssistantSwitch
+      setting="app.huddleChair"
+      label="Let my assistant chair huddles I start"
+      hint="The chair writes the huddle's title and, at the end, its summary with the action items. Off, the next person's assistant chairs. Applies on all your devices."
+      loading="Loading huddle chair"
+      read={AssistantService.HuddleChair}
+      write={AssistantService.HuddleChairSet}
     />
   )
 }
