@@ -395,6 +395,11 @@ Rest and retire are on main, with §7's fallback, so nothing that would wake a r
   - Stop's wind-down skips resting agents; the sweep retires them.
   - Shared boards' `agent.card` shows resting as gone.
   - Review picks and Talk's "replying" pass resting agents by.
+- **From the review and the scratch run:**
+  - **The let-go time.** An agent let go when its rest was *asked* (`agent.rest`'s `at`). Coord keeps that time per agent after it retires (`rest_times`, from `Coord::mark_rested` and replay), and `ask_waits_for_person` measures from it. A word the person wrote during the hand-off wait, or while it rested, still starts the next agent after a woken or quiet retire.
+  - **Races.** The person's End or a lift during a rest's hand-off wait turns it into a retire. `sweep_ending` carries the kind it read and skips a key another sweep (End runs one off the sweep thread) has already finished. A retire writes its row and its end under `rest_lock`.
+  - **Restarts.** Once per run, Core reconciles every resting agent's let-go, because a drop-off's let-go is queued in memory. A presence Added or Updated for a resting key ends the rest only if that session started after the rest, as a Revive or a resume by hand does. The rested life's own process, still exiting across a restart, is stopped again and stays resting. #1216: check what `startedAt` a resumed `--bg` session's file carries.
+  - **`came_for`.** It passes by Irori's own notices from before the rest: they are about what the agent handed off. Anything from the person still counts. A usage-limit end clears a pending rest or retire.
 - **Not built here:**
   - s6's slot rest covers threads and asks only. On a board that starts agents, a card's offer row is written without a hand-out (`OFFER_WAITING`, empty `to`), so "the hand-out found nobody" can't be told apart until #1217 removes those skips.
   - `life` is always 1 (`FIRST_LIFE`) until #1216 writes `agent.wake`. #1214's origin item still says `life: 0`.
