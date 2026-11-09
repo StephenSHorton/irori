@@ -71,6 +71,18 @@ pub struct DeviceView {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[specta(optional)]
     pub sides: Vec<String>,
+    /// (A removal pending) the remaining devices that have not seen it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[specta(optional)]
+    pub holdouts: Vec<HoldoutView>,
+}
+
+/// A remaining device a pending removal waits on.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HoldoutView {
+    pub device_id: String,
+    pub name: String,
 }
 
 /// The Home server section of Devices.
@@ -338,6 +350,14 @@ pub fn device_view(r: mesh::DeviceRow) -> DeviceView {
         behind: r.behind,
         color: String::new(),
         sides: Vec::new(),
+        holdouts: r
+            .holdouts
+            .into_iter()
+            .map(|h| HoldoutView {
+                device_id: h.device_id,
+                name: h.name,
+            })
+            .collect(),
     }
 }
 

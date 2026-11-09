@@ -327,3 +327,104 @@ fn a_pr_card_is_never_offered() {
     assert!(e.c.offer_card(common::USER, &plain.id, &room).is_ok());
     assert!(e.c.offer_card(common::USER, &pr.id, &room).is_err());
 }
+
+/// Merge desk §12.2 (card #1170): with p1 the author, p2 a member who
+/// reaches for p1's PR card and p3 a bystander, p2 can't hold the card,
+/// can't make its `pr.state` count, and can't end it.
+#[test]
+fn a_member_who_joins_or_holds_a_pr_card_cannot_vouch_for_it_or_end_it() {
+    use coord::rows::{TaskAssignedRow, TaskClaimedRow, TaskMemberRow, TaskStateRow};
+    let (a, b, c, _) = three_people();
+    let id = a.c.create_task(P1, new_card()).unwrap().id;
+    sync_all(&[&a, &b, &c]);
+    let at = common::fixed_now();
+    // p2's modified client: joins, claims and assigns itself the card, and
+    // feeds Irori pr.state rows from its own device.
+    let ev = b.st.append(
+        CARD2,
+        kinds::TASK_JOINED,
+        &TaskMemberRow {
+            task_id: id.clone(),
+            who: CARD2.into(),
+            by: CARD2.into(),
+            at,
+            ..TaskMemberRow::default()
+        },
+    );
+    let ev = ev.unwrap();
+    b.c.fold_live(&[ev]);
+    let ev = b.st.append(
+        CARD2,
+        kinds::TASK_CLAIMED,
+        &TaskClaimedRow {
+            task_id: id.clone(),
+            by: CARD2.into(),
+            at,
+        },
+    );
+    b.c.fold_live(&[ev.unwrap()]);
+    let ev = b.st.append(
+        P2,
+        kinds::TASK_ASSIGNED,
+        &TaskAssignedRow {
+            task_id: id.clone(),
+            to: CARD2.into(),
+            by: P2.into(),
+            at,
+            ..TaskAssignedRow::default()
+        },
+    );
+    b.c.fold_live(&[ev.unwrap()]);
+    for state in [PR_MERGED, PR_CLOSED] {
+        let ev = b.st.append(
+            "irori",
+            kinds::PR_STATE,
+            &PrStateRow {
+                task_id: id.clone(),
+                pr: PR.into(),
+                state: state.into(),
+                by: "irori".into(),
+                at,
+                reviews: vec![PrReview {
+                    login: "bob".into(),
+                    state: "APPROVED".into(),
+                    sha: "abc".into(),
+                    at: gocompat::time::GoTime::unix(4_000_000_000, 0),
+                }],
+                ..PrStateRow::default()
+            },
+        );
+        b.c.fold_live(&[ev.unwrap()]);
+    }
+    // And sets the card completed, then failed.
+    for state in [COMPLETED, FAILED] {
+        let ev = b.st.append(
+            P2,
+            kinds::TASK_STATUS,
+            &TaskStateRow {
+                task_id: id.clone(),
+                state: state.into(),
+                by: P2.into(),
+                at,
+                ..TaskStateRow::default()
+            },
+        );
+        b.c.fold_live(&[ev.unwrap()]);
+    }
+    sync_all(&[&a, &b, &c]);
+    for s in [&a, &c] {
+        let t = s.c.get_task(&id).unwrap();
+        assert!(t.holders.is_empty() && t.co_holders.is_empty(), "{t:?}");
+        assert!(t.assigned.is_empty(), "{t:?}");
+        assert_eq!(t.state, SUBMITTED, "{t:?}");
+        assert!(s.c.pr_state(&id, PR).is_none(), "no fake pr.state counted");
+    }
+    // The author's own row still counts for everyone, and the author's
+    // person still ends the card.
+    a.c.record_pr_state(&id, check(PR_MERGED)).unwrap();
+    sync_all(&[&a, &b, &c]);
+    for s in [&a, &b, &c] {
+        assert_eq!(s.c.pr_state(&id, PR).unwrap().state, PR_MERGED);
+        assert_eq!(s.c.get_task(&id).unwrap().state, COMPLETED);
+    }
+}

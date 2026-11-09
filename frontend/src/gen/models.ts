@@ -104,6 +104,7 @@ export type GoneSession = B.GoneSession
 export type GoneWait = B.GoneWait
 export type HoldReason = B.HoldReason
 export type Holding = B.Holding
+export type HoldoutView = B.HoldoutView
 export type HomeServerView = B.HomeServerView
 export type Identity = B.Identity
 export type IdleReport = B.IdleReport
@@ -673,6 +674,11 @@ export function GoneSession(p: Partial<B.GoneSession> = {}): B.GoneSession {
 /** GoneWait with Go's zero values for every field left out. */
 export function GoneWait(p: Partial<B.GoneWait> = {}): B.GoneWait {
   return { "blockerId": "", "agent": AgentRef(), "question": "", ...p } as B.GoneWait
+}
+
+/** HoldoutView with Go's zero values for every field left out. */
+export function HoldoutView(p: Partial<B.HoldoutView> = {}): B.HoldoutView {
+  return { "deviceId": "", "name": "", ...p } as B.HoldoutView
 }
 
 /** HomeServerView with Go's zero values for every field left out. */
