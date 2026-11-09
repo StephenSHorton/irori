@@ -86,6 +86,8 @@ function world(
     board?: unknown
     /** Answers for /v1/tools/<name> calls, used up in order before the default. */
     toolAnswers?: Array<{ status: number; text: string }>
+    /** Answers for /v1/permission/wait, used up in order (GitHub #322). */
+    permissionAnswers?: Array<{ status: number; text: string }>
   } = {},
 ) {
   const children: Array<ReturnType<typeof makeChild>> = []
@@ -145,8 +147,13 @@ function world(
   // No settings hooks beneath: the classic events answer with nothing.
   on('classic.SessionStart', () => ({}))
   on('classic.UserPromptSubmit', () => ({}))
+  on('classic.PermissionRequest', () => ({}))
   on('http.fetch', ($, e) => {
     calls.push({ url: e.url, method: e.init?.method ?? 'GET', headers: { ...(e.init?.headers ?? {}) }, body: e.init?.body })
+    if (e.url.endsWith('/v1/permission/wait')) {
+      const a = opts.permissionAnswers?.shift() ?? { status: 200, text: '{"decision":"none"}' }
+      return { value: { ok: a.status < 300, status: a.status, headers: {}, text: a.text } } as never
+    }
     if (e.url.endsWith('/v1/tools?client=claude')) return { value: { ok: true, status: 200, headers: {}, text: JSON.stringify(specs) } } as never
     const next = e.url.includes('/v1/tools/') ? opts.toolAnswers?.shift() : undefined
     if (next) return { value: { ok: next.status < 300, status: next.status, headers: {}, text: next.text } } as never
@@ -935,6 +942,62 @@ describe('held cards (GitHub #3)', () => {
     w.children[0]!.write(line(hello))
     await until(() => w.registered.length === 2, 'hello')
     expect((await $.classic.UserPromptSubmit({ prompt: 'hi' } as never)).additionalContext ?? []).toEqual([])
+  })
+})
+
+describe('permission prompts (GitHub #322)', () => {
+  const request = (mode = 'default') =>
+    ({ session_id: SESSION, tool_name: 'Bash', tool_input: { command: 'cargo test' }, permission_mode: mode }) as never
+  const decide = {
+    decision: 'allow',
+    output: { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } },
+  }
+
+  async function attach($: Parameters<Parameters<typeof test>[2]>[0], w: ReturnType<typeof world>) {
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line(hello))
+    await until(() => w.registered.length === 2, 'hello')
+  }
+
+  test('the prompt is reported, polled while pending, and the pick is the hook answer', OPTIONS, async ($, on) => {
+    const pending = { status: 200, text: '{"decision":"pending"}' }
+    const w = world(on, { permissionAnswers: [pending, pending, { status: 200, text: JSON.stringify(decide) }] })
+    await attach($, w)
+    const got = await $.classic.PermissionRequest(request())
+    expect(got.decision).toEqual({ behavior: 'allow' })
+    const sent = posts(w.calls, '/v1/permission/wait')
+    expect(sent).toHaveLength(3)
+    const body = JSON.parse(sent[0]!.body ?? '{}')
+    expect(body).toMatchObject({ sessionId: SESSION, toolName: 'Bash', toolInput: { command: 'cargo test' }, permissionMode: 'default' })
+    // Every poll is the same prompt.
+    expect(new Set(sent.map(c => JSON.parse(c.body ?? '{}').id)).size).toBe(1)
+  })
+
+  test('a Core with nothing to say leaves the prompt to the terminal', OPTIONS, async ($, on) => {
+    const w = world(on)
+    await attach($, w)
+    expect((await $.classic.PermissionRequest(request())).decision).toBeUndefined()
+    expect(posts(w.calls, '/v1/permission/wait')).toHaveLength(1)
+  })
+
+  test('a Core that refuses the route leaves it to the terminal', OPTIONS, async ($, on) => {
+    const w = world(on, { permissionAnswers: [{ status: 503, text: '{"error":"no"}' }] })
+    await attach($, w)
+    expect((await $.classic.PermissionRequest(request())).decision).toBeUndefined()
+  })
+
+  test('a session that skips permissions reports nothing', OPTIONS, async ($, on) => {
+    const w = world(on)
+    await attach($, w)
+    expect((await $.classic.PermissionRequest(request('bypassPermissions'))).decision).toBeUndefined()
+    expect(posts(w.calls, '/v1/permission/wait')).toHaveLength(0)
+  })
+
+  test('before the attach, the prompt is for the terminal', OPTIONS, async ($, on) => {
+    const w = world(on)
+    expect((await $.classic.PermissionRequest(request())).decision).toBeUndefined()
+    expect(posts(w.calls, '/v1/permission/wait')).toHaveLength(0)
   })
 })
 

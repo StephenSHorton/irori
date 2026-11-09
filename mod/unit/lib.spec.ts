@@ -23,6 +23,9 @@ import {
   validSpec,
   MAX_USAGE_WINDOWS,
   measureMovedLimits,
+  permissionAnswer,
+  permissionBody,
+  reportsPermission,
   usageBody,
 } from '../hooks/lib'
 import type { Policy, TrackedAppend } from '../types'
@@ -310,5 +313,33 @@ describe('Claude usage (card #599)', () => {
     expect(usageBody([null, 'x', { kind: '', percentUsed: 1 }, { kind: 'a', percentUsed: Number.NaN }, { kind: 'b' }])).toBeNull()
     const many = Array.from({ length: 12 }, (_, i) => ({ kind: `k${i}`, percentUsed: i }))
     expect(usageBody(many)?.rateLimits.length).toBe(MAX_USAGE_WINDOWS)
+  })
+})
+
+describe('permission prompts (GitHub #322)', () => {
+  test('a session that skips permissions is not reported', () => {
+    expect(reportsPermission('bypassPermissions')).toBe(false)
+    expect(reportsPermission('default')).toBe(true)
+    expect(reportsPermission(undefined)).toBe(true)
+  })
+
+  test('the body names the session, tool and input', () => {
+    expect(permissionBody('i1', { session_id: 's', tool_name: 'Bash', tool_input: { command: 'ls' }, permission_mode: 'plan' })).toEqual({
+      id: 'i1',
+      sessionId: 's',
+      toolName: 'Bash',
+      toolInput: { command: 'ls' },
+      permissionMode: 'plan',
+      permissionSuggestions: [],
+    })
+  })
+
+  test('the answer is pending, nothing, or the decision inside the hook output', () => {
+    expect(permissionAnswer({ decision: 'pending' })).toEqual({ kind: 'pending' })
+    expect(permissionAnswer({ decision: 'none' })).toEqual({ kind: 'none' })
+    expect(permissionAnswer(undefined)).toEqual({ kind: 'none' })
+    expect(permissionAnswer({ decision: 'deny' })).toEqual({ kind: 'none' })
+    const output = { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message: 'no' } } }
+    expect(permissionAnswer({ decision: 'deny', output })).toEqual({ kind: 'decide', decision: { behavior: 'deny', message: 'no' } })
   })
 })

@@ -1336,6 +1336,91 @@ fn a_hooked_permission_prompt_is_answered_from_the_card() {
     });
 }
 
+/// GitHub #322 (card #1219): a session the person started, which the mod
+/// tracks, reports its prompt through the same hook route. The item goes on
+/// the card the session holds, with Allow once / Deny, and the person's pick
+/// is what the hook hands Claude Code. A session holding no card gets
+/// nothing from the card.
+#[test]
+fn a_tracked_sessions_prompt_goes_on_the_card_it_holds() {
+    use irori_core::spawn_waiting::{PermissionAsk, PermissionDecision};
+    use std::time::Duration;
+
+    let r = Rig::new();
+    let me = r.core.device_id().to_string();
+    let person = format!("user:{me}");
+    let sess = "dddddddd-4444-4444-8444-000000000004";
+    let held = format!("{me}/{sess}");
+    let co = r.core.coord();
+    let t = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Mine".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.claim_task(&held, &t.id).unwrap();
+    let ask = PermissionAsk {
+        id: "t1".into(),
+        session_id: sess.into(),
+        tool_name: "Bash".into(),
+        tool_input: serde_json::json!({"command": "cargo test"}),
+        permission_mode: "default".into(),
+        permission_suggestions: serde_json::json!([]),
+    };
+    let core = &r.core;
+    std::thread::scope(|sc| {
+        let a = ask.clone();
+        let h = sc.spawn(move || loop {
+            match core.permission_wait(&a, Duration::from_millis(500)) {
+                PermissionDecision::Pending => continue,
+                d => return d,
+            }
+        });
+        wait_for(30, "the item on the held card", || {
+            co.get_task(&t.id)
+                .unwrap()
+                .blockers
+                .iter()
+                .any(|b| b.open() && b.permission.is_some())
+        });
+        let b = co
+            .get_task(&t.id)
+            .unwrap()
+            .blockers
+            .into_iter()
+            .find(|b| b.open() && b.permission.is_some())
+            .unwrap();
+        assert!(b.context.contains("working on"), "{}", b.context);
+        let answers: Vec<&str> = b.options.iter().map(|o| o.answer.as_str()).collect();
+        assert_eq!(answers[0], "Allow once");
+        assert_eq!(*answers.last().unwrap(), "Deny");
+        co.answer(
+            &person,
+            &t.id,
+            &b.id,
+            coord::BlockerAnswer {
+                pick: answers.len() as i64,
+                resolve: true,
+                ..coord::BlockerAnswer::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(h.join().unwrap(), PermissionDecision::Deny);
+
+        // A session holding no card: nothing, at once.
+        let mut other = ask.clone();
+        other.id = "t2".into();
+        other.session_id = "eeeeeeee-5555-4555-8555-000000000006".into();
+        assert_eq!(
+            core.permission_wait(&other, Duration::from_secs(5)),
+            PermissionDecision::Nothing
+        );
+    });
+}
+
 /// Card #699: the agent Irori started for a card holds it from its first
 /// turn, not from its first board action. Idle from the start (its prompt
 /// never got in, as #677's did), it stays only offered; once its session
