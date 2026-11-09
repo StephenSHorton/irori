@@ -212,7 +212,8 @@ pub const MAX_NOTE: usize = 500;
 /// Caps SendOptions.ref (runes).
 pub const MAX_REF: usize = 200;
 pub const MAX_ATTACHMENTS: usize = 10;
-/// Each subscriber's queue size; a full queue drops the change.
+/// Each subscriber's queue size; a full reader gets [`ChangeKind::Resync`]
+/// before the next change that fits.
 pub const SUB_BUFFER: usize = 64;
 /// The sender key of notices Irori itself sends.
 pub const SYSTEM_KEY: &str = "irori";
@@ -578,6 +579,10 @@ pub enum ChangeKind {
     MovedAway,
     /// Anything else; UIs refresh.
     Updated,
+    /// This reader lost changes when its queue was full: re-read
+    /// everything (list-signals.md §3.1). It comes just before the next
+    /// change that fits, with empty `to` and `delivery_id`.
+    Resync,
 }
 
 impl ChangeKind {
@@ -588,6 +593,7 @@ impl ChangeKind {
             ChangeKind::HeldNew => "held",
             ChangeKind::MovedAway => "moved",
             ChangeKind::Updated => "updated",
+            ChangeKind::Resync => "resync",
         }
     }
 }
@@ -606,6 +612,17 @@ pub struct Change {
     pub to: String,
     #[serde(rename = "deliveryId", skip_serializing_if = "String::is_empty")]
     pub delivery_id: String,
+    /// The delivery's first row folded here: it was made, or it reached
+    /// this device (Talk shows an agent's message as a DM from then,
+    /// list-signals.md §3.2). A delivery that came before its message is
+    /// noted `created` again when the message folds.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub created: bool,
+    /// The delivery's recipient before this row (empty: nobody yet), when
+    /// an existing delivery changed recipient without moving (an assign, a
+    /// release): its message leaves that DM, if any, for the new one's.
+    #[serde(rename = "wasTo", skip_serializing_if = "Option::is_none")]
+    pub was_to: Option<String>,
 }
 
 /// The presence fields the inbox routes against (presence.AgentCard;

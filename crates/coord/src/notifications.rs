@@ -86,6 +86,22 @@ crate::go_struct! {
     }
 }
 
+/// The item keys a `notification.posted` or `notification.read` row
+/// touches, as [`History::apply`] keys them (list-signals.md §3.2).
+pub fn keys_of(ev: &store::Event) -> Vec<String> {
+    match ev.kind.as_str() {
+        POSTED => match decode::<PostedRow>(&ev.payload) {
+            Some(r) if r.key.is_empty() => vec![format!("row:{}:{}", ev.device_id, ev.seq)],
+            Some(r) => vec![r.key],
+            None => Vec::new(),
+        },
+        READ => decode::<ReadRow>(&ev.payload)
+            .map(|r| r.keys)
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
 /// One notification in the history.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Item {

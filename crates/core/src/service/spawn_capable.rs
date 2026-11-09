@@ -252,12 +252,19 @@ impl Services {
         // window would keep its old "why no agent" words (a phone in
         // airplane mode showed none): tell it to read them again.
         if moved || reworded {
-            self.hub
-                .publish(crate::events::CoreEvent::Board(coord::Change {
-                    kind: AGENTS_CHANGED.into(),
-                    ..coord::Change::default()
-                }));
+            self.tell_agents_changed();
         }
+    }
+
+    /// Tells the window every card's agent words may have changed: no row
+    /// says so (a computer came or went, a usage hold, a board's spawn
+    /// setting).
+    pub(crate) fn tell_agents_changed(&self) {
+        self.hub
+            .publish(crate::events::CoreEvent::Board(coord::Change {
+                kind: AGENTS_CHANGED.into(),
+                ..coord::Change::default()
+            }));
     }
 
     /// Whether this device had no free agent slot at the last sweep (card

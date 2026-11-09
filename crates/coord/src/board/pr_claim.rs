@@ -33,17 +33,40 @@ pub struct ClaimStep {
     pub what: &'static str,
 }
 
+/// The lowest id of `cards`, preferring one not cancelled.
+fn lowest_open(cards: Vec<&Task>) -> Option<&Task> {
+    cards
+        .into_iter()
+        .min_by(|a, b| (a.state == CANCELED, &a.id).cmp(&(b.state == CANCELED, &b.id)))
+}
+
 impl Fold {
-    /// The PR card for `pr` (its URL): the card whose creation row names
-    /// that PR. The lowest id stands among duplicates, preferring one
-    /// still open (§12.2).
+    /// The PR card for `pr` (its URL): the standing card whose creation
+    /// row names that PR (§12.2), as [`Fold::pr_card_by_resource`] picks it.
     pub(crate) fn pr_card_for(&self, pr: &str) -> Option<&Task> {
         let want = pr_claim_resource(pr)?;
         self.pr_card_by_resource(&want)
     }
 
+    /// The standing PR card for the PR `want` names (§12.2, card #1155).
+    /// Any member's person row can carry a PR card's fields and coord has
+    /// no GitHub logins, so the card that stands is the one whose maker the
+    /// login names, never just the lowest id:
+    ///
+    /// - Only cards whose maker is still an active member count.
+    /// - The cards for the PR name one author login, `L`; cards naming
+    ///   different logins stand for none (coord can't tell GitHub's).
+    /// - The people `L` names are the active members whose profiles claim
+    ///   it, or, when nobody claims it, the cards' makers. Exactly one, who
+    ///   made a card, or none stands.
+    /// - Among that person's cards, the lowest id, preferring one open.
+    ///
+    /// So a member who makes a card for someone else's PR, or claims their
+    /// login, can stop its review here, visibly, but never take it from an
+    /// author whose profile names the login. Off a board, the lowest id.
     pub(crate) fn pr_card_by_resource(&self, want: &str) -> Option<&Task> {
-        self.tasks
+        let cards: Vec<&Task> = self
+            .tasks
             .values()
             .filter(|t| {
                 t.pr_card
@@ -51,7 +74,58 @@ impl Fold {
                     .and_then(|c| pr_claim_resource(&c.pr))
                     .is_some_and(|r| r == want)
             })
-            .min_by(|a, b| (a.state == CANCELED, &a.id).cmp(&(b.state == CANCELED, &b.id)))
+            .collect();
+        if !self.on_board {
+            return lowest_open(cards);
+        }
+        let maker = |t: &Task| self.person_of(&t.created_by);
+        let active = |p: &str| self.member_active.as_ref().is_none_or(|f| f(p));
+        let cards: Vec<&Task> = cards.into_iter().filter(|t| active(&maker(t))).collect();
+        let login = |t: &Task| {
+            t.pr_card
+                .as_ref()
+                .map(|c| c.author.trim().to_ascii_lowercase())
+                .unwrap_or_default()
+        };
+        let l = login(cards.first()?);
+        if l.is_empty() || cards.iter().any(|t| login(t) != l) {
+            return None;
+        }
+        let mut named = self.login_people.as_ref()?(&l);
+        if named.is_empty() {
+            named = cards.iter().map(|t| maker(t)).collect();
+        }
+        named.sort();
+        named.dedup();
+        let [who] = named.as_slice() else {
+            return None;
+        };
+        if who.is_empty() {
+            return None;
+        }
+        lowest_open(cards.into_iter().filter(|t| maker(t) == *who).collect())
+    }
+
+    /// The people who made a PR card for the PR `res` names on this board,
+    /// standing or not (card #1155). Only an author's own client makes one,
+    /// so these are the author and anyone posing as them; a row's fold
+    /// reads this rather than which card stands, which turns on profiles.
+    pub(crate) fn pr_card_makers(&self, res: &str) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .tasks
+            .values()
+            .filter(|t| {
+                t.pr_card
+                    .as_ref()
+                    .and_then(|c| pr_claim_resource(&c.pr))
+                    .is_some_and(|r| r == res)
+            })
+            .map(|t| self.person_of(&t.created_by))
+            .filter(|p| !p.is_empty())
+            .collect();
+        out.sort();
+        out.dedup();
+        out
     }
 
     /// Whether the PR a `pr/` claim is on has ended: its card's `pr.state`

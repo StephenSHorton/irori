@@ -247,6 +247,23 @@ pub fn hlc_at(t: GoTime) -> u64 {
     (t.unix_milli_value() as u64) << 16
 }
 
+/// Every change queued on a [`Coord::subscribe`] queue now, oldest first.
+pub fn drain_changes(q: &gocompat::sub::Queue<coord::Change>) -> Vec<coord::Change> {
+    let mut out = Vec::new();
+    while let gocompat::sub::TryRecv::Item(c) = q.try_recv() {
+        out.push(c);
+    }
+    out
+}
+
+/// The task ids of the TASK_CHANGED changes in `chs`.
+pub fn task_changed_ids(chs: &[coord::Change]) -> Vec<String> {
+    chs.iter()
+        .filter(|c| c.kind == coord::TASK_CHANGED)
+        .map(|c| c.task_id.clone())
+        .collect()
+}
+
 pub fn want_err<T: std::fmt::Debug>(r: coord::Result<T>, kind: ErrorKind) {
     match r {
         Ok(v) => panic!("got {v:?}, want {kind:?}"),

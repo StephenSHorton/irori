@@ -480,8 +480,13 @@ impl Fold {
     /// repeated kicks) or the card no longer needs an agent.
     pub(crate) fn request_spawn(&mut self, by: &str, a: SpawnAsk) -> Result<Option<i64>> {
         let by = caller(by)?;
-        if a.step.is_empty() && a.subtask.is_empty() {
-            self.spawn_now.remove(&a.task_id);
+        if a.step.is_empty() && a.subtask.is_empty() && self.spawn_now.remove(&a.task_id) {
+            // Its "can't start" words change even when no row follows.
+            self.note(Change {
+                kind: TASK_CHANGED.into(),
+                task_id: a.task_id.clone(),
+                ..Change::default()
+            });
         }
         if !PERMISSION_MODES.contains(&a.permission_mode.as_str()) {
             return Err(bad_state(format!(
@@ -1475,7 +1480,16 @@ impl Fold {
     /// still asks.
     pub(crate) fn start_given(&mut self, by: &str, id: &str, context: &str) -> Result<()> {
         let t = self.open_task(id)?.clone();
-        if t.review_of.is_empty() || t.given.is_none() {
+        // Only a review card of the PR's standing card starts unasked: one
+        // a member made for a PR card that doesn't stand (someone else's
+        // PR, card #1155) asks like any other given card.
+        let standing = self
+            .tasks
+            .get(&t.review_of)
+            .and_then(|c| c.pr_card.as_ref())
+            .and_then(|c| self.pr_card_for(&c.pr))
+            .is_some_and(|c| c.id == t.review_of);
+        if t.review_of.is_empty() || t.given.is_none() || !standing {
             return self.ask_given(by, id, context);
         }
         let Some(p) = t.given.as_ref().map(|g| g.person.clone()) else {

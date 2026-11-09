@@ -470,7 +470,9 @@ impl Services {
     ) -> Result<(), String> {
         let ev = self.append_space_talk(space, by, kinds::TALK_POST, payload)?;
         if self.talk.apply(&ev) {
-            self.hub.publish(crate::events::CoreEvent::Talk);
+            self.hub.publish(crate::events::CoreEvent::Talk(
+                crate::events::TalkChange::of_row(&ev),
+            ));
         }
         Ok(())
     }

@@ -246,6 +246,8 @@ pub type OffersFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 pub type BoardTagFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 /// Every tag a space's log has named for a board inside it (card #558).
 pub type BoardTagsFn = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
+/// The people a GitHub login names on a board (card #1155).
+pub type PeopleFn = Arc<dyn Fn(&str) -> Vec<String> + Send + Sync>;
 
 /// What the fold needs from a space's board list (card #563): the writer
 /// checks and the rule that a delete wins live where the list is folded.
@@ -340,6 +342,14 @@ pub struct Options {
     pub key_person: Option<StrFn>,
     /// On a board, the member a writing device is certified to.
     pub device_person: Option<StrFn>,
+    /// On a board, the active members whose member.profiles name a GitHub
+    /// login, by person id (card #1155): which PR card stands turns on it.
+    /// `None` on a board: no PR card stands.
+    pub login_people: Option<PeopleFn>,
+    /// On a board, whether a person is an active member (card #1155): a
+    /// PR card whose maker left or was removed is no longer weighed. `None`:
+    /// everyone counts.
+    pub member_active: Option<KeyFn>,
     /// A board's short handle, read as rows fold.
     pub tag: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     /// On a space (card #392): the tag of another board in it, by id;
@@ -1899,7 +1909,15 @@ impl Coord {
     /// The person asked for card `id`'s agent now: a failed spawn is asked
     /// for again at the next sweep, not after [`SPAWN_RETRY`].
     pub fn spawn_now(&self, id: &str) {
-        self.lock().spawn_now.insert(id.to_string());
+        let mut f = self.lock();
+        if f.spawn_now.insert(id.to_string()) {
+            // Its "can't start" words read the ask (list-signals.md §3.2).
+            f.note(Change {
+                kind: TASK_CHANGED.into(),
+                task_id: id.to_string(),
+                ..Change::default()
+            });
+        }
     }
     /// Whether the person asked for card `id`'s agent now and no request
     /// has been written since ([`Self::spawn_now`]).
@@ -2217,6 +2235,8 @@ impl Coord {
         let changed = f.desk_repos.as_ref() != Some(&set);
         f.desk_repos = Some(set);
         f.desk_judged = judged;
+        // Which desks are strays may have moved.
+        f.note_desk("");
         changed
     }
 

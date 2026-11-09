@@ -289,6 +289,8 @@ pub struct Fold {
     pub(crate) origin: HashMap<String, String>,
     pub(crate) key_person: Option<StrFn>,
     pub(crate) dev_person: Option<StrFn>,
+    pub(crate) login_people: Option<super::PeopleFn>,
+    pub(crate) member_active: Option<super::KeyFn>,
     pub(crate) tag_fn: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     pub(crate) board_tag_fn: Option<super::BoardTagFn>,
     pub(crate) board_tags_fn: Option<super::BoardTagsFn>,
@@ -522,6 +524,8 @@ impl Fold {
             spawn_now: HashSet::new(),
             origin: HashMap::new(),
             dev_person: o.device_person,
+            login_people: o.login_people,
+            member_active: o.member_active,
             tag_fn: o.tag,
             board_tag_fn: o.board_tag,
             board_tags_fn: o.board_tags,
@@ -1789,6 +1793,12 @@ impl Fold {
             let mut line = line_of(ev, at, by, &format!("mentioned this in {src}"));
             line.kind = MENTIONED_KIND.into();
             self.touch_line(&ti, line, true, Vec::new());
+            // The named card's activity has the line (list-signals.md §3.2).
+            self.note(Change {
+                kind: TASK_CHANGED.into(),
+                task_id: ti.id,
+                ..Change::default()
+            });
         }
     }
 
