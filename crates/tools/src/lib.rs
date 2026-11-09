@@ -466,6 +466,11 @@ pub trait Backend: Send + Sync {
     fn agent_start(&self, _caller: &str, _task_id: &str) -> Result<String, String> {
         Err("agents can't start agents here".into())
     }
+    /// The person starts card `task_id`, given to them (decision 69,
+    /// §3.2): Core's `start_given_card`. What happened, or why not.
+    fn given_start(&self, _person_key: &str, _task_id: &str) -> Result<String, String> {
+        Err("this backend can't start a given card".into())
+    }
     /// What `agent_start` would refuse before anything is made, for a
     /// thread `caller` is about to open for a fresh agent (card #1027).
     fn thread_agent_check(&self, _caller: &str) -> Result<(), String> {
