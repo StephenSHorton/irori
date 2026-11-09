@@ -67,6 +67,7 @@ impl Inner {
             to: String::new(),
             delivery_id: String::new(),
             created: false,
+            was_to: None,
         });
     }
 

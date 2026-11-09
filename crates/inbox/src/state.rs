@@ -933,7 +933,8 @@ impl Inbox {
     }
 
     /// Changes until the subscription is dropped (buffered, 64; a full
-    /// queue drops the change and the reader should re-read).
+    /// reader gets a [`ChangeKind::Resync`] in place of the next change
+    /// that fits, and should re-read).
     pub fn subscribe(&self) -> Subscription {
         let q = Arc::new(Queue::new(SUB_BUFFER));
         lock(&self.inner).subs.push(Sub {
@@ -1340,12 +1341,13 @@ impl Inner {
         }
         self.touch(&[&prev_to, &to]);
         let created = !existed;
+        let was_to = (existed && prev_to != to && state != st::MOVED).then(|| prev_to.clone());
         if state == st::HELD && (!existed || prev_state != st::HELD) {
-            self.note_delivery(ChangeKind::HeldNew, &to, &id, created);
+            self.note_delivery(ChangeKind::HeldNew, &to, &id, created, was_to);
         } else if state == st::MOVED {
-            self.note_delivery(ChangeKind::MovedAway, &prev_to, &id, created);
+            self.note_delivery(ChangeKind::MovedAway, &prev_to, &id, created, None);
         } else {
-            self.note_delivery(ChangeKind::Updated, &to, &id, created);
+            self.note_delivery(ChangeKind::Updated, &to, &id, created, was_to);
         }
     }
 
@@ -1373,17 +1375,26 @@ impl Inner {
     }
 
     pub(crate) fn note(&mut self, kind: ChangeKind, to: &str, did: &str) {
-        self.note_delivery(kind, to, did, false);
+        self.note_delivery(kind, to, did, false, None);
     }
 
-    /// [`Self::note`], saying whether this was the delivery's first row.
-    fn note_delivery(&mut self, kind: ChangeKind, to: &str, did: &str, created: bool) {
+    /// [`Self::note`], saying whether this was the delivery's first row,
+    /// and who it was to when its recipient changed.
+    fn note_delivery(
+        &mut self,
+        kind: ChangeKind,
+        to: &str,
+        did: &str,
+        created: bool,
+        was_to: Option<String>,
+    ) {
         if !self.replaying {
             self.changes.push(Change {
                 kind,
                 to: to.into(),
                 delivery_id: did.into(),
                 created,
+                was_to,
             });
         }
     }
@@ -1400,6 +1411,7 @@ impl Inner {
                     to: agent.clone(),
                     delivery_id: String::new(),
                     created: false,
+                    was_to: None,
                 });
             }
             self.submit.insert(agent.clone(), now);
@@ -1410,6 +1422,7 @@ impl Inner {
                     to: agent.clone(),
                     delivery_id: String::new(),
                     created: false,
+                    was_to: None,
                 });
             }
             self.appendable.insert(agent, app);
@@ -1425,6 +1438,7 @@ impl Inner {
                         to: String::new(),
                         delivery_id: String::new(),
                         created: false,
+                        was_to: None,
                     }
                 } else {
                     c.clone()

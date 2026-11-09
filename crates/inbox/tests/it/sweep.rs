@@ -578,3 +578,32 @@ fn sweep_assigns_held_policy_on_arrival() {
     let got = h.want_state(&d.id, st::HELD);
     assert!(got.hold == hold::BLOCKED && got.to == KEY_A);
 }
+
+/// Card #1144 (list-signals.md §3.2): repo work nobody could take yet,
+/// handed out once an agent comes (the sweep's assign), names who it was
+/// to before (nobody), so Talk shows its message in the new DM. Only that
+/// row says so.
+#[test]
+fn an_assign_names_the_recipient_it_had() {
+    let h = Harness::new();
+    h.abc();
+    h.ib.set_reachable(KEY_A, path::MOD, true);
+    let (_, d) = h.send(&claude(KEY_A, "alpha"), &to_repo("repo2"), "local work");
+    assert_eq!(d.to, "");
+    let sub = h.ib.subscribe();
+    h.ib.set_reachable(KEY_C, path::MOD, true);
+    h.sweep();
+    assert_eq!(h.state(&d.id).to, KEY_C);
+    let cs = sub.drain();
+    let mine: Vec<_> = cs.iter().filter(|c| c.delivery_id == d.id).collect();
+    assert!(
+        mine.iter()
+            .any(|c| c.was_to.as_deref() == Some("") && c.to == KEY_C && !c.created),
+        "{cs:?}"
+    );
+    assert_eq!(
+        cs.iter().filter(|c| c.was_to.is_some()).count(),
+        1,
+        "{cs:?}"
+    );
+}

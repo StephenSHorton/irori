@@ -212,7 +212,8 @@ pub const MAX_NOTE: usize = 500;
 /// Caps SendOptions.ref (runes).
 pub const MAX_REF: usize = 200;
 pub const MAX_ATTACHMENTS: usize = 10;
-/// Each subscriber's queue size; a full queue drops the change.
+/// Each subscriber's queue size; a full reader gets [`ChangeKind::Resync`]
+/// in place of the next change that fits.
 pub const SUB_BUFFER: usize = 64;
 /// The sender key of notices Irori itself sends.
 pub const SYSTEM_KEY: &str = "irori";
@@ -616,6 +617,11 @@ pub struct Change {
     /// list-signals.md §3.2).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub created: bool,
+    /// The delivery's recipient before this row (empty: nobody yet), when
+    /// an existing delivery changed recipient without moving (an assign, a
+    /// release): its message leaves that DM, if any, for the new one's.
+    #[serde(rename = "wasTo", skip_serializing_if = "Option::is_none")]
+    pub was_to: Option<String>,
 }
 
 /// The presence fields the inbox routes against (presence.AgentCard;

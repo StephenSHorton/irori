@@ -412,7 +412,7 @@ fn each_notification_change_names_its_keys() {
     });
     let blocker = r.core.notifications()[0].key.clone();
     assert!(blocker.starts_with("blocker:"), "{blocker}");
-    ch.wait("the blocker's change", &[blocker.clone()]);
+    ch.wait("the blocker's change", std::slice::from_ref(&blocker));
 
     // An agent's note has no key: its row's.
     let note = |id: &str, body: &str| {
@@ -431,11 +431,13 @@ fn each_notification_change_names_its_keys() {
     };
     let first = note("notify:1", "the build is green");
     assert!(first.starts_with("row:"), "{first}");
-    ch.wait("the agent note's change", &[first.clone()]);
+    ch.wait("the agent note's change", std::slice::from_ref(&first));
 
     // The person reads it.
-    r.core.read_notifications(&[first.clone()]).unwrap();
-    ch.wait("the read's change", &[first.clone()]);
+    r.core
+        .read_notifications(std::slice::from_ref(&first))
+        .unwrap();
+    ch.wait("the read's change", std::slice::from_ref(&first));
 
     // The person answers the blocker: Irori reads it as settled.
     let b = co.get_task(&task.id).unwrap().open_blockers()[0].id.clone();
@@ -449,13 +451,13 @@ fn each_notification_change_names_its_keys() {
         },
     )
     .unwrap();
-    ch.wait("the settle's change", &[blocker.clone()]);
+    ch.wait("the settle's change", std::slice::from_ref(&blocker));
 
     // Two more notes, then "read all": the change names both.
     let two = note("notify:2", "the tests pass");
-    ch.wait("the second note's change", &[two.clone()]);
+    ch.wait("the second note's change", std::slice::from_ref(&two));
     let three = note("notify:3", "the PR is open");
-    ch.wait("the third note's change", &[three.clone()]);
+    ch.wait("the third note's change", std::slice::from_ref(&three));
     let mut rest = vec![two, three];
     rest.sort();
     assert_eq!(r.core.notifications().iter().filter(|i| !i.read).count(), 2);

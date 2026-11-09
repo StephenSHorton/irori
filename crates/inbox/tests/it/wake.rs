@@ -271,12 +271,14 @@ fn full_queue_gives_a_resync() {
         to: String::new(),
         delivery_id: String::new(),
         created: false,
+        was_to: None,
     };
     let updated = Change {
         kind: ChangeKind::Updated,
         to: KEY_B.into(),
         delivery_id: String::new(),
         created: false,
+        was_to: None,
     };
     let slow = h.ib.subscribe();
     let fast = h.ib.subscribe();

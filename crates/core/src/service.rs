@@ -2451,7 +2451,9 @@ impl Core {
                     // Only a first row or a move can show one: no lookup
                     // for the rest.
                     let d = (!ch.delivery_id.is_empty()
-                        && (ch.created || ch.kind == inbox::ChangeKind::MovedAway))
+                        && (ch.created
+                            || ch.was_to.is_some()
+                            || ch.kind == inbox::ChangeKind::MovedAway))
                         .then(|| s.inbox.get(&ch.delivery_id))
                         .flatten();
                     if let Some(t) = dm_change(&ch, d.as_ref()) {
@@ -4084,9 +4086,10 @@ fn ignored_by(
 
 /// The DMs an inbox change shows an agent's message in (list-signals.md
 /// §3.2), as Talk lists them (`tools::talk::mirrored`): only on the
-/// delivery's first row, or a move, which takes the message from the old
-/// recipient's DM to the new one's. A notice, a stop or a mention's wake
-/// never shows. `d` is the delivery now.
+/// delivery's first row, or a move or a new recipient (an assign, a
+/// release), which takes the message from the old recipient's DM to the
+/// new one's. A notice, a stop or a mention's wake never shows. `d` is the
+/// delivery now.
 pub(crate) fn dm_change(
     ch: &inbox::Change,
     d: Option<&inbox::Delivery>,
@@ -4097,7 +4100,8 @@ pub(crate) fn dm_change(
     if ch.kind == K::Resync {
         return Some(TalkChange::all());
     }
-    if ch.delivery_id.is_empty() || !(ch.created || ch.kind == K::MovedAway) {
+    let moved = ch.kind == K::MovedAway || ch.was_to.is_some();
+    if ch.delivery_id.is_empty() || !(ch.created || moved) {
         return None;
     }
     let d = d?;
@@ -4117,6 +4121,9 @@ pub(crate) fn dm_change(
     if ch.kind == K::MovedAway {
         // moved_to is the new recipient's key.
         convs.extend(dm(&d.moved_to));
+    }
+    if let Some(was) = &ch.was_to {
+        convs.extend(dm(was));
     }
     (!convs.is_empty()).then(|| TalkChange::convs(convs))
 }
@@ -5826,6 +5833,7 @@ mod tests {
             to: TO.into(),
             delivery_id: delivery_id.into(),
             created,
+            was_to: None,
         }
     }
 
@@ -5944,6 +5952,7 @@ mod tests {
             to: String::new(),
             delivery_id: String::new(),
             created: false,
+            was_to: None,
         };
         assert_eq!(dm_change(&r, None), Some(TalkChange::all()));
     }
@@ -5958,6 +5967,36 @@ mod tests {
         };
         let d = delivery("user:dev2", m);
         assert_eq!(dm_change(&ch(K::WakeReady, true, "d1"), Some(&d)), None);
+    }
+
+    /// An existing delivery given to someone else without a move (an
+    /// assign, a release) takes its message from the old recipient's DM to
+    /// the new one's: both are named (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_new_recipient_names_both_dms() {
+        const OTHER: &str = "agent:dev1/s2";
+        let d = delivery(OTHER, msg());
+        let c = Change {
+            was_to: Some(TO.into()),
+            ..ch(K::Updated, false, "d1")
+        };
+        assert_eq!(
+            dm_change(&c, Some(&d)),
+            Some(TalkChange::convs([
+                coord::talk::dm_id(AGENT, OTHER),
+                coord::talk::dm_id(AGENT, TO),
+            ]))
+        );
+        // Handed out from nobody (an assign of an unrouted delivery): only
+        // the new DM.
+        let c = Change {
+            was_to: Some(String::new()),
+            ..ch(K::Updated, false, "d1")
+        };
+        assert_eq!(
+            dm_change(&c, Some(&d)),
+            Some(TalkChange::convs([coord::talk::dm_id(AGENT, OTHER)]))
+        );
     }
 
     /// A change that names no delivery shows nothing (card #1144,
