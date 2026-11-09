@@ -357,6 +357,12 @@ pub struct Expander {
     /// Each lease holder in a conflict, with its resource, as of the last
     /// lease change (a conflict names only its winner).
     conflicts: Option<HashMap<String, String>>,
+    /// Threads in the resolved lists, and whether one left them since the
+    /// last batch (reopened, withdrawn, gone). The page keeps only the
+    /// newest few resolved per bucket, so a thread leaving can't bring back
+    /// the one it pushed out: that batch sends `all` (card #1149).
+    resolved: HashSet<String>,
+    left_resolved: bool,
 }
 
 impl Expander {
@@ -390,11 +396,25 @@ impl Expander {
         self.due.remove(id);
     }
 
+    /// Tracks whether thread `id` is resolved; sets `left_resolved` when it
+    /// was and no longer is. Not while the index is being built.
+    fn track_resolved(&mut self, id: &str, t: Option<&Task>, built: bool) {
+        let now = t.is_some_and(|t| {
+            crate::threads::is_thread(t) && !t.withdrawn && crate::threads::is_resolved(t)
+        });
+        if now {
+            self.resolved.insert(id.to_string());
+        } else if self.resolved.remove(id) && built {
+            self.left_resolved = true;
+        }
+    }
+
     /// Takes card `id`'s edges, thread cards, agents and clock times from
     /// `t` (`None`: it is gone). Returns the neighbours it had and has now.
     fn refresh(&mut self, id: &str, t: Option<&Task>, co: Option<&Coord>, now: i64) -> Vec<String> {
         let mut touched: Vec<String> = self.fwd.get(id).cloned().unwrap_or_default();
         self.clear_card(id);
+        self.track_resolved(id, t, self.built);
         let Some(t) = t else { return touched };
         let mut edges: Vec<String> = Vec::new();
         add_id(&mut edges, &t.parent);
@@ -534,6 +554,7 @@ impl Window {
     }
 
     fn rebuild(&self, ex: &mut Expander, coords: &[Arc<Coord>], now: i64) {
+        let before = std::mem::take(&mut ex.resolved);
         *ex = Expander::default();
         for co in coords {
             for t in co.list_tasks(&TaskFilter::default()) {
@@ -541,6 +562,8 @@ impl Window {
             }
         }
         ex.built = true;
+        // A thread that was resolved and is not now left the lists.
+        ex.left_resolved = before.iter().any(|id| !ex.resolved.contains(id));
     }
 
     /// Turns a folded board batch into the `board:changed` payload's ids
@@ -666,7 +689,8 @@ impl Window {
         for m in moved {
             add_id(&mut ids, &m);
         }
-        let all = f.all || ids.len() > MAX_IDS;
+        let left_resolved = std::mem::take(&mut ex.left_resolved);
+        let all = f.all || left_resolved || ids.len() > MAX_IDS;
         if !all && ids.is_empty() && f.notes.is_empty() && !f.desk {
             return None;
         }

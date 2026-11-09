@@ -26,6 +26,7 @@ use irori_identity::objects::ROLE_DESKTOP;
 use super::Services;
 use super::spawn::NOT_TRUSTED_PREFIX;
 use super::spawn_boards::SpawnLog;
+use super::spawn_pause::EVERYWHERE;
 use super::spawn_remote::not_trusted_folder;
 use super::spawn_stop::{no_folder_reason, no_folder_words};
 
@@ -40,11 +41,17 @@ pub enum Why {
     OthersCard { person: String },
     /// The board's switch for started agents is off.
     SwitchOff,
-    /// Pause all, on the device that would start it.
+    /// The old inbox Pause all, still on where it would start: it left the
+    /// app with card #787, and Resume wakes on the Dashboard lifts it, as
+    /// Stop here off, Start everywhere and a restart do (card #1196).
     Paused { device: String },
-    /// Pause agents (card #665) on the device that would start it, since
-    /// when.
-    AgentsPaused { device: String, since: String },
+    /// Stop here (card #665's Pause agents) on the device that would start
+    /// it, or Stop everywhere (`everywhere`), since when.
+    AgentsPaused {
+        device: String,
+        since: String,
+        everywhere: bool,
+    },
     /// The device that would start it can't run agents (card #541's words).
     CantRun { device: String },
     /// No computer can start it now: card #541's line, without its
@@ -138,12 +145,21 @@ impl fmt::Display for Why {
                 f,
                 "this board doesn't start agents; the person turns that on in Settings › Agents"
             ),
-            Why::Paused { device } => {
-                write!(f, "Pause all is on on {device}; it starts once that's off")
-            }
-            Why::AgentsPaused { device, since } => write!(
+            Why::Paused { device } => write!(
                 f,
-                "Pause agents is on on {device} (since {since}); it starts once that's off"
+                "wakes are paused on {device}; it starts once the person chooses Resume wakes on the Dashboard"
+            ),
+            Why::AgentsPaused {
+                since,
+                everywhere: true,
+                ..
+            } => write!(
+                f,
+                "Stop everywhere is on (since {since}); it starts once the person chooses Start everywhere"
+            ),
+            Why::AgentsPaused { device, since, .. } => write!(
+                f,
+                "Stop here is on for {device} (since {since}); it starts once the person chooses Start here"
             ),
             Why::CantRun { device } => write!(f, "{device} can't run agents"),
             Why::NoComputer(line) => write!(f, "{line}"),
@@ -332,12 +348,17 @@ impl Services {
                 return Why::AllFull;
             }
         }
-        // Pause agents here (card #665), and no other device takes it.
+        // Stop here or Stop everywhere (cards #665, #787), and no other
+        // device takes it.
+        // Stop everywhere pauses this device too, and hides Stop here while
+        // it is on, so its own row says which one the person lifts.
         let pause = self.pause_holding(&self.device.id);
         if pause.on && self.spawn_device(t).is_none() {
+            let all = self.agents_pause_on(EVERYWHERE);
             return Why::AgentsPaused {
                 device: self.this_device_name(),
-                since: pause.since.format_rfc3339(),
+                since: if all.on { all.since } else { pause.since }.format_rfc3339(),
+                everywhere: all.on,
             };
         }
         let spawner = self
@@ -660,13 +681,25 @@ mod tests {
                 "Blake made this card",
             ),
             (Why::SwitchOff, "Settings › Agents"),
-            (Why::Paused { device: dev() }, "Pause all"),
+            (
+                Why::Paused { device: dev() },
+                "wakes are paused on Mac; it starts once the person chooses Resume wakes",
+            ),
             (
                 Why::AgentsPaused {
                     device: dev(),
                     since: "2026-11-07T01:00:00Z".into(),
+                    everywhere: false,
                 },
-                "Pause agents is on on Mac (since 2026-11-07T01:00:00Z)",
+                "Stop here is on for Mac (since 2026-11-07T01:00:00Z)",
+            ),
+            (
+                Why::AgentsPaused {
+                    device: dev(),
+                    since: "2026-11-07T01:00:00Z".into(),
+                    everywhere: true,
+                },
+                "Stop everywhere is on (since 2026-11-07T01:00:00Z); it starts once the person chooses Start everywhere",
             ),
             (Why::CantRun { device: dev() }, "Mac can't run agents"),
             (

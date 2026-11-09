@@ -1332,6 +1332,95 @@ fn every_thread_lists_with_its_space() {
     assert!(w.threads(&b.board_id).iter().any(|t| t.id == about));
 }
 
+/// Card #1149: ThreadsById reads just those threads, and each row equals
+/// the one `threads_all` lists, in every bucket: Personal, a shared space,
+/// a private thread about a space, and one about a space you left. An id
+/// that isn't a thread (or doesn't exist, or was withdrawn) is `gone`.
+#[test]
+fn by_id_rows_equal_the_full_lists() {
+    let r = Rig::new();
+    let w = &r.w;
+    let b = w.boards_create("MLG", "mlg").unwrap();
+    let mine = w.start_thread("Just me", &[], &[], "").unwrap().task.id;
+    let shared = w.start_thread("All of us", &[], &[], &b.board_id).unwrap();
+    let shared = shared.task.id;
+    w.boards_set_threads(&b.board_id, "private").unwrap();
+    let about = w.start_thread("Quietly", &[], &[], &b.board_id).unwrap();
+    let about = about.task.id;
+    let done = w.start_thread("Finished", &[], &[], "").unwrap().task.id;
+    w.resolve_thread(&done).unwrap();
+    let card = create(&r, "not a thread");
+    let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+    let check = |want: &[&str]| {
+        let all = w.threads_all();
+        let got = w.threads_by_id(&ids(want));
+        for id in want {
+            let full = all.iter().find(|t| t.id == *id);
+            let by = got.rows.iter().find(|t| t.id == *id);
+            assert_eq!(
+                serde_json::to_value(by).unwrap(),
+                serde_json::to_value(full).unwrap(),
+                "{id}"
+            );
+            assert_eq!(by.is_none(), got.gone.contains(&id.to_string()), "{id}");
+        }
+        let order: Vec<&String> = got.rows.iter().map(|t| &t.id).collect();
+        let full: Vec<&String> = all
+            .iter()
+            .map(|t| &t.id)
+            .filter(|id| order.contains(id))
+            .collect();
+        assert_eq!(order, full, "threads_all's order");
+        got
+    };
+    let got = check(&[&mine, &shared, &about, &done]);
+    assert_eq!(got.rows.len(), 4);
+    assert!(got.gone.is_empty());
+    let got = check(&[&card.id, "nope", &mine]);
+    assert_eq!(got.rows.len(), 1);
+    assert_eq!(got.gone, ids(&[&card.id, "nope"]));
+
+    // A space you left: the private thread about it is Personal's.
+    w.boards_leave(&b.board_id).unwrap();
+    let got = check(&[&shared, &about, &mine]);
+    assert!(got.gone.contains(&shared), "gone with the space");
+    let kept = got.rows.iter().find(|t| t.id == about).unwrap();
+    assert!(kept.private && kept.space_id.is_empty(), "{kept:?}");
+
+    // Withdrawn: gone.
+    assert!(w.threads_by_id(&ids(&[&mine])).gone.is_empty());
+}
+
+/// Card #1149: marking a thread read moves its read cursor, and a by-id
+/// read of it shows the new `unread`.
+#[test]
+fn marking_a_thread_read_shows_in_its_by_id_row() {
+    let r = Rig::new();
+    let w = &r.w;
+    let co = w.core.coord();
+    let (th, _) = co
+        .post_agent_thread(
+            &r.key_a,
+            coord::NewAsk {
+                text: "Should we?".into(),
+                thread: true,
+                ..coord::NewAsk::default()
+            },
+        )
+        .unwrap();
+    let id = vec![th.id.clone()];
+    let before = w.threads_by_id(&id);
+    assert!(before.rows[0].unread, "an agent's own thread starts unread");
+    w.read_thread(&th.id).unwrap();
+    let after = w.threads_by_id(&id);
+    assert!(!after.rows[0].unread, "read");
+    assert_eq!(
+        serde_json::to_value(&after.rows[0]).unwrap(),
+        serde_json::to_value(&w.threads_all()[0]).unwrap()
+    );
+}
+
 /// Card #135: a board pins to the sidebar in the person's own log, and
 /// unpins; a board that isn't here is refused; card pins are untouched.
 #[test]

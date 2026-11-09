@@ -47,7 +47,7 @@ There is no default, because the desktop app's PATH isn't reliable. While it's e
 
 ## What it does
 
-- **Attach.** At session start the mod spawns `irori attach --session <id> --cwd <cwd> --mod-version 0.7.1` and reads its NDJSON stream.
+- **Attach.** At session start the mod spawns `irori attach --session <id> --cwd <cwd> --mod-version 0.7.2` and reads its NDJSON stream.
   - The child's stdin is closed from the start: `$.process.spawn` can't keep it open (its `input` is written and then closed). `irori attach` must not treat stdin EOF as the end of the session. The mod ends the child itself, by killing it, when the mod unloads or the session ends.
   - If the child exits, the mod restarts it with backoff (1 s, doubling to 16 s).
   - A newer attach for the same session (a reload, or a second window on the same session) sends `superseded`. The older copy then waits: it runs `irori attach --standby`, which asks every 2 s and is refused (409) while another attach holds the session, so two live copies never kick each other off. The child says `standby` once per wait, so the band shows why instead of an old outage. When the holder leaves, the waiting copy attaches within seconds (GitHub #57). `standby` needs hello `v` 3; on an older Core the mod stops after `superseded`, as it always did, and `/irori reconnect` brings it back.
@@ -94,10 +94,12 @@ Toasts appear when a message arrives, when one is held (and why), and when repo 
   /irori mode everyone|allowlist
   /irori block <key or name>     /irori unblock <key or name>
   /irori allow <key or name>     /irori deny <key or name>
-  /irori pause                   /irori resume
+  /irori resume
   ```
 
   Each one reads `GET /v1/policy` and writes `POST /v1/policy` with `X-Irori-Origin: composer`.
+
+  `/irori resume` only lifts the old Pause all, which left with Stop here (cards #787, #1196): `/irori pause` says so, and the Core refuses a policy that turns it on.
 
 Policy verbs only work when **you** type them at the prompt (`origin.kind === "composer"`). The same command run by the model, another plugin, the bridge or the SDK is refused. The Irori app is the other place to change policy.
 

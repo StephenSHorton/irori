@@ -1186,6 +1186,16 @@ impl Window {
     }
 
     pub(crate) fn people(&self) -> People {
+        self.people_with(true)
+    }
+
+    /// `people` without the inbox parts (queued notices, who heard a
+    /// comment): thread rows never read them (card #1149).
+    pub(crate) fn thread_people(&self) -> People {
+        self.people_with(false)
+    }
+
+    fn people_with(&self, inbox: bool) -> People {
         let c = &self.core;
         let mut p = People {
             no_agent: self.core.no_agent(),
@@ -1195,37 +1205,39 @@ impl Window {
             self_id: c.device_id().to_string(),
             ..People::default()
         };
-        for d in c.inbox().open() {
-            let m = &d.message;
-            if m.notice
-                && m.reason == coord::NOTICE_ASSIGNED
-                && (d.state == st::QUEUED || d.state == st::HELD)
-                && m.ref_.starts_with("task:")
-            {
-                p.unsent.insert(unsent_key(&d.to, &m.ref_));
+        if inbox {
+            for d in c.inbox().open() {
+                let m = &d.message;
+                if m.notice
+                    && m.reason == coord::NOTICE_ASSIGNED
+                    && (d.state == st::QUEUED || d.state == st::HELD)
+                    && m.ref_.starts_with("task:")
+                {
+                    p.unsent.insert(unsent_key(&d.to, &m.ref_));
+                }
             }
-        }
-        // A mention is how the person usually reaches an agent on a card
-        // (card #159): its notice counts, read ones too, so the thread says
-        // when it was read.
-        for (d, read) in c.inbox().comment_notices(
-            &[coord::NOTICE_COMMENT, coord::NOTICE_MENTIONED],
-            HEARD_NOTICES,
-        ) {
-            if let Some(cid) = d.message.ref_.strip_prefix("comment:") {
-                p.heard.entry(cid.to_string()).or_default().push((d, read));
+            // A mention is how the person usually reaches an agent on a card
+            // (card #159): its notice counts, read ones too, so the thread says
+            // when it was read.
+            for (d, read) in c.inbox().comment_notices(
+                &[coord::NOTICE_COMMENT, coord::NOTICE_MENTIONED],
+                HEARD_NOTICES,
+            ) {
+                if let Some(cid) = d.message.ref_.strip_prefix("comment:") {
+                    p.heard.entry(cid.to_string()).or_default().push((d, read));
+                }
             }
-        }
-        for (d, read) in c.inbox().ref_notices(
-            "task:",
-            &[coord::NOTICE_ANSWERED, coord::NOTICE_MENTIONED],
-            HEARD_NOTICES,
-        ) {
-            if let Some(id) = d.message.ref_.strip_prefix("task:") {
-                p.answers_heard
-                    .entry(id.to_string())
-                    .or_default()
-                    .push((d, read));
+            for (d, read) in c.inbox().ref_notices(
+                "task:",
+                &[coord::NOTICE_ANSWERED, coord::NOTICE_MENTIONED],
+                HEARD_NOTICES,
+            ) {
+                if let Some(id) = d.message.ref_.strip_prefix("task:") {
+                    p.answers_heard
+                        .entry(id.to_string())
+                        .or_default()
+                        .push((d, read));
+                }
             }
         }
         // The Chain's rule, never coord's lock: `around` in person_comment runs

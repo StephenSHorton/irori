@@ -304,6 +304,12 @@ A new `frontend/src/lib/changes.ts` takes over **every `Events.On`/`OnShown` of 
   - **drop `inbox:changed`**, since nothing in a thread row comes from the inbox. `useAllThreads`' `talk:changed` listener moves into the module, held while hidden.
 - **The follower** skips a round unless the batch touches its followed, made or known ids, or says `all`.
 
+**As built (card 8, #1149).**
+- `threads_by_id(ids)` returns `{rows, gone}`: one `thread_people()` (`people()` without the inbox parts), then `thread_row` per id, which `thread_rows` also uses, so a by-id row is the full list's row (a test compares them in every bucket, a left space included). `gone` is every id with no row, non-thread cards among them (the page asks for the cards of a notice too). Rows are not capped and come in `threads_all`'s order. `newest` (resolved, `updated_at` desc, id) now orders `threads_all` and `thread_rows`.
+- **Leaving resolved.** The `Expander` keeps the resolved thread ids; a batch where one is no longer resolved (reopened, withdrawn, gone, or a rebuild that finds it so) sends `all`. A cleared thread has no change of its own, so the page also reads the whole list when a patch shows a thread it holds as resolved turning open or gone (`readThreads`).
+- **Page.** `thread-list.ts` has the merge (upsert, drop `gone`, sort by the nanosecond time, cap 20 resolved per bucket: a space, Personal, and the private threads about a space you left), the wakes (`threadFollow`: `board:changed.cards`, `talk:changed.convs`, `devices:changed`, no `inbox:changed`) and `readThreads`. `useThreads` and `useAllThreads` are on `usePatched`; they are its first users. Only a full read moves `asOf`, so `withStarted` still shows a thread started since until a read covers it.
+- **Follower.** `listen` hands `again` the ids a change names; the follower skips it unless one is a followed thread or a card it has made or read from one.
+
 ### 6.4 Talk
 
 - **`talk_conversations_by_id(convs)`**: split the per-kind bodies of `tools::talk::conversations` into `channel_row`, `dm_row` and `thread_row`. A DM row still scans the inbox for `mirrored()`, filtered inside the scan.

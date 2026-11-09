@@ -894,10 +894,7 @@ pub async fn board_threads_all(w: W<'_>) -> R<Vec<crate::threads::ThreadSummary>
 /// Just these threads' rows (card #1136).
 #[tauri::command]
 #[specta::specta]
-pub async fn board_threads_by_id(
-    w: W<'_>,
-    ids: Vec<String>,
-) -> R<Vec<crate::threads::ThreadSummary>> {
+pub async fn board_threads_by_id(w: W<'_>, ids: Vec<String>) -> R<crate::threads::ThreadsById> {
     blocking(&w, move |w| Ok(w.threads_by_id(&ids))).await
 }
 

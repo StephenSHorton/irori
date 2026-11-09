@@ -870,7 +870,7 @@ fn pause_agents_holds_the_fresh_agent_after_end_and_new_cards_until_it_lifts() {
         "nothing starts while agents are paused"
     );
     let why = s.r.core.why_no_agent(&other.id, true).unwrap().to_string();
-    assert!(why.contains("Pause agents is on"), "{why}");
+    assert!(why.contains("Stop here is on for"), "{why}");
     // Off, with nothing else kicking the sweep.
     let p = s.r.core.set_agents_paused(false).unwrap();
     assert!(!p.on);
