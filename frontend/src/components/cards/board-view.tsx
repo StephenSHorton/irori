@@ -172,6 +172,7 @@ export function BoardView({
   onOpen,
   header,
   notice,
+  busyNow,
   empty,
   nothingDecide,
   threads,
@@ -197,6 +198,9 @@ export function BoardView({
   header?: ReactNode
   // notice sits under the filters (Home: a board's decisions waiting).
   notice?: ReactNode
+  // busyNow is Home's Busy now line (card #1249), beside notice; board
+  // pages don't pass it.
+  busyNow?: ReactNode
   // empty is what an empty board shows.
   empty: ReactNode
   // nothingDecide is Needs a decision with nothing in it.
@@ -372,6 +376,7 @@ export function BoardView({
             )}
             {lead}
             {notice}
+            {busyNow}
             {empty}
           </>
         )}
@@ -424,6 +429,7 @@ export function BoardView({
             </span>
           </div>
           {notice}
+          {busyNow}
           {hiddenLine && (
             <p
               className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[12.5px] text-foreground"

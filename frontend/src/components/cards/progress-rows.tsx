@@ -5,6 +5,7 @@
 // rows come in one headed list per state, in that order.
 
 import { NotYetFold } from "@/components/cards/order"
+import { RunChips } from "@/components/cards/run-chip"
 import { followsOf } from "@/lib/later"
 import { Badge } from "@/components/ui/badge"
 import { cardRef, PrChip, Spinner } from "@/components/cards/bits"
@@ -194,6 +195,8 @@ function ProgressRow({
           {line}
         </span>
         <PrChip card={c} />
+        {/* Its heavy runs, short; the whole line on hover (card #1249). */}
+        <RunChips card={c} short className="shrink-0" />
       </span>
       <span className="col-start-3 row-start-1 justify-self-end sm:col-start-4">
         {!quiet && (
