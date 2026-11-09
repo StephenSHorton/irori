@@ -79,10 +79,16 @@ pub struct SpawnHost {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub held_until: Option<GoTime>,
     /// This desktop can run the Office Assistant's answering turn (a desktop
-    /// with Claude Code signed in; assistants talk, card 2). Older rows have
-    /// none, so such a device is never the assistant's computer.
+    /// where the `claude` command is found; assistants talk, card 2). That
+    /// is not "signed in": nothing checks that. Older rows have none, so
+    /// such a device is never the assistant's computer.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub assistant_turn: bool,
+    /// This desktop answers the one assistant's chat for the person's other
+    /// devices (one-assistant card 3): `assistantTurn`, and this run has
+    /// the chat turn installed. A build without the worker never says it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub assistant_chat: bool,
 }
 
 impl SpawnHost {
@@ -103,8 +109,8 @@ impl SpawnHost {
 }
 
 /// What a `spawn.host` row last said: the OS, repos, no_agents, moves, usage
-/// hold and assistantTurn.
-type HostShown = (String, Vec<HostRepo>, bool, i64, Option<GoTime>, bool);
+/// hold, assistantTurn and assistantChat.
+type HostShown = (String, Vec<HostRepo>, bool, i64, Option<GoTime>, bool, bool);
 
 /// A `spawn.end.requested` row.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -261,14 +267,18 @@ impl Services {
                     h.moves,
                     h.held_until,
                     h.assistant_turn,
+                    h.assistant_chat,
                 )
             });
         }
         let moves = coord::HOST_MOVES;
         let held = self.usage_held();
-        // A desktop with Claude Code signed in can answer for the assistant;
-        // a phone never can.
+        // A desktop where the `claude` command is found can answer for the
+        // assistant; a phone never can.
         let assistant_turn = ready && os != "android";
+        // It answers the person's other devices only with the chat worker's
+        // turn installed in this run (one-assistant card 3).
+        let assistant_chat = assistant_turn && self.chat_ever();
         if last.as_ref()
             == Some(&(
                 os.clone(),
@@ -277,6 +287,7 @@ impl Services {
                 moves,
                 held,
                 assistant_turn,
+                assistant_chat,
             ))
         {
             return;
@@ -290,9 +301,20 @@ impl Services {
             at: now,
             held_until: held,
             assistant_turn,
+            assistant_chat,
         };
         match self.store.append(SWEEPER, kinds::SPAWN_HOST, &row) {
-            Ok(_) => *last = Some((os, repos, no_agents, moves, held, assistant_turn)),
+            Ok(_) => {
+                *last = Some((
+                    os,
+                    repos,
+                    no_agents,
+                    moves,
+                    held,
+                    assistant_turn,
+                    assistant_chat,
+                ))
+            }
             Err(e) => logf(format_args!("spawn host: {e}")),
         }
     }

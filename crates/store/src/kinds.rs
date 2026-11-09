@@ -226,6 +226,10 @@ kinds! {
     /// card. `{on, by, at}`, actor `user`, newest wins, none means on. Set
     /// in the app only.
     ASSISTANT_WEIGHS_SET = "assistant.weighs.set" => Replicated, Refuses;
+    /// The Office Assistant's computer (one-assistant card 1): `{device,
+    /// how: "auto" | "person", by, at}`, actor `user`. The first automatic
+    /// claim wins, a person's pick beats it, a removal ends older rows.
+    ASSISTANT_HOME = "assistant.home" => Replicated, Refuses;
     /// "Let my assistant add notes from what I say" (card #1053,
     /// docs/design/call-agents.md §12): off stops the assistant's own digest
     /// in huddles. `{on, by, at}`, actor `user`, newest wins, none means on.

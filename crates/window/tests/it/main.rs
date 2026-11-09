@@ -3,6 +3,7 @@
 //! debug info. Tests from every module run in this one process, side by
 //! side; a test that changes process state lives outside this binary.
 
+mod assistant_turn;
 mod boards;
 mod cards;
 mod common;

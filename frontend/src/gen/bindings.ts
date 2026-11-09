@@ -379,6 +379,13 @@ export const commands = {
 	/**  Turns "Name new threads" on or off, on all the person's devices. */
 	assistantNamesSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_names_set", { on }),
 	/**
+	 *  Where the one assistant runs and whether that computer can be reached
+	 *  (one-assistant card 1).
+	 */
+	assistantHomeStatus: () => __TAURI_INVOKE<AssistantHomeStatus>("assistant_home_status"),
+	/**  The person picks which computer runs the assistant, from any device. */
+	assistantHomeSet: (device: string) => __TAURI_INVOKE<null>("assistant_home_set", { device }),
+	/**
 	 *  Rewords the Start a thread box's draft (#981). The draft itself is
 	 *  never touched here: the window shows the wording and the person chooses.
 	 */
@@ -596,6 +603,24 @@ export const commands = {
 	 *  same on every one of the person's devices.
 	 */
 	assistantChatList: (before: string, limit: number) => __TAURI_INVOKE<AssistantChatPage>("assistant_chat_list", { before, limit }),
+	/**
+	 *  The person asks the assistant (one-assistant card 3, §5): writes the
+	 *  question's row, which the assistant's computer answers wherever it is,
+	 *  and returns its turn. `screen` is this device's snapshot; `again` the
+	 *  turn it asks again (Ask again).
+	 */
+	assistantChatAsk: (text: string, screen: string, again: string | null) => __TAURI_INVOKE<string>("assistant_chat_ask", { text, screen, again }),
+	/**
+	 *  Stops a question, from any device: one that hasn't started never runs,
+	 *  and a running one ends at once.
+	 */
+	assistantChatStop: (turn: string) => __TAURI_INVOKE<null>("assistant_chat_stop", { turn }),
+	/**
+	 *  Streams a turn's reply as this computer runs it: from now until the turn
+	 *  ends, starting with what it has said so far. Only the assistant's
+	 *  computer runs turns, so elsewhere nothing comes (card 7 streams there).
+	 */
+	assistantChatWatch: (turn: string, on: Channel<AssistantEvent>) => __TAURI_INVOKE<null>("assistant_chat_watch", { turn, on }),
 };
 
 /* Types */
@@ -1057,6 +1082,29 @@ export type AssistantFile = {
 	 *  says that, as in the frontend's `can_read === false`.
 	 */
 	can_read?: boolean,
+};
+
+/**  `assistant_home_status`, and the `assistant:home` payload. */
+export type AssistantHomeStatus = {
+	/**  The assistant's computer, "" when none is recorded yet. */
+	device: string,
+	/**  What it is called, "" with none. */
+	name: string,
+	/**  This device is it. */
+	here: boolean,
+	/**  `connected`, `recent` or `offline`; "" with none. */
+	state: string,
+	/**  When it was last heard from, Unix ms; 0 for never. */
+	lastSeenMs: number,
+	/**  Its newest `spawn.host` says it can find Claude Code. */
+	claude: boolean,
+	/**  Its newest `spawn.host` says it answers the chat for other devices. */
+	chat: boolean,
+	/**
+	 *  With none recorded: `setting_up`, `needs_update` or `no_claude`.
+	 *  "" otherwise.
+	 */
+	none: string,
 };
 
 /**  One turn of the chat so far. */

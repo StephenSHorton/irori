@@ -25,7 +25,8 @@
 //! their text out (`tools::observe::redact`, `api::redact`).
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use store::{Event, Filter, Store, kinds};
@@ -53,6 +54,69 @@ pub const KINDS: [&str; 8] = [
     ANSWER_REQUESTED,
     ANSWER_DRAFT,
 ];
+
+/// The words a `said` row carries for a turn the person stopped, or that
+/// New chat ended while it ran. The chat keys Ask again on them (§6).
+pub const STOPPED: &str = "Stopped";
+
+/// What a running turn says as it goes (one-assistant §5): `delta`, `tool`,
+/// `changed`, `done` or `error`, as the window's run hears it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatEvent {
+    pub kind: String,
+    pub text: String,
+}
+
+/// Which turn a [`ChatJob`] is. Every turn on the assistant's computer that
+/// holds the assistant secret goes through the one worker (§5); assistants
+/// talk's owner's-OK turn (#1064) adds its own kind.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ChatKind {
+    #[default]
+    Chat,
+}
+
+/// One question for the window to run (§5): Core built the prompt and the
+/// grants from rows; the window runs it and blocks until it ends.
+#[derive(Debug, Clone, Default)]
+pub struct ChatJob {
+    pub turn: String,
+    /// The whole prompt, history and question, as plain text.
+    pub prompt: String,
+    /// The asking device's screen snapshot, for the `screen` tool.
+    pub screen: String,
+    /// What the person's own words allow it to change (card #987); none
+    /// for a late question.
+    pub grants: Vec<tools::Grant>,
+    /// Tripped by a `stop` row, or a New chat newer than the question: the
+    /// run ends at once.
+    pub cancel: Arc<AtomicBool>,
+    pub kind: ChatKind,
+}
+
+/// How a run ended.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ChatDone {
+    /// The reply, markers included, trimmed.
+    pub text: String,
+    /// The run failed: in the words the chat shows, naming the computer.
+    pub error: String,
+    /// What its write tools changed, a line each.
+    pub changed: Vec<String>,
+    /// The thread its draft posted by itself.
+    pub posted: Option<Posted>,
+    /// The label of the screen it looked at.
+    pub looked: Option<String>,
+    /// It never ran because Irori is closing: write no reply, so the next
+    /// start's catch-up answers it.
+    pub later: bool,
+}
+
+/// The desktop's chat turn, installed with `Core::set_chat_turn`: runs
+/// `job`, telling `emit` each event as it comes (false: stop), and returns
+/// once the run has ended. (The design calls it `ChatTurn`; that name is
+/// the fold's turn here.)
+pub type ChatTurnFn = Arc<dyn Fn(&ChatJob, &dyn Fn(ChatEvent) -> bool) -> ChatDone + Send + Sync>;
 
 /// The most a text field holds, in bytes: a reply is cut here, well inside
 /// the mesh's 8 MiB message.
@@ -319,14 +383,14 @@ fn cut_bytes(s: &str, max: usize) -> String {
 
 /// A row's place in the store's `(hlc, device_id, seq)` order.
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct Order {
-    hlc: u64,
-    device: String,
-    seq: i64,
+pub(crate) struct Order {
+    pub(crate) hlc: u64,
+    pub(crate) device: String,
+    pub(crate) seq: i64,
 }
 
 impl Order {
-    fn of(ev: &Event) -> Order {
+    pub(crate) fn of(ev: &Event) -> Order {
         Order {
             hlc: ev.hlc.0,
             device: ev.device_id.clone(),
@@ -612,26 +676,172 @@ impl Fold {
     }
 }
 
+/// How many turns of history go to the model (`HISTORY_CAP` turns are
+/// built, as the chat kept; the prompt uses the last [`HISTORY_TURNS`]).
+pub const HISTORY_CAP: usize = 50;
+/// The turns the prompt shows, as the window's `render_prompt` does.
+pub const HISTORY_TURNS: usize = 12;
+/// The most of the person's earlier questions `grants_for` reads.
+pub const EARLIER_CAP: usize = 50;
+/// The header of a run of follow-up lines in the history (`historyFor`).
+pub const UPDATES_HEAD: &str = "(The chat's own lines on the work it follows:)";
+
+/// A turn as the worker reads it: where its question sits, whether New
+/// chat hides it, and the turn.
+#[derive(Debug, Clone)]
+pub(crate) struct TurnAt {
+    pub(crate) at: Order,
+    pub(crate) hidden: bool,
+    pub(crate) turn: ChatTurn,
+}
+
+/// A reply as the history gives it to the model: with a posted draft's
+/// thread named (`turnText`).
+fn reply_text(text: &str, posted: Option<&Posted>) -> String {
+    match posted {
+        Some(p) => format!(
+            "{text}\n\n(This draft was posted as thread {}#{}.)",
+            p.tag, p.short
+        ),
+        None => text.to_string(),
+    }
+}
+
+impl Fold {
+    /// Turn `id`, hidden by New chat or not.
+    pub(crate) fn turn_at(&self, id: &str) -> Option<TurnAt> {
+        let st = self.lock();
+        let a = st.asked.get(id)?;
+        let said = st.said.get(id).map(|s| s.row.clone());
+        let posted = said
+            .as_ref()
+            .and_then(|s| s.posted.clone())
+            .filter(|p| !p.id.is_empty())
+            .or_else(|| st.posted.get(id).map(|p| p.row.clone()));
+        Some(TurnAt {
+            at: a.at.clone(),
+            hidden: st.hidden(&a.at, a.row.imported),
+            turn: ChatTurn {
+                asked: a.row.clone(),
+                asked_on: a.at.device.clone(),
+                said,
+                posted,
+                stopped: st.stops.contains_key(id),
+            },
+        })
+    }
+
+    /// Turn `id`, hidden or not.
+    pub fn turn(&self, id: &str) -> Option<ChatTurn> {
+        self.turn_at(id).map(|t| t.turn)
+    }
+
+    /// The questions with no reply that New chat doesn't hide, imported
+    /// ones left out, in store order: each with its turn and whether the
+    /// person stopped it.
+    pub(crate) fn unanswered(&self) -> Vec<(Order, String, bool)> {
+        let st = self.lock();
+        let mut out: Vec<(Order, String, bool)> = st
+            .asked
+            .iter()
+            .filter(|(turn, a)| {
+                !a.row.imported && !st.said.contains_key(*turn) && !st.hidden(&a.at, false)
+            })
+            .map(|(turn, a)| (a.at.clone(), turn.clone(), st.stops.contains_key(turn)))
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// What the person typed before the question at `at`, after the newest
+    /// New chat, imported questions left out: the newest `max`, oldest
+    /// first. `grants_for` reads it, so "close it" means the card they last
+    /// named, and nothing asked after the question ever counts.
+    pub(crate) fn typed_before(&self, at: &Order, max: usize) -> Vec<String> {
+        let st = self.lock();
+        let mut rows: Vec<(&Order, &str)> = st
+            .asked
+            .values()
+            .filter(|a| !a.row.imported && a.at < *at && !st.hidden(&a.at, false))
+            .map(|a| (&a.at, a.row.text.as_str()))
+            .collect();
+        rows.sort();
+        let skip = rows.len().saturating_sub(max);
+        rows.into_iter()
+            .skip(skip)
+            .map(|(_, t)| t.to_string())
+            .collect()
+    }
+
+    /// The conversation before the question at `at`, as history turns
+    /// (`true`: the assistant's), the port of the chat's `historyFor`:
+    /// each answered turn as the person's words and the reply, a posted
+    /// draft naming its thread; each run of follow-up lines as one turn of
+    /// the assistant's. Left out: turns with no reply yet, skipped or
+    /// failed ones (an imported question with no reply is one), and
+    /// drafts, which carry another person's words. The newest
+    /// [`HISTORY_CAP`].
+    pub(crate) fn history_before(&self, at: &Order) -> Vec<(bool, String)> {
+        let upto = Place::new(false, at);
+        let mut out: Vec<(bool, String)> = Vec::new();
+        let mut ups: Vec<String> = Vec::new();
+        let flush = |out: &mut Vec<(bool, String)>, ups: &mut Vec<String>| {
+            if !ups.is_empty() {
+                let lines: Vec<String> = ups.iter().map(|u| format!("- {u}")).collect();
+                out.push((true, format!("{UPDATES_HEAD}\n{}", lines.join("\n"))));
+                ups.clear();
+            }
+        };
+        for (place, entry) in self.shown() {
+            if place >= upto {
+                break;
+            }
+            match entry {
+                ChatEntry::Turn(t) => {
+                    let Some(said) = t.said.as_ref() else {
+                        continue;
+                    };
+                    if said.skipped || !said.error.is_empty() {
+                        continue;
+                    }
+                    flush(&mut out, &mut ups);
+                    out.push((false, t.asked.text.clone()));
+                    out.push((true, reply_text(&said.text, t.posted.as_ref())));
+                }
+                ChatEntry::Update(u) => ups.push(u.text),
+                ChatEntry::Draft(_) => {}
+            }
+        }
+        flush(&mut out, &mut ups);
+        let skip = out.len().saturating_sub(HISTORY_CAP);
+        out.drain(..skip);
+        out
+    }
+}
+
 fn decode<T: for<'de> Deserialize<'de>>(ev: &Event) -> Option<T> {
     serde_json::from_slice(&ev.payload).ok()
 }
 
 /// Folds every conversation row in `st` into `f` (at start and on a
 /// resync).
-pub(super) fn load(st: &Store, f: &Fold) {
+pub(super) fn load(st: &Store, f: &Fold) -> bool {
     // A store that can't be read leaves what was folded so far.
+    let mut changed = false;
     let mut q = Filter {
         kinds: KINDS.iter().map(|k| k.to_string()).collect(),
         limit: store::MAX_LIST_LIMIT,
         ..Filter::default()
     };
     loop {
-        let Ok(evs) = st.list(&q) else { return };
+        let Ok(evs) = st.list(&q) else {
+            return changed;
+        };
         for ev in &evs {
-            f.apply(ev);
+            changed |= f.apply(ev);
         }
         if (evs.len() as i64) < q.limit {
-            return;
+            return changed;
         }
         q.after = evs[evs.len() - 1].cursor();
     }
@@ -668,6 +878,53 @@ impl Core {
     /// question rows.
     pub fn assistant_chat_write(&self, row: ChatRow) -> Result<Event, String> {
         self.s.write_chat(row)
+    }
+
+    /// The person asks the assistant (one-assistant §5): writes the
+    /// question's row with a new turn, this device and the time, and
+    /// returns the turn. The assistant's computer answers it, wherever
+    /// that is. `screen` is this device's snapshot; `again` the turn it
+    /// asks again (Ask again), or "".
+    pub fn assistant_chat_ask(
+        &self,
+        text: &str,
+        screen: &str,
+        again: &str,
+    ) -> Result<String, String> {
+        if text.trim().is_empty() {
+            return Err("ask something first".into());
+        }
+        let now = (self.s.now)();
+        let turn = coord::new_id(&now);
+        self.s.write_chat(ChatRow::Asked(Asked {
+            turn: turn.clone(),
+            text: text.trim().to_string(),
+            screen: screen.trim().to_string(),
+            device: self.s.device.id.clone(),
+            at: now.unix_milli_value(),
+            again: again.trim().to_string(),
+            ..Asked::default()
+        }))?;
+        Ok(turn)
+    }
+
+    /// The person stops `turn`, from any device: a turn that hasn't
+    /// started never runs, and a running one ends at once.
+    pub fn assistant_chat_stop(&self, turn: &str) -> Result<(), String> {
+        if self.s.assistant_chat.turn(turn).is_none() {
+            return Err(format!("no question {turn}"));
+        }
+        self.s.write_chat(ChatRow::Stop(Stop {
+            turn: turn.to_string(),
+            by: format!("user:{}", self.s.device.id),
+            at: (self.s.now)().unix_milli_value(),
+        }))?;
+        Ok(())
+    }
+
+    /// Turn `turn` as the fold has it, hidden by New chat or not.
+    pub fn assistant_chat_turn(&self, turn: &str) -> Option<ChatTurn> {
+        self.s.assistant_chat.turn(turn)
     }
 }
 

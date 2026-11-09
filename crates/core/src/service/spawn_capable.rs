@@ -260,18 +260,6 @@ impl Services {
         }
     }
 
-    /// Whether this device is the person's assistant computer now.
-    pub(crate) fn is_assistant_home(&self) -> bool {
-        let homes = self
-            .spawn
-            .agents
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .homes
-            .clone();
-        assistant_home_of(&homes, &self.hosts()).as_deref() == Some(self.device.id.as_str())
-    }
-
     /// Whether this device had no free agent slot at the last sweep (card
     /// #686).
     pub(crate) fn full_here(&self) -> bool {

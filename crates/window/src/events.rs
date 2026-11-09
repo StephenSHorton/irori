@@ -12,6 +12,7 @@
 //! | `devices:changed` | `{}` | a device renamed, here or synced (#184) |
 //! | `talk:changed` | `{}` | coalesced, 250 ms: a `talk.*` row folded, or a message sent (#389) |
 //! | `talk:replying` | `TalkReplying[]` | coalesced, 250 ms, only when it changed (#645) |
+//! | `assistant:home` | `AssistantHomeStatus` | coalesced, 250 ms: the recorded assistant's computer changed (one-assistant card 1) |
 //! | `notifications:changed` | `{}` | a notification kept or read, here or synced (#377) |
 //! | `assistant:changed` | `{}` | coalesced, 250 ms: a row of the assistant's conversation folded, here or synced (#1102) |
 //! | `settings:launch-at-login` | bool | after every toggle attempt |
@@ -42,6 +43,7 @@ use crate::Window;
 use crate::roster::RosterChange;
 
 pub use crate::assistant_chat::EVENT_ASSISTANT_CHANGED;
+pub use crate::assistant_home::EVENT_ASSISTANT_HOME;
 pub use crate::boards::EVENT_BOARDS_CHANGED;
 pub use crate::call::EVENT_CALL_STATE;
 pub use crate::meters::EVENT_METERS_CHANGED;
@@ -376,6 +378,17 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
             let q = feed.queue().clone();
             coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
                 w.emit(EVENT_USAGE_CHANGED, &w.usage_limits());
+            });
+        }));
+    }
+    {
+        // The recorded assistant's computer changed (one-assistant card 1).
+        let (w, stop) = (w.clone(), stop.clone());
+        let feed = w.core.feed(&[Topic::AssistantHome]);
+        out.push(spawn("irori-window-assistant-home", move || {
+            let q = feed.queue().clone();
+            coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
+                w.emit(EVENT_ASSISTANT_HOME, &w.assistant_home_status());
             });
         }));
     }

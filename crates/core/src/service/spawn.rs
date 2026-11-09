@@ -2051,8 +2051,15 @@ impl Services {
         if decided {
             self.publish_host(sp.as_ref(), ready);
             self.refresh_agent_devices(ready);
+            // One assistant's computer: claim it when nothing is recorded,
+            // before the cards are minted on it (one-assistant card 1).
+            self.claim_assistant_home();
             self.mint_assistant_cards();
         }
+        // The chat's backstop: an unanswered question that isn't queued
+        // (one-assistant card 3). Before the pause: Stop everywhere never
+        // stops the person's own chat.
+        self.chat_scan(super::assistant_turns::Why::Sweep);
         if self.inbox.policy().paused {
             return;
         }
