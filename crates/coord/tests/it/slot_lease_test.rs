@@ -97,3 +97,19 @@ fn slot_arguments_are_checked() {
     assert!(!is_run_holder(ALICE));
     assert!(!is_run_holder("run-x"));
 }
+
+#[test]
+fn a_slot_lease_stores_its_pools_limit() {
+    let e = Env::new();
+    let a = e.c.acquire_slot(RUN1, "test-server", 3, mins(5)).unwrap();
+    assert_eq!(a.slots, 3);
+    // A plain lease is no pool.
+    let p = e.c.acquire(RUN2, "port:80", mins(5), false).unwrap();
+    assert_eq!(p.slots, 0);
+    let held: Vec<(String, i64)> =
+        e.c.leases()
+            .into_iter()
+            .map(|l| (l.resource, l.slots))
+            .collect();
+    assert!(held.contains(&("test-server/slot-1".into(), 3)), "{held:?}");
+}

@@ -25,7 +25,7 @@
 //   ?spawn=first   shows the spawned agents' first-run notice on Home
 //   ?spawn=limit    Settings › Agents with a usage limit holding the queue
 //   ?newcard        opens the New card dialog (?spawn=off: spawning off)
-//   ?slots          shows two check.sh runs in the sidebar's Check slots
+//   ?slots          shows three held slots in the sidebar's Slots
 //   ?from=<card>    the grid as that card's Back leaves it (App.tsx)
 //   ?filter=done    the grid on that filter tab (App.tsx)
 //   ?theme=<id>     a theme without saving it: blue, hearth, midnight,

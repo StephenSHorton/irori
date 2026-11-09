@@ -41,7 +41,7 @@ import { agentCounts } from "@/lib/agent-counts"
 import { agentStatus, throughLine } from "@/lib/agent-status"
 import { rosterGroups } from "@/lib/roster-groups"
 import { AgentStrip, OnCards } from "@/components/cards/agent-strip"
-import { CheckSlots } from "@/components/cards/check-slots"
+import { Slots } from "@/components/cards/slots"
 import { useCommands } from "@/lib/commands"
 import type { BoardSummary } from "@/lib/boards"
 import type { CardSummary } from "@/lib/cards"
@@ -543,7 +543,7 @@ export function AppSidebar({
             ) : (
               <AgentStrip agents={agents} />
             )}
-            <CheckSlots />
+            <Slots />
           </section>
         )}
 

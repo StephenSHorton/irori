@@ -819,6 +819,10 @@ pub struct Lease {
     pub acquired_at: GoTime,
     #[serde(skip_serializing_if = "omit")]
     pub conflict: String,
+    /// The limit of the slot pool this lease is one slot of (card #1167):
+    /// the `slots` its taker passed; 0 on any other lease.
+    #[serde(skip_serializing_if = "omit")]
+    pub slots: i64,
 }
 
 /// What a Subscribe change is about.
