@@ -1686,6 +1686,13 @@ impl Coord {
         self.lock().agent_home(side)
     }
     /// The spawned_for mark on agent `key`.
+    pub fn thread_wanted(&self, id: &str) -> bool {
+        self.lock().thread_wanted(id)
+    }
+    /// Spawned agent keys that were started for thread `id` (card #1208).
+    pub fn thread_agents(&self, id: &str) -> Vec<String> {
+        self.lock().thread_agents(id)
+    }
     pub fn spawned(&self, key: &str) -> Option<Spawned> {
         self.lock().spawned_for(key).cloned()
     }

@@ -1111,7 +1111,7 @@ pub(crate) fn build_ask_brief(
             "the person's thread"
         };
         b.push_str(&format!(
-            "Irori started you to answer {whose} {short} ({}). It's a question or a conversation, not a card. Take only {short}: don't join, claim or take any other card, ask or thread. You hold it: no ask_claim needed. Read the thread, then answer it in the thread with board_comment {short}, looking things up (board, show, search, the code here) as needed. Don't ask_close it: the person resolves it when they're done. If your answer says you'll do work, answer in the thread first (board_comment: what you'll do), then make the card with board_create from={short} (or board_edit the card it changes): that card gets its own agent, so don't work it yourself. If you do it with no card, say so plainly in the thread. Stay for follow-ups: the person's replies in the thread come to you. Irori ends you when the thread is resolved, or when you're idle and it has been quiet for {mins} minutes; your answer in the thread is your hand-off. {PROPOSE_NOTE}\n\n",
+            "Irori started you to answer {whose} {short} ({}). It's a question or a conversation, not a card. Take only {short}, except a card Irori hands you that was made from it: don't join, claim or take any other card, ask or thread. You hold it: no ask_claim needed. Read the thread, then answer it in the thread with board_comment {short}, looking things up (board, show, search, the code here) as needed. Don't ask_close it: the person resolves it when they're done. If your answer says you'll do work, answer in the thread first (board_comment: what you'll do), then make the card with board_create from={short} (or board_edit the card it changes): Irori hands that card to you while you are still here and your context is small (its message says so; the thread's rules about other cards don't stop you taking it), otherwise a fresh agent gets it, so don't start work on it before then. If you do it with no card, say so plainly in the thread. Stay for follow-ups: the person's replies in the thread come to you. Irori ends you when the thread is resolved, or when you're idle and it has been quiet for {mins} minutes; your answer in the thread is your hand-off. {PROPOSE_NOTE}\n\n",
             t.refs()
         ));
     } else {
@@ -1667,6 +1667,11 @@ impl Services {
             self.lift_cant_run_no_copy();
             self.say_no_agent();
         }
+        // A card made from a thread goes first to that thread's live agent
+        // (card #1208), before any fresh spawn is considered.
+        if !paused {
+            self.route_to_thread_agents();
+        }
         let Some(sp) = sp else {
             return;
         };
@@ -1723,6 +1728,60 @@ impl Services {
         if ready {
             self.end_superseded(&sp);
         }
+    }
+
+    /// Offers each card made from an open thread to that thread's spawned
+    /// agent while it is alive and free of other cards (card #1208), so
+    /// the card isn't given a fresh agent that knows nothing of the
+    /// thread. Anything assigned or mentioned already isn't in
+    /// `cards_to_spawn`, so an explicit choice still wins; with no live
+    /// agent the card falls through to a fresh spawn. A thread agent takes
+    /// one such card at a time: a second waits for it or a fresh agent,
+    /// which keeps the agent's context small.
+    fn route_to_thread_agents(&self) {
+        let me = self.device.id.as_str();
+        let open = self.open_cards();
+        for t in self.coord.cards_to_spawn() {
+            if t.from.is_empty() || t.spawn_pending() {
+                continue;
+            }
+            let keys = self.coord.thread_agents(&t.from);
+            if keys.is_empty() {
+                continue;
+            }
+            let Some(a) = self.presence.snapshot().into_iter().find(|a| {
+                a.status != "gone"
+                    && keys.contains(&a.key)
+                    && irori_identity::owner::device_of(&a.key) == me
+                    && !self.spawn.removed.lock().unwrap_or_else(|e| e.into_inner()).contains(&a.key)
+                    && !self.coord.ended_by_irori(&a.key)
+            }) else {
+                continue;
+            };
+            let busy = open.iter().any(|o| {
+                o.id != t.id
+                    && o.id != t.from
+                    && (o.holders.contains(&a.key) || o.assigned.contains(&a.key))
+            });
+            if busy {
+                continue;
+            }
+            if !self.thread_agent_reusable(&a.key) {
+                continue;
+            }
+            let note = "You answered the thread this card was made from, so Irori hands it to you while your context is small. You started in the main checkout: for code, make or enter this card's own worktree (EnterWorktree) and leave the main checkout alone. Work it as a card: board_join, steps, Where, Left off, completed with proof.";
+            match self.coord.hand_off(SWEEPER, &t.id, &a.key, note) {
+                Ok((_, n)) => self.tell_notices(&n),
+                Err(e) => logf(format_args!("spawn {}: thread agent: {e}", t.short_ref())),
+            }
+        }
+    }
+
+    /// Whether a thread's agent may take a card made from its thread
+    /// (card #1208). For now it is free of other cards (done by the
+    /// caller); the context budget slots in here (#1209).
+    fn thread_agent_reusable(&self, _key: &str) -> bool {
+        true
     }
 
     /// An open ask here whose agents crashed up to the crash limit (card
@@ -2790,6 +2849,14 @@ impl Services {
             {
                 continue;
             }
+            // A card made from its thread is on it (card #1208): wanted, so
+            // not ended while that card is open, whatever the thread's state.
+            if self.open_cards().iter().any(|c| {
+                c.from == m.task_id
+                    && (c.holders.contains(&a.key) || c.assigned.contains(&a.key))
+            }) {
+                continue;
+            }
             let Some(t) = self.coord.get_task(&m.task_id) else {
                 // A shared board's card (card #455): it goes when its work
                 // there is done for it.
@@ -2811,6 +2878,7 @@ impl Services {
                         .unwrap_or(m.at);
                     let lost = !ask.taker.is_empty() && ask.taker != k;
                     let quiet = a.status == "idle"
+                        && !co.thread_wanted(&t.id)
                         && at_least(
                             &(self.now)(),
                             &quiet_since,
@@ -2874,7 +2942,11 @@ impl Services {
                 } else {
                     ask.taker != a.key
                 };
-                let quiet = a.status == "idle" && at_least(&now, &quiet_since, limit);
+                // Wanted (card #1208): a card made from the thread is still
+                // open, so its agent outlives the idle limit.
+                let quiet = a.status == "idle"
+                    && !self.coord.thread_wanted(&t.id)
+                    && at_least(&now, &quiet_since, limit);
                 if lost || quiet {
                     self.begin_end(&a.key);
                 }
