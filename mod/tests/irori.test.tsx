@@ -1267,6 +1267,20 @@ describe('live runs (card #1249)', () => {
     expect(bodies(w.calls).length).toBe(2)
   })
 
+  test('a foreground call before hello queues fg-start and fg, and both go out in order', OPTIONS, async ($, on) => {
+    const w = world(on, { toolResults: { Bash: { result: { stdout: 'ok', stderr: '', interrupted: false } } } })
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'toolu_q2' } as never)
+    await pause(100)
+    expect(posts(w.calls, RUNS)).toEqual([])
+    w.children[0]!.write(line(hello))
+    await until(() => bodies(w.calls).length === 2, 'flushed at hello')
+    expect(bodies(w.calls)[0]).toMatchObject({ event: 'fg-start', toolUseId: 'toolu_q2', cwd: 'C:/work/here' })
+    expect(bodies(w.calls)[1]).toMatchObject({ event: 'fg', toolUseId: 'toolu_q2', isError: false })
+    expect(bodies(w.calls)[1]!.cwd).toBeUndefined()
+  })
+
   test('a call the pause refuses reports nothing', OPTIONS, async ($, on) => {
     const w = world(on, { board: { working: [{ short: '7', paused: true, holders: [hello.agentKey] }] } })
     await attached($, w)

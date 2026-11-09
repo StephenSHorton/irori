@@ -475,8 +475,9 @@ const endedRuns = new Set<string>()
  */
 async function postRun($: EngineInterface, run: RunReport | null) {
   if (!run) return
-  const body = run.event === 'start' || run.event === 'fg-start' ? { ...run, cwd: await runCwd($) } : run
-  if (!body.cwd) delete body.cwd
+  // A queued report keeps the cwd it was made with.
+  const cwd = (run.event === 'start' || run.event === 'fg-start') && !run.cwd ? await runCwd($) : undefined
+  const body: RunReport = cwd ? { ...run, cwd } : run
   if (!api || !attachSecret) return queueRun($, body)
   const answer = await callCore($, 'POST', RUNS_PATH, body)
   if (answer.ok) return
