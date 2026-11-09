@@ -1056,6 +1056,9 @@ function cutCloseLine(s: string): string {
     : s
 }
 
+// trailingGo finds a go line that ends a reply (lib/goto.ts).
+const trailingGo = /\n[ \t]*<<go [^\n]*>>\s*$/
+
 // splitDraft takes a reply's drafted thread out of its text. The history
 // keeps the reply whole; the chat splits it as it shows it. ended: the
 // reply ended by itself (not stopped, failed or still being written), so
@@ -1073,13 +1076,19 @@ export function splitDraft(raw: string, ended = false): Split {
   const before = raw.slice(0, open.index).trim()
   const rest = raw.slice(open.index + open[0].length)
   const close = draftClose.exec(rest)
-  if (!close)
+  if (!close) {
+    // Ended, the draft stops before a last go line, which stays in the
+    // text so it still fires (splitGo).
+    const go = ended ? trailingGo.exec(rest) : null
+    const body = go ? rest.slice(0, go.index) : rest
+    const tail = go ? go[0].trim() : ""
     return {
-      text: before,
-      draft: cutCloseLine(cutMarkerTail(rest, DraftClose)).trim(),
+      text: tail ? `${before}\n\n${tail}`.trim() : before,
+      draft: cutCloseLine(cutMarkerTail(body, DraftClose)).trim(),
       partial: !ended,
       check,
     }
+  }
   const end = close.index
   const after = rest.slice(end + close[0].length).trim()
   return {
@@ -1131,7 +1140,8 @@ export function postDraft(turn: string): Promise<Posted> {
   if (entry.posted) return Promise.resolve(entry.posted)
   const going = posting.get(turn)
   if (going) return going
-  const { draft, partial } = splitDraft(entry.text, !entry.cutOff)
+  // Split as the chat shows it, so only the draft it shows is posted.
+  const { draft, partial } = splitReply(entry.text, false, entry.cutOff)
   if (!draft || partial)
     return Promise.reject(new Error("That message has no thread to post."))
   const busy = (on: boolean) => {
@@ -1352,7 +1362,7 @@ export function autoAsk(onPosted: (p: Posted) => void) {
     if (s.busy) return
     const last = s.entries[s.entries.length - 1]
     if (last?.role !== "assistant" || !last.turn || last.posted) return
-    if (!splitDraft(last.text, !last.cutOff).draft) return
+    if (!splitReply(last.text, false, last.cutOff).draft) return
     off()
     postDraft(last.turn).then(onPosted, () => {})
   })

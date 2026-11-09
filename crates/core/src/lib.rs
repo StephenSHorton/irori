@@ -37,8 +37,8 @@
 //! until it is switched on and there is another device.
 
 pub mod agentnames;
-pub mod assistant_draft;
 mod answering;
+pub mod assistant_draft;
 pub mod attachments;
 pub mod buildclean;
 pub mod deskmap;

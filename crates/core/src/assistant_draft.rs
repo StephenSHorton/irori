@@ -130,9 +130,19 @@ fn split_draft_as(raw: &str, ended: bool) -> Split {
     let before = raw[..at].trim();
     let rest = &raw[at + marker.len()..];
     let Some((end, close_end)) = find_close(rest, 0) else {
+        // Ended, the draft stops before a last go line, which stays in
+        // the text so it still goes.
+        let (body, go) = match ended.then(|| trailing_go(rest)).flatten() {
+            Some(i) => (&rest[..i], rest[i..].trim()),
+            None => (rest, ""),
+        };
         return Split {
-            text: before.to_string(),
-            draft: cut_close_line(cut_marker_tail(rest, DRAFT_CLOSE))
+            text: if go.is_empty() {
+                before.to_string()
+            } else {
+                format!("{before}\n\n{go}").trim().to_string()
+            },
+            draft: cut_close_line(cut_marker_tail(body, DRAFT_CLOSE))
                 .trim()
                 .to_string(),
             partial: !ended,
@@ -150,6 +160,16 @@ fn split_draft_as(raw: &str, ended: bool) -> Split {
         partial: false,
         check,
     }
+}
+
+/// Where a go line that ends `s` starts, at its line break (the chat's
+/// `/\n[ \t]*<<go [^\n]*>>\s*$/`).
+fn trailing_go(s: &str) -> Option<usize> {
+    let t = s.trim_end();
+    let nl = t.rfind('\n')?;
+    let line = t[nl + 1..].trim_start_matches([' ', '\t']);
+    (line.starts_with("<<go ") && line.ends_with(">>") && line.len() >= "<<go >>".len())
+        .then_some(nl)
 }
 
 /// Whether `s` ends where a posting draft may: nothing but white space, or
@@ -263,6 +283,21 @@ mod tests {
         );
         // Still being written, or cut off: partial.
         assert!(split_draft(&raw).partial);
+        // A last go line isn't part of it: it stays in the text.
+        let go = format!("{raw}\n<<go card #8>>\n");
+        assert_eq!(
+            split_draft_done(&go),
+            split(
+                "Posting it.\n\n<<go card #8>>",
+                "Fix the lobby.\nAsk on #8.",
+                false,
+                false
+            )
+        );
+        assert_eq!(
+            split_draft(&go).draft,
+            "Fix the lobby.\nAsk on #8.\n<<go card #8>>"
+        );
         // A mangled closing line the finder misses isn't part of it.
         assert_eq!(
             split_draft_done(&format!("{DRAFT_OPEN}\nFix the lobby.\n<thread/>")).draft,

@@ -292,6 +292,28 @@ describe("Ask Irori's drafted thread (card #783)", () => {
     expect(splitReply(raw, true).partial).toBe(true)
     expect(splitReply(raw, false, true).partial).toBe(true)
     expect(splitReply(raw).partial).toBe(false)
+    // A last go line isn't part of it: it stays in the text and still goes.
+    const go = `${raw}\n<<go card #8>>\n`
+    expect(splitDraft(go, true)).toEqual({
+      text: "Posting it.\n\n<<go card #8>>",
+      draft: "Fix the lobby.\nAsk on #8.",
+      partial: false,
+      check: false,
+    })
+    const r = splitReply(go)
+    expect([r.text, r.draft, r.partial]).toEqual([
+      "Posting it.",
+      "Fix the lobby.\nAsk on #8.",
+      false,
+    ])
+    expect(r.go).not.toBeNull()
+    // Stopped, the go line is still part of the cut-short draft.
+    expect(splitDraft(go).draft).toBe(
+      "Fix the lobby.\nAsk on #8.\n<<go card #8>>"
+    )
+    // A cards block after it is the chat's, not the thread's.
+    const cards = `${raw}\n<<cards>>\n{"title":"Lobby"}\n<</cards>>`
+    expect(splitReply(cards).draft).toBe("Fix the lobby.\nAsk on #8.")
     // A mangled closing line it can't read isn't part of it.
     expect(
       splitDraft(`${DraftOpen}\nFix the lobby.\n<thread/>`, true).draft
