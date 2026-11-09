@@ -271,12 +271,30 @@ A new `frontend/src/lib/changes.ts` takes over **every `Events.On`/`OnShown` of 
 - **`decide_count` counts over the cache.** The pump applies the batch, recomputes dirty rows, counts `open_blockers > 0 || gone_wait` and shares the work with the page's next read. Until card 6 lands, card 3 gives a cheaper count on its own (§9).
 - **Test:** after every batch in a randomized test, the cache equals a cold `cards_in("")`.
 
+**As built (card 6, #1147).** `crates/window/src/cards_cache.rs`. Where the build differs or chooses:
+- **What is kept.** Each log's open cards as their log holds them (`Entry`: the task, and whether it needs the person), and per grid row an `Aux`: `family_aux`'s outputs (`family_of` split in two: `family_aux` reads other cards through a getter, `family_apply` adds what moves with no event), the newest activity time, the comments still inside the talk window, a shared card's comment authors and the canvas position, with `deps` (every card id the getter was asked for, misses and closed cards included, and the row's own). **Read on every read, never kept:** `card_summary` and everything from People; the gone wait (`gone_waits` reads the roster, and gone-ness flips with no event: `mark_ended`, a `gone_rows` entry cleared at a sweep, a revoked device); a part's lead; a shared card's private keys (`priv_task`, `ours`, `talking`'s authors: a `board.cardof` row from another device changes them silently), its owner, `given_no`, place and weight; and the person's pins on shared cards (`pinned_ranks`).
+- **Dirty rows.** The pump's T, plus every row whose `deps` hold a card of T or one of its old or new refs (the expander's one-hop edges, kept for every card of every log, threads and withdrawn cards included, since `Followers` counts them), plus rows whose loop ring changed (diffed per batch; the randomized test shows the refs rule already catches every ring change, so the diff is a backstop). A dirty row drops its Aux; the next read builds it. The patch read always reads its ids again.
+- **Clearing.** A resync, a lost event, an unmapped kind or a card change with no id clears it (`Folded::cold`). `AGENTS_CHANGED` still sends `all` but keeps the cache: what it moves is built on every read. A device change clears it too (a device's sides change `side_wait` with no card change). More than 200 ids sends `all` and keeps the cache, its rows already dropped.
+- **Live only with a pump.** The board pump turns it on after it subscribes and off when it stops. Without one, `cards()`, `cards_patch` and `cards_cold` read cold, as before, so tests that call `cards()` with no pump see every write.
+- **Agent keys.** Each read notes the keys `People::ref_` resolves for a row, and the keys its gone wait could read (`assigned`, agent waits, `sent_to`/`raised_by`). A Presence change or a lease holder names those rows; a Roster change names the rows that show another device's agent. Lease kinds are their own bucket now: the holder, and every holder whose conflict began or ended (diffed, since a conflict's note names only its winner).
+- **Commands.** `board_cards` (from the cache), `board_cards_patch(ids) → CardsPatch{rows, order}` and `board_cards_cold` (the drift read: a fresh cache, `drift cards-cache <n> <ids…>` in irori.log, then kept). A separate command, so the lists line tells a drift read from an `all`.
+- **`decide_count`** counts the kept entries' blocked flag and reads each gone wait then; private threads are entries too.
+- **Core.** Pinning a shared card (the person's own log, `pin_ref`) now notes `TASK_CHANGED` for the card; before, no event said so.
+- **Page.** `useCards` is on `usePatched` (`readGrid` routes drift → cold, `all` → whole, ids → patch; `mergeCards` upserts and lays rows out by `order`). `patched.ts` now drops a drift sample that drained a notice's ids or `all` into its own read. On the perf harness, the board:changed rounds after the first (always `all` after mount) call `board_cards_patch`, not `board_cards`.
+- **Holes drift heals** (no event says so; within 5 minutes): a `TASK_PARENT` row that changes no link still adds an activity line (`last_at`), and `note_others` sets a kept card's `others` unnoted.
+
 ### 6.2 The card store (`useCard`)
 
 - On `{ids}`, read only `ids ∩ watched`, with #1136's rev gate as now. On `all`, read every watched id.
 - A card page shows chains several cards long (`wait_stuck` walks the whole wait graph; `order` walks up to 24 cards each way). So the store depends on card 6's dependency index and agent mapping; with one hop, it would miss them. Thread items' agent status already follows `roster:changed` through `LiveRoster`.
 - **Inbox:** it follows `inbox:changed.cards` instead of reading everything on every inbox change.
 - **On the host,** `cards_by_id` builds `people()`, `Followers` and `order_loops` once per call, not once per id. That is the part #1136 left: it cut the bytes but not the building.
+
+**As built (card 7, #1148).**
+- **Page.** `createCardStore`'s `events` callback now takes ids: `again(ids)` reads the watched ones among them (the unwatched are dropped before any read is queued, so a notice naming none starts none), `again()` reads every watched id. `cardEvents` follows `board:changed.cards` (via `subscribeIds`, with focus) and `inbox:changed.cards`; `devices:changed`, focus, a gap, a first notice and the failed-read retry stay `all`. The `have` revs gate is as before.
+- **The chain comes from the signal, not the page.** The board pump already adds `cache_batch`'s rows (card 6's `readers` index, which holds every card a row's chain read, wait graph and `order` included) to the notice's `cards`, so a card page far down a chain is named when a card on it moves. The page keeps no index of its own. The index only exists while the grid's cache is built (its first read builds it); a card page opened with no grid read yet is named by the one-hop expander only until then.
+- **Host.** `Window::cards_by_id` reads through `card_with(id, &CardShared)`: the people are built once for the call, and the order loops and `Followers` once per log (keyed by the log's `Arc`), not once per id. `card` (one id) builds its own. `Window::card_people_builds()` counts the people builds for the test.
+- **Tests and harness.** `card-store.test.ts` ("by id"); `cards_by_id_builds_people_once_per_call` (`tests/it/cards.rs`); the perf harness's snapshot has `cardIds`, the ids of each `board_cards_by_id` read.
 
 ### 6.3 Threads (`useAllThreads`, `useThreads`, the follower)
 
@@ -291,6 +309,12 @@ A new `frontend/src/lib/changes.ts` takes over **every `Events.On`/`OnShown` of 
   - `devices:changed` (names → `all`);
   - **drop `inbox:changed`**, since nothing in a thread row comes from the inbox. `useAllThreads`' `talk:changed` listener moves into the module, held while hidden.
 - **The follower** skips a round unless the batch touches its followed, made or known ids, or says `all`.
+
+**As built (card 8, #1149).**
+- `threads_by_id(ids)` returns `{rows, gone}`: one `thread_people()` (`people()` without the inbox parts), then `thread_row` per id, which `thread_rows` also uses, so a by-id row is the full list's row (a test compares them in every bucket, a left space included). `gone` is every id with no row, non-thread cards among them (the page asks for the cards of a notice too). Rows are not capped and come in `threads_all`'s order. `newest` (resolved, `updated_at` desc, id) now orders `threads_all` and `thread_rows`.
+- **Leaving resolved.** The `Expander` keeps the resolved thread ids; a batch where one is no longer resolved (reopened, withdrawn, gone, or a rebuild that finds it so) sends `all`. A cleared thread has no change of its own, so the page also reads the whole list when a patch shows a thread it holds as resolved turning open or gone (`readThreads`).
+- **Page.** `thread-list.ts` has the merge (upsert, drop `gone`, sort by the nanosecond time, cap 20 resolved per bucket: a space, Personal, and the private threads about a space you left), the wakes (`threadFollow`: `board:changed.cards`, `talk:changed.convs`, `devices:changed`, no `inbox:changed`) and `readThreads`. `useThreads` and `useAllThreads` are on `usePatched`; they are its first users. Only a full read moves `asOf`, so `withStarted` still shows a thread started since until a read covers it.
+- **Follower.** `listen` hands `again` the ids a change names; the follower skips it unless one is a followed thread or a card it has made or read from one.
 
 ### 6.4 Talk
 

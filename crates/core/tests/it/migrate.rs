@@ -125,10 +125,11 @@ fn test_start_migrates_a_v03_data_dir() {
             .exists(),
         "no v0.3 backup"
     );
-    // The last v0.3 policy survives the move to local_events.
+    // The last v0.3 policy survives the move to local_events, less its
+    // old Pause all, which a start lifts (card #1196).
     let pol = c.inbox().policy();
     assert!(
-        pol.mode == inbox::policy_mode::ALLOWLIST && pol.paused && pol.block == ["gamma"],
+        pol.mode == inbox::policy_mode::ALLOWLIST && !pol.paused && pol.block == ["gamma"],
         "policy after migration {pol:?}"
     );
     // Folds see the old history.
@@ -206,7 +207,7 @@ fn test_start_migrates_a_v03_data_dir() {
     assert_eq!(offered(&evs2), 1, "the hand-out after restart");
     let pol = c2.inbox().policy();
     assert!(
-        pol.mode == inbox::policy_mode::ALLOWLIST && pol.paused,
+        pol.mode == inbox::policy_mode::ALLOWLIST && !pol.paused,
         "policy after restart {pol:?}"
     );
     assert!(

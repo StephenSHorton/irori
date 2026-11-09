@@ -309,9 +309,6 @@ fn the_kind_map_sends_each_kind_to_its_bucket() {
     assert_eq!(signals::bucket_of(coord::BOARD_PIN_CHANGED), Bucket::Pin);
     for kind in [
         coord::RESYNC,
-        coord::LEASE_CHANGED,
-        coord::LEASE_EXPIRED,
-        coord::LEASE_REFUSED,
         irori_core::spawn_capable::AGENTS_CHANGED,
         "",
         "a kind nobody mapped",
@@ -319,6 +316,27 @@ fn the_kind_map_sends_each_kind_to_its_bucket() {
         assert_eq!(signals::bucket_of(kind), Bucket::All, "{kind:?}");
         let f = signals::fold_board(&[board_ev(kind, "t1", "")]);
         assert!(f.all, "{kind:?} should read everything");
+        // Only an agents change keeps the grid's cache (card #1147): it
+        // moves what every read builds anew.
+        let keeps = kind == irori_core::spawn_capable::AGENTS_CHANGED;
+        assert_eq!(f.cold, !keeps, "{kind:?}");
+    }
+    // A lease change names its holder, whose rows the cache knows (card
+    // #1147): not all.
+    for kind in [
+        coord::LEASE_CHANGED,
+        coord::LEASE_EXPIRED,
+        coord::LEASE_REFUSED,
+    ] {
+        assert_eq!(signals::bucket_of(kind), Bucket::Lease, "{kind:?}");
+        let f = signals::fold_board(&[CoreEvent::Board(coord::Change {
+            kind: kind.into(),
+            resource: "ww/slot-1".into(),
+            holder: "dev/agent".into(),
+            ..Default::default()
+        })]);
+        assert!(!f.all && !f.cold && f.lease, "{kind:?}");
+        assert_eq!(f.holders, ["dev/agent"]);
     }
     // A mapped kind with no id to name is all too.
     assert!(signals::fold_board(&[board_ev(coord::TASK_CHANGED, "", "")]).all);
@@ -720,6 +738,38 @@ fn a_made_card_takes_the_thread_that_made_it() {
         "the made card names its thread: {:?}",
         c.cards
     );
+}
+
+/// Card #1149: a thread leaving the resolved lists (reopened) sends `all`:
+/// the page keeps the newest few resolved per bucket, so it can't bring
+/// back the one that was pushed out. Resolving one, or a comment on a
+/// resolved one, names it instead.
+#[test]
+fn a_reopened_thread_sends_all() {
+    let r = Rig::new();
+    let w = &r.w;
+    let t = w.start_thread("Just me", &[], &[], "").unwrap().task.id;
+    let mut ex = Expander::default();
+    let mut send = |id: &str| {
+        w.expand(
+            &mut ex,
+            &mut signals::fold_board(&[board_ev(coord::TASK_CHANGED, id, "")]),
+        )
+    };
+    // The first batch builds the index.
+    let c = send(&t).unwrap();
+    assert!(!c.all && c.cards.contains(&t));
+    w.resolve_thread(&t).unwrap();
+    let c = send(&t).unwrap();
+    assert!(!c.all, "resolving names the thread: {c:?}");
+    assert!(c.cards.contains(&t));
+    let c = send(&t).unwrap();
+    assert!(!c.all, "still resolved: {c:?}");
+    w.reopen_thread(&t).unwrap();
+    let c = send(&t).unwrap();
+    assert!(c.all, "reopened: {c:?}");
+    let c = send(&t).unwrap();
+    assert!(!c.all, "only once: {c:?}");
 }
 
 /// A talking line ends and a card goes stale with no event: the window

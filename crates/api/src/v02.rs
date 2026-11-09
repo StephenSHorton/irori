@@ -289,6 +289,14 @@ fn set_policy(h: &Handler, ib: &inbox::Inbox) -> Resp {
         Ok(d) => d,
         Err(e) => return http::error(400, &e),
     };
+    // The old Pause all left with Stop here (cards #787, #1196): an older
+    // mod's `/irori pause` is refused, and resume still lifts it.
+    if d.bool(3) && !ib.policy().paused {
+        return http::error(
+            400,
+            "Pause all is gone: Stop here in Irori's top bar stops this machine's agents",
+        );
+    }
     let p = inbox::Policy {
         mode: d.str(0),
         block: d.strings(1).unwrap_or_default(),

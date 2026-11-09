@@ -11,7 +11,7 @@ function rig() {
   const reads: string[][] = []
   let version = 1
   const gone = new Set<string>()
-  let fire = () => {}
+  let fire: (ids?: readonly string[]) => void = () => {}
   let listening = 0
   const store = createCardStore(
     async (ids) => {
@@ -43,6 +43,8 @@ function rig() {
     gone,
     bump: () => version++,
     change: () => fire(),
+    // A notice naming these cards.
+    notice: (ids: readonly string[]) => fire(ids),
     listening: () => listening,
   }
 }
@@ -145,12 +147,69 @@ describe("cardStore", () => {
   })
 })
 
+describe("cardStore by id (card #1148)", () => {
+  test("a notice reads only the watched ids in it", async () => {
+    const r = rig()
+    const offs = ["a", "b", "c"].map((id) => r.store.watch(id, () => {}))
+    await tick()
+    expect(r.reads).toEqual([["a", "b", "c"]])
+
+    // Two named, one of them not watched: only the watched one is read.
+    r.notice(["b", "zzz"])
+    await tick()
+    expect(r.reads.slice(1)).toEqual([["b"]])
+
+    // Several notices before the read start make one read of their union.
+    r.notice(["a"])
+    r.notice(["c", "a"])
+    await tick()
+    expect(r.reads.slice(2)).toEqual([["a", "c"]])
+
+    // Nothing watched in it, or nothing named: no read at all.
+    r.notice(["zzz"])
+    r.notice([])
+    await tick()
+    expect(r.reads.length).toBe(3)
+
+    // `all` reads every watched id.
+    r.change()
+    await tick()
+    expect(r.reads.slice(3)).toEqual([["a", "b", "c"]])
+    offs.forEach((off) => off())
+  })
+
+  test("a notice during a read waits, then reads only its ids", async () => {
+    const r = rig()
+    const offs = ["a", "b"].map((id) => r.store.watch(id, () => {}))
+    await Promise.resolve()
+    r.notice(["b"])
+    await tick()
+    await tick()
+    expect(r.reads).toEqual([["a", "b"], ["b"]])
+    offs.forEach((off) => off())
+  })
+
+  test("a touched card that changed renders; the others stay", async () => {
+    const r = rig()
+    const renders: Record<string, number> = { a: 0, b: 0 }
+    const offs = ["a", "b"].map((id) => r.store.watch(id, () => renders[id]++))
+    await tick()
+    const a = r.store.slot("a")
+    r.bump()
+    r.notice(["b"])
+    await tick()
+    expect(r.store.slot("a")).toBe(a)
+    expect(renders).toEqual({ a: 1, b: 2 })
+    offs.forEach((off) => off())
+  })
+})
+
 describe("cardStore rev gate (card #1136)", () => {
   // A host that stamps each card and answers "same" for a stamp it holds.
   function gated() {
     const asked: Map<string, string>[] = []
     let rev = 1
-    let fire = () => {}
+    let fire: (ids?: readonly string[]) => void = () => {}
     const store = createCardStore(
       async (ids, have) => {
         asked.push(new Map(have))

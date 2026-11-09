@@ -151,9 +151,11 @@ export function patchedReads<T, P>(o: PatchedOptions<T, P>): PatchedReads {
         const before = o.current()
         const after = o.merge(before, patch, want)
         if (want.drift) {
-          // A notice for this list during the read, or a patch waiting for
-          // one, makes the two lists differ by the notice, not by a miss.
-          if (touched !== since || !empty(pending)) dropSample()
+          // A notice for this list during the read, a patch waiting for
+          // one, or notices drained into this very read make the two lists
+          // differ by the notice, not by a miss.
+          const drained = want.all || Object.keys(want.ids).length > 0
+          if (drained || touched !== since || !empty(pending)) dropSample()
           else compare(before, after)
         }
         patched = want.full ? false : true

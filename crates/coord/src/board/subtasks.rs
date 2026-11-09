@@ -527,6 +527,15 @@ impl Fold {
                 task_id: p.task_id,
                 ..Change::default()
             });
+        } else {
+            // A shared board's card pinned in the person's own log (card
+            // #161): its grid row orders by it, so say which card
+            // (card #1147: the grid patches by the cards a change names).
+            self.note(Change {
+                kind: TASK_CHANGED.into(),
+                task_id: p.task_id,
+                ..Change::default()
+            });
         }
     }
 

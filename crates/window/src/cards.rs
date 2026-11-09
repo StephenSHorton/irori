@@ -576,7 +576,7 @@ pub struct CanvasPos {
     pub y: i64,
 }
 
-fn pos_of(placed: &HashMap<String, (i64, i64)>, id: &str) -> Option<CanvasPos> {
+pub(crate) fn pos_of(placed: &HashMap<String, (i64, i64)>, id: &str) -> Option<CanvasPos> {
     placed.get(id).map(|&(x, y)| CanvasPos { x, y })
 }
 
@@ -1076,6 +1076,47 @@ pub struct DonePage {
 
 type OwnerFn = Box<dyn Fn(&str) -> bool>;
 
+/// What one [`Window::cards_by_id`] call builds once and every card of it
+/// reads (card #1148): the roster's people, and per log the order loops
+/// and the followers of its open cards.
+#[derive(Default)]
+struct CardShared {
+    people: std::cell::OnceCell<std::rc::Rc<People>>,
+    /// Keyed by the log's address; the `Arc` is kept so it stays valid.
+    logs: std::cell::RefCell<HashMap<*const coord::Coord, (std::sync::Arc<coord::Coord>, LogRead)>>,
+}
+
+/// A log's order loops and the followers of its open cards.
+type LogRead = std::rc::Rc<(coord::OrderLoops, crate::later::Followers)>;
+
+impl CardShared {
+    fn people(&self, w: &Window) -> std::rc::Rc<People> {
+        self.people
+            .get_or_init(|| {
+                w.people_builds
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                std::rc::Rc::new(w.people())
+            })
+            .clone()
+    }
+
+    fn log(
+        &self,
+        co: &std::sync::Arc<coord::Coord>,
+    ) -> std::rc::Rc<(coord::OrderLoops, crate::later::Followers)> {
+        let mut logs = self.logs.borrow_mut();
+        logs.entry(std::sync::Arc::as_ptr(co))
+            .or_insert_with(|| {
+                (
+                    co.clone(),
+                    std::rc::Rc::new((co.order_loops(), crate::later::Followers::read(co))),
+                )
+            })
+            .1
+            .clone()
+    }
+}
+
 /// Resolves keys against the roster once per call (Go `people`).
 #[derive(Default)]
 pub(crate) struct People {
@@ -1129,6 +1170,9 @@ pub(crate) struct People {
     /// Cards the person asked an agent for since their last failed
     /// request (card #717).
     asked_now: std::collections::HashSet<String>,
+    /// While set, every key [`Self::ref_`] resolves (card #1147): the
+    /// agents a grid row shows, so a change to one re-reads the row.
+    seen: std::cell::RefCell<Option<Vec<String>>>,
 }
 
 type SpawnOfFn = Box<dyn Fn(&str) -> irori_core::spawn::SpawnSetting>;
@@ -1183,6 +1227,16 @@ impl Window {
     }
 
     pub(crate) fn people(&self) -> People {
+        self.people_with(true)
+    }
+
+    /// `people` without the inbox parts (queued notices, who heard a
+    /// comment): thread rows never read them (card #1149).
+    pub(crate) fn thread_people(&self) -> People {
+        self.people_with(false)
+    }
+
+    fn people_with(&self, inbox: bool) -> People {
         let c = &self.core;
         let mut p = People {
             no_agent: self.core.no_agent(),
@@ -1192,37 +1246,39 @@ impl Window {
             self_id: c.device_id().to_string(),
             ..People::default()
         };
-        for d in c.inbox().open() {
-            let m = &d.message;
-            if m.notice
-                && m.reason == coord::NOTICE_ASSIGNED
-                && (d.state == st::QUEUED || d.state == st::HELD)
-                && m.ref_.starts_with("task:")
-            {
-                p.unsent.insert(unsent_key(&d.to, &m.ref_));
+        if inbox {
+            for d in c.inbox().open() {
+                let m = &d.message;
+                if m.notice
+                    && m.reason == coord::NOTICE_ASSIGNED
+                    && (d.state == st::QUEUED || d.state == st::HELD)
+                    && m.ref_.starts_with("task:")
+                {
+                    p.unsent.insert(unsent_key(&d.to, &m.ref_));
+                }
             }
-        }
-        // A mention is how the person usually reaches an agent on a card
-        // (card #159): its notice counts, read ones too, so the thread says
-        // when it was read.
-        for (d, read) in c.inbox().comment_notices(
-            &[coord::NOTICE_COMMENT, coord::NOTICE_MENTIONED],
-            HEARD_NOTICES,
-        ) {
-            if let Some(cid) = d.message.ref_.strip_prefix("comment:") {
-                p.heard.entry(cid.to_string()).or_default().push((d, read));
+            // A mention is how the person usually reaches an agent on a card
+            // (card #159): its notice counts, read ones too, so the thread says
+            // when it was read.
+            for (d, read) in c.inbox().comment_notices(
+                &[coord::NOTICE_COMMENT, coord::NOTICE_MENTIONED],
+                HEARD_NOTICES,
+            ) {
+                if let Some(cid) = d.message.ref_.strip_prefix("comment:") {
+                    p.heard.entry(cid.to_string()).or_default().push((d, read));
+                }
             }
-        }
-        for (d, read) in c.inbox().ref_notices(
-            "task:",
-            &[coord::NOTICE_ANSWERED, coord::NOTICE_MENTIONED],
-            HEARD_NOTICES,
-        ) {
-            if let Some(id) = d.message.ref_.strip_prefix("task:") {
-                p.answers_heard
-                    .entry(id.to_string())
-                    .or_default()
-                    .push((d, read));
+            for (d, read) in c.inbox().ref_notices(
+                "task:",
+                &[coord::NOTICE_ANSWERED, coord::NOTICE_MENTIONED],
+                HEARD_NOTICES,
+            ) {
+                if let Some(id) = d.message.ref_.strip_prefix("task:") {
+                    p.answers_heard
+                        .entry(id.to_string())
+                        .or_default()
+                        .push((d, read));
+                }
             }
         }
         // The Chain's rule, never coord's lock: `around` in person_comment runs
@@ -1366,8 +1422,25 @@ impl People {
         out
     }
 
+    /// Starts noting the keys [`Self::ref_`] resolves (see
+    /// [`Self::seen_keys`]).
+    pub(crate) fn watch_keys(&self) {
+        *self.seen.borrow_mut() = Some(Vec::new());
+    }
+
+    /// The keys resolved since [`Self::watch_keys`], and stops noting.
+    pub(crate) fn seen_keys(&self) -> Vec<String> {
+        self.seen.borrow_mut().take().unwrap_or_default()
+    }
+
     /// One key as the window shows it, with its face (card #407).
     pub(crate) fn ref_(&self, key: &str) -> AgentRef {
+        if let Some(seen) = self.seen.borrow_mut().as_mut()
+            && !key.is_empty()
+            && !seen.iter().any(|k| k == key)
+        {
+            seen.push(key.to_string());
+        }
         let mut r = self.ref_plain(key);
         r.spawned = self.spawned.contains(key);
         // Another person's agent wears the face its board card carries;
@@ -2076,7 +2149,7 @@ pub(crate) fn card_ask(
 
 /// The agents that wrote to each other on a card within the talk window,
 /// newest first, when there are at least two.
-fn talking(cs: &[Comment], p: &People, now: i64) -> Vec<AgentRef> {
+pub(crate) fn talking(cs: &[Comment], p: &People, now: i64) -> Vec<AgentRef> {
     let mut keys: Vec<String> = Vec::new();
     let add = |k: &str, keys: &mut Vec<String>| {
         if k.is_empty()
@@ -2103,7 +2176,7 @@ fn talking(cs: &[Comment], p: &People, now: i64) -> Vec<AgentRef> {
     p.refs(&keys)
 }
 
-fn stale(s: &CardSummary, last: &GoTime, now: i64) -> bool {
+pub(crate) fn stale(s: &CardSummary, last: &GoTime, now: i64) -> bool {
     if s.state != coord::WORKING
         || s.holder.state == Holding::Active
         || s.holder.state == Holding::Person
@@ -2194,7 +2267,7 @@ pub(crate) fn ours<'c>(
 }
 
 /// Go `time.Time.After` on the cards' order: newest first, then id.
-fn newer(a: &GoTime, a_id: &str, b: &GoTime, b_id: &str) -> std::cmp::Ordering {
+pub(crate) fn newer(a: &GoTime, a_id: &str, b: &GoTime, b_id: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     match b.unix_nano().cmp(&a.unix_nano()) {
         Ordering::Equal => b_id.cmp(a_id),
@@ -2223,11 +2296,6 @@ impl Window {
                 })
                 .collect(),
         }
-    }
-
-    /// BoardService.Cards: every live card for the grid.
-    pub fn cards(&self) -> Vec<CardSummary> {
-        self.cards_in(SCOPE_ALL)
     }
 
     /// The live cards of one scope (card #161): [`SCOPE_ALL`] for every
@@ -2514,6 +2582,10 @@ impl Window {
     /// A private card counts, thread or not; a board card does not when it
     /// is withdrawn or a thread (its Threads panel's, card #134).
     pub fn decide_count(&self) -> usize {
+        // From the grid's cache while the board pump keeps it (card #1147).
+        if let Some(n) = self.cached_decide_count() {
+            return n;
+        }
         let p = People::default();
         // Card #520: a wait on an agent that is gone is the person's too. A
         // wait on a PR is its agent's (card #970).
@@ -2634,8 +2706,10 @@ impl Window {
     /// card hooks (a Notifications row's, a Needs you row's, a thread's,
     /// the open card's) share one read per change instead of one each.
     pub fn cards_by_id(&self, ids: &[String], have: &[CardHave]) -> Vec<CardRead> {
+        // Built once for the call, not once per id (card #1148).
+        let shared = CardShared::default();
         ids.iter()
-            .map(|id| match self.card(id) {
+            .map(|id| match self.card_with(id, &shared) {
                 Ok(c) => {
                     let rev = card_rev(&c);
                     let same = have.iter().any(|h| h.id == *id && h.rev == rev);
@@ -2657,8 +2731,21 @@ impl Window {
             .collect()
     }
 
+    /// How many times a card read has built the people (card #1148), for
+    /// tests: one per `cards_by_id` call, not one per id.
+    pub fn card_people_builds(&self) -> u64 {
+        self.people_builds
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// BoardService.Card: one card opened.
     pub fn card(&self, id: &str) -> Result<CardDetail, String> {
+        self.card_with(id, &CardShared::default())
+    }
+
+    /// [`Window::card`] over what a batch builds once: the people and, per
+    /// log, the order loops and followers (card #1148).
+    fn card_with(&self, id: &str, shared: &CardShared) -> Result<CardDetail, String> {
         let id = crate::trim(id);
         let co = self.read(id);
         let Some(mut t) = co.get_task(id) else {
@@ -2674,9 +2761,10 @@ impl Window {
             comments = self.priv_comments(comments);
             acts = self.priv_activity(acts);
         }
-        let p = self.people();
+        let p = shared.people(self);
+        let p = &*p;
         let mut d = CardDetail {
-            summary: card_summary(&t, &p),
+            summary: card_summary(&t, p),
             goal: t.objective.clone(),
             done_when: t.done_criteria.clone(),
             note: t.note.clone(),
@@ -2686,7 +2774,7 @@ impl Window {
             ..CardDetail::default()
         };
         self.board_detail(&t, &mut d);
-        weigh(&mut d.summary, &t, &p);
+        weigh(&mut d.summary, &t, p);
         d.summary.given_no = raw
             .as_ref()
             .is_some_and(|r| co.mine_to_serve(r) && r.given_said.as_ref().is_some_and(|y| !y.yes));
@@ -2696,8 +2784,8 @@ impl Window {
             let board = d.summary.board.clone();
             self.board_owner(&board, raw, &mut d.summary);
         }
-        let follows = crate::later::Followers::read(&co);
-        family_of(&co, (&co.order_loops(), &follows), &p, &t, &mut d.summary);
+        let log = shared.log(&co);
+        family_of(&co, (&log.0, &log.1), p, &t, &mut d.summary);
         for kid in &t.subtasks {
             let Some(mut k) = co.get_task(kid) else {
                 continue;
@@ -2705,7 +2793,7 @@ impl Window {
             if co.is_board() {
                 k = self.priv_task(k); // whose questions are whose (#264)
             }
-            let ks = card_summary(&k, &p);
+            let ks = card_summary(&k, p);
             d.subtask_list.push(CardSubtask {
                 id: k.id.clone(),
                 short: k.short.clone(),
@@ -2752,8 +2840,8 @@ impl Window {
                 });
             }
         }
-        d.summary.ask = card_ask(&t, &p, Some(&refr));
-        let (thread, mut by_blocker, earlier) = build_thread(&d.comments, &acts, &t, &p);
+        d.summary.ask = card_ask(&t, p, Some(&refr));
+        let (thread, mut by_blocker, earlier) = build_thread(&d.comments, &acts, &t, p);
         d.thread = thread;
         d.thread_earlier = earlier as i64;
         self.held_on_thread(&mut d.thread);
@@ -2812,8 +2900,8 @@ impl Window {
                             && (bl.status.is_empty() || bl.status == coord::BLOCKER_OPEN)
                     })
                     .map(|on| {
-                        let mut w = wait_on_of(&co, &p, on);
-                        if let Some(lead) = part_lead_name(&co, &p, &t, &bl.question, on) {
+                        let mut w = wait_on_of(&co, p, on);
+                        if let Some(lead) = part_lead_name(&co, p, &t, &bl.question, on) {
                             w.gone = false;
                             w.label = lead;
                         }
@@ -2826,7 +2914,7 @@ impl Window {
                 thread: by_blocker.remove(&bl.id).unwrap_or_default(),
                 links: bl.links.clone(),
                 attachments: bl.attachments.clone(),
-                permission: permission_of(&p, bl),
+                permission: permission_of(p, bl),
                 ..CardBlocker::default()
             };
             for o in &bl.options {
@@ -2884,7 +2972,7 @@ impl Window {
             .map(|s| (s.pr.clone(), s))
             .collect();
         for l in &t.links {
-            if let Some(mut pr) = self.card_pr(l, &p) {
+            if let Some(mut pr) = self.card_pr(l, p) {
                 if let Some(s) = heard.get(&l.reference) {
                     pr.state = s.state.clone();
                     pr.review = s.review.clone();
@@ -3433,14 +3521,14 @@ const CHAIN_DEPTH: usize = 8;
 /// "your answer on #12" when it waits on their decision, else empty (it
 /// waits on an agent, a lease, a PR or something outside). A PR is never
 /// the person's to review (card #471).
-fn wait_you(co: &coord::Coord, first: &str) -> String {
+fn wait_you(get: &dyn Fn(&str) -> Option<Task>, first: &str) -> String {
     let mut seen = std::collections::HashSet::new();
     let mut id = first.to_string();
     for _ in 0..CHAIN_DEPTH {
         if id.is_empty() || !seen.insert(id.clone()) {
             break;
         }
-        let Some(k) = co.get_task(&id) else { break };
+        let Some(k) = get(&id) else { break };
         if coord::is_terminal(&k.state) {
             break;
         }
@@ -3470,18 +3558,119 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
 /// waits on), from the log the card lives in (card #161: a board's for a
 /// board card). `loops` is [`coord::Coord::order_loops`], read once for
 /// the whole list.
-fn family_of(
+pub(crate) fn family_of(
     co: &coord::Coord,
     (loops, follows): (&coord::OrderLoops, &crate::later::Followers),
     p: &People,
     t: &Task,
     s: &mut CardSummary,
 ) {
-    crate::later::fill_later_card(co, s);
-    s.order = crate::later::order_of(co, follows, loops, t);
-    s.wait_pr = wait_pr(co, t);
+    let get = |id: &str| co.get_task(id);
+    let f = family_aux(co, &get, (loops, follows), t, s);
+    family_apply(co, p, t, &f, s);
+}
+
+/// What a card summary's family fields read from other cards of its log
+/// (card #1147): the grid's summary cache keeps it per card, and builds
+/// it again only when a card it read changes. Nothing here reads People,
+/// the roster or the clock; [`family_apply`] adds what does.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct FamilyAux {
+    /// "when #12 is done", for a card hold whose card is found.
+    later_line: Option<String>,
+    order: Option<crate::later::CardOrder>,
+    wait_pr: Option<WaitPr>,
+    wait_you: String,
+    wait_loop: Vec<CardRef>,
+    wait_stuck: Option<CardRef>,
+    /// The first wait's card as a ref ("#12"), empty when not found.
+    wait_name: String,
+    parent: Option<CardRef>,
+    from_thread: Option<CardRef>,
+    subtask_blocked: String,
+}
+
+/// [`FamilyAux`] of card `t` (raw, as its log holds it), whose summary
+/// `s` gives the first wait and the hold. Every other card is read through
+/// `get`, so a caller that records the ids knows what the fields depend on.
+pub(crate) fn family_aux(
+    co: &coord::Coord,
+    get: &dyn Fn(&str) -> Option<Task>,
+    (loops, follows): (&coord::OrderLoops, &crate::later::Followers),
+    t: &Task,
+    s: &CardSummary,
+) -> FamilyAux {
+    let mut f = FamilyAux {
+        later_line: crate::later::later_card_line(get, s),
+        order: crate::later::order_of(get, follows, loops, t),
+        wait_pr: wait_pr(co, t),
+        wait_you: wait_you(get, &s.wait_task),
+        ..FamilyAux::default()
+    };
+    let card = |id: &str| {
+        get(id).map(|k| CardRef {
+            id: k.id.clone(),
+            short: k.short.clone(),
+            tag: k.tag.clone(),
+            title: k.title.clone(),
+        })
+    };
+    // A loop counts parents on their open subtasks and has no length cap,
+    // as the circle check does (card #570).
+    if let Some(ring) = loops.get(&t.id) {
+        f.wait_loop = ring.iter().filter_map(|id| card(id)).collect();
+    } else if !coord::is_terminal(&t.state) && !coord::task_waits(t).is_empty() {
+        let ch = coord::wait_chain(get, &t.id);
+        // A chain that ends at a card on an open PR waits on the PR, not
+        // on nobody (card #471): the sweep hands an unheld one out to be
+        // merged, or another member's agents approve it.
+        if ch.loop_ids.is_empty()
+            && !ch.stuck.is_empty()
+            && !get(&ch.stuck).is_some_and(|k| wait_pr(co, &k).is_some())
+        {
+            f.wait_stuck = card(&ch.stuck);
+        }
+    }
+    if !s.wait_task.is_empty() {
+        f.wait_name = get(&s.wait_task).map(|x| x.short_ref()).unwrap_or_default();
+    }
+    if !t.parent.is_empty() {
+        f.parent = card(&t.parent);
+    }
+    if !t.from.is_empty() {
+        f.from_thread = card(&t.from);
+    }
+    if let Some(r) = &t.rollup
+        && !r.blocked.is_empty()
+        && let Some(k) = get(&r.blocked)
+    {
+        f.subtask_blocked = format!("{}: {}", k.short_ref(), r.blocked_question);
+    }
+    f
+}
+
+/// Puts [`FamilyAux`] `f` on summary `s` with what it can't keep: the
+/// gone wait and a part's lead, read now from the roster through `co`,
+/// and every name from People.
+pub(crate) fn family_apply(
+    co: &coord::Coord,
+    p: &People,
+    t: &Task,
+    f: &FamilyAux,
+    s: &mut CardSummary,
+) {
+    if let Some(line) = &f.later_line
+        && let Some(l) = s
+            .later
+            .as_mut()
+            .filter(|l| l.back == crate::later::LaterBack::Card)
+    {
+        l.line.clone_from(line);
+    }
+    s.order.clone_from(&f.order);
+    s.wait_pr.clone_from(&f.wait_pr);
     s.gone_wait = gone_wait(co, p, t);
-    s.wait_you = wait_you(co, &s.wait_task);
+    s.wait_you.clone_from(&f.wait_you);
     // A helper's "Part done" waits on its card's lead, not on the agent
     // that led when it was asked (card #557): a gone lead's part waits on
     // the one on the card now, or the next one Irori starts.
@@ -3495,61 +3684,12 @@ fn family_of(
         s.wait_gone = false;
         s.wait_on = lead;
     }
-    let card = |id: &str| {
-        co.get_task(id).map(|k| CardRef {
-            id: k.id.clone(),
-            short: k.short.clone(),
-            tag: k.tag.clone(),
-            title: k.title.clone(),
-        })
-    };
-    // A loop counts parents on their open subtasks and has no length cap,
-    // as the circle check does (card #570).
-    if let Some(ring) = loops.get(&t.id) {
-        s.wait_loop = ring.iter().filter_map(|id| card(id)).collect();
-    } else if !coord::is_terminal(&t.state) && !coord::task_waits(t).is_empty() {
-        let ch = coord::wait_chain(&|id: &str| co.get_task(id), &t.id);
-        // A chain that ends at a card on an open PR waits on the PR, not
-        // on nobody (card #471): the sweep hands an unheld one out to be
-        // merged, or another member's agents approve it.
-        if ch.loop_ids.is_empty()
-            && !ch.stuck.is_empty()
-            && !co
-                .get_task(&ch.stuck)
-                .is_some_and(|k| wait_pr(co, &k).is_some())
-        {
-            s.wait_stuck = card(&ch.stuck);
-        }
-    }
-    name_wait(s, &|id: &str| {
-        co.get_task(id).map(|x| x.short_ref()).unwrap_or_default()
-    });
-    if !t.parent.is_empty()
-        && let Some(pt) = co.get_task(&t.parent)
-    {
-        s.parent = Some(CardRef {
-            id: pt.id.clone(),
-            short: pt.short.clone(),
-            tag: pt.tag.clone(),
-            title: pt.title.clone(),
-        });
-    }
-    if !t.from.is_empty()
-        && let Some(th) = co.get_task(&t.from)
-    {
-        s.from_thread = Some(CardRef {
-            id: th.id.clone(),
-            short: th.short.clone(),
-            tag: th.tag.clone(),
-            title: th.title.clone(),
-        });
-    }
-    if let Some(r) = &t.rollup
-        && !r.blocked.is_empty()
-        && let Some(k) = co.get_task(&r.blocked)
-    {
-        s.subtask_blocked = format!("{}: {}", k.short_ref(), r.blocked_question);
-    }
+    s.wait_loop.clone_from(&f.wait_loop);
+    s.wait_stuck.clone_from(&f.wait_stuck);
+    name_wait(s, &|_: &str| f.wait_name.clone());
+    s.parent.clone_from(&f.parent);
+    s.from_thread.clone_from(&f.from_thread);
+    s.subtask_blocked.clone_from(&f.subtask_blocked);
 }
 
 /// The window's view of a permission wait (card #682); an older Irori's

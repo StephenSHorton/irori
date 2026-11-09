@@ -38,12 +38,34 @@ pub const THREAD_RESOLVED: &str = "resolved";
 /// How many resolved threads the panel lists.
 const RESOLVED_SHOWN: usize = 20;
 
+/// The lists' order within a bucket: newest first, equal times by id, so the
+/// page's sort (which has the same tiebreak) and this one agree.
+fn newest(a: &ThreadSummary, b: &ThreadSummary) -> std::cmp::Ordering {
+    b.updated_at
+        .unix_nano()
+        .cmp(&a.updated_at.unix_nano())
+        .then_with(|| a.id.cmp(&b.id))
+}
+
+/// ThreadsById's answer (card #1149): the rows asked for that exist, and
+/// the ids that don't, for the page to drop.
+#[derive(Clone, Debug, Default, Serialize, Type)]
+pub struct ThreadsById {
+    pub rows: Vec<ThreadSummary>,
+    pub gone: Vec<String>,
+}
+
 /// Whether `t` is the person's thread.
 pub fn is_thread(t: &Task) -> bool {
     t.ask.as_ref().is_some_and(|a| a.thread)
 }
 
 /// The shared board a private thread is about ("" for none).
+/// Whether thread `t` is in the panel's resolved lists (card #1149).
+pub fn is_resolved(t: &Task) -> bool {
+    t.ask.as_ref().is_some_and(|a| a.outcome.is_some()) || coord::is_terminal(&t.state)
+}
+
 fn about(t: &Task) -> String {
     t.ask.as_ref().map(|a| a.board.clone()).unwrap_or_default()
 }
@@ -449,27 +471,77 @@ impl Window {
             .collect();
         all.extend(self.thread_rows(left, ""));
         let resolved = |t: &ThreadSummary| t.state == THREAD_RESOLVED;
-        all.sort_by(|a, b| {
-            resolved(a)
-                .cmp(&resolved(b))
-                .then(b.updated_at.unix_nano().cmp(&a.updated_at.unix_nano()))
-        });
+        all.sort_by(|a, b| resolved(a).cmp(&resolved(b)).then_with(|| newest(a, b)));
         all
     }
 
-    /// BoardService.ThreadsById (card #1136): the rows of just these
-    /// threads, in `threads_all`'s order, for Ask Irori's follower, which
-    /// follows a few and needn't be sent every thread in every space.
-    pub fn threads_by_id(&self, ids: &[String]) -> Vec<ThreadSummary> {
-        let mut all = self.threads_all();
-        all.retain(|t| ids.contains(&t.id));
-        all
+    /// BoardService.ThreadsById (cards #1136, #1149): the rows of just these
+    /// ids, each as `threads_all` would list it (same space, same fields),
+    /// without reading every thread: one slim `people()`, and per id its
+    /// route, task, comments, rests, read cursor and made cards. The bucket
+    /// is worked out per id: a shared board's log; Personal; a space the
+    /// private thread is about; or one you left (Personal's, private). Rows
+    /// come in `threads_all`'s order. Not capped: the page cuts each
+    /// bucket's resolved ones. `gone` is every id with no row (not a thread,
+    /// withdrawn, cleared while closed, or unknown).
+    pub fn threads_by_id(&self, ids: &[String]) -> ThreadsById {
+        let listed: Vec<String> = self
+            .core
+            .board_list()
+            .into_iter()
+            .map(|b| b.board_id)
+            .collect();
+        let spaces: Vec<(String, std::sync::Arc<coord::Coord>)> = listed
+            .iter()
+            .filter_map(|id| Some((id.clone(), self.core.board_coord(id).ok()?)))
+            .collect();
+        let own = self.core.coord().clone();
+        let p = self.thread_people();
+        let cleared = own.archived_ids();
+        let me = self.core.user_sender().key;
+        let mut rows: Vec<ThreadSummary> = Vec::new();
+        let mut gone: Vec<String> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for id in ids {
+            let id = crate::trim(id);
+            if id.is_empty() || !seen.insert(id.to_string()) {
+                continue;
+            }
+            let row = match own.get_task(id) {
+                // Your own log's: Personal's, or private and about a space.
+                Some(t) if is_thread(&t) => {
+                    let about = about(&t);
+                    let in_space = !about.is_empty() && listed.contains(&about);
+                    let (private, space) = if in_space {
+                        (true, about)
+                    } else {
+                        (!about.is_empty(), String::new())
+                    };
+                    self.thread_row(&p, &cleared, &me, own.clone(), t, private, &space)
+                }
+                Some(_) => None,
+                None => spaces.iter().find_map(|(sid, bc)| {
+                    let t = bc.get_task(id)?;
+                    self.thread_row(&p, &cleared, &me, bc.clone(), t, false, sid)
+                }),
+            };
+            match row {
+                Some(r) => rows.push(r),
+                None => gone.push(id.to_string()),
+            }
+        }
+        rows.sort_by(|a, b| {
+            (a.state == THREAD_RESOLVED)
+                .cmp(&(b.state == THREAD_RESOLVED))
+                .then_with(|| newest(a, b))
+        });
+        ThreadsById { rows, gone }
     }
 
     /// `found` as the panel lists it, in space `space` ("": Personal): open
     /// ones newest first, then the newest resolved ones.
     fn thread_rows(&self, found: Vec<Found>, space: &str) -> Vec<ThreadSummary> {
-        let p = self.people();
+        let p = self.thread_people();
         // Threads the person cleared from Storage (card #728) leave the
         // lists while they stay closed, as cleared cards do (#138).
         let cleared = self.core.coord().archived_ids();
@@ -477,11 +549,41 @@ impl Window {
         let mut open = Vec::new();
         let mut done = Vec::new();
         for (co, t, private) in found {
+            let Some(s) = self.thread_row(&p, &cleared, &me, co, t, private, space) else {
+                continue;
+            };
+            if s.state == THREAD_RESOLVED {
+                done.push(s);
+            } else {
+                open.push(s);
+            }
+        }
+        open.sort_by(newest);
+        done.sort_by(newest);
+        done.truncate(RESOLVED_SHOWN);
+        open.extend(done);
+        open
+    }
+
+    /// One thread's row (card #1149), or `None` when the lists leave it
+    /// out: not a thread, withdrawn, or cleared while closed.
+    #[allow(clippy::too_many_arguments)]
+    fn thread_row(
+        &self,
+        p: &crate::cards::People,
+        cleared: &std::collections::HashSet<String>,
+        me: &str,
+        co: std::sync::Arc<coord::Coord>,
+        t: Task,
+        private: bool,
+        space: &str,
+    ) -> Option<ThreadSummary> {
+        {
             if !is_thread(&t)
                 || t.withdrawn
                 || (cleared.contains(&t.id) && coord::is_terminal(coord::effective_state(&t)))
             {
-                continue;
+                return None;
             }
             let raw = co.comments(&t.id).unwrap_or_default();
             // People, not agents: on a board, any member (card #134).
@@ -531,7 +633,7 @@ impl Window {
                 && a.taker.is_empty()
                 && (a.reason == coord::TAKE_REOPENED || a.reason == coord::TAKE_UNCLAIMED)
                 && (answered.is_empty() || person_at > agent_at);
-            let cursor = self.core.talk().cursor(&me, &read_conv(&t.id));
+            let cursor = self.core.talk().cursor(me, &read_conv(&t.id));
             let unread = !resolved && thread_unread(&said, cursor.as_deref(), !opener.is_empty());
             let state = if resolved {
                 THREAD_RESOLVED
@@ -601,9 +703,9 @@ impl Window {
                         sp.op == coord::SPAWN_FAILED
                             && !coord::usage_limited(sp)
                             && state == THREAD_WAITING
-                            && crate::cards::failed_wait_applies(&t, &p)
+                            && crate::cards::failed_wait_applies(&t, p)
                     })
-                    .map(|sp| crate::cards::cant_start_text(&t, sp, &p))
+                    .map(|sp| crate::cards::cant_start_text(&t, sp, p))
                     .unwrap_or_default(),
                 // A waiting thread, or an answered one the person followed
                 // up on: that waits on an agent too (card #541).
@@ -621,25 +723,13 @@ impl Window {
             };
             let mut s = s;
             if state == THREAD_WAITING {
-                let w = crate::cards::queue_words(&t.id, &p);
+                let w = crate::cards::queue_words(&t.id, p);
                 s.at_cap = w.at_cap;
                 s.queue_place = w.queue_place;
                 s.usage_limit = w.usage_limit;
             }
-            if resolved {
-                done.push(s);
-            } else {
-                open.push(s);
-            }
+            Some(s)
         }
-        let newest = |a: &ThreadSummary, b: &ThreadSummary| {
-            b.updated_at.unix_nano().cmp(&a.updated_at.unix_nano())
-        };
-        open.sort_by(newest);
-        done.sort_by(newest);
-        done.truncate(RESOLVED_SHOWN);
-        open.extend(done);
-        open
     }
 
     /// BoardService.ReopenThread: a resolved thread is live again (card

@@ -185,7 +185,17 @@ function answer(cmd: string, args: Record<string, unknown>): unknown {
     case "core_ready":
       return null
     case "board_cards":
+    case "board_cards_cold":
       return current()
+    case "board_cards_patch": {
+      // The rows named and the whole order (card #1147).
+      const ids = args.ids as string[]
+      const all = current()
+      return {
+        rows: all.filter((c) => ids.includes(c.id)),
+        order: all.map((c) => c.id),
+      }
+    }
     case "board_card":
     case "board_cards_by_id": {
       const ids = cmd === "board_card" ? [args.id] : (args.ids as string[])
@@ -232,6 +242,8 @@ function answer(cmd: string, args: Record<string, unknown>): unknown {
 }
 
 const calls = new Map<string, number>()
+// The ids each CardsById read asked for, since the last reset (card #1148).
+const cardIds: string[][] = []
 const errors = new Map<string, number>()
 // The window's own state, which visibility.ts (card #1134) asks: a window
 // the person can see. Without a mocked window the page never mounts.
@@ -241,6 +253,8 @@ mockIPC(
     if (cmd === "plugin:window|is_visible") return true
     if (cmd.startsWith("plugin:")) return null
     calls.set(cmd, (calls.get(cmd) ?? 0) + 1)
+    if (cmd === "board_cards_by_id")
+      cardIds.push([...((args as { ids?: string[] })?.ids ?? [])])
     try {
       return answer(cmd, (args ?? {}) as Record<string, unknown>)
     } catch (e) {
@@ -264,10 +278,13 @@ function snapshot() {
       .map(([k, v]) => `${k} ${v}`)
       .join(", "),
     calls: Object.fromEntries([...calls].sort((a, b) => b[1] - a[1])),
+    // CardsById ids per read: after a notice, touched ∩ watched.
+    cardIds: cardIds.map((ids) => ids.length),
   }
 }
 function reset() {
   calls.clear()
+  cardIds.length = 0
   hook.commits = 0
   hook.rendered = 0
   hook.names.clear()
