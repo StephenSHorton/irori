@@ -29,6 +29,7 @@ import {
   type SeenStore,
   type WorkThread,
 } from "./assistant-follow"
+import { boardsNow, type BoardSummary } from "./boards"
 import { cards, threads } from "./cards"
 import { goesByItself, splitGo, type GoTarget } from "./goto"
 import { sampleDivideReply } from "./sample-huddle"
@@ -52,6 +53,7 @@ import { onChange } from "./changes"
 import { EventDevicesChanged, inWails } from "./irori"
 import { previewFlag } from "./preview"
 import { checkUploads, uploadOf } from "./uploads"
+import { boardsOf } from "./spaces"
 
 export type { AssistantEvent, AssistantFile, AssistantHomeStatus }
 export type { Act, WorkThread }
@@ -1318,6 +1320,12 @@ function errorLine(err: unknown): string {
 export const DraftOpen = "<<thread>>"
 export const DraftOpenCheck = "<<thread check>>"
 export const DraftClose = "<</thread>>"
+// A thread for a shared space (card #1198) opens "<<thread in:mlg>>" (or
+// "<<thread check in:mlg>>") with one of the space's board tags. Everyone
+// there sees it, so it always waits for Post thread
+// (crates/core/src/assistant_draft.rs, find_open).
+// Matched as Rust matches it: the line exactly, only the tag in any case.
+const draftOpen = /<<thread( check)?(?: in:([A-Za-z][A-Za-z0-9-]{0,15}))?>>/
 
 export type Split = {
   // The reply without the draft.
@@ -1327,8 +1335,12 @@ export type Split = {
   // The draft is still being written, or was cut off (its closing line
   // never came).
   partial: boolean
-  // The person asked to check it first: only a tap posts it.
+  // The person asked to check it first, or it is for a shared space: only
+  // a tap posts it.
   check: boolean
+  // The board tag of the shared space it is for, lower case; "" for
+  // Personal.
+  space: string
 }
 
 // cutMarkerTail drops a marker's first characters from the end of text
@@ -1363,15 +1375,19 @@ const trailingGo = /\n[ \t]*<<go [^\n]*>>\s*$/
 // reply ended by itself (not stopped, failed or still being written), so
 // a draft it never closed runs to its end rather than being cut short.
 export function splitDraft(raw: string, ended = false): Split {
-  const open = /<<thread( check)?>>/.exec(raw)
+  const open = draftOpen.exec(raw)
   if (!open)
     return {
-      text: cutMarkerTail(cutMarkerTail(raw, DraftOpen), DraftOpenCheck).trim(),
+      text: cutOpenTail(
+        cutMarkerTail(cutMarkerTail(raw, DraftOpen), DraftOpenCheck)
+      ).trim(),
       draft: "",
       partial: false,
       check: false,
+      space: "",
     }
-  const check = open[1] !== undefined
+  const space = (open[2] ?? "").toLowerCase()
+  const check = open[1] !== undefined || space !== ""
   const before = raw.slice(0, open.index).trim()
   const rest = raw.slice(open.index + open[0].length)
   const close = draftClose.exec(rest)
@@ -1386,6 +1402,7 @@ export function splitDraft(raw: string, ended = false): Split {
       draft: cutCloseLine(cutMarkerTail(body, DraftClose)).trim(),
       partial: !ended,
       check,
+      space,
     }
   }
   const end = close.index
@@ -1395,7 +1412,31 @@ export function splitDraft(raw: string, ended = false): Split {
     draft: rest.slice(0, end).trim(),
     partial: false,
     check,
+    space,
   }
+}
+
+// cutOpenTail drops an opening line still being written at the end
+// ("…<<thread in:ml"), so it never flashes in the chat.
+function cutOpenTail(s: string): string {
+  const i = s.lastIndexOf("<<thread")
+  if (i < 0) return s
+  const tail = s.slice(i)
+  return tail.includes(">>") || tail.includes("\n") ? s : s.slice(0, i)
+}
+
+// spaceOfTag is the shared space a board tag is on, from the boards list
+// (card #1198): the space's id to post on, and its name.
+export function spaceOfTag(
+  tag: string,
+  all: BoardSummary[] = boardsNow().boards
+): { id: string; name: string } | null {
+  const t = tag.toLowerCase()
+  const sp = all.find(
+    (b) =>
+      !b.leaving && boardsOf(b).some((x) => (x.tag ?? "").toLowerCase() === t)
+  )
+  return sp ? { id: sp.boardId, name: sp.name || sp.tag || t } : null
 }
 
 // splitReply splits a reply as the chat shows it: the card and settle
@@ -1451,9 +1492,15 @@ export function postDraft(turn: string): Promise<Posted> {
   const going = posting.get(turn)
   if (going) return going
   // Split as the chat shows it, so only the draft it shows is posted.
-  const { draft, partial } = splitReply(entry.text, false, entry.cutOff)
+  const { draft, partial, space } = splitReply(entry.text, false, entry.cutOff)
   if (!draft || partial)
     return Promise.reject(new Error("That message has no thread to post."))
+  // A thread for a shared space goes on that space's board (card #1198).
+  const where = space ? spaceOfTag(space) : null
+  if (space && !where)
+    return Promise.reject(
+      new Error(`no shared space here has a board tagged ${space}`)
+    )
   const busy = (on: boolean) => {
     const s = assistantState()
     const next = new Set(s.posting)
@@ -1463,7 +1510,7 @@ export function postDraft(turn: string): Promise<Posted> {
   }
   busy(true)
   const p = threads
-    .start(draft, [], [], "", null, { assistant: true })
+    .start(draft, [], [], where?.id ?? "", null, { assistant: true })
     .then(async (res) => {
       const posted: Posted = { id: res.task.id, short: res.task.short ?? "" }
       if (res.task.tag) posted.tag = res.task.tag

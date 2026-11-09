@@ -737,6 +737,9 @@ impl tools::BoardViewer for ToolsView {
     fn board_views(&self, f: &coord::BoardFilter) -> Vec<coord::BoardView> {
         self.0.board_views(f)
     }
+    fn space_docs(&self) -> Vec<search::Doc> {
+        self.0.space_search_docs()
+    }
 }
 
 /// The mesh roster's card as presence holds it ([`roster_card`] undone).

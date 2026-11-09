@@ -60,7 +60,7 @@ use std::time::Duration;
 use gocompat::time::GoTime;
 
 pub use cmddir::command_dir;
-pub use find::{HIDDEN_MESSAGE, OWN_KINDS, PULL_PAGE, hide_messages};
+pub use find::{HIDDEN_MESSAGE, OWN_KINDS, PULL_PAGE, hide_messages, search_docs};
 pub use handle::{MAX_COMMAND, clip_runes};
 pub use noise::{Dropped, edit_path_key, is_artifact};
 pub use overview::{

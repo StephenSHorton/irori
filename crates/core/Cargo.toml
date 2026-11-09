@@ -27,6 +27,7 @@ irori-invite.workspace = true
 irori-notify.workspace = true
 irori-presence.workspace = true
 irori-scrub.workspace = true
+irori-search.workspace = true
 irori-store.workspace = true
 irori-term.workspace = true
 irori-sys.workspace = true
@@ -48,7 +49,6 @@ irori-share.workspace = true
 
 [dev-dependencies]
 irori-toast.workspace = true
-irori-search.workspace = true
 ed25519-dalek.workspace = true
 rusqlite.workspace = true
 tempfile.workspace = true
