@@ -1471,7 +1471,7 @@ pub(crate) fn gate_refusal(waiting: &[String]) -> Option<String> {
 
 /// The Talk kinds a space's log carries (read cursors never do): the
 /// talk.* rows, and a huddle's transcript lines (card #656).
-const SPACE_TALK_KINDS: [&str; 8] = [
+const SPACE_TALK_KINDS: [&str; 10] = [
     kinds::TALK_CHANNEL_CREATED,
     kinds::TALK_CHANNEL_EDITED,
     kinds::TALK_MEMBER,
@@ -1480,6 +1480,8 @@ const SPACE_TALK_KINDS: [&str; 8] = [
     kinds::CALL_SEGMENT,
     kinds::CALL_TITLE,
     kinds::CALL_ASSIST,
+    kinds::CALL_ITEM,
+    kinds::CALL_ITEM_SET,
 ];
 
 /// Why a space won't take a `call.segment` row yet (card #656): a device in
@@ -1503,6 +1505,17 @@ fn map_talk_keys(
     }
     if let Some(serde_json::Value::String(k)) = o.get_mut("member").and_then(|m| m.get_mut("key")) {
         *k = f(k).ok_or_else(|| format!("{k} can't be in this space's channel"))?;
+    }
+    // A canvas item's asker (card #1051) is a person, mapped as `by` is;
+    // display only, so one that can't be mapped is dropped, not refused.
+    if let Some(a) = o.remove("asker") {
+        let mapped = a
+            .as_str()
+            .filter(|k| coord::talk::is_person_key(k) || coord::talk::is_other_person_key(k))
+            .and_then(&mut f);
+        if let Some(k) = mapped {
+            o.insert("asker".into(), serde_json::Value::String(k));
+        }
     }
     if let Some(serde_json::Value::Array(ms)) = o.get_mut("mentions") {
         let keep: Vec<serde_json::Value> = ms
@@ -1545,12 +1558,24 @@ impl Services {
         // A huddle's line is its speaker's own device's (card #656), and a
         // title is a person's (card #1043): a person, signing as
         // themselves.
-        if matches!(
-            ev.kind.as_str(),
-            kinds::CALL_SEGMENT | kinds::CALL_TITLE | kinds::CALL_ASSIST
-        ) && (!ev.actor.starts_with(kinds::PERSON_ACTOR_PREFIX)
-            || v.get("by").and_then(|b| b.as_str()) != Some(ev.actor.as_str()))
-        {
+        // A canvas item's set is a person's too (card #1051); an item is a
+        // person's, their assistant's (the person's row, flagged), or an
+        // agent's outside hidden spaces. `space_talk_row` checks the actor
+        // and the row's `by`; the flag and the status are the fold's.
+        let by_actor = v.get("by").and_then(|b| b.as_str()) == Some(ev.actor.as_str());
+        let person_actor = ev.actor.starts_with(kinds::PERSON_ACTOR_PREFIX);
+        let agent_actor = ev.actor.starts_with(kinds::AGENT_ACTOR_PREFIX);
+        let allowed = match ev.kind.as_str() {
+            kinds::CALL_SEGMENT | kinds::CALL_TITLE | kinds::CALL_ASSIST | kinds::CALL_ITEM_SET => {
+                person_actor && by_actor
+            }
+            kinds::CALL_ITEM => {
+                by_actor
+                    && (person_actor || (agent_actor && self.dm_spaces.get(space_id).is_none()))
+            }
+            _ => true,
+        };
+        if !allowed {
             return None;
         }
         let dm_conv = match self.dm_spaces.get(space_id) {
@@ -1611,7 +1636,12 @@ impl Services {
             return Err("only the person writes in a DM with a person".into());
         }
         match kind {
-            kinds::TALK_POST | kinds::CALL_SEGMENT | kinds::CALL_TITLE | kinds::CALL_ASSIST => {}
+            kinds::TALK_POST
+            | kinds::CALL_SEGMENT
+            | kinds::CALL_TITLE
+            | kinds::CALL_ASSIST
+            | kinds::CALL_ITEM
+            | kinds::CALL_ITEM_SET => {}
             kinds::TALK_MEMBER => {
                 if payload.get("op").and_then(|o| o.as_str()) != Some(coord::talk::JOIN) {
                     return Err("a DM with a person has no leave row".into());

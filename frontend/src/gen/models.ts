@@ -169,6 +169,7 @@ export type SubtaskPreview = B.SubtaskPreview
 export type SummaryMember = B.SummaryMember
 export type TalkAssistant = B.TalkAssistant
 export type TalkCall = B.TalkCall
+export type TalkCanvasItem = B.TalkCanvasItem
 export type TalkConversation = B.TalkConversation
 export type TalkHuddle = B.TalkHuddle
 export type TalkMember = B.TalkMember
@@ -966,6 +967,11 @@ export function TalkCall(p: Partial<B.TalkCall> = {}): B.TalkCall {
   return { "callId": "", "op": "", "durationMs": 0, "people": [], "transcript": false, "title": "", ...p } as B.TalkCall
 }
 
+/** TalkCanvasItem with Go's zero values for every field left out. */
+export function TalkCanvasItem(p: Partial<B.TalkCanvasItem> = {}): B.TalkCanvasItem {
+  return { "itemId": "", "kind": "", "text": "", "status": "", "reply": "", "refs": [], "why": "", "assistant": false, "byName": "", "label": "", "askerName": "", "mine": false, "askerMine": false, "atMs": 0, "x": null, "y": null, "card": "", ...p } as B.TalkCanvasItem
+}
+
 /** TalkConversation with Go's zero values for every field left out. */
 export function TalkConversation(p: Partial<B.TalkConversation> = {}): B.TalkConversation {
   return { "convId": "", "kind": "", "name": "", "unread": 0, "mentions": 0, "members": [], "lastAt": "", "lastText": "", "lastBy": "", "readOnly": false, "agentsNow": false, ...p } as B.TalkConversation
@@ -1008,7 +1014,7 @@ export function TalkReplying(p: Partial<B.TalkReplying> = {}): B.TalkReplying {
 
 /** TalkTranscript with Go's zero values for every field left out. */
 export function TalkTranscript(p: Partial<B.TalkTranscript> = {}): B.TalkTranscript {
-  return { "callId": "", "convId": "", "convName": "", "convKind": "", "agents": false, "startedAtMs": null, "ended": false, "durationMs": 0, "title": "", "titleByAssistant": false, "over": false, "assistants": [], "lines": [], ...p } as B.TalkTranscript
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "agents": false, "startedAtMs": null, "ended": false, "durationMs": 0, "title": "", "titleByAssistant": false, "over": false, "assistants": [], "canvas": [], "lines": [], ...p } as B.TalkTranscript
 }
 
 /** TalkTranscriptLine with Go's zero values for every field left out. */

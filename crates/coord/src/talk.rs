@@ -48,7 +48,7 @@ use store::{Event, Filter, Store, kinds};
 use crate::board::{Error, ErrorKind, MAX_COMMENT, MAX_MENTIONS, MAX_PERSON_TEXT, Result, new_id};
 
 /// The rows Talk folds.
-pub const KINDS: [&str; 9] = [
+pub const KINDS: [&str; 11] = [
     kinds::TALK_CHANNEL_CREATED,
     kinds::TALK_CHANNEL_EDITED,
     kinds::TALK_MEMBER,
@@ -58,6 +58,8 @@ pub const KINDS: [&str; 9] = [
     kinds::CALL_SEGMENT,
     kinds::CALL_TITLE,
     kinds::CALL_ASSIST,
+    kinds::CALL_ITEM,
+    kinds::CALL_ITEM_SET,
 ];
 
 /// A member's kind: the person.
@@ -476,6 +478,69 @@ pub struct TitleRow {
     pub at: GoTime,
 }
 
+/// The longest canvas item, in characters.
+pub const MAX_ITEM: usize = 2000;
+/// A canvas item's kinds.
+pub const ITEM_KINDS: [&str; 6] = ["question", "answer", "decision", "task", "note", "summary"];
+/// A canvas item's statuses (`summary` and `note` have none).
+pub const ITEM_STATUSES: [&str; 4] = ["open", "settled", "dropped", "carded"];
+/// Why an assistant wrote an item (`call.item`'s `why`).
+pub const ITEM_WHYS: [&str; 6] = ["name", "own", "digest", "routed", "end", "ask"];
+
+/// Whether canvas items of `kind` carry a status.
+pub fn item_has_status(kind: &str) -> bool {
+    !matches!(kind, "summary" | "note")
+}
+
+/// `call.item` (card #1051, call-agents.md section 8): one item on a
+/// huddle's canvas. Written by a person, by their assistant (the person's
+/// row with `assistant: true`) or, outside hidden spaces, by an agent.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ItemRow {
+    pub item_id: String,
+    pub call_id: String,
+    pub conv_id: String,
+    pub kind: String,
+    pub text: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub refs: Vec<String>,
+    /// The person who started the look that wrote it (display only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asker: Option<String>,
+    /// What woke the look (`name`, `own`, `digest`, `routed`, `end`, `ask`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+    pub assistant: bool,
+    pub by: String,
+    pub at: GoTime,
+}
+
+/// `call.item.set` (card #1051): a change to a canvas item, per field.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ItemSetRow {
+    pub item_id: String,
+    pub call_id: String,
+    pub conv_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub card: Option<String>,
+    pub assistant: bool,
+    pub by: String,
+    pub at: GoTime,
+}
+
 /// `talk.read`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -623,6 +688,81 @@ struct State {
     /// Each huddle's `call.assist` rows (card #1049), kept apart from
     /// `calls` as `titles` are.
     assists: HashMap<String, Vec<AssistRec>>,
+    /// Each huddle's canvas rows (card #1051), kept apart from `calls` as
+    /// `titles` are: a row naming the wrong conversation can't bind a
+    /// huddle to it, and the view checks every row against the huddle's.
+    items: HashMap<String, Vec<ItemRec>>,
+    item_sets: HashMap<String, Vec<ItemSetRec>>,
+}
+
+/// One `call.item` row as folded.
+#[derive(Debug, Clone)]
+struct ItemRec {
+    conv: String,
+    row: ItemRow,
+    ord: Ord3,
+}
+
+/// One `call.item.set` row as folded.
+#[derive(Debug, Clone)]
+struct ItemSetRec {
+    conv: String,
+    row: ItemSetRow,
+    ord: Ord3,
+}
+
+/// A canvas item as the huddle shows it: its row, and what the sets that
+/// count did to it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CanvasItem {
+    pub item_id: String,
+    pub kind: String,
+    pub text: String,
+    /// "" for a `summary` or `note`.
+    pub status: String,
+    pub reply: Option<String>,
+    pub refs: Vec<String>,
+    pub asker: Option<String>,
+    pub why: Option<String>,
+    /// Written by a person's assistant.
+    pub assistant: bool,
+    /// The writer, as the log names them.
+    pub by: String,
+    pub at: GoTime,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    /// The ref of the card it became, once a person divided it.
+    pub card: String,
+    /// Where it sits in the fold, for a stable order.
+    pub ord: Ord3,
+}
+
+/// What a person (or their assistant) adds to a canvas.
+#[derive(Debug, Clone, Default)]
+pub struct NewItem {
+    /// The item's id; empty makes one.
+    pub item_id: String,
+    pub kind: String,
+    pub text: String,
+    /// "" is `open`; kept only on a person's own, unflagged row.
+    pub status: String,
+    pub reply: Option<String>,
+    pub refs: Vec<String>,
+    pub asker: Option<String>,
+    pub why: Option<String>,
+    pub assistant: bool,
+}
+
+/// A change to a canvas item.
+#[derive(Debug, Clone, Default)]
+pub struct NewItemSet {
+    pub item_id: String,
+    pub text: Option<String>,
+    pub status: Option<String>,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub card: Option<String>,
+    pub assistant: bool,
 }
 
 /// `call.assist` (card #1049, call-agents.md §7, §8): a person's assistant is
@@ -1553,6 +1693,185 @@ impl Talk {
             .collect()
     }
 
+    /// Huddle `call_id`'s canvas (card #1051), oldest first, as the fold
+    /// stands: empty for a huddle this device has no mark or line of yet.
+    pub fn call_items(&self, call_id: &str) -> Vec<CanvasItem> {
+        let s = self.lock();
+        let id = call_id.trim();
+        let Some(conv) = s.calls.get(id).map(|c| c.conv.as_str()) else {
+            return Vec::new();
+        };
+        canvas_of(&s, id, conv)
+    }
+
+    /// Adds an item to huddle `call_id`'s canvas (card #1051) as `by`, into
+    /// the log `conv`'s posts go to. A person, or outside a DM an agent,
+    /// writes; only a person's row with no `assistant` flag keeps a status
+    /// of its own. Returns the item as the fold has it. Whether the call is
+    /// still live is the caller's check.
+    pub fn write_item(
+        &self,
+        conv: &str,
+        call_id: &str,
+        n: NewItem,
+        by: &str,
+    ) -> Result<CanvasItem> {
+        let by = need_by(by)?.to_string();
+        let (conv, call_id) = (conv.trim().to_string(), call_id.trim().to_string());
+        if call_id.is_empty() {
+            return Err(invalid("a canvas item needs its call's id"));
+        }
+        if !ITEM_KINDS.contains(&n.kind.as_str()) {
+            return Err(invalid(format!(
+                "an item is one of {}",
+                ITEM_KINDS.join(", ")
+            )));
+        }
+        let text = n.text.trim().to_string();
+        if text.is_empty() {
+            return Err(invalid("a canvas item can't be empty"));
+        }
+        if text.chars().count() > MAX_ITEM {
+            return Err(invalid(format!(
+                "a canvas item is at most {MAX_ITEM} characters"
+            )));
+        }
+        let status = n.status.trim().to_string();
+        if !status.is_empty() && !ITEM_STATUSES.contains(&status.as_str()) {
+            return Err(invalid(format!(
+                "a status is one of {}",
+                ITEM_STATUSES.join(", ")
+            )));
+        }
+        if let Some(c) = self.call_conv(&call_id)
+            && c != conv
+        {
+            return Err(invalid(format!("huddle {call_id} isn't in {conv}")));
+        }
+        let person = is_person_key(&by);
+        let item_id = if n.item_id.trim().is_empty() {
+            format!("item_{}", new_id(&(self.now)()))
+        } else {
+            n.item_id.trim().to_string()
+        };
+        // The id is the item's own: one id, one item.
+        if self
+            .call_items(&call_id)
+            .iter()
+            .any(|i| i.item_id == item_id)
+        {
+            return Err(invalid(format!("item {item_id} is already on this canvas")));
+        }
+        let space = self.call_log(&conv, &by)?;
+        let assistant = n.assistant && person;
+        let has_status = item_has_status(&n.kind);
+        self.write(
+            &space,
+            &by,
+            kinds::CALL_ITEM,
+            &ItemRow {
+                item_id: item_id.clone(),
+                call_id: call_id.clone(),
+                conv_id: conv.clone(),
+                kind: n.kind,
+                text,
+                status: if !has_status {
+                    String::new()
+                } else if person && !assistant && !status.is_empty() {
+                    status
+                } else {
+                    "open".into()
+                },
+                reply: n.reply.filter(|r| !r.trim().is_empty()),
+                refs: n.refs,
+                asker: n.asker.filter(|a| !a.trim().is_empty()),
+                why: n.why.filter(|w| ITEM_WHYS.contains(&w.as_str())),
+                assistant,
+                by: by.clone(),
+                at: (self.now)(),
+            },
+        )?;
+        self.call_items(&call_id)
+            .into_iter()
+            .find(|i| i.item_id == item_id)
+            .ok_or_else(|| Error::raw(ErrorKind::Store, "talk: the item didn't fold"))
+    }
+
+    /// Changes an item on huddle `call_id`'s canvas (card #1051) as the
+    /// person `by`. Only a person sets (an agent's sets don't exist); the
+    /// item must be on this canvas. What counts is the fold's: see
+    /// [`canvas_of`]. Whether the call is live (for `carded` and `card`) is
+    /// the caller's check.
+    pub fn write_item_set(
+        &self,
+        conv: &str,
+        call_id: &str,
+        n: NewItemSet,
+        by: &str,
+    ) -> Result<CanvasItem> {
+        let by = need_by(by)?.to_string();
+        let (conv, call_id) = (conv.trim().to_string(), call_id.trim().to_string());
+        if !is_person_key(&by) {
+            return Err(not_allowed("only a person changes a canvas item"));
+        }
+        if let Some(c) = self.call_conv(&call_id)
+            && c != conv
+        {
+            return Err(invalid(format!("huddle {call_id} isn't in {conv}")));
+        }
+        let item_id = n.item_id.trim().to_string();
+        let Some(cur) = self
+            .call_items(&call_id)
+            .into_iter()
+            .find(|i| i.item_id == item_id)
+        else {
+            return Err(not_found(format!("no item {item_id} on huddle {call_id}")));
+        };
+        if let Some(t) = &n.text {
+            let t = t.trim();
+            if t.is_empty() || t.chars().count() > MAX_ITEM {
+                return Err(invalid(format!("an item is 1 to {MAX_ITEM} characters")));
+            }
+        }
+        if let Some(st) = &n.status {
+            if !ITEM_STATUSES.contains(&st.as_str()) {
+                return Err(invalid(format!(
+                    "a status is one of {}",
+                    ITEM_STATUSES.join(", ")
+                )));
+            }
+            if !item_has_status(&cur.kind) {
+                return Err(invalid(format!("a {} has no status", cur.kind)));
+            }
+        }
+        if n.x.is_some_and(|v| !v.is_finite()) || n.y.is_some_and(|v| !v.is_finite()) {
+            return Err(invalid("a position is a number"));
+        }
+        let space = self.call_log(&conv, &by)?;
+        self.write(
+            &space,
+            &by,
+            kinds::CALL_ITEM_SET,
+            &ItemSetRow {
+                item_id: item_id.clone(),
+                call_id: call_id.clone(),
+                conv_id: conv,
+                text: n.text.map(|t| t.trim().to_string()),
+                status: n.status,
+                x: n.x,
+                y: n.y,
+                card: n.card.map(|c| c.trim().to_string()),
+                assistant: n.assistant,
+                by: by.clone(),
+                at: (self.now)(),
+            },
+        )?;
+        self.call_items(&call_id)
+            .into_iter()
+            .find(|i| i.item_id == item_id)
+            .ok_or_else(|| Error::raw(ErrorKind::Store, "talk: the item vanished"))
+    }
+
     /// Writes both people's joins into `space`, the first time this person
     /// DM uses that log: a log carries its own members, so the DM outlives
     /// the other log it may share the conversation with.
@@ -1904,6 +2223,123 @@ impl Talk {
             .find_map(|c| c.fallback.iter().find(|p| p.post_id == post_id))
             .cloned()
     }
+}
+
+/// Whether `by` is a person (any person, in either key form).
+fn is_person_by(by: &str) -> bool {
+    is_person_key(by) || is_other_person_key(by)
+}
+
+/// Whether two log keys name the same person.
+fn same_person(a: &str, b: &str) -> bool {
+    canon(a) == canon(b)
+}
+
+/// Huddle `call_id`'s canvas in conversation `conv` (card #1051): each
+/// item as its row and the sets that count made it. Rows naming another
+/// conversation than the huddle's are not its. The first row of an id
+/// (by place in the log) is the item; later ones are ignored.
+///
+/// What counts: an item's status is `open` unless the row is a person's
+/// with no `assistant` flag; `summary` and `note` have none. A set's
+/// `status`, `card`, `x` and `y` count only from a person's row with no
+/// `assistant` flag, and `text` only from the item's own writer's person
+/// (an assistant's set edits only an `assistant: true` item's text). Per
+/// field, the newest set wins. The fold never asks whether the call is
+/// live: that is the write path's check.
+fn canvas_of(s: &State, call_id: &str, conv: &str) -> Vec<CanvasItem> {
+    let mut rows: Vec<&ItemRec> = s
+        .items
+        .get(call_id)
+        .into_iter()
+        .flatten()
+        .filter(|r| r.conv == conv)
+        .collect();
+    rows.sort_by(|a, b| a.ord.cmp(&b.ord));
+    let mut seen = HashSet::new();
+    let sets: Vec<&ItemSetRec> = {
+        let mut v: Vec<&ItemSetRec> = s
+            .item_sets
+            .get(call_id)
+            .into_iter()
+            .flatten()
+            .filter(|r| r.conv == conv)
+            .collect();
+        v.sort_by(|a, b| a.ord.cmp(&b.ord));
+        v
+    };
+    let mut out = Vec::new();
+    for rec in rows {
+        let r = &rec.row;
+        if !seen.insert(r.item_id.clone()) {
+            continue;
+        }
+        let person_row = is_person_by(&r.by) && !r.assistant;
+        let has_status = item_has_status(&r.kind);
+        let mut status = String::new();
+        if has_status {
+            status = if person_row && ITEM_STATUSES.contains(&r.status.as_str()) {
+                r.status.clone()
+            } else {
+                "open".into()
+            };
+        }
+        let mut item = CanvasItem {
+            item_id: r.item_id.clone(),
+            kind: r.kind.clone(),
+            text: r.text.clone(),
+            status,
+            reply: r.reply.clone().filter(|x| !x.is_empty()),
+            refs: r.refs.clone(),
+            asker: r.asker.clone().filter(|x| !x.is_empty()),
+            why: r.why.clone().filter(|x| ITEM_WHYS.contains(&x.as_str())),
+            assistant: r.assistant && is_person_by(&r.by),
+            by: r.by.clone(),
+            at: r.at,
+            x: None,
+            y: None,
+            card: String::new(),
+            ord: rec.ord.clone(),
+        };
+        // Sets apply in log order, so the newest of each field wins.
+        for set in sets.iter().filter(|x| x.row.item_id == r.item_id) {
+            let w = &set.row;
+            // A set is no older than its item.
+            if set.ord < rec.ord {
+                continue;
+            }
+            if let Some(t) = &w.text {
+                let t = t.trim();
+                let own = same_person(&w.by, &r.by) && (!w.assistant || item.assistant);
+                if own && !t.is_empty() && t.chars().count() <= MAX_ITEM {
+                    item.text = t.to_string();
+                }
+            }
+            if w.assistant {
+                continue;
+            }
+            if has_status
+                && let Some(st) = &w.status
+                && ITEM_STATUSES.contains(&st.as_str())
+            {
+                item.status = st.clone();
+            }
+            if let Some(x) = w.x.filter(|v| v.is_finite()) {
+                item.x = Some(x);
+            }
+            if let Some(y) = w.y.filter(|v| v.is_finite()) {
+                item.y = Some(y);
+            }
+            if let Some(c) = &w.card {
+                let c = c.trim();
+                if !c.is_empty() && c.len() <= 200 {
+                    item.card = c.to_string();
+                }
+            }
+        }
+        out.push(item);
+    }
+    out
 }
 
 /// Huddle `call_id`'s title in conversation `conv` (card #1043): a person's
@@ -2288,6 +2724,59 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 }
                 None => recs.push(rec),
             }
+            true
+        }
+        kinds::CALL_ITEM => {
+            let Ok(mut r) = serde_json::from_slice::<ItemRow>(&ev.payload) else {
+                return false;
+            };
+            r.text = r.text.trim().to_string();
+            if r.item_id.is_empty()
+                || r.item_id.len() > 128
+                || r.call_id.is_empty()
+                || !(is_channel(&r.conv_id) || is_dm(&r.conv_id))
+                || !ITEM_KINDS.contains(&r.kind.as_str())
+                || r.text.is_empty()
+                || r.text.chars().count() > MAX_ITEM
+                || r.by.is_empty()
+            {
+                return false;
+            }
+            let recs = s.items.entry(r.call_id.clone()).or_default();
+            if recs
+                .iter()
+                .any(|x| x.conv == r.conv_id && x.row.item_id == r.item_id && x.ord == at)
+            {
+                return false;
+            }
+            recs.push(ItemRec {
+                conv: r.conv_id.clone(),
+                row: r,
+                ord: at,
+            });
+            true
+        }
+        kinds::CALL_ITEM_SET => {
+            let Ok(r) = serde_json::from_slice::<ItemSetRow>(&ev.payload) else {
+                return false;
+            };
+            // Only a person sets: an agent's sets don't exist.
+            if r.item_id.is_empty()
+                || r.call_id.is_empty()
+                || !(is_channel(&r.conv_id) || is_dm(&r.conv_id))
+                || !(is_person_key(&r.by) || is_other_person_key(&r.by))
+            {
+                return false;
+            }
+            let recs = s.item_sets.entry(r.call_id.clone()).or_default();
+            if recs.iter().any(|x| x.ord == at) {
+                return false;
+            }
+            recs.push(ItemSetRec {
+                conv: r.conv_id.clone(),
+                row: r,
+                ord: at,
+            });
             true
         }
         kinds::TALK_READ => {

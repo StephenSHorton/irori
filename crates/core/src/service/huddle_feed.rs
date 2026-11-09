@@ -165,6 +165,9 @@ impl Huddle {
 #[derive(Default)]
 pub(crate) struct Feed {
     calls: Mutex<HashMap<String, Huddle>>,
+    /// What each huddle's session was shown of the canvas, and its
+    /// placeholders (card #1051).
+    pub(super) canvas: Mutex<HashMap<String, super::huddle_canvas::CanvasMem>>,
 }
 
 fn at_ms(ms: i64) -> SystemTime {
@@ -256,6 +259,11 @@ impl Services {
 
     /// A row of a log, if it is a `call.segment`: feeds it.
     pub(crate) fn huddle_line_row(&self, ev: &store::Event) {
+        if ev.kind == store::kinds::CALL_ITEM {
+            // An Ask on the page, from this person (card #1051).
+            self.huddle_item_row(ev);
+            return;
+        }
         if ev.kind != store::kinds::CALL_SEGMENT {
             return;
         }
@@ -349,6 +357,7 @@ impl Services {
             call_id: call.to_string(),
             conv_id: conv.to_string(),
             name: self.assistant_label(),
+            canvas: self.huddle_canvas_lines(call),
             recent,
             ..HuddleSeed::default()
         }
@@ -364,14 +373,17 @@ impl Services {
     /// Forgets `call`'s buffer (the huddle isn't served any more).
     pub(crate) fn huddle_feed_forget(&self, call: &str) {
         lock(&self.feed.calls).remove(call);
+        self.huddle_canvas_forget(call);
     }
 
     /// Acts on what the brain decided: starts a look on its own thread and
     /// arms the timer for a hold that is waiting.
     fn huddle_step(&self, call: &str, step: Step) {
         if step.cap_note {
-            // The canvas note is card 8's to write.
             logf!("huddle {call}: the assistant has done its looks");
+            if self.huddle_hosting(call) {
+                self.huddle_cap_note(call);
+            }
         }
         let Some(me) = self.this.get().and_then(std::sync::Weak::upgrade) else {
             return;
@@ -391,6 +403,47 @@ impl Services {
             }
         }
         me.huddle_arm(call);
+    }
+
+    /// The words that woke `look`: the lines it names (from the buffer), or
+    /// the question item it carries (Ask, routed).
+    pub(super) fn huddle_look_text(&self, call: &str, look: &Look) -> String {
+        if let Some(id) = &look.question {
+            return self
+                .talk
+                .call_items(call)
+                .into_iter()
+                .find(|i| &i.item_id == id)
+                .map(|i| i.text)
+                .unwrap_or_default();
+        }
+        let g = lock(&self.feed.calls);
+        let Some(h) = g.get(call) else {
+            return String::new();
+        };
+        look.lines
+            .iter()
+            .filter_map(|id| h.lines.iter().find(|b| &b.line.id == id))
+            .map(|b| b.line.text.clone())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Gives the person's assistant a look at a question they put on the
+    /// page (Ask, L1: no hold, never throttled; card #1051).
+    pub(super) fn huddle_ask_look(&self, call: &str, item: &str) {
+        let Some(conv) = self.talk.call_conv(call) else {
+            return;
+        };
+        let me = self.user_sender().key;
+        let step = {
+            let mut g = lock(&self.feed.calls);
+            let hd = g
+                .entry(call.to_string())
+                .or_insert_with(|| Huddle::new(&conv, &me));
+            hd.brain.ask_about(SystemTime::now(), Some(item))
+        };
+        self.huddle_step(call, step);
     }
 
     /// Wakes the brain when its hold ends (§6: after a match, wait for the
@@ -457,16 +510,27 @@ impl Services {
             // The pick runs again before each look: a host back from sleep
             // may find another took over.
             if self.huddle_hosting(call) {
+                // L1 shows at once that the assistant is on it (§7).
+                let placeholder = self.huddle_placeholder(call, &look);
                 match self.huddle_build(call, &look) {
                     Some((seed, message)) => match self.huddle_look(&seed, &message) {
-                        Ok(r) => logf!(
-                            "huddle {call}: {:?} look answered ({} ms)",
-                            look.layer,
-                            r.ms
-                        ),
-                        Err(e) => logf!("huddle {call}: {:?} look failed: {e}", look.layer),
+                        Ok(r) => {
+                            logf!(
+                                "huddle {call}: {:?} look answered ({} ms)",
+                                look.layer,
+                                r.ms
+                            );
+                            self.huddle_write_look(call, &look, &r.text, placeholder.as_deref());
+                        }
+                        Err(e) => {
+                            logf!("huddle {call}: {:?} look failed: {e}", look.layer);
+                            self.huddle_look_failed(call, placeholder.as_deref());
+                        }
                     },
-                    None => logf!("huddle {call}: no longer fed: look dropped"),
+                    None => {
+                        logf!("huddle {call}: no longer fed: look dropped");
+                        self.huddle_look_failed(call, placeholder.as_deref());
+                    }
                 }
             }
             next = lock(&self.feed.calls)
@@ -506,7 +570,24 @@ impl Services {
             (Layer::Own, Some(who)) => message.push_str(&format!(
                 "\n\n{who}, whose assistant you are, asked a question in these lines. Answer from the packet only if it supports one; otherwise write nothing."
             )),
+            (Layer::Ask, Some(who)) => {
+                let q = self.huddle_look_text(call, look);
+                message.push_str(&format!(
+                    "\n\n{who}, whose assistant you are, put this question to you on the huddle's page:\n{}",
+                    fence_lines(&[q])
+                ));
+                if let Some(id) = &look.question {
+                    message.push_str(&format!(
+                        "\nIt is item {id} on the canvas. Answer from the packet and the call with reply=\"{id}\"; if they don't support an answer, write nothing."
+                    ));
+                }
+            }
             _ => {}
+        }
+        drop(g);
+        if let Some(delta) = self.huddle_delta(call, &conv) {
+            message.push_str("\n\n");
+            message.push_str(&delta);
         }
         Some((seed, message))
     }

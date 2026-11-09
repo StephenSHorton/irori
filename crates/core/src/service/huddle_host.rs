@@ -368,6 +368,9 @@ impl Services {
                         Ok(()) => {
                             h.wrote_on = true;
                             logf!("huddle {call}: this device hosts the assistant");
+                            // The old host's placeholders still saying
+                            // "looking" never get an answer: close them.
+                            self.huddle_close_stale_placeholders(call);
                         }
                         Err(e) => {
                             logf!("huddle {call}: assist on: {e}");

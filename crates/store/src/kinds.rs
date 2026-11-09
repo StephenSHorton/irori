@@ -418,6 +418,17 @@ kinds! {
     /// #1049, docs/design/call-agents.md §7, §8). Arbitrates which of a
     /// person's devices hosts it.
     CALL_ASSIST = "call.assist" => Replicated, Accepts;
+    /// `{itemId, callId, convId, kind, text, status, reply?, refs?, asker?,
+    /// why?, assistant, by, at}`: one item on a huddle's canvas (card #1051,
+    /// docs/design/call-agents.md §8). A person's, their assistant's
+    /// (`assistant: true`) or an agent's; an assistant's or agent's status
+    /// reads as `open`.
+    CALL_ITEM = "call.item" => Replicated, Accepts;
+    /// `{itemId, callId, convId, text?, status?, x?, y?, card?, assistant,
+    /// by, at}`: a change to a canvas item, per field, newest wins (card
+    /// #1051). `status`, `card`, `x` and `y` count only from a person's row
+    /// with no `assistant` flag.
+    CALL_ITEM_SET = "call.item.set" => Replicated, Accepts;
     // device-local board rows
     /// `{cardId, agentKey}`; still read, no longer written.
     BOARD_CARD_KEY = "board.cardkey" => Local;

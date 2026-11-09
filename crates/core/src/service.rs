@@ -72,6 +72,7 @@ pub mod card_weights;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
+pub mod huddle_canvas;
 pub mod huddle_feed;
 pub mod huddle_host;
 pub mod huddle_packet;
