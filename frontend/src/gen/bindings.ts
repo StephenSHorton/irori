@@ -43,7 +43,19 @@ export const commands = {
 	inboxPolicy: () => __TAURI_INVOKE<Policy>("inbox_policy"),
 	inboxSetPolicy: (p: PolicyInput) => __TAURI_INVOKE<null>("inbox_set_policy", { p }),
 	inboxSetPaused: (paused: boolean) => __TAURI_INVOKE<null>("inbox_set_paused", { paused }),
+	/**  Every live card for the grid, from the summary cache (card #1147). */
 	boardCards: () => __TAURI_INVOKE<CardSummary[]>("board_cards"),
+	/**
+	 *  The grid's patch read (card #1147): the live rows among `ids` and
+	 *  every live card's id in grid order.
+	 */
+	boardCardsPatch: (ids: string[]) => __TAURI_INVOKE<CardsPatch>("board_cards_patch", { ids }),
+	/**
+	 *  The grid's drift read (card #1147): every card built afresh, never
+	 *  from the cache, which it then replaces; irori.log gets
+	 *  `drift cards-cache <n>`.
+	 */
+	boardCardsCold: () => __TAURI_INVOKE<CardSummary[]>("board_cards_cold"),
 	boardCard: (id: string) => __TAURI_INVOKE<CardDetail>("board_card", { id }),
 	/**  Several cards in one call, each with its card or why not (card #468). */
 	boardCardsById: (ids: string[], have: CardHave[]) => __TAURI_INVOKE<CardRead[]>("board_cards_by_id", { ids, have }),
@@ -2337,6 +2349,16 @@ export type CardsChange = {
 	cards: string[],
 	notes: string[],
 	desk: boolean,
+};
+
+/**
+ *  A patch read's answer (`board_cards_patch`): the rows asked for that
+ *  are still live, freshly built, and every live card's id in grid order.
+ *  A card that closed is missing from `order`.
+ */
+export type CardsPatch = {
+	rows: CardSummary[],
+	order: string[],
 };
 
 /**  presence.Change. */

@@ -309,9 +309,6 @@ fn the_kind_map_sends_each_kind_to_its_bucket() {
     assert_eq!(signals::bucket_of(coord::BOARD_PIN_CHANGED), Bucket::Pin);
     for kind in [
         coord::RESYNC,
-        coord::LEASE_CHANGED,
-        coord::LEASE_EXPIRED,
-        coord::LEASE_REFUSED,
         irori_core::spawn_capable::AGENTS_CHANGED,
         "",
         "a kind nobody mapped",
@@ -319,6 +316,27 @@ fn the_kind_map_sends_each_kind_to_its_bucket() {
         assert_eq!(signals::bucket_of(kind), Bucket::All, "{kind:?}");
         let f = signals::fold_board(&[board_ev(kind, "t1", "")]);
         assert!(f.all, "{kind:?} should read everything");
+        // Only an agents change keeps the grid's cache (card #1147): it
+        // moves what every read builds anew.
+        let keeps = kind == irori_core::spawn_capable::AGENTS_CHANGED;
+        assert_eq!(f.cold, !keeps, "{kind:?}");
+    }
+    // A lease change names its holder, whose rows the cache knows (card
+    // #1147): not all.
+    for kind in [
+        coord::LEASE_CHANGED,
+        coord::LEASE_EXPIRED,
+        coord::LEASE_REFUSED,
+    ] {
+        assert_eq!(signals::bucket_of(kind), Bucket::Lease, "{kind:?}");
+        let f = signals::fold_board(&[CoreEvent::Board(coord::Change {
+            kind: kind.into(),
+            resource: "ww/slot-1".into(),
+            holder: "dev/agent".into(),
+            ..Default::default()
+        })]);
+        assert!(!f.all && !f.cold && f.lease, "{kind:?}");
+        assert_eq!(f.holders, ["dev/agent"]);
     }
     // A mapped kind with no id to name is all too.
     assert!(signals::fold_board(&[board_ev(coord::TASK_CHANGED, "", "")]).all);

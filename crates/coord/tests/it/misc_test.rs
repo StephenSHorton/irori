@@ -604,7 +604,9 @@ fn test_pins_across_devices() {
 /// Card #233: a shared board's sidebar pin ("board:<id>") is no card, but
 /// a pin row for it from another of the person's devices still tells
 /// subscribers, as a board_pin change, or the sidebar never hears it. A
-/// row for an unknown card id says nothing.
+/// pin on a card this log doesn't hold is a shared board's card pinned in
+/// the person's own log (card #161): it says which card, so the grid
+/// re-reads that row (card #1147).
 #[test]
 fn test_board_pin_from_another_device_is_a_change() {
     let base = hlc_at(fixed_now());
@@ -642,7 +644,10 @@ fn test_board_pin_from_another_device_is_a_change() {
     }
     assert_eq!(
         got,
-        vec![(BOARD_PIN_CHANGED.to_string(), "board:abc".to_string())]
+        vec![
+            (BOARD_PIN_CHANGED.to_string(), "board:abc".to_string()),
+            (TASK_CHANGED.to_string(), "no-such-card".to_string()),
+        ]
     );
     assert_eq!(e.c.pinned_ranks().get("board:abc"), Some(&1.0));
 }

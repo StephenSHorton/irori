@@ -374,6 +374,29 @@ describe("patched: the drift check", () => {
     expect(r.dropped.n).toBe(0)
   })
 
+  test("a sample read with a notice's ids drained into it is dropped", async () => {
+    const r = rig()
+    await r.start([{ id: "a", v: 1 }])
+    r.core.notice(r.notice("a"))
+    await settled()
+    await r.finish(1, [{ id: "a", v: 1 }])
+    // A patch reads; the drift check and a notice for b both wait on it,
+    // so the sample that follows also reads b's change.
+    r.core.notice(r.notice("a"))
+    await settled()
+    r.core.driftCheck()
+    r.core.notice(r.notice("b"))
+    await r.finish(2, [{ id: "a", v: 1 }])
+    expect(r.reads[3].want.drift).toBe(true)
+    expect(cardsOf(r.reads[3].want)).toEqual(["b"])
+    await r.finish(3, [
+      { id: "a", v: 1 },
+      { id: "b", v: 1 },
+    ])
+    expect(r.drifts).toEqual([])
+    expect(r.dropped.n).toBe(1)
+  })
+
   test("a sample dropped as stale is counted dropped, not compared", async () => {
     const r = rig()
     await r.start([{ id: "a", v: 1 }])

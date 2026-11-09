@@ -6,6 +6,7 @@
 mod assistant_turn;
 mod boards;
 mod cards;
+mod cards_cache;
 mod chat_held;
 mod chat_held_measure;
 mod common;
