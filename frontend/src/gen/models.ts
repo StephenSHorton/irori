@@ -114,6 +114,7 @@ export type GoneWait = B.GoneWait
 export type HoldReason = B.HoldReason
 export type Holding = B.Holding
 export type HoldoutView = B.HoldoutView
+export type HomeCandidate = B.HomeCandidate
 export type HomeServerView = B.HomeServerView
 export type Identity = B.Identity
 export type IdleReport = B.IdleReport
@@ -352,7 +353,7 @@ export function AssistantFile(p: Partial<B.AssistantFile> = {}): B.AssistantFile
 
 /** AssistantHomeStatus with Go's zero values for every field left out. */
 export function AssistantHomeStatus(p: Partial<B.AssistantHomeStatus> = {}): B.AssistantHomeStatus {
-  return { "device": "", "name": "", "here": false, "state": "", "lastSeenMs": 0, "claude": false, "chat": false, "none": "", ...p } as B.AssistantHomeStatus
+  return { "device": "", "name": "", "here": false, "state": "", "lastSeenMs": 0, "claude": false, "chat": false, "none": "", "candidates": [], ...p } as B.AssistantHomeStatus
 }
 
 /** AssistantImportAct with Go's zero values for every field left out. */
@@ -733,6 +734,11 @@ export function GoneWait(p: Partial<B.GoneWait> = {}): B.GoneWait {
 /** HoldoutView with Go's zero values for every field left out. */
 export function HoldoutView(p: Partial<B.HoldoutView> = {}): B.HoldoutView {
   return { "deviceId": "", "name": "", ...p } as B.HoldoutView
+}
+
+/** HomeCandidate with Go's zero values for every field left out. */
+export function HomeCandidate(p: Partial<B.HomeCandidate> = {}): B.HomeCandidate {
+  return { "device": "", "name": "", "here": false, "state": "", "lastSeenMs": 0, ...p } as B.HomeCandidate
 }
 
 /** HomeServerView with Go's zero values for every field left out. */
