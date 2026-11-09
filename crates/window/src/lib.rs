@@ -71,6 +71,7 @@ pub mod new_card;
 pub mod notes;
 pub mod notifications;
 pub mod ready;
+pub mod readwatch;
 pub mod rewrite;
 pub mod roster;
 pub mod seams;

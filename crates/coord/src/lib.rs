@@ -22,6 +22,7 @@ pub mod decision;
 pub mod devcolor;
 pub mod devname;
 pub mod gojson;
+pub mod lockwatch;
 pub(crate) mod gotime;
 pub mod mentions;
 pub mod names;

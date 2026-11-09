@@ -57,6 +57,26 @@ async fn blocking<T: Send + 'static>(
         .map_err(|e| e.to_string())?
 }
 
+/// [`blocking`] for a read, timed (card #1234): its queue for a blocking
+/// thread, its lock wait and the rest (see [`crate::readwatch`]).
+async fn read_blocking<T: Send + 'static>(
+    name: &'static str,
+    w: &Arc<Window>,
+    f: impl FnOnce(&Window) -> R<T> + Send + 'static,
+) -> R<T> {
+    let asked = std::time::Instant::now();
+    let w = w.clone();
+    let (r, t) = tauri::async_runtime::spawn_blocking(move || {
+        let (t, began, mark) = crate::readwatch::start(name, asked);
+        let r = f(&w);
+        (r, t.ran(began, mark))
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    t.done();
+    r
+}
+
 /// Runs a write command and logs how long it took (card #644), so a wait
 /// the person feels shows in irori.log as `cmd: <name> <ms> ms`. The write
 /// itself goes through [`blocking`]: it takes the coord lock, which
@@ -201,13 +221,17 @@ type Deliveries = Typed<Vec<inbox::Delivery>, Vec<ts::Delivery>>;
 #[tauri::command]
 #[specta::specta]
 pub async fn inbox_list(w: W<'_>, limit: i64) -> R<Deliveries> {
+    crate::readwatch::here("inbox_list", || {
     Ok(Typed::new(w.inbox_list(limit)))
+    })
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn inbox_held(w: W<'_>) -> R<Deliveries> {
+    crate::readwatch::here("inbox_held", || {
     Ok(Typed::new(w.inbox_held()))
+    })
 }
 
 #[tauri::command]
@@ -225,7 +249,9 @@ pub async fn inbox_counts(w: W<'_>) -> R<InboxCounts> {
 #[tauri::command]
 #[specta::specta]
 pub async fn inbox_get(w: W<'_>, delivery_id: String) -> R<Typed<inbox::Delivery, ts::Delivery>> {
+    crate::readwatch::here("inbox_get", || {
     w.inbox_get(&delivery_id).map(Typed::new)
+    })
 }
 
 #[tauri::command]
@@ -294,7 +320,9 @@ pub async fn inbox_start_agent(w: W<'_>, delivery_id: String) -> R<ts::StartedAg
 #[tauri::command]
 #[specta::specta]
 pub async fn inbox_repo_names(w: W<'_>) -> R<Vec<ts::RepoName>> {
+    crate::readwatch::here("inbox_repo_names", || {
     Ok(w.inbox_repo_names())
+    })
 }
 
 #[tauri::command]
@@ -332,7 +360,7 @@ pub async fn inbox_set_paused(w: W<'_>, paused: bool) -> R<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn board_cards(w: W<'_>) -> R<Vec<CardSummary>> {
-    blocking(&w, |w| Ok(w.cards())).await
+    read_blocking("board_cards", &w, |w| Ok(w.cards())).await
 }
 
 /// The grid's patch read (card #1147): the live rows among `ids` and
@@ -340,7 +368,7 @@ pub async fn board_cards(w: W<'_>) -> R<Vec<CardSummary>> {
 #[tauri::command]
 #[specta::specta]
 pub async fn board_cards_patch(w: W<'_>, ids: Vec<String>) -> R<crate::cards_cache::CardsPatch> {
-    blocking(&w, move |w| Ok(w.cards_patch(&ids))).await
+    read_blocking("board_cards_patch", &w, move |w| Ok(w.cards_patch(&ids))).await
 }
 
 /// The grid's drift read (card #1147): every card built afresh, never
@@ -349,13 +377,15 @@ pub async fn board_cards_patch(w: W<'_>, ids: Vec<String>) -> R<crate::cards_cac
 #[tauri::command]
 #[specta::specta]
 pub async fn board_cards_cold(w: W<'_>) -> R<Vec<CardSummary>> {
-    blocking(&w, |w| Ok(w.cards_cold())).await
+    read_blocking("board_cards_cold", &w, |w| Ok(w.cards_cold())).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn board_card(w: W<'_>, id: String) -> R<CardDetail> {
+    crate::readwatch::here("board_card", || {
     w.card(&id)
+    })
 }
 
 /// Several cards in one call, each with its card or why not (card #468).
@@ -366,7 +396,7 @@ pub async fn board_cards_by_id(
     ids: Vec<String>,
     have: Vec<crate::cards::CardHave>,
 ) -> R<Vec<crate::cards::CardRead>> {
-    blocking(&w, move |w| Ok(w.cards_by_id(&ids, &have))).await
+    read_blocking("board_cards_by_id", &w, move |w| Ok(w.cards_by_id(&ids, &have))).await
 }
 
 #[tauri::command]
@@ -380,14 +410,18 @@ pub async fn board_done_cards(w: W<'_>, limit: i64, before: String) -> R<DonePag
 #[tauri::command]
 #[specta::specta]
 pub async fn board_idle_report(w: W<'_>) -> R<IdleReport> {
+    crate::readwatch::here("board_idle_report", || {
     Ok(w.idle_report())
+    })
 }
 
 /// The person's notifications, newest first (card #377).
 #[tauri::command]
 #[specta::specta]
 pub async fn notifications_list(w: W<'_>) -> R<Vec<crate::notifications::Notification>> {
+    crate::readwatch::here("notifications_list", || {
     Ok(w.notifications())
+    })
 }
 
 /// Just these keys' notifications (card #1151).
@@ -397,7 +431,7 @@ pub async fn notifications_by_key(
     w: W<'_>,
     keys: Vec<String>,
 ) -> R<Vec<crate::notifications::Notification>> {
-    blocking(&w, move |w| Ok(w.notifications_by_key(&keys))).await
+    read_blocking("notifications_by_key", &w, move |w| Ok(w.notifications_by_key(&keys))).await
 }
 
 /// How many notifications the person hasn't read (card #377).
@@ -803,7 +837,9 @@ pub async fn wind_down_off(w: W<'_>) -> R<crate::wind_down::WindDownStatus> {
 #[tauri::command]
 #[specta::specta]
 pub async fn wind_down_status(w: W<'_>) -> R<crate::wind_down::WindDownStatus> {
+    crate::readwatch::here("wind_down_status", || {
     Ok(w.wind_down_status())
+    })
 }
 
 /// Stop on a Wind down row: cuts that agent's turn with the wind-down's steps.
@@ -920,14 +956,14 @@ pub async fn board_threads(w: W<'_>, board_id: String) -> R<Vec<crate::threads::
 #[tauri::command]
 #[specta::specta]
 pub async fn board_threads_all(w: W<'_>) -> R<Vec<crate::threads::ThreadSummary>> {
-    blocking(&w, move |w| Ok(w.threads_all())).await
+    read_blocking("board_threads_all", &w, move |w| Ok(w.threads_all())).await
 }
 
 /// Just these threads' rows (card #1136).
 #[tauri::command]
 #[specta::specta]
 pub async fn board_threads_by_id(w: W<'_>, ids: Vec<String>) -> R<crate::threads::ThreadsById> {
-    blocking(&w, move |w| Ok(w.threads_by_id(&ids))).await
+    read_blocking("board_threads_by_id", &w, move |w| Ok(w.threads_by_id(&ids))).await
 }
 
 /// The person has a thread open: what is in it now is read (card #719).
@@ -969,7 +1005,9 @@ pub async fn board_reopen(w: W<'_>, id: String) -> R<TaskResult> {
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_freshness(w: W<'_>) -> R<Vec<crate::freshness::LogFreshness>> {
+    crate::readwatch::here("sync_freshness", || {
     Ok(w.freshness())
+    })
 }
 
 // ---- BoardsService ---------------------------------------------------------------
@@ -977,7 +1015,9 @@ pub async fn sync_freshness(w: W<'_>) -> R<Vec<crate::freshness::LogFreshness>> 
 #[tauri::command]
 #[specta::specta]
 pub async fn boards_list(w: W<'_>) -> R<Vec<BoardSummary>> {
+    crate::readwatch::here("boards_list", || {
     Ok(w.boards_list())
+    })
 }
 
 /// Pins a board to the sidebar, or unpins it (card #135).
@@ -2150,7 +2190,9 @@ pub async fn agents_starts(w: W<'_>) -> R<AgentStartsView> {
 #[tauri::command]
 #[specta::specta]
 pub async fn agents_pause(w: W<'_>) -> R<AgentsPauseView> {
+    crate::readwatch::here("agents_pause", || {
     Ok(w.agents_pause())
+    })
 }
 
 /// The person turns Pause agents on or off for this device (their agents
@@ -2293,7 +2335,9 @@ pub async fn agents_attach(w: W<'_>, key: String, cols: u16, rows: u16) -> R<ter
 #[tauri::command]
 #[specta::specta]
 pub async fn desk_list(w: W<'_>) -> R<Vec<DeskView>> {
+    crate::readwatch::here("desk_list", || {
     Ok(w.desks())
+    })
 }
 
 /// The person sets up or changes a repo's merge desk.
@@ -2310,7 +2354,9 @@ pub async fn desk_set(w: W<'_>, settings: DeskSettings) -> R<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn talk_conversations(w: W<'_>, threads: bool) -> R<Vec<TalkConversation>> {
+    crate::readwatch::here("talk_conversations", || {
     w.talk_conversations(threads)
+    })
 }
 
 /// The rows of just `convs` (channel and DM ids, bare thread ids): what a
@@ -2322,7 +2368,9 @@ pub async fn talk_conversations_by_id(
     convs: Vec<String>,
     threads: bool,
 ) -> R<Vec<TalkConversation>> {
+    crate::readwatch::here("talk_conversations_by_id", || {
     w.talk_conversations_by_id(&convs, threads)
+    })
 }
 
 /// Up to `limit` posts before `before` (none: the newest), oldest first.
@@ -2334,7 +2382,9 @@ pub async fn talk_posts(
     before: Option<String>,
     limit: i64,
 ) -> R<Vec<TalkPost>> {
+    crate::readwatch::here("talk_posts", || {
     w.talk_posts(&conv_id, before.as_deref().filter(|b| !b.is_empty()), limit)
+    })
 }
 
 /// Posts as the person; returns the post's id (a thread's: the comment's).
@@ -2488,6 +2538,15 @@ fn window_log_line(line: &str) -> String {
 #[specta::specta]
 pub async fn window_log(line: String) -> R<()> {
     irori_core::log(&window_log_line(&line));
+    // The Core's side of the same minute (card #1234).
+    if line.starts_with("lists:") {
+        if let Some(l) = crate::readwatch::summary_line() {
+            irori_core::log(&l);
+        }
+        if let Some(l) = coord::lockwatch::summary_line(8) {
+            irori_core::log(&l);
+        }
+    }
     Ok(())
 }
 
@@ -2946,7 +3005,9 @@ pub async fn assistant_chat_update(
 #[tauri::command]
 #[specta::specta]
 pub async fn assistant_talk_cards(w: W<'_>) -> R<Vec<crate::assistant_chat::AssistantTalkCard>> {
+    crate::readwatch::here("assistant_talk_cards", || {
     Ok(w.assistant_talk_cards())
+    })
 }
 
 /// Let it answer: a tap on question `post` of `space`, from any device. The
