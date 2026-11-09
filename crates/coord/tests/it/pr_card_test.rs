@@ -117,8 +117,8 @@ fn an_agent_made_card_with_the_same_text_is_not_a_pr_card() {
             .unwrap();
     b.c.fold_live(&[ev]);
     sync(&a, &b);
-    // (p2's own person row is a PR card by its creator; B2b checks that the
-    // creator is the PR author's person, as coord knows no logins.)
+    // (p2's own person row is a PR card by its creator; which PR card
+    // stands turns on whose login the PR is: pr_card_standing_test.)
     assert_eq!(
         a.c.get_task("forged2").unwrap().pr_card.map(|c| c.author),
         Some("alice".into())
