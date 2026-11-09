@@ -73,6 +73,7 @@ fn job(turn: &str) -> ChatJob {
         files: Vec::new(),
         message: String::new(),
         session: 0,
+        system: String::new(),
     }
 }
 
@@ -306,4 +307,123 @@ fn a_watch_gets_the_turns_events() {
         &AssistantEvent::delta("Two cards are blocked.")
     );
     assert_eq!(late.last().unwrap(), &AssistantEvent::done());
+}
+
+/// A fake `claude` that records its arguments and the run dir's files, then
+/// prints `lines`.
+fn recording(dir: &Path, lines: &[String]) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let out = dir.join("out.txt");
+    std::fs::write(&out, lines.join("\n") + "\n").unwrap();
+    let p = dir.join("claude");
+    std::fs::write(
+        &p,
+        format!(
+            "#!/bin/sh\ncat >\"{d}/stdin.txt\"\nprintf '%s\\n' \"$@\" >\"{d}/args.txt\"\npwd >\"{d}/cwd.txt\"\ncat '{o}'\n",
+            d = dir.display(),
+            o = out.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    p
+}
+
+fn owner_ok_job(turn: &str) -> ChatJob {
+    ChatJob {
+        turn: turn.into(),
+        prompt: "Draft the answer to this question for your owner to read.\n\n<irori-data kind=\"question\">\nAsked by: Eve\n\nwho owns the lobby fix?\n</irori-data>\n".into(),
+        system: "You are Bob's Office Assistant. Draft the answer.".into(),
+        kind: ChatKind::OwnerOk,
+        cancel: Arc::new(AtomicBool::new(false)),
+        ..ChatJob::default()
+    }
+}
+
+/// Assistants talk card 8: the owner's-OK turn's run config names the
+/// owner's read tools one by one and none of `ASSISTANT_WRITE_TOOLS`, runs in
+/// a folder of its own with its own system prompt, never begins grants (a
+/// chat run's are untouched and the open set stays empty), posts no thread
+/// even for a reply that holds a whole draft, and stages no screen.
+#[test]
+fn the_owner_ok_turn_lists_read_tools_only_and_never_begins_grants() {
+    let r = Rig::new();
+    let d = tempfile::tempdir().unwrap();
+    let reply = "Sam owns it.\n<<thread>>\nFix the lobby.\n<</thread>>\n<<go #3>>";
+    let bin = recording(d.path(), &[delta(reply), SUCCESS.into()]);
+    r.core.set_assistant_home(r.core.device_id()).unwrap();
+
+    // A chat run in flight has grants; the owner's-OK turn leaves them alone.
+    let theirs = r
+        .core
+        .assistant_grants()
+        .begin(tools::grants_for("close #3", &[]));
+    let (runs, open) = (
+        r.core.assistant_grants().runs(),
+        r.core.assistant_grants().open_count(),
+    );
+    assert_eq!(open, 1);
+
+    let done =
+        r.w.chat_turn_with(Ok(bin), &owner_ok_job("ok:r1"), &|_| true);
+    assert_eq!(done.error, "", "{done:?}");
+    assert_eq!(
+        done.text, reply,
+        "markers are Core's to strip, not parsed here"
+    );
+    assert!(done.posted.is_none(), "no thread, however whole the draft");
+    assert!(done.changed.is_empty() && done.looked.is_none());
+    assert_eq!(r.core.assistant_grants().runs(), runs, "never begins");
+    assert_eq!(r.core.assistant_grants().open_count(), open, "untouched");
+    r.core.assistant_grants().end(theirs);
+
+    let args = std::fs::read_to_string(d.path().join("args.txt")).unwrap();
+    let args: Vec<&str> = args.lines().collect();
+    let at = args.iter().position(|a| *a == "--allowedTools").unwrap();
+    let allowed = args[at + 1];
+    let names: Vec<&str> = allowed.split(',').collect();
+    assert_eq!(names.len(), tools::ASSISTANT_TOOLS.len());
+    for t in tools::ASSISTANT_TOOLS {
+        assert!(names.contains(&format!("mcp__irori__{t}").as_str()), "{t}");
+    }
+    for w in tools::ASSISTANT_WRITE_TOOLS {
+        assert!(!allowed.contains(w), "{w} is among the allowed tools");
+    }
+    assert_ne!(allowed, "mcp__irori", "the whole server isn't allowed");
+    let dir = std::fs::read_to_string(d.path().join("cwd.txt")).unwrap();
+    assert!(dir.trim().ends_with("owner-ok"), "{dir}");
+    let sys = std::fs::read_to_string(std::path::Path::new(dir.trim()).join("system.md")).unwrap();
+    assert_eq!(sys, "You are Bob's Office Assistant. Draft the answer.");
+    // The fenced question went on stdin as plain text, not a stream.
+    let stdin = std::fs::read_to_string(d.path().join("stdin.txt")).unwrap();
+    assert!(stdin.contains("who owns the lobby fix?"), "{stdin}");
+    assert!(!args.contains(&"--input-format"), "{args:?}");
+}
+
+/// The owner's-OK turn ends at once on cancel, and a run cut off by Irori
+/// closing is `later`, with no reply to write.
+#[test]
+fn the_owner_ok_turn_stops_on_cancel_and_fails_in_plain_words() {
+    let r = Rig::new();
+    let d = tempfile::tempdir().unwrap();
+    let bin = fake(d.path(), &[delta("partial")], "exec sleep 30");
+    let job = owner_ok_job("ok:r2");
+    let cancel = job.cancel.clone();
+    let c = cancel.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        c.store(true, Ordering::SeqCst);
+    });
+    let t = Instant::now();
+    let done = r.w.chat_turn_with(Ok(bin), &job, &|_| true);
+    assert!(t.elapsed() < Duration::from_secs(10));
+    assert!(done.error.is_empty() && !done.later, "{done:?}");
+
+    // No claude: the words name the computer.
+    let done = r.w.chat_turn_with(
+        Err(irori_window::assistant::NO_CLAUDE.to_string()),
+        &owner_ok_job("ok:r3"),
+        &|_| true,
+    );
+    assert!(done.error.contains("couldn't answer"), "{done:?}");
 }

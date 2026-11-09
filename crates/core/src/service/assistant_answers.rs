@@ -145,6 +145,9 @@ pub(crate) struct Answering {
     rate: Mutex<HashMap<String, VecDeque<i64>>>,
     held: Mutex<Vec<Held>>,
     was_home: std::sync::atomic::AtomicBool,
+    /// Held while Send checks that no answer exists and posts it, so two
+    /// Sends on one computer can't both post (card 8).
+    send: Mutex<()>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -162,6 +165,11 @@ impl Services {
             self.assistant_scan();
             self.serve_answer_requests();
         }
+    }
+
+    /// Take it around "no answer yet" and the post of an owner's-OK Send.
+    pub(crate) fn asst_send_lock(&self) -> std::sync::MutexGuard<'_, ()> {
+        lock(&self.asst.send)
     }
 
     /// Sets the queue the answering worker reads.
@@ -491,7 +499,7 @@ impl Services {
     }
 
     /// Posts `text` in the question's channel as the assistant's card.
-    fn assistant_post(
+    pub(crate) fn assistant_post(
         &self,
         b: &BoardLog,
         card: &str,

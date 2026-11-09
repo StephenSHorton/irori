@@ -60,6 +60,7 @@ pub mod assistant_ask;
 pub mod assistant_chat;
 pub mod assistant_home;
 mod assistant_name;
+mod assistant_ok;
 pub mod assistant_packet;
 mod assistant_requests;
 mod assistant_turns;

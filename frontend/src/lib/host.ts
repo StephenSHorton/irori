@@ -813,6 +813,11 @@ export const AssistantService = {
   TalkCards: () => call(commands.assistantTalkCards()),
   AnswerRequest: (post: string, space: string, how: "let" | "draft") =>
     call(commands.assistantAnswerRequest(post, space, how)),
+  // Send posts exactly the owner's-OK draft's text as the assistant's card
+  // (from any device, once); Don't send closes the draft (card #1064).
+  AnswerSend: (request: string) => done(commands.assistantAnswerSend(request)),
+  AnswerDismiss: (request: string) =>
+    done(commands.assistantAnswerDismiss(request)),
   // Ask someone's assistant from the chat (card #1063): the ask a reply
   // drafted, as the host normalises it (posts nothing), and the tap on Send.
   AskPrepare: (person: string, space: string, text: string) =>

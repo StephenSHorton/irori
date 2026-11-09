@@ -6,6 +6,7 @@ import {
   capHistory,
   capKeeping,
   mergeLines,
+  openDraftPosts,
   quietKey,
   setTalkLines,
   failedLine,
@@ -1025,5 +1026,73 @@ describe("the dot and labelled lines (card #1062)", () => {
     expect(assistantState().unread).toBe(false)
     setTalkLines([fromLine("needs", 400), fromLine("answer", 500)])
     expect(assistantState().unread).toBe(true)
+  })
+})
+
+// ---- assistants talk, card 8: the owner's-OK draft -----------------------------
+
+const draftItem = (request: string, text: string, at = 5): Item =>
+  ({
+    cursor: `1.${at}.1.d`,
+    kind: "draft",
+    draft: {
+      request,
+      post: `post_${request}`,
+      space: "s1",
+      asker: "Eve",
+      text,
+      device: "d1",
+      at,
+    },
+  }) as Item
+
+const closeItem = (key: string, request: string, at = 9): Item =>
+  ({
+    cursor: `1.${at}.1.d`,
+    kind: "update",
+    update: { key, thread: "", text: "x", request, at, imported: false },
+  }) as Item
+
+describe("the owner's-OK draft (assistants-talk card 8)", () => {
+  test("a draft is its own entry, plain text in full, with Send open", () => {
+    const text = "Sam owns it.\nsee the doc (https://docs.example/d)"
+    const es = entriesFrom([draftItem("r1", text)])
+    expect(es).toHaveLength(1)
+    expect(es[0].text).toBe(text)
+    expect(es[0].ownerDraft).toEqual({
+      request: "r1",
+      post: "post_r1",
+      space: "s1",
+      asker: "Eve",
+      closed: "",
+    })
+    // Never a reply: nothing for the reply parser to read a go line from.
+    expect(es[0].turn).toBeUndefined()
+    expect(es[0].update).toBeUndefined()
+  })
+  test("the line that closes a draft closes it and is not shown", () => {
+    const es = entriesFrom([
+      closeItem("dismissed:r2", "r2", 12),
+      closeItem("sent:r1", "r1", 11),
+      draftItem("r2", "b", 6),
+      draftItem("r1", "a", 5),
+    ])
+    expect(es.map((e) => [e.id, e.ownerDraft?.closed])).toEqual([
+      ["d:r1", "sent"],
+      ["d:r2", "dismissed"],
+    ])
+  })
+  test("Answer this is back once a draft is dismissed, not while it is open", () => {
+    const es = entriesFrom([
+      closeItem("dismissed:r2", "r2", 12),
+      draftItem("r2", "b", 6),
+      draftItem("r1", "a", 5),
+    ])
+    expect([...openDraftPosts(es)]).toEqual(["post_r1"])
+  })
+  test("the closing lines wait on nobody", () => {
+    expect(quietKey("sent:r1")).toBe(true)
+    expect(quietKey("dismissed:r1")).toBe(true)
+    expect(quietKey("thread:abc")).toBe(false)
   })
 })

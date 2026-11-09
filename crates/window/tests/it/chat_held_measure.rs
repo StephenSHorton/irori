@@ -401,6 +401,7 @@ fn chat_held_measure() {
             tools: true,
             look: String::new(),
             no_settings: false,
+            read_only: false,
         };
         prepare(&j).unwrap();
         j
