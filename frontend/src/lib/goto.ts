@@ -126,12 +126,12 @@ export const settingSpots: SettingSpot[] = [
     label: "Transcribe what I say in huddles",
   },
   {
-    key: "app.huddleNotes",
+    key: "app.huddle-notes",
     section: "app",
     label: "Let my assistant add notes from what I say",
   },
   {
-    key: "app.huddleChair",
+    key: "app.huddle-chair",
     section: "app",
     label: "Let my assistant chair huddles I start",
   },

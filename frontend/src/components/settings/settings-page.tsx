@@ -561,7 +561,7 @@ function NamesSwitch() {
 function HuddleNotesSwitch() {
   return (
     <AssistantSwitch
-      setting="app.huddleNotes"
+      setting="app.huddle-notes"
       label="Let my assistant add notes from what I say"
       hint="In a huddle, your assistant turns what you say into questions, decisions and tasks on the canvas. Off, it adds none of its own; it still answers when you or someone calls it, and when a question matches your work. Applies on all your devices."
       loading="Loading huddle notes"
@@ -574,7 +574,7 @@ function HuddleNotesSwitch() {
 function HuddleChairSwitch() {
   return (
     <AssistantSwitch
-      setting="app.huddleChair"
+      setting="app.huddle-chair"
       label="Let my assistant chair huddles I start"
       hint="The chair writes the huddle's title and, at the end, its summary with the action items. Off, the next person's assistant chairs. Applies on all your devices."
       loading="Loading huddle chair"
