@@ -666,10 +666,10 @@ function AgentReviewStartsRow({ open }: { open: boolean }) {
         title="Start a reviewer on this machine when nobody else fits"
         hint={
           <>
-            Across all your computers. When a teammate's pull request has no
-            one to review it, Irori may start a read-only reviewer here, in a
-            repo you work in. It can comment and review but never merge, push or
-            run the code. Off, it asks you first. Agents can't change this.
+            Across all your computers. When a teammate's pull request has no one
+            to review it, Irori may start a read-only reviewer here, in a repo
+            you work in. It can comment and review but never merge, push or run
+            the code. Off, it asks you first. Agents can't change this.
             {error && <span className="text-destructive"> {error}</span>}
           </>
         }
