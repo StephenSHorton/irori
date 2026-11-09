@@ -802,24 +802,26 @@ fn a_given_card_write_needs_the_persons_own_grant_once() {
     rig.core.assistant_grants().end(run);
 
     // 7 and 8. A give is exactly its grant: no new tasks, no board, no
-    // other fields, exactly the named cards, to the named person.
+    // other fields, exactly the named cards, to the named person. A card
+    // given to the person is never passed on.
+    assert!(tools::grants_for(&format!("give {r} to Spencer"), &[], &snap).is_empty());
     let run = rig.core.assistant_grants().begin(tools::grants_for(
-        &format!("give {r} to Spencer"),
+        &format!("give {o} to Spencer"),
         &[],
         &snap,
     ));
     assert_eq!(rig.core.assistant_grants().open_count(), 1);
     for args in [
-        json!({ "to": "Spencer", "task_ids": [r], "tasks": [{ "title": "x", "objective": "y" }] }),
+        json!({ "to": "Spencer", "task_ids": [o], "tasks": [{ "title": "x", "objective": "y" }] }),
         json!({ "to": "Spencer", "tasks": [{ "title": "x", "objective": "y" }] }),
-        json!({ "to": "Spencer", "task_ids": [r], "board": "mlg" }),
-        json!({ "to": "Spencer", "task_ids": [r], "TO": "Ann" }),
-        json!({ "to": "Spencer", "task_ids": [r, o] }),
-        json!({ "to": "Spencer", "task_ids": [o] }),
+        json!({ "to": "Spencer", "task_ids": [o], "board": "mlg" }),
+        json!({ "to": "Spencer", "task_ids": [o], "TO": "Ann" }),
+        json!({ "to": "Spencer", "task_ids": [o, r] }),
+        json!({ "to": "Spencer", "task_ids": [r] }),
         json!({ "to": "Spencer", "task_ids": [] }),
         json!({ "to": "Spencer", "task_ids": [1] }),
-        json!({ "to": "Spencer", "task_ids": r }),
-        json!({ "to": "Ann", "task_ids": [r] }),
+        json!({ "to": "Spencer", "task_ids": o }),
+        json!({ "to": "Ann", "task_ids": [o] }),
     ] {
         let (code, text) = call(&rig, &h, tools::TOOL_GIVE, args.clone());
         assert_eq!(code, 403, "{args}: {text}");
@@ -835,7 +837,7 @@ fn a_given_card_write_needs_the_persons_own_grant_once() {
         &rig,
         &h,
         tools::TOOL_GIVE,
-        json!({ "to": "spencer", "task_ids": [r], "note": "the model's own words" }),
+        json!({ "to": "spencer", "task_ids": [o], "note": "the model's own words" }),
     );
     assert_eq!(code, 200, "{text}");
     assert!(!text.contains("the model's own words"), "{text}");
