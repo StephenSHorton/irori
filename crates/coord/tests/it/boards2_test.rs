@@ -673,6 +673,7 @@ fn a_review_request_reaches_the_other_persons_reviewer() {
                 to: CARD2.into(),
                 at,
                 wake: true,
+                look: false,
             })
             .unwrap(),
             sig: Vec::new(),
