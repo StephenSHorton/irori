@@ -46,6 +46,7 @@ import {
   startTalkFollow,
   type From,
 } from "./assistant-talk-follow"
+import { splitAsk, type AskDraft } from "./assistant-ask"
 import { AssistantService, Events } from "./host"
 import { onChange } from "./changes"
 import { EventDevicesChanged, inWails } from "./irori"
@@ -107,6 +108,30 @@ export type ChatEntry = {
   // The reply was stopped or failed before it ended, so a draft it never
   // closed is cut short (splitDraft's ended).
   cutOff?: boolean
+  // Assistants talk (card #1064): the owner's-OK draft of an answer to
+  // another person. It is a row of its own, never the assistant's chat
+  // words: shown in full as plain text, with Send and Don't send until it
+  // is sent or closed. `closed` says how it ended.
+  ownerDraft?: OwnerDraft
+}
+
+// openDraftPosts is the questions that have an owner's-OK draft still open.
+// Once the owner chose not to send one, Answer this is there to tap again.
+export function openDraftPosts(entries: readonly ChatEntry[]): Set<string> {
+  return new Set(
+    entries.flatMap((e) =>
+      e.ownerDraft && !e.ownerDraft.closed ? [e.ownerDraft.post] : []
+    )
+  )
+}
+
+export type OwnerDraft = {
+  request: string
+  post: string
+  space: string
+  // Who asked, as the space names them: what Send says.
+  asker: string
+  closed: "" | "sent" | "dismissed"
 }
 
 export type Posted = { id: string; short: string; tag?: string }
@@ -754,13 +779,41 @@ const STOPPED = "Stopped"
 // entriesFrom builds the shown conversation, oldest first, from the list's
 // items (newest first). A question with no reply is pending. Only the
 // person's questions and the assistant's replies, notes and follow-up lines
-// are entries; a drafted answer (assistants-talk) isn't shown here yet.
+// are entries, and so is an owner's-OK draft (assistants-talk, card #1064).
 export function entriesFrom(page: readonly AssistantChatItem[]): ChatEntry[] {
   const out: ChatEntry[] = []
+  // How each owner's-OK draft ended: the line that closes it comes after it
+  // in time, so it is in the page whenever the draft is.
+  const closed = new Map<string, "sent" | "dismissed">()
+  for (const it of page) {
+    const k = it.kind === "update" ? (it.update?.key ?? "") : ""
+    if (k.startsWith(SentKey)) closed.set(k.slice(SentKey.length), "sent")
+    else if (k.startsWith(DismissedKey))
+      closed.set(k.slice(DismissedKey.length), "dismissed")
+  }
   for (let i = page.length - 1; i >= 0; i--) {
     const it = page[i]
+    if (it.kind === "draft" && it.draft) {
+      const d = it.draft
+      out.push({
+        id: `d:${d.request}`,
+        role: "assistant",
+        text: d.text,
+        at: d.at,
+        ownerDraft: {
+          request: d.request,
+          post: d.post,
+          space: d.space,
+          asker: d.asker,
+          closed: closed.get(d.request) ?? "",
+        },
+      })
+      continue
+    }
     if (it.kind === "update" && it.update) {
       const u = it.update
+      // The line that closes a draft is shown on the draft itself.
+      if (u.key.startsWith(SentKey) || u.key.startsWith(DismissedKey)) continue
       const e: ChatEntry = {
         id: `u:${u.key}`,
         role: "assistant",
@@ -837,10 +890,20 @@ export function entriesFrom(page: readonly AssistantChatItem[]): ChatEntry[] {
   return out
 }
 
-// quietKey: a held line (held:<post>) or a tap's record (req:<request>)
-// shows in the chat but waits on nobody: no dot.
+// The keys of the lines that close an owner's-OK draft: Send writes
+// sent:<request>, Don't send dismissed:<request>.
+export const SentKey = "sent:"
+export const DismissedKey = "dismissed:"
+
+// quietKey: a held line (held:<post>), a tap's record (req:<request>) or the
+// line that closes a draft shows in the chat but waits on nobody: no dot.
 export function quietKey(key: string): boolean {
-  return key.startsWith("held:") || key.startsWith("req:")
+  return (
+    key.startsWith("held:") ||
+    key.startsWith("req:") ||
+    key.startsWith(SentKey) ||
+    key.startsWith(DismissedKey)
+  )
 }
 
 // mergeLines puts the labelled lines among the conversation's entries by
@@ -999,6 +1062,11 @@ function readSeen(): string | null {
 function newestUpdate(): string {
   let best = ""
   for (const it of items) {
+    // A draft waits on the owner to read and send it.
+    if (it.kind === "draft") {
+      if (!best || cursorAfter(it.cursor, best)) best = it.cursor
+      continue
+    }
     if (it.kind !== "update" || it.update?.imported) continue
     if (quietKey(it.update?.key ?? "")) continue
     if (!best || cursorAfter(it.cursor, best)) best = it.cursor
@@ -1345,11 +1413,22 @@ export function splitReply(
   go: GoTarget | null
   cards: CardDraft[]
   settle: SettleDraft | null
+  ask: AskDraft | null
 } {
-  const k = takeDrafts(raw)
+  // The ask block first (card #1063): a thread or go line inside the
+  // question is the question's words, never acted on.
+  const a = splitAsk(raw)
+  const k = takeDrafts(a.text)
   const d = splitDraft(k.text, !writing && !cutOff)
   const g = splitGo(d.text, writing)
-  return { ...d, text: g.text, go: g.go, cards: k.cards, settle: k.settle }
+  return {
+    ...d,
+    text: g.text,
+    go: g.go,
+    cards: k.cards,
+    settle: k.settle,
+    ask: a.ask,
+  }
 }
 
 // postDraft posts the draft of the reply at `turn` as a thread, as the

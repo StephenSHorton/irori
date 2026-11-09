@@ -71,11 +71,16 @@ struct Pending {
     took_ms: i64,
     /// A scan found it outside the newest five.
     skip: bool,
+    /// An owner's-OK draft (assistants-talk card 8): `turn` is
+    /// `ok:<request>`, there is no chat question behind it.
+    ok: Option<super::assistant_ok::OkAsk>,
 }
 
 /// The turn the worker is on.
 struct Running {
     turn: String,
+    /// An owner's-OK draft: a New chat doesn't end it.
+    ok: bool,
     /// Its question's place.
     at: Order,
     cancel: Arc<AtomicBool>,
@@ -230,6 +235,7 @@ pub(crate) fn chat_prompt(
     text: &str,
     note: Option<&str>,
     huddle: Option<&str>,
+    asks: Option<&str>,
 ) -> String {
     let skip = history.len().saturating_sub(HISTORY_TURNS);
     let turns: Vec<&(bool, String)> = history
@@ -241,6 +247,17 @@ pub(crate) fn chat_prompt(
     // A Divide turn (call-agents §9): the huddle goes in first, fenced.
     if let Some(h) = huddle {
         b.push_str(h.trim_end());
+        b.push_str(
+            "
+
+",
+        );
+    }
+    // Who the person can ask through their assistant (assistants-talk.md
+    // §9): taught here, in the Core-built prompt, on every question, so a
+    // held session learns of a change in who is there.
+    if let Some(a) = asks {
+        b.push_str(a.trim_end());
         b.push_str(
             "
 
@@ -305,7 +322,19 @@ impl Services {
                 self.republish_host();
             }
             self.chat_scan(Why::Install);
+            // Answer this taps that waited for the turn.
+            self.serve_answer_requests();
         }
+    }
+
+    /// The installed chat turn, if any.
+    pub(crate) fn chat_hook(&self) -> Option<ChatTurnFn> {
+        lock(&self.chat.hook).clone()
+    }
+
+    /// Tells the watchers of `turn` one event.
+    pub(crate) fn chat_stream_send(&self, turn: &str, ev: &ChatEvent) {
+        self.chat.stream_send(turn, ev);
     }
 
     /// Whether the chat turn is installed now: questions are queued.
@@ -347,7 +376,7 @@ impl Services {
             }
             CLEARED => {
                 let at = Order::of(ev);
-                self.chat_trip(|r| r.at < at);
+                self.chat_trip(|r| !r.ok && r.at < at);
             }
             _ => {}
         }
@@ -451,6 +480,7 @@ impl Services {
                     live: true,
                     took_ms: took,
                     skip: false,
+                    ok: None,
                 },
             );
         }
@@ -492,6 +522,7 @@ impl Services {
                         live: false,
                         took_ms: took,
                         skip: !answer.contains(turn.as_str()),
+                        ok: None,
                     },
                 );
                 added = true;
@@ -523,6 +554,7 @@ impl Services {
                     let cancel = Arc::new(AtomicBool::new(false));
                     q.running = Some(Running {
                         turn: p.turn.clone(),
+                        ok: p.ok.is_some(),
                         at,
                         cancel: cancel.clone(),
                     });
@@ -547,6 +579,31 @@ impl Services {
             drop(q);
             self.chat.stream_end(&p.turn);
         }
+    }
+
+    /// Queues an owner's-OK draft for the worker, in the place of the
+    /// tap's row, so it runs after the chat question before it and never
+    /// beside it. False when it is queued or running already.
+    pub(crate) fn chat_queue_ok(&self, at: Order, ok: super::assistant_ok::OkAsk) -> bool {
+        let turn = ok.turn();
+        {
+            let mut q = lock(&self.chat.q);
+            if !q.busy.insert(turn.clone()) {
+                return false;
+            }
+            q.pending.insert(
+                at,
+                Pending {
+                    turn,
+                    live: true,
+                    took_ms: self.now_ms(),
+                    skip: false,
+                    ok: Some(ok),
+                },
+            );
+        }
+        self.chat.kick.kick();
+        true
     }
 
     /// Whether the person has another device that isn't removed.
@@ -717,6 +774,9 @@ impl Services {
         if !self.chat_ready(cancel) {
             return;
         }
+        if let Some(ok) = &p.ok {
+            return self.owner_ok_take(&p.turn, ok, cancel);
+        }
         let Some(t) = self.assistant_chat.turn_at(&p.turn) else {
             return;
         };
@@ -772,9 +832,16 @@ impl Services {
         });
         // A held session gets the question alone, after what it hasn't
         // seen; a new one is seeded with the history (card 8).
+        let asks = self.ask_section();
         let (session, message, told) = self.chat_session_message(
             &t,
-            chat_prompt(&[], &turn.asked.text, note.as_deref(), huddle.as_deref()),
+            chat_prompt(
+                &[],
+                &turn.asked.text,
+                note.as_deref(),
+                huddle.as_deref(),
+                asks.as_deref(),
+            ),
         );
         let job = ChatJob {
             turn: p.turn.clone(),
@@ -783,6 +850,7 @@ impl Services {
                 &turn.asked.text,
                 note.as_deref(),
                 huddle.as_deref(),
+                asks.as_deref(),
             ),
             screen: turn.asked.screen.clone(),
             grants,
@@ -791,6 +859,7 @@ impl Services {
             files: turn.asked.files.clone(),
             message,
             session,
+            system: String::new(),
         };
         let c = cancel.clone();
         let turn_id = p.turn.clone();
@@ -838,10 +907,10 @@ mod tests {
 
     #[test]
     fn the_prompt_is_the_last_twelve_turns_then_the_question() {
-        assert_eq!(chat_prompt(&[], "hi", None, None), "The person: hi\n");
+        assert_eq!(chat_prompt(&[], "hi", None, None, None), "The person: hi\n");
         let history: Vec<(bool, String)> =
             (0..20).map(|i| (i % 2 == 1, format!("turn {i}"))).collect();
-        let p = chat_prompt(&history, "what's blocked?", None, None);
+        let p = chat_prompt(&history, "what's blocked?", None, None, None);
         assert!(p.starts_with("The conversation so far:\n\n"));
         assert!(!p.contains("turn 7\n"));
         assert!(p.contains("The person: turn 8\n"));
@@ -852,8 +921,38 @@ mod tests {
     }
 
     #[test]
+    fn the_ask_section_comes_before_the_conversation() {
+        let history = [(false, "hi".to_string()), (true, "hello".to_string())];
+        let p = chat_prompt(
+            &history,
+            "ask Bob",
+            None,
+            None,
+            Some(
+                "ASK SECTION
+",
+            ),
+        );
+        assert!(p.starts_with(
+            "ASK SECTION
+
+The conversation so far:"
+        ));
+        assert!(p.ends_with(
+            "The person: ask Bob
+"
+        ));
+    }
+
+    #[test]
     fn a_late_question_carries_its_note_after_it() {
-        let p = chat_prompt(&[], "close #12", Some("(Asked on Phone at 14:02; …)"), None);
+        let p = chat_prompt(
+            &[],
+            "close #12",
+            Some("(Asked on Phone at 14:02; …)"),
+            None,
+            None,
+        );
         assert_eq!(p, "The person: close #12\n(Asked on Phone at 14:02; …)\n");
     }
 
@@ -870,6 +969,7 @@ x
 </irori-data>
 ",
             ),
+            None,
         );
         assert!(p.starts_with("<irori-data>"));
         assert!(p.find("</irori-data>") < p.find("The conversation so far"));

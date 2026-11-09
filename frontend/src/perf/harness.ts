@@ -220,10 +220,11 @@ function answer(cmd: string, args: Record<string, unknown>): unknown {
               : { id: card.id, card, error: "", rev, unchanged: false }
           })
     }
+    case "talk_conversations_by_id":
     case "talk_conversations": {
       // One conversation a talk:changed edits, so a reload shows a change.
       const c = zero(
-        returns.get(cmd)?.replace(/\[\]$/, "") ?? "null"
+        returns.get("talk_conversations")?.replace(/\[\]$/, "") ?? "null"
       ) as Record<string, unknown> | null
       return c ? [{ ...c, id: "conv1", name: `general (${talkGen})` }] : []
     }

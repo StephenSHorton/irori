@@ -103,6 +103,8 @@ pub struct AssistantChatDraft {
     pub request: String,
     pub post: String,
     pub space: String,
+    /// Who asked, as the space names them.
+    pub asker: String,
     pub text: String,
     pub device: String,
     pub at: i64,
@@ -212,6 +214,7 @@ fn item(i: chat::ChatItem) -> AssistantChatItem {
                 request: d.request,
                 post: d.post,
                 space: d.space,
+                asker: d.asker,
                 text: d.text,
                 device: d.device,
                 at: d.at,
@@ -423,7 +426,66 @@ pub struct AssistantTalkCard {
     pub owner: String,
 }
 
+/// An ask as the chat shows it (assistants-talk.md §9): where it goes and
+/// the exact text a tap posts.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantAskPrepared {
+    pub space: String,
+    pub space_name: String,
+    pub person: String,
+    pub name: String,
+    /// The normalised text: what Send posts, character for character.
+    pub text: String,
+    /// Why it can't be sent, "" when it can.
+    pub held: String,
+}
+
+/// What a tap on Send posted.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantAskSent {
+    pub post_id: String,
+    pub conv: String,
+    pub space: String,
+    pub text: String,
+}
+
 impl Window {
+    /// The ask a marker names, ready to show.
+    pub fn assistant_ask_prepare(
+        &self,
+        person: &str,
+        space: &str,
+        text: &str,
+    ) -> Result<AssistantAskPrepared, String> {
+        let p = self.core.assistant_ask_prepare(person, space, text)?;
+        Ok(AssistantAskPrepared {
+            space: p.space,
+            space_name: p.space_name,
+            person: p.person,
+            name: p.name,
+            text: p.text,
+            held: p.held,
+        })
+    }
+
+    /// The tap on Send: posts the ask as the person's assistant card.
+    pub fn assistant_ask_send(
+        &self,
+        space: &str,
+        person: &str,
+        text: &str,
+    ) -> Result<AssistantAskSent, String> {
+        let s = self.core.assistant_ask_send(space, person, text)?;
+        Ok(AssistantAskSent {
+            post_id: s.post_id,
+            conv: s.conv,
+            space: s.space,
+            text: s.text,
+        })
+    }
+
     /// The spaces where this person has an assistant, with its card and
     /// channel.
     pub fn assistant_talk_cards(&self) -> Vec<AssistantTalkCard> {
@@ -449,6 +511,18 @@ impl Window {
         how: &str,
     ) -> Result<String, String> {
         self.core.assistant_answer_request(post, space, how)
+    }
+
+    /// Send on an owner's-OK draft (assistants-talk card 8): posts exactly
+    /// its normalised text as the assistant's card, from this device or any
+    /// other. Refused once an answer exists.
+    pub fn assistant_answer_send(&self, request: &str) -> Result<(), String> {
+        self.core.assistant_answer_send(request)
+    }
+
+    /// Don't send: closes the draft of `request` on every device.
+    pub fn assistant_answer_dismiss(&self, request: &str) -> Result<(), String> {
+        self.core.assistant_answer_dismiss(request)
     }
 
     /// The toast for a line that waits on the person; a click opens the

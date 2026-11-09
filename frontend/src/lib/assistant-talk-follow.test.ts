@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
 
 import {
+  answerThis,
   buildLines,
+  dismissDraft,
   forgetAsking,
   isAsking,
   letItAnswer,
+  sendDraft,
   toastsFor,
   type Channel,
   type TalkCard,
@@ -157,6 +160,34 @@ describe("Let it answer", () => {
     const f = { postId: "q", space: "s1" }
     expect(await letItAnswer(f)).toBe("no assistant here")
     expect(isAsking("q")).toBe(false)
+  })
+})
+
+describe("Answer this and the owner's-OK draft (card 8)", () => {
+  beforeEach(() => forgetAsking())
+  test("Answer this is its own tap, a draft request", async () => {
+    const req = spyOn(AssistantService, "AnswerRequest").mockResolvedValue("r1")
+    const f = { postId: "p", space: "s1" }
+    expect(await answerThis(f)).toBe("")
+    expect(req).toHaveBeenCalledWith("p", "s1", "draft")
+    expect(isAsking("p", Date.now(), "draft")).toBe(true)
+    // Let it answer on the same question is a different tap.
+    expect(isAsking("p")).toBe(false)
+    expect(await answerThis(f)).toBe("")
+    expect(req).toHaveBeenCalledTimes(1)
+    req.mockRestore()
+  })
+  test("Send and Don't send go to the host by the draft's request", async () => {
+    const send = spyOn(AssistantService, "AnswerSend").mockResolvedValue()
+    const no = spyOn(AssistantService, "AnswerDismiss").mockResolvedValue()
+    expect(await sendDraft("r1")).toBe("")
+    expect(send).toHaveBeenCalledWith("r1")
+    expect(await dismissDraft("r1")).toBe("")
+    expect(no).toHaveBeenCalledWith("r1")
+    send.mockRejectedValueOnce(new Error("That question is answered already."))
+    expect(await sendDraft("r1")).toBe("That question is answered already.")
+    send.mockRestore()
+    no.mockRestore()
   })
 })
 

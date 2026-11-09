@@ -39,6 +39,8 @@ import {
 import { AgentCards } from "@/components/cards/agent-hover"
 import { RichText } from "@/components/common/rich-text"
 import { FromLine } from "./from-line"
+import { OwnerDraftLine } from "./owner-draft"
+import { AskDraftCard } from "./ask-draft"
 import { go as goSection } from "@/lib/nav"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Button } from "@/components/ui/button"
@@ -66,6 +68,7 @@ import {
   setAssistantOpen,
   setHome,
   splitReply,
+  openDraftPosts,
   startFollowing,
   stopTurn,
   subscribeAssistant,
@@ -517,6 +520,8 @@ export function AssistantPanel({
     if (at !== null) input.current?.setSelectionRange(at, at)
   }, [text])
   const end = useRef<HTMLDivElement>(null)
+  // Answer this is hidden while the question has an open draft.
+  const draftedPosts = openDraftPosts(entries)
   const firstPending = entries.find((e) => e.pending)?.turn
   useEffect(() => {
     input.current?.focus({ preventScroll: true })
@@ -727,6 +732,7 @@ export function AssistantPanel({
               <Fragment key={e.id ?? entryKey(e)}>
                 <Entry
                   entry={e}
+                  drafted={draftedPosts.has(e.from?.postId ?? "")}
                   onTalk={(conv) => {
                     if (narrow) onClose()
                     goSection({ kind: "talk", id: conv })
@@ -909,6 +915,7 @@ function Starters({
 
 function Entry({
   entry,
+  drafted,
   onGo,
   work,
   onPost,
@@ -918,6 +925,8 @@ function Entry({
   onTalk,
 }: {
   entry: ChatEntry
+  // The owner's-OK draft for this line's question is shown (card #1064).
+  drafted: boolean
   // Open in Talk, on a labelled line (card #1062).
   onTalk: (conv: string) => void
   // Its draft is being posted by a tap.
@@ -960,7 +969,9 @@ function Entry({
       </Message>
     )
   // Someone else's words: before anything that parses a reply.
-  if (entry.from) return <FromLine entry={entry} onTalk={onTalk} />
+  if (entry.from)
+    return <FromLine entry={entry} onTalk={onTalk} drafted={drafted} />
+  if (entry.ownerDraft) return <OwnerDraftLine entry={entry} />
   if (entry.update) return <Update entry={entry} />
   if (entry.changed)
     return (
@@ -989,7 +1000,7 @@ function Entry({
   // A draft cut short (Stopped, or a failure before it closed) shows with
   // no Post thread: it isn't the whole thread. A reply that ended by itself
   // without closing it has the whole draft.
-  const { text, draft, partial, go, cards, settle } = splitReply(
+  const { text, draft, partial, go, cards, settle, ask } = splitReply(
     entry.text,
     false,
     entry.cutOff
@@ -1002,6 +1013,12 @@ function Entry({
           <DivideDrafts cards={cards} settle={settle} />
         )}
         {go && <GoButton target={go} onGo={onGo} />}
+        {ask && (
+          <AskDraftCard
+            key={`${ask.person}|${ask.space}|${ask.text}`}
+            ask={entry.cutOff ? { ...ask, partial: true } : ask}
+          />
+        )}
         {entry.looked && <LookedAt label={entry.looked} />}
         {draft && (
           <DraftThread
@@ -1324,12 +1341,18 @@ function Waiting({
 // Answering is the reply being written: what it looks at now, then the
 // words so far, and a thread it is drafting (posted only once it's done).
 function Answering({ reply }: { reply: Reply }) {
-  const { text, draft, partial } = splitReply(reply.text, true)
+  const { text, draft, partial, ask } = splitReply(reply.text, true)
   // A Divide reply's blocks are cut from the text as they are written.
   const drafting = takeDrafts(reply.text).partial
   const status =
     reply.status ||
-    (drafting ? "Drafting cards" : partial ? "Drafting a thread" : "")
+    (drafting
+      ? "Drafting cards"
+      : partial
+        ? "Drafting a thread"
+        : ask
+          ? "Drafting a question"
+          : "")
   return (
     <Message>
       <MessageContent className="gap-1.5 text-[13.5px] leading-relaxed">

@@ -390,6 +390,16 @@ pub async fn notifications_list(w: W<'_>) -> R<Vec<crate::notifications::Notific
     Ok(w.notifications())
 }
 
+/// Just these keys' notifications (card #1151).
+#[tauri::command]
+#[specta::specta]
+pub async fn notifications_by_key(
+    w: W<'_>,
+    keys: Vec<String>,
+) -> R<Vec<crate::notifications::Notification>> {
+    blocking(&w, move |w| Ok(w.notifications_by_key(&keys))).await
+}
+
 /// How many notifications the person hasn't read (card #377).
 #[tauri::command]
 #[specta::specta]
@@ -2266,11 +2276,24 @@ pub async fn desk_set(w: W<'_>, settings: DeskSettings) -> R<()> {
 
 // ---- talk (card #389) -----------------------------------------------------
 
-/// Talk's list: channels, DMs and open threads, with unread counts.
+/// Talk's list: channels and DMs, with unread counts, and the open threads
+/// when `threads` (Talk's own list leaves them out, card #1150).
 #[tauri::command]
 #[specta::specta]
-pub async fn talk_conversations(w: W<'_>) -> R<Vec<TalkConversation>> {
-    w.talk_conversations()
+pub async fn talk_conversations(w: W<'_>, threads: bool) -> R<Vec<TalkConversation>> {
+    w.talk_conversations(threads)
+}
+
+/// The rows of just `convs` (channel and DM ids, bare thread ids): what a
+/// `talk:changed` named. One with no row is left out, so it is gone.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_conversations_by_id(
+    w: W<'_>,
+    convs: Vec<String>,
+    threads: bool,
+) -> R<Vec<TalkConversation>> {
+    w.talk_conversations_by_id(&convs, threads)
 }
 
 /// Up to `limit` posts before `before` (none: the newest), oldest first.
@@ -2494,6 +2517,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_cards_in,
             board_idle_report,
             notifications_list,
+            notifications_by_key,
             notifications_unread,
             notifications_read,
             notifications_answer_ask,
@@ -2694,6 +2718,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             share_keyframe,
             share_note_seen,
             talk_conversations,
+            talk_conversations_by_id,
             talk_posts,
             talk_post,
             talk_post_with_files,
@@ -2758,6 +2783,10 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_chat_import,
             assistant_talk_cards,
             assistant_answer_request,
+            assistant_answer_send,
+            assistant_answer_dismiss,
+            assistant_ask_prepare,
+            assistant_ask_send,
             assistant_talk_toast,
             assistant_chat_watch,
         ])
@@ -2900,6 +2929,48 @@ pub async fn assistant_answer_request(
     how: String,
 ) -> R<String> {
     blocking(&w, move |w| w.assistant_answer_request(&post, &space, &how)).await
+}
+
+/// Send on an owner's-OK draft (assistants-talk card 8), from any device:
+/// posts exactly the draft's normalised text as the assistant's card. Refused
+/// once an answer to the question exists.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_answer_send(w: W<'_>, request: String) -> R<()> {
+    blocking(&w, move |w| w.assistant_answer_send(&request)).await
+}
+
+/// Don't send: closes an owner's-OK draft on every device.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_answer_dismiss(w: W<'_>, request: String) -> R<()> {
+    blocking(&w, move |w| w.assistant_answer_dismiss(&request)).await
+}
+
+/// An ask the chat's reply drafted (assistants-talk.md §9): its target and
+/// the exact normalised text a tap on Send posts. Posts nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_ask_prepare(
+    w: W<'_>,
+    person: String,
+    space: String,
+    text: String,
+) -> R<crate::assistant_chat::AssistantAskPrepared> {
+    blocking(&w, move |w| w.assistant_ask_prepare(&person, &space, &text)).await
+}
+
+/// The tap on Send: posts the ask as the person's assistant card, after the
+/// scrub. The only way an ask is posted.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_ask_send(
+    w: W<'_>,
+    space: String,
+    person: String,
+    text: String,
+) -> R<crate::assistant_chat::AssistantAskSent> {
+    blocking(&w, move |w| w.assistant_ask_send(&space, &person, &text)).await
 }
 
 /// One toast for a chat line that waits on the person; a click opens the

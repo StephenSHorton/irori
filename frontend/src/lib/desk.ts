@@ -13,6 +13,7 @@ import { sameAs } from "@/lib/talk"
 
 import { DeskService } from "./host"
 import { onChange } from "./changes"
+import { deskWakes, Follows } from "./small-lists"
 import { timedRead } from "./window-log"
 import { inWails, parseTime } from "./irori"
 import type { DeskView } from "./models"
@@ -476,6 +477,15 @@ listeners.add(() => {
 
 const shownDesks: { current: string | null } = { current: null }
 
+// verdictCards are the cards the desks show a verdict from: each PR's
+// author card.
+function verdictCards(): Set<string> {
+  const out = new Set<string>()
+  for (const d of snapshot)
+    for (const a of Object.values(d.authors ?? {})) if (a.card) out.add(a.card)
+  return out
+}
+
 // refresh reads every desk from the window again.
 function refresh(): void {
   if (!inWails()) return
@@ -513,7 +523,15 @@ function subscribe(fn: () => void): () => void {
   listeners.add(fn)
   if (inWails() && !stopHost) {
     refresh()
-    const off = onChange("board:changed", () => refresh())
+    // A desk row, or a card in a desk's verdicts (a PR's author card):
+    // nothing else on the board shows in a desk (card #1152).
+    const off = onChange(
+      "board:changed",
+      (n) => {
+        if (deskWakes(n, verdictCards())) refresh()
+      },
+      { follow: Follows.desk }
+    )
     const id = window.setInterval(refresh, RefreshMs)
     stopHost = () => {
       off()
