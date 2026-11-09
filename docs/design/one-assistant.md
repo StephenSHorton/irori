@@ -257,6 +257,17 @@ The five cap is only for the scan, where the computer really was away or behind.
 
 **When the run fails.** `NO_CLAUDE`, `TOO_LONG`, a signed-out Claude Code, a usage limit, or any other error goes in the `said` row's `error`, in today's words plus the computer's name: "Claude Code on Mac couldn't answer: …". For a signed-out Claude Code: "… it isn't signed in. Run `claude` in a terminal on Mac to sign in." Every device shows it, with **Ask again** (§6).
 
+**As built (#1103).** Where card 3 differs from, or adds to, the text above:
+
+- The hook's type is `ChatTurnFn` (`ChatTurn` is the fold's turn). `ChatEvent`, `ChatJob` and `ChatDone` keep their names, in `assistant_chat.rs`. The worker is `crates/core/src/service/assistant_turns.rs`; the window's closure is `crates/window/src/assistant_turn.rs`.
+- **Caught up, and folded.** After `caught_up()`, the worker also waits until the kind loop has folded every row the store holds. The kind loop keeps each writer's newest seq, which must cover `store.vector()`. `caught_up()` only says the rows are in the store, not that the cached home and conversation have applied them. After 5 s it reads the rows again itself. In the first 20 s after a start, "nothing connected" counts as caught up only when the person has no other device: no session yet isn't the same as none to have.
+- A Stop or New chat also ends the caught-up wait at once, so its "Stopped" comes without delay. The wait has no cap.
+- **"Stopped"** is `assistant_chat::STOPPED`, exactly "Stopped" (the failure words never wrap it).
+- **Quitting isn't Stop.** A turn cut off by Irori closing, or a run the window says it never ran (`ChatDone.later`), gets no `said` row, so the next start's scan answers it. The exception is a run that already changed something: its row says what changed, with "Stopped".
+- **`assistantChat`** stays true for the rest of the run once the hook was installed. Taking the hook away at quit doesn't republish, so the other devices go on to say "isn't connected", not "needs the latest Irori".
+- A failed auto-post leaves the draft with Post thread (card 4 shows it). Nothing logs it, since the window crate has no log.
+- `Node::skew(dev)` gives the asking device's skew. `Core::assistant_chat_ask`, `assistant_chat_stop` and `assistant_chat_turn` back the `assistant_chat_ask`, `assistant_chat_stop` and `assistant_chat_watch` commands, wrapped in `host.ts` as `AssistantService.ChatAsk`, `ChatStop` and `ChatWatch`.
+
 ### Markers
 
 - **`<<thread>>` drafts.** The reply row carries the reply text, markers included, and every device renders the draft as today. **Post thread** (a check-first draft) works on any device. It starts the thread from that device, then appends `assistant.chat.posted`, and every device hides the button once a `posted` exists. Two taps on two devices within the second it takes rows to cross would start two threads. Accepted: it needs two taps at once.
