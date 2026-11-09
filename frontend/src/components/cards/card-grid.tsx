@@ -1,4 +1,5 @@
 import { follows, laterOf } from "@/lib/later"
+import { Ago } from "@/components/common/ago"
 import { LayersIcon, PinIcon, UserIcon } from "lucide-react"
 import {
   useContext,
@@ -30,7 +31,7 @@ import {
   type DoneState,
 } from "@/lib/cards"
 import { LiveRoster } from "@/lib/thread"
-import { plainLine, relativeTime } from "@/lib/irori"
+import { plainLine } from "@/lib/irori"
 import { TaskState } from "@/lib/models"
 import { ownedBy, ownerFilter, type OwnerMember } from "@/lib/owners"
 import { presenceLine, type SummaryMember } from "@/lib/boards"
@@ -291,7 +292,6 @@ export function MemberBar({
   filter,
   onFilter,
   members,
-  now,
 }: {
   filter: Filter
   onFilter: (f: Filter) => void
@@ -299,7 +299,6 @@ export function MemberBar({
     Partial<
       Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">
     >)[]
-  now: Date
 }) {
   if (members.length < 2) return null
   const ordered = [...members].sort((a, b) => Number(b.me) - Number(a.me))
@@ -324,7 +323,7 @@ export function MemberBar({
                 ? "Your cards: made by you or your agents"
                 : `${name}'s cards: made by them or their agents`) +
               (m.presence
-                ? `\n${m.me ? "You" : name}: ${presenceLine(withPresence(m), now)}`
+                ? `\n${m.me ? "You" : name}: ${presenceLine(withPresence(m), new Date())}`
                 : "")
             }
           >
@@ -332,7 +331,7 @@ export function MemberBar({
               <UserIcon aria-hidden className="size-3.5 opacity-70" />
               {m.presence && (
                 <span
-                  aria-label={presenceLine(withPresence(m), now)}
+                  aria-label={presenceLine(withPresence(m), new Date())}
                   className={cn(
                     "absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full ring-1 ring-background",
                     stateDot(m.presence === "online" ? "connected" : m.presence)
@@ -369,7 +368,6 @@ export function CardGrid({
   cards,
   selected,
   onSelect,
-  now,
   context,
   label = "Shared work",
   onMove,
@@ -381,7 +379,6 @@ export function CardGrid({
   // selected one.
   picked?: Set<string>
   onSelect: (id: string) => void
-  now?: Date
   // context: cards shown only because a subtask of theirs matched the
   // filter; they show dimmed.
   context?: Set<string>
@@ -440,7 +437,7 @@ export function CardGrid({
         card={c}
         selected={picked ? picked.has(c.id) : c.id === selected}
         onSelect={() => onSelect(c.id)}
-        now={now}
+
         dim={context?.has(c.id) ?? false}
       />
     </div>
@@ -513,13 +510,11 @@ function CardTile({
   card,
   selected,
   onSelect,
-  now,
   dim,
 }: {
   card: CardSummary
   selected: boolean
   onSelect: () => void
-  now?: Date
   dim: boolean
 }) {
   const live = useContext(LiveRoster)
@@ -703,14 +698,14 @@ function CardTile({
             <span>watching</span>
           </>
         )}
-        {closed && now && (
+        {closed && (
           // The card's last change, which is most often its close but
           // not always (a link added after), so it says "updated".
           <span
             className="ml-auto tabular-nums"
             title={`Last changed ${new Date(card.updatedAt as string).toLocaleString()}`}
           >
-            updated {relativeTime(new Date(card.updatedAt as string), now)}
+            updated <Ago at={new Date(card.updatedAt as string)} />
           </span>
         )}
       </span>
@@ -762,7 +757,6 @@ type DoneProps = {
   query?: string
   selected: string
   onSelect: (id: string) => void
-  now: Date
   // byAge: offer clearing by age here, within this scope ("" all, "own"
   // Home's, else a board id; card #138).
   byAge?: string
@@ -774,7 +768,6 @@ function DoneBody({
   query = "",
   selected,
   onSelect,
-  now,
   byAge,
 }: DoneProps) {
   const done = { ...all, cards: matching(all.cards, query) }
@@ -884,7 +877,6 @@ function DoneBody({
         selected={selected}
         onSelect={picking ? pick : onSelect}
         picked={picking ? picked : undefined}
-        now={now}
       />
       {done.more && (
         <Button

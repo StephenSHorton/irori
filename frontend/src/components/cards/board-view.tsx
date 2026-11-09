@@ -170,7 +170,6 @@ export function BoardView({
   onQuery,
   selected,
   onOpen,
-  now,
   header,
   notice,
   empty,
@@ -194,7 +193,6 @@ export function BoardView({
   onQuery: (q: string) => void
   selected: string
   onOpen: (id: string) => void
-  now: Date
   // header is the box above the board (Ask about anything…).
   header?: ReactNode
   // notice sits under the filters (Home: a board's decisions waiting).
@@ -282,7 +280,7 @@ export function BoardView({
       open={threads.open}
       onOpen={threads.onOpen}
       onHide={() => threads.onHide(true)}
-      now={now}
+
       why={threads.why}
     />
   )
@@ -307,7 +305,7 @@ export function BoardView({
               open={threads.open}
               onOpen={threads.onOpen}
               onHide={() => setSheet(false)}
-              now={now}
+
               why={threads.why}
             />
           </div>
@@ -330,7 +328,7 @@ export function BoardView({
             open={threads.open}
             onOpen={threads.onOpen}
             onHide={() => threads.onHide(true)}
-            now={now}
+
             why={threads.why}
           />
         </div>
@@ -409,7 +407,6 @@ export function BoardView({
                 filter={active}
                 onFilter={onFilter}
                 members={members}
-                now={now}
               />
             )}
             {rowBoards && (
@@ -465,7 +462,6 @@ export function BoardView({
               query={query}
               selected={selected}
               onSelect={onOpen}
-              now={now}
             />
           ) : view === "canvas" ? (
             // The canvas is the whole map (card #587): a card the lead

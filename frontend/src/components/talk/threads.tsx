@@ -141,12 +141,10 @@ export function ThreadCards({ cards }: { cards: ThreadCard[] }) {
 // in view and nothing passes under it (card #564).
 export function ThreadView({
   t,
-  now,
   onResolved,
   bound,
 }: {
   t: ThreadSummary
-  now: Date
   onResolved: () => void
   // Classes that bound its height (a max-h) where the parent doesn't, as
   // Talk's pane does: everything but the messages keeps its height.
@@ -217,7 +215,7 @@ export function ThreadView({
       <Thread
         cardId={t.id}
         items={items}
-        now={now}
+
         on={{
           agents: [
             ...(t.openedBy ? [t.openedBy] : []),

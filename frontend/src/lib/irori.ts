@@ -160,16 +160,9 @@ export function useRoster(): Roster {
   return state
 }
 
-// useNow returns the current time, re-rendering every intervalMs so relative
-// times tick.
-export function useNow(intervalMs = 1000): Date {
-  const [now, setNow] = useState(() => new Date())
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), intervalMs)
-    return () => window.clearInterval(id)
-  }, [intervalMs])
-  return now
-}
+// useNow lives in ./clock (card #1137): one shared tick, and a component
+// re-renders only when its own interval turns over.
+export { useNow } from "./clock"
 
 // parseTime reads a Go time.Time from JSON. Go's zero time and anything
 // unparseable come back as null.

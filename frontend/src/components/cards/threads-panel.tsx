@@ -3,6 +3,7 @@
 // here until Spaces (Talk 4) bring them into Talk. The thread pieces it
 // shows live in components/talk/threads.
 
+import { Ago } from "@/components/common/ago"
 import { cardRef } from "@/components/cards/bits"
 import { useEffect, useRef, useState } from "react"
 import { ChevronDownIcon, ChevronRightIcon, XIcon } from "lucide-react"
@@ -19,7 +20,7 @@ import {
   stateLine,
 } from "@/components/talk/threads"
 import { type ThreadSummary } from "@/lib/cards"
-import { parseTime, relativeTime, plainLine } from "@/lib/irori"
+import { parseTime, plainLine } from "@/lib/irori"
 
 // The board's conversations with the room, open ones on top (the one
 // they're in unfolded), resolved ones folded under "Resolved".
@@ -28,7 +29,6 @@ export function ThreadsPanel({
   open,
   onOpen,
   onHide,
-  now,
   why = "",
 }: {
   threads: ThreadSummary[]
@@ -39,7 +39,6 @@ export function ThreadsPanel({
   open: string
   onOpen: (id: string) => void
   onHide: () => void
-  now: Date
 }) {
   const [showResolvedPick, setShowResolved] = useState(false)
   // A resolved thread opened from a #ref (card #144) unfolds its list.
@@ -78,7 +77,7 @@ export function ThreadsPanel({
           open={open === t.id}
           onToggle={() => onOpen(open === t.id ? "" : t.id)}
           onResolved={() => onOpen(openAfterResolve(open, t.id))}
-          now={now}
+
           why={why}
         />
       ))}
@@ -109,7 +108,7 @@ export function ThreadsPanel({
                 open={open === t.id}
                 onToggle={() => onOpen(open === t.id ? "" : t.id)}
                 onResolved={() => onOpen(openAfterResolve(open, t.id))}
-                now={now}
+
                 why={why}
               />
             ))}
@@ -124,14 +123,12 @@ function ThreadRow({
   open,
   onToggle,
   onResolved,
-  now,
   why,
 }: {
   t: ThreadSummary
   open: boolean
   onToggle: () => void
   onResolved: () => void
-  now: Date
   why: string
 }) {
   // Opened from elsewhere (a #ref, card #144), it scrolls into view. It
@@ -206,7 +203,7 @@ function ThreadRow({
             className="shrink-0 text-[11px] text-muted-foreground tabular-nums"
             dateTime={at?.toISOString()}
           >
-            {relativeTime(at, now)}
+            <Ago at={at} />
           </time>
         </span>
         {!open && (
@@ -225,7 +222,7 @@ function ThreadRow({
       {open && (
         <ThreadView
           t={t}
-          now={now}
+
           onResolved={onResolved}
           bound={PanelThreadBound}
         />

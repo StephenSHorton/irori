@@ -17,6 +17,7 @@ import {
   whoCanRead,
   type TalkTranscript,
 } from "@/lib/call"
+import { useToday } from "@/lib/clock"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import { dayLabel } from "./conversation"
@@ -82,19 +83,18 @@ function Frame({
 // lines with who said each and when.
 export function TranscriptView({
   t,
-  now,
   wide,
   onClose,
 }: {
   t: TalkTranscript
-  now: Date
   wide?: boolean
   onClose: () => void
 }) {
   const [q, setQ] = useState("")
+  const today = useToday()
   const shown = findLines(t.lines, q)
   return (
-    <Frame wide={wide} onClose={onClose} sub={whenText(t, now)}>
+    <Frame wide={wide} onClose={onClose} sub={whenText(t, today)}>
       <div className="grid gap-2 border-b border-border px-3 pt-1 pb-3">
         <span className="text-[11.5px] text-muted-foreground">
           {whoCanRead(t)}
@@ -154,12 +154,10 @@ export function TranscriptView({
 // TranscriptPane reads huddle `callId`'s transcript and shows it.
 export function TranscriptPane({
   callId,
-  now,
   wide,
   onClose,
 }: {
   callId: string
-  now: Date
   wide?: boolean
   onClose: () => void
 }) {
@@ -181,7 +179,7 @@ export function TranscriptPane({
   }, [callId])
   const here = got?.callId === callId ? got : null
   if (here?.t)
-    return <TranscriptView t={here.t} now={now} wide={wide} onClose={onClose} />
+    return <TranscriptView t={here.t} wide={wide} onClose={onClose} />
   return (
     <Frame wide={wide} onClose={onClose}>
       <p

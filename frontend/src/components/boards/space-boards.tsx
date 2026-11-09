@@ -195,7 +195,6 @@ export function SpaceBoards({
 }: {
   space: BoardSummary
   cards: CardSummary[]
-  now: Date
 }) {
   const list = boardsOf(b)
   return (
@@ -231,7 +230,7 @@ export function SpaceBoards({
 // PersonalBoards is Personal's page ("#board/personal", card #689): its
 // boards, private to you. Nobody can be invited, so it has no people or
 // settings of its own.
-export function PersonalBoards({ cards }: { cards: CardSummary[]; now: Date }) {
+export function PersonalBoards({ cards }: { cards: CardSummary[] }) {
   const { boards: list, error, reload } = usePersonalBoards()
   return (
     <section className="grid gap-2" aria-label="Boards in Personal">
@@ -277,7 +276,6 @@ export function PersonalList({
   onQuery,
   selected,
   onOpen,
-  now,
 }: {
   list: string
   cards: CardSummary[]
@@ -290,7 +288,6 @@ export function PersonalList({
   onQuery: (q: string) => void
   selected: string
   onOpen: (id: string) => void
-  now: Date
 }) {
   return (
     <BoardView
@@ -305,7 +302,7 @@ export function PersonalList({
       onQuery={onQuery}
       selected={selected}
       onOpen={onOpen}
-      now={now}
+
       empty={
         <p className="px-1 text-[12.5px] text-muted-foreground">
           No cards on this board yet. Make one with New card.

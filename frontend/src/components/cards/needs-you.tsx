@@ -21,7 +21,8 @@ import {
   type CardBlocker,
   type CardSummary,
 } from "@/lib/cards"
-import { inWails, plainLine, relativeTime } from "@/lib/irori"
+import { Ago } from "@/components/common/ago"
+import { inWails, plainLine } from "@/lib/irori"
 import { AgentsService } from "@/lib/host"
 import {
   GIVEN_QUESTION,
@@ -55,13 +56,11 @@ import { EarlierRound } from "./done-rounds"
 
 export function NeedsYou({
   needs,
-  now,
   name,
   onOpenCard,
   onHeld,
 }: {
   needs: Need[]
-  now: Date
   // name is an agent's name by key (a held message's addressee).
   name: (key: string) => string
   onOpenCard: (id: string) => void
@@ -96,21 +95,21 @@ export function NeedsYou({
           {rows.map((n) => (
             <li key={`${n.kind}:${n.id}`} className="min-w-0">
               {n.kind === "check" || n.kind === "decision" ? (
-                <CardNeed need={n} now={now} onOpen={onOpenCard} />
+                <CardNeed need={n} onOpen={onOpenCard} />
               ) : n.kind === "merge" ? (
-                <MergeNeed need={n} now={now} onOpen={onOpenCard} />
+                <MergeNeed need={n} onOpen={onOpenCard} />
               ) : n.kind === "gone" ? (
-                <GoneNeed need={n} now={now} onOpen={onOpenCard} />
+                <GoneNeed need={n} onOpen={onOpenCard} />
               ) : n.kind === "noAgent" ? (
-                <NoAgentNeed need={n} now={now} onOpen={onOpenCard} />
+                <NoAgentNeed need={n} onOpen={onOpenCard} />
               ) : n.kind === "trust" ? (
-                <TrustRow need={n} now={now} onOpen={onOpenCard} />
+                <TrustRow need={n} onOpen={onOpenCard} />
               ) : n.kind === "loop" || n.kind === "stuck" ? (
-                <StuckNeed need={n} now={now} onOpen={onOpenCard} />
+                <StuckNeed need={n} onOpen={onOpenCard} />
               ) : n.kind === "held" ? (
                 <HeldNeed
                   d={n.delivery}
-                  now={now}
+
                   name={name}
                   repo={repo}
                   onStarted={setStarted}
@@ -161,14 +160,12 @@ function Row({
   kind,
   where,
   at,
-  now,
   title,
   children,
 }: {
   kind: keyof typeof kinds
   where: ReactNode
   at: number
-  now: Date
   title: ReactNode
   children: ReactNode
 }) {
@@ -179,7 +176,7 @@ function Row({
         <Badge variant={k.variant}>{k.label}</Badge>
         <span className="min-w-0 truncate">{where}</span>
         <span className="ml-auto shrink-0 tabular-nums">
-          {at ? relativeTime(new Date(at), now) : ""}
+          {at ? <Ago at={new Date(at)} /> : ""}
         </span>
       </div>
       <h3 className="line-clamp-2 min-w-0 text-[15px] leading-snug font-semibold break-words">
@@ -314,11 +311,9 @@ function waitsOnYou(b: CardBlocker): boolean {
 // page.
 function StuckNeed({
   need,
-  now,
   onOpen,
 }: {
   need: Extract<Need, { kind: "loop" | "stuck" }>
-  now: Date
   onOpen: (id: string) => void
 }) {
   const loop = need.kind === "loop"
@@ -328,7 +323,7 @@ function StuckNeed({
       kind={need.kind}
       where={<Where card={need.cards[0]} />}
       at={need.at}
-      now={now}
+
       title={loop ? loopLine(need.ring) : stuckLine(need.end, need.cards)}
     >
       <p className="text-sm break-words text-muted-foreground">
@@ -359,11 +354,9 @@ function StuckNeed({
 // the card. New work asks "Can I merge…?" instead, a decision row.
 function MergeNeed({
   need,
-  now,
   onOpen,
 }: {
   need: Extract<Need, { kind: "merge" }>
-  now: Date
   onOpen: (id: string) => void
 }) {
   const c = need.card
@@ -374,7 +367,7 @@ function MergeNeed({
       kind="merge"
       where={<Where card={c} />}
       at={need.at}
-      now={now}
+
       title={plainLine(c.title)}
     >
       <p className="text-sm break-words text-muted-foreground">
@@ -405,11 +398,9 @@ function MergeNeed({
 // it; Open #N has Stop waiting and the rest.
 function GoneNeed({
   need,
-  now,
   onOpen,
 }: {
   need: Extract<Need, { kind: "gone" }>
-  now: Date
   onOpen: (id: string) => void
 }) {
   const c = need.card
@@ -424,7 +415,7 @@ function GoneNeed({
       kind="gone"
       where={<Where card={c} />}
       at={need.at}
-      now={now}
+
       title={goneTitle(c, g)}
     >
       <p className="text-sm break-words text-muted-foreground">
@@ -480,11 +471,9 @@ function GoneNeed({
 // and there the row says who asked.
 function TrustRow({
   need,
-  now,
   onOpen,
 }: {
   need: Extract<Need, { kind: "trust" }>
-  now: Date
   onOpen: (id: string) => void
 }) {
   const c = need.card
@@ -518,7 +507,7 @@ function TrustRow({
       kind="trust"
       where={where}
       at={need.at}
-      now={now}
+
       title={plainLine(c.title)}
     >
       <p className="text-sm break-words text-muted-foreground">
@@ -599,11 +588,9 @@ export function trustFromReason(reason: string): TrustInfo {
 // first, or an answer in their own words).
 function NoAgentNeed({
   need,
-  now,
   onOpen,
 }: {
   need: Extract<Need, { kind: "noAgent" }>
-  now: Date
   onOpen: (id: string) => void
 }) {
   const c = need.card
@@ -612,7 +599,7 @@ function NoAgentNeed({
       kind="noAgent"
       where={<Where card={c} />}
       at={need.at}
-      now={now}
+
       title={plainLine(c.title)}
     >
       <p className="text-sm break-words">{c.noAgent}</p>
@@ -627,11 +614,9 @@ function NoAgentNeed({
 
 function CardNeed({
   need,
-  now,
   onOpen,
 }: {
   need: Extract<Need, { kind: "check" | "decision" }>
-  now: Date
   onOpen: (id: string) => void
 }) {
   const c = need.card
@@ -656,7 +641,7 @@ function CardNeed({
       kind={spawn ?? need.kind}
       where={where}
       at={need.at}
-      now={now}
+
       title={plainLine(c.title)}
     >
       {spawn === "permission" ? (
@@ -922,13 +907,11 @@ const at = (s: string) => {
 // lifts it). Held's History stays in the Held list.
 function HeldNeed({
   d,
-  now,
   name,
   repo,
   onStarted,
 }: {
   d: Delivery
-  now: Date
   name: (key: string) => string
   repo: (key: string) => string
   // onStarted keeps Start an agent's outcome where the person can read it.
@@ -948,7 +931,7 @@ function HeldNeed({
         </>
       }
       at={at(d.createdAt)}
-      now={now}
+
       title={holdText(d, { name, repo })}
     >
       <p className="line-clamp-3 text-sm break-words whitespace-pre-line">
