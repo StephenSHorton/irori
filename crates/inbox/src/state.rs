@@ -1517,6 +1517,10 @@ impl Inner {
     /// open deliveries on the person's own data) that held the inbox lock
     /// 5-16 s once a minute, and every inbox read waited on it.
     pub(crate) fn ready_flags(&self, agents: &BTreeSet<String>) -> Vec<(String, bool, bool)> {
+        // Most releases touch nobody: no pass over the open deliveries then.
+        if agents.is_empty() {
+            return Vec::new();
+        }
         let mut by: HashMap<&str, Vec<&Drec>> =
             agents.iter().map(|a| (a.as_str(), Vec::new())).collect();
         for d in self.open_recs() {
