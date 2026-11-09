@@ -113,6 +113,16 @@ function sampleList(): DeviceView[] {
       behind: "0.12.1",
       warning: "It runs an older Irori. Update it.",
     }),
+    // A removal waiting on a device that may be gone for good.
+    DeviceView({
+      deviceId: "sample-old",
+      name: "Old phone",
+      role: "desktop",
+      state: "offline",
+      revoked: true,
+      warning: "Removal pending: seen by 2 of 3 devices. Waiting on Node.",
+      holdouts: [{ deviceId: "sample-node", name: "Node" }],
+    }),
   ]
   return sampleDevices
 }
