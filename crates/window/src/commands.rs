@@ -2684,6 +2684,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_chat_list,
             assistant_chat_ask,
             assistant_chat_stop,
+            assistant_chat_posted,
+            assistant_chat_clear,
+            assistant_chat_update,
             assistant_chat_watch,
         ])
         .typ::<RosterChange>()
@@ -2793,6 +2796,37 @@ pub async fn assistant_chat_ask(
 #[specta::specta]
 pub async fn assistant_chat_stop(w: W<'_>, turn: String) -> R<()> {
     blocking(&w, move |w| w.core.assistant_chat_stop(&turn)).await
+}
+
+/// Post thread: the person posted a reply's draft as thread `id`.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_posted(
+    w: W<'_>,
+    turn: String,
+    id: String,
+    short: String,
+    tag: String,
+) -> R<()> {
+    blocking(&w, move |w| w.assistant_chat_posted(&turn, &id, &short, &tag)).await
+}
+
+/// New chat: hides the conversation so far, on every device.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_clear(w: W<'_>) -> R<()> {
+    blocking(&w, move |w| w.assistant_chat_clear()).await
+}
+
+/// A follow-up line about a thread the chat posted: the first row per key
+/// wins on every device.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_update(
+    w: W<'_>,
+    line: crate::assistant_chat::AssistantChatUpdateIn,
+) -> R<()> {
+    blocking(&w, move |w| w.assistant_chat_update(line)).await
 }
 
 /// Streams a turn's reply as this computer runs it: from now until the turn

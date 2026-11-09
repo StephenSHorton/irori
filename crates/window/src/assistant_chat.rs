@@ -222,4 +222,74 @@ impl Window {
             more: p.more,
         })
     }
+
+    /// The person posted a reply's draft as a thread (Post thread): every
+    /// device then hides the button.
+    pub fn assistant_chat_posted(
+        &self,
+        turn: &str,
+        id: &str,
+        short: &str,
+        tag: &str,
+    ) -> Result<(), String> {
+        self.core
+            .assistant_chat_write(chat::ChatRow::Posted(chat::PostedThread {
+                turn: turn.to_string(),
+                posted: chat::Posted {
+                    id: id.to_string(),
+                    short: short.to_string(),
+                    tag: tag.to_string(),
+                },
+            }))
+            .map(|_| ())
+    }
+
+    /// New chat: hides every turn, line and draft older than this row.
+    pub fn assistant_chat_clear(&self) -> Result<(), String> {
+        let by = format!("user:{}", self.core.device_id());
+        self.core
+            .assistant_chat_write(chat::ChatRow::Cleared(chat::Cleared {
+                by,
+                at: self.core.assistant_chat_now(),
+            }))
+            .map(|_| ())
+    }
+
+    /// A follow-up line the chat says about a thread it posted (the first
+    /// row per `key` wins on every device).
+    pub fn assistant_chat_update(&self, u: AssistantChatUpdateIn) -> Result<(), String> {
+        let at = self.core.assistant_chat_now();
+        self.core
+            .assistant_chat_write(chat::ChatRow::Update(chat::Update {
+                key: u.key,
+                thread: u.thread,
+                text: u.text,
+                act: u.act.map(|a| chat::Act {
+                    kind: a.kind,
+                    card: a.card,
+                    blocker: a.blocker,
+                }),
+                at,
+                ..chat::Update::default()
+            }))
+            .map(|_| ())
+    }
+}
+
+/// A follow-up line to write (see [`Window::assistant_chat_update`]).
+#[derive(Debug, Clone, serde::Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantChatUpdateIn {
+    pub key: String,
+    pub thread: String,
+    pub text: String,
+    pub act: Option<AssistantChatActIn>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantChatActIn {
+    pub kind: String,
+    pub card: String,
+    pub blocker: String,
 }

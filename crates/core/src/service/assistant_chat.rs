@@ -922,6 +922,11 @@ impl Core {
         Ok(())
     }
 
+    /// Now, in unix milliseconds, as the rows stamp `at`.
+    pub fn assistant_chat_now(&self) -> i64 {
+        (self.s.now)().unix_milli_value()
+    }
+
     /// Turn `turn` as the fold has it, hidden by New chat or not.
     pub fn assistant_chat_turn(&self, turn: &str) -> Option<ChatTurn> {
         self.s.assistant_chat.turn(turn)
