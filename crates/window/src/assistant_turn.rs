@@ -1,11 +1,12 @@
 //! The chat turn the desktop gives Core (one-assistant card 3, design §5):
 //! Core picks each question this computer answers, builds its prompt and
-//! grants from rows, and hands it here; this runs it on the window's
-//! `assistant` runner and blocks until it ends.
+//! grants from rows, and hands it here; this runs it on the chat's held
+//! session (card 8, `assistant_held`) and blocks until it ends.
 //!
 //! - It sets the asking device's screen for the `screen` tool, begins the
-//!   question's grants, runs `Job::assistant`, and ends the grants, whose
-//!   changed lines go in the reply.
+//!   question's grants, runs the question (its message on the held
+//!   `claude`, or a new one seeded with its prompt), and ends the grants,
+//!   whose changed lines go in the reply.
 //! - A Stop or New chat trips the job's cancel: the run is stopped at once,
 //!   even while it waits on a tool call.
 //! - Each event goes to Core and to any `assistant_chat_watch` opened for
