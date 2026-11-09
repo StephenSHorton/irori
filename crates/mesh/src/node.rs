@@ -103,6 +103,10 @@ const MAX_PENDING: usize = 8;
 pub type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
 pub type NowFn = Arc<dyn Fn() -> SystemTime + Send + Sync>;
 pub type IgnoredFn = Arc<dyn Fn() -> BTreeMap<String, i64> + Send + Sync>;
+/// Opens a running (or waiting) turn's frames for an `assistant/<turn>`
+/// stream (card #1107): `None` when this device runs no such turn.
+pub type AssistantTurnsFn =
+    Arc<dyn Fn(&str) -> Option<std::sync::mpsc::Receiver<Vec<u8>>> + Send + Sync>;
 
 /// Go `Options`.
 #[derive(Clone)]
@@ -123,6 +127,9 @@ pub struct Options {
     pub trust_any_peer: bool,
     /// Per writing device, the rows the folds ignored for the writer rules.
     pub ignored: Option<IgnoredFn>,
+    /// The assistant's computer's running turns, for `assistant/<turn>`
+    /// streams; `None` serves none.
+    pub assistant_turns: Option<AssistantTurnsFn>,
     pub logf: Option<LogFn>,
     pub now: Option<NowFn>,
 }
