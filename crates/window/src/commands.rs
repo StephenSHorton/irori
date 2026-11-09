@@ -1815,6 +1815,34 @@ pub async fn assistant_weighs_set(w: W<'_>, on: bool) -> R<()> {
     blocking(&w, move |w| w.assistant_weighs_set(on)).await
 }
 
+/// "Let my assistant add notes from what I say" (#1053): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_notes(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_huddle_notes())).await
+}
+
+/// Turns the notes switch on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_notes_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_huddle_notes_set(on)).await
+}
+
+/// "Let my assistant chair huddles I start" (#1053): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_chair(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_huddle_chair())).await
+}
+
+/// Turns the chair switch on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_chair_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_huddle_chair_set(on)).await
+}
+
 /// "Transcribe what I say in calls" (#656): on unless turned off.
 #[tauri::command]
 #[specta::specta]
@@ -2537,6 +2565,10 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_rewrite,
             assistant_weighs,
             assistant_weighs_set,
+            assistant_huddle_notes,
+            assistant_huddle_notes_set,
+            assistant_huddle_chair,
+            assistant_huddle_chair_set,
             talk_call_transcript,
             talk_huddles,
             talk_call_title_set,

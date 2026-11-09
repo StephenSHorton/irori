@@ -777,9 +777,13 @@ pub struct AssistRow {
     pub device: String,
     /// `on` or `off`.
     pub state: String,
-    /// Whether this assistant is the huddle's chair (card 10); written
-    /// `false` until then.
+    /// Whether this assistant is the huddle's chair (card #1053): written
+    /// by its host from the rows, `false` when it stands down.
     pub chair: bool,
+    /// "Let my assistant chair huddles I start" is off for this person
+    /// (card #1053): the chair passes to the next assistant when they
+    /// started the huddle.
+    pub declines_chair: bool,
     pub by: String,
     pub at: GoTime,
 }
@@ -799,6 +803,10 @@ struct AssistRec {
     by: String,
     on: bool,
     chair: bool,
+    declines_chair: bool,
+    /// The time (Unix ms) of this device's first `on` row, kept across
+    /// newer rows; 0 while it has none.
+    first_on: i64,
     at: Ord3,
 }
 
@@ -810,6 +818,11 @@ pub struct AssistInfo {
     pub by: String,
     pub on: bool,
     pub chair: bool,
+    /// The person's chair switch is off (see [`AssistRow::declines_chair`]).
+    pub declines_chair: bool,
+    /// When this device first said `on` (Unix ms), 0 if it never has: the
+    /// order the chair passes in (card #1053).
+    pub first_on: i64,
 }
 
 /// One `call.title` row as folded: the newest per conversation and kind.
@@ -864,6 +877,9 @@ pub struct CallInfo {
     /// after a crash, which leaves no end mark) the start mark's author and
     /// everyone who spoke, by key in this device's form, each once.
     pub people: Vec<String>,
+    /// Who started it: its start mark's author, by key in this device's
+    /// form, "" when the start mark isn't here (card #1053: the chair).
+    pub starter: String,
     /// The newest of its transcript lines, when it has any.
     pub last_line: Option<GoTime>,
 }
@@ -1638,6 +1654,23 @@ impl Talk {
         on: bool,
         by: &str,
     ) -> Result<()> {
+        self.write_assist_as(conv, call_id, device, on, false, false, by)
+    }
+
+    /// [`Talk::write_assist`] with the chair flag and the chair switch
+    /// (card #1053): `chair` says this assistant holds the chair,
+    /// `declines_chair` that its person won't chair what they start.
+    #[allow(clippy::too_many_arguments)]
+    pub fn write_assist_as(
+        &self,
+        conv: &str,
+        call_id: &str,
+        device: &str,
+        on: bool,
+        chair: bool,
+        declines_chair: bool,
+        by: &str,
+    ) -> Result<()> {
         let by = need_by(by)?.to_string();
         let (conv, call_id) = (conv.trim().to_string(), call_id.trim().to_string());
         if call_id.is_empty() || device.trim().is_empty() {
@@ -1661,7 +1694,8 @@ impl Talk {
                 conv_id: conv,
                 device: device.trim().to_string(),
                 state: if on { ASSIST_ON } else { ASSIST_OFF }.into(),
-                chair: false,
+                chair: chair && on,
+                declines_chair,
                 by: by.clone(),
                 at: (self.now)(),
             },
@@ -1689,6 +1723,8 @@ impl Talk {
                 by: a.by.clone(),
                 on: a.on,
                 chair: a.chair,
+                declines_chair: a.declines_chair,
+                first_on: a.first_on,
             })
             .collect()
     }
@@ -2203,6 +2239,12 @@ impl Talk {
                     title,
                     title_by_assistant,
                     people,
+                    starter: c
+                        .marks
+                        .iter()
+                        .find(|p| p.call.as_ref().is_some_and(|m| m.op == CALL_START))
+                        .map(|p| p.by.clone())
+                        .unwrap_or_default(),
                     last_line: c.lines.iter().map(|p| p.at).max_by(crate::gotime::cmp),
                 }
             })
@@ -2704,12 +2746,19 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 return false;
             }
             let recs = s.assists.entry(r.call_id).or_default();
-            let rec = AssistRec {
+            let first = if on {
+                r.at.unix_milli_value().max(1)
+            } else {
+                0
+            };
+            let mut rec = AssistRec {
                 conv: r.conv_id,
                 device: device.to_string(),
                 by: r.by,
                 on,
-                chair: r.chair,
+                chair: r.chair && on,
+                declines_chair: r.declines_chair,
+                first_on: first,
                 at,
             };
             match recs
@@ -2717,7 +2766,14 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 .find(|x| x.conv == rec.conv && x.device == rec.device)
             {
                 Some(x) => {
+                    // The first `on` is the earliest one seen, whatever
+                    // order the rows fold in.
+                    rec.first_on = match (x.first_on, rec.first_on) {
+                        (0, f) | (f, 0) => f,
+                        (a, b) => a.min(b),
+                    };
                     if x.at >= rec.at {
+                        x.first_on = rec.first_on;
                         return false;
                     }
                     *x = rec;

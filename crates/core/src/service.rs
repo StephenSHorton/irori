@@ -73,11 +73,13 @@ mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
 pub mod huddle_canvas;
+mod huddle_end;
 pub mod huddle_feed;
 pub mod huddle_host;
 pub mod huddle_packet;
 mod huddle_rules;
 pub mod huddle_session;
+mod huddle_settings;
 mod liveness;
 mod mirror;
 pub mod name_themes;
@@ -371,6 +373,8 @@ struct Services {
     naming: thread_names::Naming,
     /// Irori's assistant weighing new cards (card #965).
     weighing: card_weights::Weighing,
+    /// The two huddle switches (card #1053).
+    huddle_switches: huddle_settings::HuddleSwitches,
     /// Office Assistants answering other people (assistants-talk card 4).
     asst: assistant_answers::Answering,
     /// The assistant's held session per huddle (card #1046).
@@ -1328,6 +1332,7 @@ impl Core {
         let call_settings = call_settings::CallSettings::load(&st);
         let naming = thread_names::Naming::load(&st);
         let weighing = card_weights::Weighing::load(&st);
+        let huddle_switches = huddle_settings::HuddleSwitches::load(&st);
         let co = Arc::new(
             Coord::new(
                 st.clone(),
@@ -1708,6 +1713,7 @@ impl Core {
             call_settings,
             naming,
             weighing,
+            huddle_switches,
             asst: Default::default(),
             held: Default::default(),
             hosting: Default::default(),
@@ -2141,6 +2147,11 @@ impl Core {
                     } else if ev.kind == kinds::ASSISTANT_NAMES_SET {
                         // Another device's "Name new threads" (card #782).
                         s.follow_names_on();
+                    } else if ev.kind == kinds::ASSISTANT_HUDDLE_NOTES_SET
+                        || ev.kind == kinds::ASSISTANT_HUDDLE_CHAIR_SET
+                    {
+                        // Another device's huddle switches (card #1053).
+                        s.follow_huddle_switches();
                     } else if ev.kind == kinds::ASSISTANT_WEIGHS_SET {
                         // Another device's "Weigh new cards" (card #965).
                         s.follow_weighs_on();
@@ -3025,6 +3036,40 @@ impl Core {
     /// The person turns "Weigh new cards" on or off, from the app only.
     pub fn set_weighs_on(&self, on: bool) -> Result<(), String> {
         self.s.set_weighs_on(on)
+    }
+
+    /// A crashed huddle's end mark check at `now` (tests move the clock).
+    #[doc(hidden)]
+    pub fn huddle_crash_check_at(&self, now: std::time::SystemTime) {
+        self.s.huddle_crash_check_at(now)
+    }
+
+    /// How long a huddle runs before its chair proposes a title (tests).
+    #[doc(hidden)]
+    pub fn set_huddle_title_after(&self, d: std::time::Duration) {
+        self.s.set_huddle_title_after(d)
+    }
+
+    /// "Let my assistant add notes from what I say" (card #1053): on unless
+    /// the person turned it off.
+    pub fn huddle_notes_on(&self) -> bool {
+        self.s.huddle_notes_on()
+    }
+
+    /// Turns the notes switch on or off, on all the person's devices.
+    pub fn set_huddle_notes_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_huddle_notes_on(on)
+    }
+
+    /// "Let my assistant chair huddles I start" (card #1053): on unless the
+    /// person turned it off.
+    pub fn huddle_chair_on(&self) -> bool {
+        self.s.huddle_chair_on()
+    }
+
+    /// Turns the chair switch on or off, on all the person's devices.
+    pub fn set_huddle_chair_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_huddle_chair_on(on)
     }
 
     /// "Name new threads" (card #782): on unless the person turned it off.

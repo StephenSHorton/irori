@@ -775,6 +775,9 @@ impl Services {
             loop {
                 tokio::time::sleep(calls_over::TICK_EVERY).await;
                 let Some(s) = w.upgrade() else { return };
+                // A huddle that is over with no end mark gets one from a
+                // device that heard it, when no assistant is there to (#1053).
+                s.huddle_crash_check();
                 let up = s.mesh.net.link_up();
                 let mut g = s.calls.inner.lock().expect("calls");
                 if !g.heard.tick(SystemTime::now(), up) {
