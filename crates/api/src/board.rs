@@ -330,11 +330,7 @@ pub fn overview_input(
             at: d.created_at,
         });
     }
-    input.inbox_held = ib
-        .list(COUNT_LIMIT)
-        .iter()
-        .filter(|d| d.to == key && d.state == inbox::st::HELD && !inbox::editing(d))
-        .count() as i64;
+    input.inbox_held = ib.held_count(key) as i64;
 
     let mut tasks = co.list_tasks(&coord::TaskFilter {
         open: true,

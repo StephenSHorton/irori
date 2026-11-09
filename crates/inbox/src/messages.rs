@@ -697,6 +697,36 @@ impl Inbox {
         })
     }
 
+    /// How many deliveries `for_agent(agent, false, usize::MAX)` would
+    /// return, counted under the lock without copying any (card #1250).
+    pub fn unread_count(&self, agent: &str) -> usize {
+        self.read(|b| {
+            b.dels
+                .values()
+                .filter(|d| {
+                    d.d.to == agent
+                        && d.d.state != st::HELD
+                        && d.d.state != st::DISMISSED
+                        && st::open(&d.d.state)
+                })
+                .count()
+        })
+    }
+
+    /// How many deliveries to `agent` are held and not just held while the
+    /// person edits them, counted under the lock without copying any
+    /// (card #1250).
+    pub fn held_count(&self, agent: &str) -> usize {
+        self.read(|b| {
+            b.dels
+                .values()
+                .filter(|d| {
+                    d.d.to == agent && d.d.state == st::HELD && d.d.hold != crate::hold::EDITING
+                })
+                .count()
+        })
+    }
+
     /// Recent deliveries across every recipient, newest first.
     pub fn list(&self, limit: usize) -> Vec<Delivery> {
         self.read(|b| b.newest_first(|_| true, limit))

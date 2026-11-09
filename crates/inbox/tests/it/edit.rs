@@ -43,6 +43,8 @@ fn modify_holds_cancel_releases_save_drops() {
     assert_eq!(h.ib.edit_state(USER, REF), EditState::Editing);
     assert!(h.ib.next_append(KEY_A).unwrap().is_none());
     assert!(h.ib.for_agent(KEY_A, false, 0).is_empty());
+    assert_eq!(h.ib.held_count(KEY_A), 0, "edit holds are not counted");
+    assert_eq!(h.ib.unread_count(KEY_A), 0);
     assert_eq!(
         h.ib.comment_edit_states(USER).get("C1"),
         Some(&EditState::Editing)

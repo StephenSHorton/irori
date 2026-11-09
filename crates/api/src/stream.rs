@@ -14,7 +14,6 @@ use std::time::{Duration, Instant};
 
 use inbox::{ChangeKind, Inbox, Sender, Wake};
 
-use crate::COUNT_LIMIT;
 use crate::attach::{self, Api, Event};
 use crate::http::{self, Resp, Sink};
 use crate::server::{Handler, POLL, Shared, Stream, attach_secret};
@@ -408,14 +407,10 @@ fn held_event(ib: &Inbox, id: &str) -> Option<Event> {
 /// The inbox event for `key`: open deliveries it can see, and those held
 /// from it.
 fn counts_event(ib: &Inbox, key: &str) -> Event {
-    let held = ib
-        .list(COUNT_LIMIT)
-        .iter()
-        .filter(|d| d.to == key && d.state == inbox::st::HELD && !inbox::editing(d))
-        .count();
+    // Counted under the inbox lock without cloning deliveries (card #1250).
     Event {
-        unread: ib.for_agent(key, false, COUNT_LIMIT).len() as i64,
-        held_n: held as i64,
+        unread: ib.unread_count(key) as i64,
+        held_n: ib.held_count(key) as i64,
         ..Event::of(attach::TYPE_INBOX)
     }
 }
