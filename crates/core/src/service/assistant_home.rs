@@ -330,8 +330,10 @@ impl Services {
     /// is still about, but has no session with this one: its rows reached
     /// here within the last 10 minutes (`recent`), or it is on a shared
     /// board's connection. A claim from here could race one it already
-    /// made, so the claim waits for the session or for it to go offline.
-    /// A `connected` one is left to the ranking both computers share.
+    /// made, so the claim waits until it has a session (then the ranking
+    /// decides), or reads `offline` and is on no shared board's
+    /// connection. A `connected` one is left to the ranking both computers
+    /// share.
     fn able_peer_without_session(&self) -> Option<String> {
         let me = self.device.id.as_str();
         let rows = self.mesh.node.devices(false);
@@ -355,7 +357,8 @@ impl Services {
     /// recorded: it says `assistantTurn` and `assistantChat` (card 3). It
     /// only ever names itself, and writes nothing while there is a
     /// recorded computer, even one that has been offline for days, or
-    /// while another computer that could claim is about but not connected
+    /// while another computer that could claim has no session but reads
+    /// `recent` or is on a shared board's connection
     /// ([`Services::able_peer_without_session`]).
     pub(crate) fn claim_assistant_home(&self) {
         if self.assistant_home().is_some() {

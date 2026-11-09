@@ -19,6 +19,10 @@ const PAIR_WAIT: u64 = 45;
 /// An edit to a Core's options before it starts (its clock, say).
 pub type Edit = Arc<dyn Fn(&mut Options) + Send + Sync>;
 
+/// An edit to a Core's transport settings before it binds (who it admits,
+/// say). Not kept across [`restart`].
+pub type NetEdit = Arc<dyn Fn(&mut irori_net::transport::NetConfig) + Send + Sync>;
+
 pub fn free_udp() -> SocketAddr {
     std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .unwrap()
@@ -69,11 +73,24 @@ pub fn dev(
     to: Vec<SocketAddr>,
     edit: Option<Edit>,
 ) -> Dev {
+    dev_net(data, name, sess, lan, to, edit, None)
+}
+
+/// [`dev`], with `net` applied to its transport settings.
+fn dev_net(
+    data: tempfile::TempDir,
+    name: &str,
+    sess: &str,
+    lan: SocketAddr,
+    to: Vec<SocketAddr>,
+    edit: Option<Edit>,
+    net: Option<NetEdit>,
+) -> Dev {
     let (cl, w) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let sessions = cl.path().join("sessions");
     std::fs::create_dir_all(&sessions).unwrap();
     super::write_session(&sessions, "900001.json", sess, name, w.path());
-    let core = start(data.path(), cl.path(), lan, to.clone(), edit.as_ref());
+    let core = start_net(data.path(), cl.path(), lan, to.clone(), edit.as_ref(), net);
     let agent = format!("{}/{sess}", core.device_id());
     wait_for(60, "presence lists the session", || {
         core.local_agents().iter().any(|a| a.key == agent)
@@ -130,6 +147,18 @@ pub fn start(
     to: Vec<SocketAddr>,
     edit: Option<&Edit>,
 ) -> Core {
+    start_net(data, cl, lan, to, edit, None)
+}
+
+/// [`start`], with `net` applied to the transport settings.
+fn start_net(
+    data: &std::path::Path,
+    cl: &std::path::Path,
+    lan: SocketAddr,
+    to: Vec<SocketAddr>,
+    edit: Option<&Edit>,
+    net: Option<NetEdit>,
+) -> Core {
     let mut o = super::options(data, cl);
     o.pair_net = Some(Arc::new(move |ident, chain, guests| {
         let mut nc = irori_core::devices::default_net_config(ident, chain, guests);
@@ -140,6 +169,9 @@ pub fn start(
         let to = to.clone();
         lc.targets = Some(Arc::new(move || to.clone()));
         lc.every = Duration::from_millis(200);
+        if let Some(n) = &net {
+            n(&mut nc);
+        }
         irori_net::transport::IrohNet::new(nc)
     }));
     if let Some(e) = edit {
@@ -156,6 +188,16 @@ pub fn person(who: &str, n: usize) -> Vec<Dev> {
 
 /// [`person`] with device i's options edited by `edit(i)`.
 pub fn person_with(who: &str, n: usize, edit: impl Fn(usize) -> Option<Edit>) -> Vec<Dev> {
+    person_net(who, n, edit, |_| None)
+}
+
+/// [`person_with`], with device i's transport settings edited by `net(i)`.
+pub fn person_net(
+    who: &str,
+    n: usize,
+    edit: impl Fn(usize) -> Option<Edit>,
+    net: impl Fn(usize) -> Option<NetEdit>,
+) -> Vec<Dev> {
     let lans: Vec<SocketAddr> = (0..n).map(|_| free_udp()).collect();
     let others = |i: usize| -> Vec<SocketAddr> {
         lans.iter()
@@ -165,13 +207,14 @@ pub fn person_with(who: &str, n: usize, edit: impl Fn(usize) -> Option<Edit>) ->
             .collect()
     };
     let sess = |i: usize| format!("{:08x}-1111-4111-8111-{:012x}", i + 1, i + 1);
-    let first = dev(
+    let first = dev_net(
         tempfile::tempdir().unwrap(),
         &format!("{who}1"),
         &sess(0),
         lans[0],
         others(0),
         edit(0),
+        net(0),
     );
     let mut devs = vec![first];
     for (i, lan) in lans.iter().enumerate().skip(1) {
@@ -181,13 +224,14 @@ pub fn person_with(who: &str, n: usize, edit: impl Fn(usize) -> Option<Edit>) ->
             d.path().join(irori_identity::PERSON_FILE),
         )
         .unwrap();
-        let next = dev(
+        let next = dev_net(
             d,
             &format!("{who}{}", i + 1),
             &sess(i),
             *lan,
             others(i),
             edit(i),
+            net(i),
         );
         let add = devs[0]
             .core
