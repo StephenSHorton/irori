@@ -104,7 +104,7 @@ These are added to `ASSISTANT_WRITE_TOOLS` and checked in `v02.rs` exactly like 
 
 **Sending (c) with `assistant_give`.** "Send Spencer these four" or "give #12 and #13 to Spencer" grants `Give` to that member. The member is resolved by name among the people the person shares a space with. More than one match grants nothing, and the assistant asks which one.
 
-- The model may write the tasks' titles and objectives (from the conversation, as the person asked). That text reaches Spencer as Stephen's request, fenced. Spencer's own yes is still the gate.
+- **The model writes the tasks' titles and objectives**, from the conversation, as the person asked. That text reaches Spencer as Stephen's request, fenced, and Spencer's own yes is still the gate. **This is new.** Every assistant write so far sends only the person's own words, taken from the grant (#987, #1193). Here the model's words leave the person's log in their name with no tap. The alternative is a draft the person taps to send, like `AskDraftCard`: one tap, and the person sees exactly what goes out. That is §10 item 4.
 - Which space and board: the board the cards are already on. For new tasks, the one space shared with that person. If there are several, the most recently used space with that person, and the reply names it.
 - A Personal card is shared into that space first (`task.shared`, as Share does), then given.
 - The reply lists what was sent, with **Take back** (the author assigns the cards back to themselves, `takes_back`, as today).
@@ -115,6 +115,7 @@ These are added to `ASSISTANT_WRITE_TOOLS` and checked in `v02.rs` exactly like 
 - Nothing else's words are a yes: not a card, a note, a reason, a thread, a follow-up line, the model's own text, or an earlier reply.
 - One grant is spent on one card. "Start all of Spencer's" is one yes per card.
 - A message older than 5 minutes gets no grants (`LATE_MS`, as today). The owner's-OK turn and the turns that answer other people never get these tools.
+- **This also amends decision 67.** #67 lists "starting agents" as task work the assistant never does, and its prompt says "never start an agent yourself" (`SYSTEM`, `crates/window/src/assistant.rs`). After this change, the assistant may start an agent in exactly one case: it is carrying out the person's granted yes on a card given to them. It still never starts one on its own judgment, never on a card the person made, and never through `agent_start`. S6 rewrites that prompt line to match.
 - The draft decision row is in §11. It goes into decisions.md when the person agrees.
 
 ### 5.4 The **Do it** fallback, and two safety fixes
@@ -243,7 +244,7 @@ Each slice is one card. The order comes from the dependencies. Weights: S1 norma
   - `crates/core/src/service/assistant_turns.rs`: take the snapshot and begin grants with it.
   - `crates/api/src/v02.rs`: known args and the spend arms.
   - `specs.json`.
-  - `crates/window/src/assistant.rs` `SYSTEM`: one paragraph on Needs you and the fence.
+  - `crates/window/src/assistant.rs` `SYSTEM`: one paragraph on Needs you and the fence, and "never start an agent yourself" becomes "never start an agent except as the person's own granted yes on a card given to them" (decision 67).
   - Docs: spawned-agents.md §9 amended, and the decision row (§11).
 - **Tests:**
   - **Grants** (`assistant_writes.rs` units):
@@ -258,13 +259,11 @@ Each slice is one card. The order comes from the dependencies. Weights: S1 norma
     - the owner's-OK turn lists none of the four;
     - `assistant_tool_list_is_exactly_its_read_and_write_lists` is updated.
   - **The yes** (`crates/coord/tests/it/boards2_test.rs`): an assistant's Start counts as the yes, and one grant starts one agent.
-- **Done when:** the tests pass, and a scratch run (CLAUDE.md, scratch builds) does this:
-  1. Two scratch homes share a space.
-  2. A's assistant: "send B two tasks: X and Y".
-  3. B's assistant: "start the first, give back the other, tell A it's not mine".
-  4. A's chat shows both lines.
-  5. B has one agent.
-  6. The live `irori.log` gained nothing.
+  - **Two people, end to end** (`crates/core/tests/it/`, in the two-Core style of `spawn_devices.rs` and `five_cores.rs`, with the assistant's grants driven directly, no model):
+    1. A's grant "send B two tasks" gives B two cards in one batch.
+    2. B's grant "start the first, give back the other, tell A it's not mine" starts one agent and returns one card.
+    3. A's follow-up lines include the give-back with B's reason, fenced.
+- **Done when:** the tests pass, and one scratch home (CLAUDE.md, scratch builds) shows the assistant answering "what's waiting on me?" from `needs_you` with the sender's text fenced. The live `irori.log` gains nothing.
 
 ### S7. Do it, and the thread-post guard. After S6.
 
@@ -283,8 +282,9 @@ Checks: on this PC, each slice runs the tests and clippy for the crates it touch
 1. **P2: Start an agent is the accept.** A batch shows Start / Not now / Give back per card, and there is no separate Accept step. The alternative is that Accept only takes the cards and each then asks "OK to start an agent?". That is two steps per card, and it is the tedium #1204 started from.
 2. **P4 and §5.3: your typed words to your assistant count as your yes**, one per card, read by Irori into grants, never by the model. This amends decision 50 for that case only.
 3. **P1: tasks someone sends you sit on the shared space's board as soon as they are sent,** visible to that space's members with "waiting on you", and so is a give-back's reason. The alternative, a separate proposal that becomes cards only on accept, loses the sender's attribution, or waits for the sender's computer to come online (§4).
-4. **§5.2: sending needs no tap.** "Send Spencer these four" sends, and the reply has Take back. Spencer's own yes is the gate.
+4. **§5.2: when the assistant sends tasks, are the words its own?** "Send Spencer these four" means the assistant writes the four titles and objectives, and Spencer reads them as yours. (a) It sends at once, and the reply has Take back. (b) It shows the four as a draft, and one tap sends them. My pick is (b), because it is the first time the model's own words would go to another person in your name. You asked for it to work "automatically", though, which points to (a).
+5. **§5.3 also amends decision 67** ("the assistant does no task work, including starting agents"), for your granted yes on a card given to you only.
 
 ## 11. Draft decision row (goes in decisions.md once agreed)
 
-> | 68 | 2026-11-?? | **Sending tasks to people, and your assistant answers Needs you on your word (card #1206).** Amends #50. A batch of tasks is cards the sender makes on a shared space's board and gives to one person at once (`batch` on `task.assigned`; no new kind). Needs you groups them by sender, with Start an agent (the accept, and the OK to start: one yes per card, one agent per yes), Not now, and Give back with an optional reason, which returns the card to its sender with a blocker for them. The person's own message in their own Office Assistant chat, read by Irori into a grant naming the card, is their yes for that card; nothing else's words are. The assistant sends only to people, never to their agents, and the sender hears the outcome from their own assistant. Agents give batches with `board_give`. Standing rules ("always start X's cards") are later. [design/task-proposals.md](design/task-proposals.md). |
+> | 68 | 2026-11-?? | **Sending tasks to people, and your assistant answers Needs you on your word (card #1206).** Amends #50, and #67 for one case: the assistant starts an agent only as the person's granted yes on a card given to them. A batch of tasks is cards the sender makes on a shared space's board and gives to one person at once (`batch` on `task.assigned`; no new kind). Needs you groups them by sender, with Start an agent (the accept, and the OK to start: one yes per card, one agent per yes), Not now, and Give back with an optional reason, which returns the card to its sender with a blocker for them. The person's own message in their own Office Assistant chat, read by Irori into a grant naming the card, is their yes for that card; nothing else's words are. The assistant sends only to people, never to their agents, and the sender hears the outcome from their own assistant. Agents give batches with `board_give`. Standing rules ("always start X's cards") are later. [design/task-proposals.md](design/task-proposals.md). |
