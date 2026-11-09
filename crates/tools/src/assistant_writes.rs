@@ -77,13 +77,19 @@ pub enum Grant {
     },
     /// Start an agent on card `card` (its id), given to the person: the
     /// snapshot's refs for it are what the model may name it by.
+    ///
+    /// `question` is the card's given question when the turn began: a yes
+    /// is for what the person read, so a card its giver changed since (and
+    /// so asked again) is refused at spend (spawned-agents.md §9).
     Start {
         card: String,
         refs: Vec<String>,
+        question: String,
     },
     NotNow {
         card: String,
         refs: Vec<String>,
+        question: String,
     },
     /// `reason` is the person's own words, maybe empty.
     GiveBack {
@@ -143,6 +149,8 @@ pub struct SnapItem {
     pub state: ItemState,
     /// When it was given, in ms by the giver's clock.
     pub given_ms: i64,
+    /// Its given question's id (`Given.question`), "" before it is asked.
+    pub question: String,
 }
 
 /// Someone the person shares a space with.
@@ -270,28 +278,9 @@ impl Grants {
         resolve: &dyn Fn(&str) -> Option<String>,
     ) -> Option<String> {
         let step = step_id.trim().to_lowercase();
-        let mut s = self.lock();
-        // Start and Not now: the card is the snapshot's, named by the refs
-        // the person's grant was read from.
-        let given = s.open.iter().position(|g| match (tool, g) {
-            (TOOL_START, Grant::Start { card, refs })
-            | (TOOL_NOT_NOW, Grant::NotNow { card, refs }) => {
-                names_item(card, refs, task_id, resolve)
-            }
-            _ => false,
-        });
-        if let Some(i) = given {
-            return match s.open.remove(i) {
-                Grant::Start { card, .. } | Grant::NotNow { card, .. } => {
-                    Some(format!("task:{card}"))
-                }
-                _ => None,
-            };
-        }
         if tool == TOOL_START || tool == TOOL_NOT_NOW {
-            return None;
+            return self.take_given(tool, task_id, resolve).map(|(c, _)| c);
         }
-        drop(s);
         let want = resolve(&typed_ref(task_id))?;
         let mut s = self.lock();
         let i = s.open.iter().position(|g| match (tool, g) {
@@ -303,6 +292,32 @@ impl Grants {
         })?;
         s.open.remove(i);
         Some(format!("task:{want}"))
+    }
+
+    /// Spends the Start or Not now grant for `task_id`: the card is the
+    /// snapshot's, named by the refs the person's grant was read from.
+    /// Gives back the card as `task:<id>` and the given question the
+    /// person read, which the tool checks is still the card's.
+    pub fn take_given(
+        &self,
+        tool: &str,
+        task_id: &str,
+        resolve: &dyn Fn(&str) -> Option<String>,
+    ) -> Option<(String, String)> {
+        let mut s = self.lock();
+        let i = s.open.iter().position(|g| match (tool, g) {
+            (TOOL_START, Grant::Start { card, refs, .. })
+            | (TOOL_NOT_NOW, Grant::NotNow { card, refs, .. }) => {
+                names_item(card, refs, task_id, resolve)
+            }
+            _ => false,
+        })?;
+        match s.open.remove(i) {
+            Grant::Start { card, question, .. } | Grant::NotNow { card, question, .. } => {
+                Some((format!("task:{card}"), question))
+            }
+            _ => None,
+        }
     }
 
     /// Spends the send or comment grant for `target` (an agent's name or a

@@ -1401,6 +1401,20 @@ impl Services {
         let mut previews = Vec::with_capacity(task_ids.len());
         for id in task_ids {
             let p = self.preview_share(id, board_id)?;
+            // An agent on it, or starting: closing the private card would
+            // pull the card out from under it (a space card is refused the
+            // same way by check_give).
+            if let Some(t) = self.coord.get_task(id)
+                && self.coord.agent_on_or_starting(&t)
+            {
+                return Err(Error::coord(
+                    CK::Invalid,
+                    format_args!(
+                        "{} has an agent on it: end it before giving the card",
+                        t.short_ref()
+                    ),
+                ));
+            }
             if !p.subtasks.is_empty() {
                 return Err(Error::coord(
                     CK::Invalid,

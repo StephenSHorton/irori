@@ -1513,7 +1513,7 @@ fn the_assistants_given_card_writes_are_its_own_and_give_acts_as_the_person() {
         "assistant_give",
         json!({"to": "person:pBlake", "task_ids": [mine.short_ref()]}),
     );
-    has(&out, &["Gave Blake 1 card on mlg as one batch: mlg#1."]);
+    has(&out, &["Gave \"Blake\" 1 card on mlg as one batch: mlg#1."]);
     assert!(out.ends_with("Visible to: Stephen, Blake"), "{out}");
     let g = r.fake.co.get_task(&mine.id).unwrap().given.unwrap();
     assert_eq!(g.person, "pBlake");

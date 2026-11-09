@@ -1059,10 +1059,18 @@ fn parse(r: &Reader, t: &[Tok], w: &[&str], earlier: &[&str]) -> Option<Vec<Gran
     let mut out = vec![];
     for (i, verb, why) in said {
         let it = &r.snap.items[i];
-        let (card, refs) = (it.id.clone(), it.refs.clone());
+        let (card, refs, question) = (it.id.clone(), it.refs.clone(), it.question.clone());
         out.push(match verb {
-            Verb::Start => Grant::Start { card, refs },
-            Verb::NotNow => Grant::NotNow { card, refs },
+            Verb::Start => Grant::Start {
+                card,
+                refs,
+                question,
+            },
+            Verb::NotNow => Grant::NotNow {
+                card,
+                refs,
+                question,
+            },
             Verb::GiveBack => {
                 // An agent is on it or starting: stop it first.
                 if it.state == ItemState::Starting {
@@ -1200,12 +1208,14 @@ mod tests {
         Grant::Start {
             card: id.into(),
             refs: refs(id),
+            question: String::new(),
         }
     }
     fn not_now(id: &str) -> Grant {
         Grant::NotNow {
             card: id.into(),
             refs: refs(id),
+            question: String::new(),
         }
     }
     fn back(id: &str, why: &str) -> Grant {

@@ -244,6 +244,14 @@ fn assistant_write_allowed(h: &Handler, name: &str, args: &[u8]) -> Option<Vec<u
     // tool runs on that card by id, so the model's spelling never picks it.
     let resolve = |r: &str| h.s.b.card_id(r);
     match name {
+        tools::TOOL_START | tools::TOOL_NOT_NOW => {
+            let (card, question) = g.take_given(name, arg("task_id"), &resolve)?;
+            Some(
+                serde_json::json!({ "task_id": card, "question": question })
+                    .to_string()
+                    .into_bytes(),
+            )
+        }
         tools::TOOL_GIVE_BACK => {
             let (card, reason) = g.take_text(name, arg("task_id"), &resolve)?;
             Some(
@@ -292,7 +300,7 @@ fn assistant_write_allowed(h: &Handler, name: &str, args: &[u8]) -> Option<Vec<u
                     .into_bytes(),
             )
         }
-        // Close, start and not now: the card alone.
+        // Close: the card alone.
         _ => {
             let card = g.take(name, arg("task_id"), "", &resolve)?;
             Some(

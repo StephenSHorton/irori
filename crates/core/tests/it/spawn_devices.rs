@@ -2185,16 +2185,18 @@ fn the_assistants_give_start_and_give_back_on_each_persons_own_words() {
     assert!(tools::grants_for(&cards[0].objective, &[], &snap).is_empty());
     let giver = snap.items[0].giver_name.clone();
     let first_name = giver.split_whitespace().next().unwrap().to_string();
-    // Stephen's needs_you numbers them in the snapshot's order, every
-    // member word fenced: the hostile title can't close its fence or
-    // start a line of its own.
+    // Stephen's needs_you lists them in the snapshot's order, every member
+    // word fenced: the hostile title can't close its fence or start a line
+    // of its own.
     let needs = assistant_call(&s, "needs_you", serde_json::json!({}));
     assert!(needs.starts_with(tools::SENDER_NOTE), "{needs}");
-    for (i, r) in [&r1, &r2, &r3].iter().enumerate() {
-        assert!(
-            needs.contains(&format!("{}. {r}, asks: Start an agent", i + 1)),
-            "{needs}"
-        );
+    let mut at = 0;
+    for r in [&r1, &r2, &r3] {
+        let i = needs
+            .find(&format!("- {r}, asks: Start an agent"))
+            .expect(&needs);
+        assert!(i > at, "in order: {needs}");
+        at = i;
     }
     assert!(
         needs.contains(&format!("\"{giver}\" gave you 3 tasks")),
@@ -2226,18 +2228,27 @@ fn the_assistants_give_start_and_give_back_on_each_persons_own_words() {
         g.take(tools::TOOL_START, second, "", &s_ref).is_none(),
         "only the first was started"
     );
-    let card = g.take(tools::TOOL_NOT_NOW, second, "", &s_ref).unwrap();
+    // As the API spends them: the card and the question Stephen read.
+    let (card, question) = g.take_given(tools::TOOL_NOT_NOW, second, &s_ref).unwrap();
+    assert!(!question.is_empty());
     let out = assistant_call(
         &s,
         "assistant_not_now",
-        serde_json::json!({ "task_id": card }),
+        serde_json::json!({ "task_id": card, "question": question }),
     );
     assert!(out.starts_with("Put "), "{out}");
-    let card = g.take(tools::TOOL_START, first, "", &s_ref).unwrap();
+    let (card, question) = g.take_given(tools::TOOL_START, first, &s_ref).unwrap();
+    // Not with another question than the one he read.
     let out = assistant_call(
         &s,
         "assistant_start",
-        serde_json::json!({ "task_id": card }),
+        serde_json::json!({ "task_id": card, "question": "b9-old" }),
+    );
+    assert!(out.contains("asked again since they read it"), "{out}");
+    let out = assistant_call(
+        &s,
+        "assistant_start",
+        serde_json::json!({ "task_id": card, "question": question }),
     );
     assert!(out.contains("Started"), "{out}");
     assert!(
@@ -2392,6 +2403,111 @@ fn the_assistant_shares_a_personal_card_and_gives_it_in_one_step() {
             .starts_with("canceled"),
         "nothing was shared"
     );
+
+    s.core.close().unwrap();
+    b.core.close().unwrap();
+}
+
+/// Decision 69, spawned-agents.md §9: a yes is for what the person read.
+/// Stephen's grant to start a card is spent after Bob changed its words, so
+/// the card asked again: the Start is refused and no agent starts.
+#[test]
+fn the_assistants_start_is_refused_when_the_giver_changed_the_card_since() {
+    let mut st = person("stephen", 1);
+    let mut bo = person("bob", 1);
+    let (s, b) = (st.remove(0), bo.remove(0));
+    let board = invited(&s, &b);
+    let checkout = tempfile::tempdir().unwrap();
+    s.core
+        .capture()
+        .emit_row(
+            "irori",
+            capture::KIND_REPO_SEEN,
+            &capture::RepoSeen {
+                repo_key: REPO.into(),
+                root: checkout.path().to_string_lossy().into_owned(),
+                at: gocompat::time::GoTime::unix(1_790_000_000, 0),
+            },
+        )
+        .unwrap();
+    let fs = Arc::new(Fake::default());
+    s.core
+        .set_spawner(Some(spawner(&fs, s.claude.join("sessions"), SESS_A)));
+    s.core
+        .set_spawn_setting(SpawnSetting {
+            board_id: board.clone(),
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    let (sco, bco) = (
+        s.core.board_coord(&board).unwrap(),
+        b.core.board_coord(&board).unwrap(),
+    );
+    let t = bco
+        .create_task(
+            &b.person_actor(),
+            NewTask {
+                title: "Fix the flaky login test".into(),
+                objective: "Make it pass.".into(),
+                repo_key: REPO.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    bco.assign(&b.person_actor(), &t.id, &s.person_actor())
+        .unwrap();
+    let kick = || {
+        for _ in 0..3 {
+            s.core.set_spawn_cap(s.core.spawn_cap()).unwrap();
+        }
+        std::thread::sleep(Duration::from_secs(7));
+    };
+    let question = || {
+        sco.get_task(&t.id)
+            .and_then(|x| x.given)
+            .map(|g| g.question)
+            .filter(|q| !q.is_empty())
+    };
+    wait_for(WAIT, "Stephen is asked", || {
+        kick();
+        question().is_some()
+    });
+    // Stephen reads it and types "start mlg#1"; the turn takes his grant.
+    let snap = s.core.needs_snapshot();
+    let said = format!("start {}", t.short_ref());
+    let g = tools::Grants::default();
+    let run = g.begin(tools::grants_for(&said, &[], &snap));
+    let s_ref = |r: &str| s.core.task_ref(r).ok();
+    let (card, read) = g
+        .take_given(tools::TOOL_START, &t.short_ref(), &s_ref)
+        .unwrap();
+    g.end(run);
+    assert_eq!(Some(read.clone()), question());
+
+    // Before the model spends it, Bob changes what the card asks.
+    bco.edit_task(
+        &b.person_actor(),
+        &t.id,
+        coord::TaskEdit {
+            objective: Some("Make it pass, and delete the old suite.".into()),
+            ..coord::TaskEdit::default()
+        },
+    )
+    .unwrap();
+    wait_for(WAIT, "Stephen's device asks again", || {
+        kick();
+        question().is_some_and(|q| q != read)
+    });
+    let out = assistant_call(
+        &s,
+        "assistant_start",
+        serde_json::json!({ "task_id": card, "question": read }),
+    );
+    assert!(out.contains("asked again since they read it"), "{out}");
+    std::thread::sleep(Duration::from_secs(3));
+    kick();
+    assert_eq!(fs.started(), 0, "no agent on words Stephen didn't read");
 
     s.core.close().unwrap();
     b.core.close().unwrap();

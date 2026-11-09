@@ -4,8 +4,7 @@
 //! person's own message can allow: start, not now, give back and give.
 //!
 //! [`given_rows`] is the one list of what was given to the person: the
-//! tool numbers it and the snapshot is taken from it, so "the first three"
-//! means the same three in both.
+//! tool prints it and the turn's snapshot is taken from it.
 
 use std::collections::BTreeMap;
 
@@ -38,6 +37,8 @@ pub(crate) struct GivenRow {
     pub state: ItemState,
     /// When it was given, in ms.
     pub given_ms: i64,
+    /// Its given question's id, "" before it is asked.
+    pub question: String,
     /// Why its agent couldn't start, when it couldn't.
     pub failed: Option<String>,
 }
@@ -115,6 +116,7 @@ pub(crate) fn given_rows(b: &dyn Backend) -> Vec<GivenRow> {
                 via_assistant: g.assistant,
                 state: state_of(&co, &it.task),
                 given_ms: g.at.unix_milli_value(),
+                question: g.question.clone(),
                 failed: coord::Coord::given_failed(&it.task),
                 task: it.task,
             });
@@ -148,6 +150,7 @@ pub fn needs_snapshot_before(b: &dyn Backend, before_ms: i64) -> Snapshot {
                     batch: r.batch,
                     state: r.state,
                     given_ms: r.given_ms,
+                    question: r.question,
                     ..SnapItem::default()
                 },
                 r.short,
@@ -207,12 +210,9 @@ pub(crate) fn needs_you(s: &Inner, _c: &Caller, raw: &[u8]) -> String {
     if rows.is_empty() {
         out.push_str("\nNothing is given to you.\n");
     } else {
-        out.push_str(&format!(
-            "\nGiven to you ({}), numbered in the order \"the first N\" counts:\n",
-            rows.len()
-        ));
+        out.push_str(&format!("\nGiven to you ({}):\n", rows.len()));
         let mut group: Option<(String, String)> = None;
-        for (i, r) in rows.iter().enumerate() {
+        for r in &rows {
             let here = (r.giver_key.clone(), r.batch.clone());
             if group.as_ref() != Some(&here) {
                 let n = rows
@@ -242,7 +242,7 @@ pub(crate) fn needs_you(s: &Inner, _c: &Caller, raw: &[u8]) -> String {
                 }
                 group = Some(here);
             }
-            out.push_str(&format!("{}. {}, {}\n", i + 1, r.short, state_line(r)));
+            out.push_str(&format!("- {}, {}\n", r.short, state_line(r)));
             out.push_str(&fence_sender(&r.giver_name, &card_words(&r.task)));
             out.push('\n');
         }
@@ -312,7 +312,9 @@ pub(crate) fn needs_you(s: &Inner, _c: &Caller, raw: &[u8]) -> String {
 // ---- the writes ---------------------------------------------------------------
 
 const ONLY_THE_CHAT: &str = "only the window's assistant has this tool.";
-const TASK_ARGS: &[(&str, Ty)] = &[("task_id", Ty::Str)];
+/// `question` is put there by the API from the person's grant: the given
+/// question they read. The model can't send it.
+const TASK_ARGS: &[(&str, Ty)] = &[("task_id", Ty::Str), ("question", Ty::Str)];
 const BACK_ARGS: &[(&str, Ty)] = &[("task_id", Ty::Str), ("reason", Ty::Str)];
 const GIVE_ARGS: &[(&str, Ty)] = &[("to", Ty::Str), ("task_ids", Ty::Strs), ("note", Ty::Str)];
 
@@ -320,6 +322,23 @@ const GIVE_ARGS: &[(&str, Ty)] = &[("to", Ty::Str), ("task_ids", Ty::Strs), ("no
 fn card_of(s: &Inner, v: &str) -> Result<String, String> {
     let id = s.task_id(v)?;
     Ok(id.strip_prefix("task:").unwrap_or(&id).to_string())
+}
+
+/// A yes is for what the person read (spawned-agents.md §9): the card's
+/// given question must still be the one it was when their turn began. A
+/// giver who changed the card since made it ask again, under a new id.
+fn still_as_read(s: &Inner, id: &str, question: &str) -> Result<(), String> {
+    let Some(t) = s.task(id) else {
+        return Err(err_text("no such card."));
+    };
+    let now = t.given.as_ref().map(|g| g.question.as_str()).unwrap_or("");
+    if now != question {
+        return Err(err_text(&format!(
+            "{} changed or was asked again since they read it: show it to them and ask again.",
+            t.short_ref()
+        )));
+    }
+    Ok(())
 }
 
 /// assistant_start: the person's granted yes on a card given to them
@@ -336,6 +355,9 @@ pub(crate) fn assistant_start(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Ok(id) => id,
         Err(e) => return e,
     };
+    if let Err(e) = still_as_read(s, &id, a.str("question")) {
+        return e;
+    }
     let short = s.short_of(&id);
     match s.b.given_start(&c.sender.key, &id) {
         Ok(line) if line.starts_with("Started") => format!("{line}: an agent starts on it."),
@@ -357,6 +379,9 @@ pub(crate) fn assistant_not_now(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Ok(id) => id,
         Err(e) => return e,
     };
+    if let Err(e) = still_as_read(s, &id, a.str("question")) {
+        return e;
+    }
     let (co, keys) = match s.on(&id, std::slice::from_ref(&c.sender.key)) {
         Ok(v) => v,
         Err(e) => return map_err(e),
@@ -399,7 +424,7 @@ pub(crate) fn assistant_give_back(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 .rev()
                 .find(|b| b.given_back && b.open())
                 .and_then(|b| b.on.as_ref())
-                .map(|o| name_of(&s.b.known_names(), &o.reference))
+                .map(|o| named(&name_of(&s.b.known_names(), &o.reference)))
                 .unwrap_or_else(|| "its owner".into());
             if reason.is_empty() {
                 format!("Gave {} back to {owner}.", t.short_ref())
@@ -469,12 +494,14 @@ pub(crate) fn assistant_give(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             [one] => one.clone(),
             [] => {
                 return err_text(&format!(
-                    "you share no space with {name}, so these cards can't go to them."
+                    "you share no space with {}, so these cards can't go to them.",
+                    named(&name)
                 ));
             }
             many => {
                 return err_text(&format!(
-                    "you share more than one space with {name} ({}): share the cards to one of them first, then give them there.",
+                    "you share more than one space with {} ({}): share the cards to one of them first, then give them there.",
+                    named(&name),
                     many.iter()
                         .map(|b| b.tag.clone())
                         .collect::<Vec<_>>()
@@ -498,6 +525,15 @@ pub(crate) fn assistant_give(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             "these cards are on more than one board: give one board's cards at a time.",
         );
     }
+    // Only to a member of that space now: someone who left it keeps a
+    // key there but no longer syncs it.
+    if s.member_key(&b.board_id, &to).is_none() {
+        return err_text(&format!(
+            "{} isn't a member of {} any more, so these cards can't go to them there.",
+            named(&name),
+            b.tag
+        ));
+    }
     let (co, keys) = match sb.board_coord(&b.board_id, &[me, to.clone()]) {
         Ok(v) => v,
         Err(e) => return map_err(e),
@@ -517,6 +553,9 @@ pub(crate) fn assistant_give(s: &Inner, c: &Caller, raw: &[u8]) -> String {
 
 /// The reply for a give: what went, to whom, and who sees it.
 fn gave(given: &[Task], name: &str, b: &BoardInfo, shared: bool) -> String {
+    // Its first line is the chat's own note of the change: the name is
+    // quoted, never Irori's words.
+    let name = named(name);
     let refs: Vec<String> = given.iter().map(Task::short_ref).collect();
     let what = if given.len() == 1 {
         "1 card".to_string()
