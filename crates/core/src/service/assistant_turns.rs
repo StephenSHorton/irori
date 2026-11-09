@@ -610,11 +610,7 @@ impl Services {
     fn chat_session_message(&self, t: &TurnAt, question: String) -> (u64, String, Vec<String>) {
         let mut s = lock(&self.chat.session);
         let goes_on = s.through.as_ref().is_some_and(|(at, turn)| {
-            *at < t.at
-                && self
-                    .assistant_chat
-                    .turn_at(turn)
-                    .is_some_and(|x| !x.hidden)
+            *at < t.at && self.assistant_chat.turn_at(turn).is_some_and(|x| !x.hidden)
         });
         if !goes_on {
             s.key += 1;
@@ -623,7 +619,11 @@ impl Services {
             s.told.clear();
             return (s.key, question, Vec::new());
         }
-        let from = s.through.as_ref().map(|(at, _)| at.clone()).unwrap_or_default();
+        let from = s
+            .through
+            .as_ref()
+            .map(|(at, _)| at.clone())
+            .unwrap_or_default();
         let (lines, told) = self.assistant_chat.since(&from, &t.at, &s.mine, &s.told);
         let message = if lines.is_empty() {
             question

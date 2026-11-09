@@ -278,8 +278,14 @@ impl Held {
         }
         pids.iter()
             .filter_map(|p| {
-                let o = Command::new("ps").args(["-o", "rss=", "-p", p]).output().ok()?;
-                String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok()
+                let o = Command::new("ps")
+                    .args(["-o", "rss=", "-p", p])
+                    .output()
+                    .ok()?;
+                String::from_utf8_lossy(&o.stdout)
+                    .trim()
+                    .parse::<u64>()
+                    .ok()
             })
             .sum()
     }

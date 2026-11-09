@@ -851,7 +851,8 @@ impl Fold {
             match entry {
                 ChatEntry::Turn(t) => {
                     if mine.contains(&t.asked.turn) {
-                        if let Some(p) = t.posted.as_ref().filter(|_| !told.contains(&t.asked.turn)) {
+                        if let Some(p) = t.posted.as_ref().filter(|_| !told.contains(&t.asked.turn))
+                        {
                             lines.push(format!(
                                 "- Your draft in reply to \"{}\" was posted as thread {}#{}.",
                                 short_line(&t.asked.text),

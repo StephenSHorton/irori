@@ -26,7 +26,7 @@ fn free_udp() -> SocketAddr {
         .unwrap()
 }
 
-fn wait(what: &str, mut ok: impl FnMut() -> bool) {
+pub(crate) fn wait(what: &str, mut ok: impl FnMut() -> bool) {
     let start = Instant::now();
     while !ok() {
         assert!(
@@ -50,13 +50,13 @@ impl sys::awake::Hold for Released {
 }
 
 /// One device: its Core, its window and its scratch dirs.
-struct Dev {
-    w: Arc<Window>,
+pub(crate) struct Dev {
+    pub(crate) w: Arc<Window>,
     _dirs: Vec<tempfile::TempDir>,
 }
 
 impl Dev {
-    fn core(&self) -> &Arc<Core> {
+    pub(crate) fn core(&self) -> &Arc<Core> {
         &self.w.core
     }
 
@@ -83,7 +83,7 @@ impl Drop for Dev {
 /// A device whose mesh and pairing run on loopback iroh and a LAN lookup
 /// on `lan` that sends to `to`; `home` lets it run a home server on
 /// 127.0.0.1.
-fn dev(lan: SocketAddr, to: Vec<SocketAddr>, home: bool) -> Dev {
+pub(crate) fn dev(lan: SocketAddr, to: Vec<SocketAddr>, home: bool) -> Dev {
     let (d, c, dl) = (
         tempfile::tempdir().unwrap(),
         tempfile::tempdir().unwrap(),
@@ -150,7 +150,7 @@ fn dev(lan: SocketAddr, to: Vec<SocketAddr>, home: bool) -> Dev {
 }
 
 /// `joiner` joins `host`'s person through the Devices calls.
-fn pair(host: &Dev, joiner: &Dev) {
+pub(crate) fn pair(host: &Dev, joiner: &Dev) {
     let (hp, jp) = (&host.w.seams.pairing, &joiner.w.seams.pairing);
     let st = hp.add(irori_identity::ROLE_DESKTOP).unwrap();
     jp.join(&st.code, "").unwrap();
@@ -166,7 +166,7 @@ fn pair(host: &Dev, joiner: &Dev) {
 }
 
 /// `n` LAN sockets, each device sending to all the others.
-fn lans(n: usize) -> Vec<(SocketAddr, Vec<SocketAddr>)> {
+pub(crate) fn lans(n: usize) -> Vec<(SocketAddr, Vec<SocketAddr>)> {
     let all: Vec<SocketAddr> = (0..n).map(|_| free_udp()).collect();
     all.iter()
         .map(|a| (*a, all.iter().filter(|b| *b != a).copied().collect()))

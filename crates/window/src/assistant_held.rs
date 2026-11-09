@@ -142,7 +142,9 @@ impl Proc {
         if let Some(h) = self.err_reader.take() {
             let _ = h.join();
         }
-        String::from_utf8_lossy(&lock(&self.errs)).trim().to_string()
+        String::from_utf8_lossy(&lock(&self.errs))
+            .trim()
+            .to_string()
     }
 
     /// Ends it off this thread: closes stdin so Claude Code exits on its
@@ -285,7 +287,11 @@ impl HeldChat {
             let mut p = Parser::looking(&look);
             let mut end: Option<AssistantEvent> = None;
             let mut context = 0u64;
-            while sent {
+            loop {
+                // Not written: the process has gone, and why is said below.
+                if !sent {
+                    break;
+                }
                 let left = deadline.saturating_duration_since(Instant::now());
                 match proc.lines.recv_timeout(left) {
                     Ok(l) => {
