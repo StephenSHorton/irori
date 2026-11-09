@@ -157,6 +157,10 @@ pub struct SnapPerson {
 pub struct Snapshot {
     pub items: Vec<SnapItem>,
     pub people: Vec<SnapPerson>,
+    /// Cards given after the person typed were left out: the list they
+    /// read and this one may differ, so "all", "the first N" and "the
+    /// rest" grant nothing; refs still do.
+    pub partial: bool,
 }
 
 impl Snapshot {
@@ -184,7 +188,11 @@ impl Snapshot {
                 it
             })
             .collect();
-        Snapshot { items, people }
+        Snapshot {
+            items,
+            people,
+            partial: false,
+        }
     }
 }
 

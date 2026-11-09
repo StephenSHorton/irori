@@ -127,7 +127,9 @@ pub fn needs_snapshot(b: &dyn Backend) -> Snapshot {
 /// the person's yes covers what was there when they typed, never a card
 /// given while their question waited.
 pub fn needs_snapshot_before(b: &dyn Backend, before_ms: i64) -> Snapshot {
-    let items = given_rows(b)
+    let rows = given_rows(b);
+    let all = rows.len();
+    let items: Vec<(SnapItem, String)> = rows
         .into_iter()
         .filter(|r| r.given_ms <= before_ms)
         .map(|r| {
@@ -155,7 +157,11 @@ pub fn needs_snapshot_before(b: &dyn Backend, before_ms: i64) -> Snapshot {
             name: one_line(&p.name, MAX_NAME),
         })
         .collect();
-    Snapshot::new(items, people)
+    let partial = items.len() < all;
+    Snapshot {
+        partial,
+        ..Snapshot::new(items, people)
+    }
 }
 
 /// The words for a given card's state, and what the person can do.

@@ -39,6 +39,11 @@ struct Tok {
     stop: Option<char>,
 }
 
+/// Words a period follows without ending the sentence.
+const ABBREVIATIONS: &[&str] = &[
+    "etc", "vs", "approx", "mr", "mrs", "ms", "dr", "st", "no", "cf", "incl",
+];
+
 /// Apostrophes as the person's keyboard may type them.
 fn apostrophes(s: &str) -> String {
     s.replace(['\u{2019}', '\u{2018}', '\u{02bc}', '\u{2032}', '`'], "'")
@@ -58,10 +63,16 @@ fn toks(text: &str) -> Vec<Tok> {
             .rev()
             .take_while(|c| ".!?,;:".contains(*c))
             .collect();
+        let body = core
+            .trim_end_matches(|c: char| ".!?,;:".contains(c))
+            .to_lowercase();
         let stop = if tail.contains('?') {
             Some('?')
         } else if tail.chars().count() > 1 && tail.chars().all(|c| c == '.') {
             // "..." trails off; it ends nothing.
+            None
+        } else if tail == "." && (body.contains('.') || ABBREVIATIONS.contains(&body.as_str())) {
+            // "i.e.", "e.g.", "etc.": an abbreviation, not a sentence's end.
             None
         } else {
             tail.chars().next()
@@ -580,6 +591,11 @@ impl Reader<'_> {
         if c.targets.iter().any(Target::is_set) && c.targets.len() > 1 {
             return None;
         }
+        // Cards were given while the question waited: the list the person
+        // read isn't the snapshot, so only their refs count.
+        if self.snap.partial && c.targets.iter().any(Target::is_set) {
+            return None;
+        }
         // Only a give-back carries the person's words.
         if c.reason.is_some() && c.verb != Some(Verb::GiveBack) {
             return None;
@@ -705,14 +721,12 @@ pub(crate) fn read(text: &str, earlier: &[&str], snap: &Snapshot) -> Read {
     }
 }
 
-/// The cards the person's last message that named any card named; all of
-/// them must be given to them.
+/// The cards the person's previous message named, all of them given to
+/// them. Only that message: a newer one about something else ("and what
+/// about Blake's?") means "it" isn't known.
 fn earlier_named(r: &Reader, earlier: &[&str]) -> Option<Vec<usize>> {
-    let e = earlier
-        .iter()
-        .rev()
-        .find(|e| toks(e).iter().any(|x| is_ref(&x.w)))?;
-    earlier_items(r, e)
+    let v = earlier_items(r, earlier.last()?)?;
+    (!v.is_empty()).then_some(v)
 }
 
 fn parse(r: &Reader, t: &[Tok], w: &[&str], earlier: &[&str]) -> Option<Vec<Grant>> {
@@ -752,11 +766,27 @@ fn parse(r: &Reader, t: &[Tok], w: &[&str], earlier: &[&str]) -> Option<Vec<Gran
         }
         for (ca, cb) in r.clauses(t, w, a2, b) {
             let c = r.clause(t, w, ca, cb)?;
-            reasons.push((reason_start(t, w, ca, cb, &c), cb));
+            let at = reason_start(t, w, ca, cb, &c);
+            reasons.push((at, cb));
             if let Some(why) = &c.reason
                 && !r.reason_ok(why)
             {
                 return None;
+            }
+            // After a dash or a colon the words may as well be a second
+            // thought as a reason ("give back #15 - not yet"): read them as
+            // strictly as the rest. Only "because" and "tell <giver>" carry
+            // the person's own "not" and "don't".
+            let loose = c.tell.is_some() || (at > 0 && w[at - 1] == "because");
+            if c.reason.is_some() && !loose {
+                let rw = &w[at..cb];
+                if rw.iter().any(|x| HOLD_BACK.contains(x))
+                    || rw
+                        .first()
+                        .is_some_and(|x| ["no", "nope", "keep", "never", "nah"].contains(x))
+                {
+                    return None;
+                }
             }
             if let Some(g) = c.tell {
                 if tells.iter().any(|(k, _)| *k == g) {
@@ -971,25 +1001,21 @@ fn is_reason_mark(w: &str) -> bool {
     ["because", "-", "--", "\u{2014}", "\u{2013}"].contains(&w)
 }
 
-/// The one card the person's earlier messages named last.
+/// The one card the person's previous message named.
 fn earlier_one_ref(earlier: &[&str]) -> Option<String> {
-    for e in earlier.iter().rev() {
-        let mut refs: Vec<String> = vec![];
-        for t in toks(e) {
-            if is_ref(&t.w) {
-                let r = norm_ref(&t.w);
-                if !refs.contains(&r) {
-                    refs.push(r);
-                }
+    let mut refs: Vec<String> = vec![];
+    for t in toks(earlier.last()?) {
+        if is_ref(&t.w) {
+            let r = norm_ref(&t.w);
+            if !refs.contains(&r) {
+                refs.push(r);
             }
         }
-        match refs.len() {
-            0 => continue,
-            1 => return refs.pop(),
-            _ => return None,
-        }
     }
-    None
+    match refs.len() {
+        1 => refs.pop(),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -1559,5 +1585,59 @@ mod tests {
         ] {
             assert_eq!(g(text, &names), vec![], "{text}");
         }
+    }
+
+    /// The advisor's three, and abbreviations: dash and colon reasons are
+    /// read strictly; a snapshot that left out late cards takes refs only;
+    /// "it" reaches back to the previous message alone; "e.g." ends no
+    /// sentence.
+    #[test]
+    fn second_thoughts_late_cards_and_old_pronouns_grant_nothing() {
+        let s = snap();
+        for text in [
+            "give back #15 - not yet",
+            "give back #15: don't",
+            "reject #15 - no, keep it",
+            "reject #15: not mine",
+            "decline #13 \u{2014} never mind",
+        ] {
+            assert_eq!(g(text, &s), vec![], "{text}");
+        }
+        assert_eq!(
+            g("give back #15 because it's not mine", &s),
+            vec![back("t15", "it's not mine")]
+        );
+        assert_eq!(
+            g(
+                "give back #15 because it's out of scope, e.g. the login part",
+                &s
+            ),
+            vec![back("t15", "it's out of scope, e.g. the login part")]
+        );
+
+        let mut late = snap();
+        late.partial = true;
+        for text in [
+            "start all",
+            "accept the first two",
+            "start all of Spencer's",
+            "start #12, reject the rest",
+        ] {
+            assert_eq!(g(text, &late), vec![], "{text}");
+        }
+        assert_eq!(g("start #12", &late), vec![start("t12")]);
+
+        assert_eq!(
+            grants_for(
+                "start it",
+                &["what's ops#12?", "and what about Blake's?"],
+                &s
+            ),
+            vec![]
+        );
+        assert_eq!(
+            grants_for("give it to Ann", &["what's #3?", "ok thanks"], &s),
+            vec![]
+        );
     }
 }
