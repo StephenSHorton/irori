@@ -315,11 +315,7 @@ impl Fold {
     /// [`Fold::takes_handout`].
     pub(crate) fn may_hand_to(&self, key: &str, t: &Task) -> bool {
         match self.spawned_for(key) {
-            Some(s) => {
-                s.serves(&t.id)
-                    || s.serves(&t.parent)
-                    || self.made_from_agents_thread(s, t)
-            }
+            Some(s) => s.serves(&t.id) || s.serves(&t.parent) || self.made_from_agents_thread(s, t),
             None => self.offers.as_ref().is_none_or(|f| f(key)),
         }
     }
@@ -944,8 +940,7 @@ impl Fold {
         let Some(m) = self.spawned_for(key) else {
             return Ok(false);
         };
-        if self.spawned_now(m) != id
-            || !m.step.is_empty() || !m.subtask.is_empty() {
+        if self.spawned_now(m) != id || !m.step.is_empty() || !m.subtask.is_empty() {
             return Ok(false);
         }
         let Some(t) = self.tasks.get(id) else {

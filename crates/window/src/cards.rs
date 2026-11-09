@@ -1313,8 +1313,7 @@ impl Window {
                 .keys()
                 .filter_map(|k| {
                     let m = co.spawned(k)?;
-                    let mut ids: Vec<String> =
-                        m.items.iter().map(|i| i.task_id.clone()).collect();
+                    let mut ids: Vec<String> = m.items.iter().map(|i| i.task_id.clone()).collect();
                     ids.push(m.task_id.clone());
                     Some((k.clone(), ids))
                 })
@@ -1442,7 +1441,9 @@ impl People {
     /// Whether spawned agent `key` serves card `id`: its origin or one of
     /// the items it took (agent-continuity A.3).
     pub(crate) fn serves(&self, key: &str, id: &str) -> bool {
-        self.spawned.get(key).is_some_and(|v| v.iter().any(|i| i == id))
+        self.spawned
+            .get(key)
+            .is_some_and(|v| v.iter().any(|i| i == id))
     }
 
     /// One key as the window shows it, with its face (card #407).
