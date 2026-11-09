@@ -372,6 +372,16 @@ pub async fn notifications_list(w: W<'_>) -> R<Vec<crate::notifications::Notific
     Ok(w.notifications())
 }
 
+/// Just these keys' notifications (card #1151).
+#[tauri::command]
+#[specta::specta]
+pub async fn notifications_by_key(
+    w: W<'_>,
+    keys: Vec<String>,
+) -> R<Vec<crate::notifications::Notification>> {
+    blocking(&w, move |w| Ok(w.notifications_by_key(&keys))).await
+}
+
 /// How many notifications the person hasn't read (card #377).
 #[tauri::command]
 #[specta::specta]
@@ -2474,6 +2484,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_cards_in,
             board_idle_report,
             notifications_list,
+            notifications_by_key,
             notifications_unread,
             notifications_read,
             notifications_answer_ask,
