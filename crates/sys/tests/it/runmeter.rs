@@ -180,4 +180,44 @@ mod win {
         assert!(runmeter::end_tree(&[(me, st), (me, st + 1)]).is_ok());
         assert!(proc::alive(i64::from(me)));
     }
+
+    /// A member whose pid now belongs to another process (its start no
+    /// longer matches) is not ended, and neither are that process's
+    /// children: they aren't the run's, even though they started after the
+    /// stale start. Here `cmd` waits on a native `ping` child; if `ping`
+    /// were ended, `cmd` would exit.
+    #[test]
+    fn end_tree_leaves_children_of_a_reused_pid() {
+        struct Kill(Child);
+        impl Drop for Kill {
+            fn drop(&mut self) {
+                let _ = Command::new("taskkill")
+                    .args(["/F", "/T", "/PID", &self.0.id().to_string()])
+                    .creation_flags(0x0800_0000)
+                    .output();
+                let _ = self.0.wait();
+            }
+        }
+        let mut cmd = Kill(
+            Command::new("cmd")
+                .args(["/c", "ping -n 30 127.0.0.1 >nul"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .creation_flags(0x0800_0000)
+                .spawn()
+                .unwrap(),
+        );
+        let pid = cmd.0.id();
+        // Give cmd a moment to start ping.
+        std::thread::sleep(Duration::from_millis(1500));
+        assert!(cmd.0.try_wait().unwrap().is_none(), "cmd ended early");
+        // A start earlier than cmd's real one: the pid was "reused".
+        assert!(runmeter::end_tree(&[(pid, 1)]).is_ok());
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(
+            cmd.0.try_wait().unwrap().is_none(),
+            "cmd exited: its child was ended"
+        );
+    }
 }

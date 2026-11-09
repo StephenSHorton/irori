@@ -136,9 +136,22 @@ fn snapshot() -> HashMap<u32, u32> {
     out
 }
 
+/// Whether children with ppid `pid` may be counted as children of the
+/// process that started at `start`: the process at `pid` is still that one
+/// (exited but held open counts, as `end_tree`'s second pass needs), or the
+/// pid is free and its children are orphans. A pid now held by another
+/// process (reused) is never expanded: its children aren't the run's.
+fn may_expand(pid: u32, start: u64, procs: &HashMap<u32, u32>) -> bool {
+    match open(PROCESS_QUERY_LIMITED_INFORMATION, pid) {
+        Some(h) => times(&h).map(|t| t.0) == Some(start),
+        None => !procs.contains_key(&pid),
+    }
+}
+
 /// `roots` plus their native descendants by ppid, roots first, then
 /// breadth first. A child created before its parent is a reused ppid and is
-/// left out, as are `skip` pids.
+/// left out, as are `skip` pids and the children of a pid now held by
+/// another process.
 fn with_descendants(
     roots: &[(u32, u64)],
     procs: &HashMap<u32, u32>,
@@ -161,7 +174,11 @@ fn with_descendants(
     while i < out.len() {
         let (pid, start) = out[i];
         i += 1;
-        for &c in kids.get(&pid).map(Vec::as_slice).unwrap_or(&[]) {
+        let Some(cs) = kids.get(&pid) else { continue };
+        if !may_expand(pid, start, procs) {
+            continue;
+        }
+        for &c in cs {
             if skip.contains(&c) || seen.contains(&c) {
                 continue;
             }
@@ -175,10 +192,18 @@ fn with_descendants(
     out
 }
 
+/// `p` as a NUL-terminated wide path, `/` turned into `\`, losing nothing
+/// (a lossy UTF-8 round trip would mangle unpaired surrogates).
 fn wide(p: &Path) -> Vec<u16> {
-    let s = p.as_os_str().to_string_lossy().replace('/', "\\");
-    std::ffi::OsStr::new(&s)
+    p.as_os_str()
         .encode_wide()
+        .map(|c| {
+            if c == u16::from(b'/') {
+                u16::from(b'\\')
+            } else {
+                c
+            }
+        })
         .chain(std::iter::once(0))
         .collect()
 }
@@ -390,9 +415,14 @@ pub(super) fn end_tree(members: &[(u32, u64)]) -> Result<(), String> {
         }
         roots = next;
     }
+    // One 3 s deadline for all of them, not 3 s each.
+    let deadline = Instant::now() + std::time::Duration::from_secs(3);
     for (pid, h) in waits {
+        let left = deadline
+            .saturating_duration_since(Instant::now())
+            .as_millis() as u32;
         // SAFETY: a live handle opened with SYNCHRONIZE.
-        if unsafe { WaitForSingleObject(h.0, 3000) } != WAIT_OBJECT_0 {
+        if unsafe { WaitForSingleObject(h.0, left) } != WAIT_OBJECT_0 {
             failed.push(format!("{pid} (still running)"));
         }
     }
