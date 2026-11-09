@@ -2828,9 +2828,7 @@ pub async fn assistant_chat_update(
 /// space's #office-assistants channel (assistants-talk.md §8).
 #[tauri::command]
 #[specta::specta]
-pub async fn assistant_talk_cards(
-    w: W<'_>,
-) -> R<Vec<crate::assistant_chat::AssistantTalkCard>> {
+pub async fn assistant_talk_cards(w: W<'_>) -> R<Vec<crate::assistant_chat::AssistantTalkCard>> {
     Ok(w.assistant_talk_cards())
 }
 
@@ -2852,12 +2850,7 @@ pub async fn assistant_answer_request(
 /// Office Assistant chat. False when no card was shown.
 #[tauri::command]
 #[specta::specta]
-pub async fn assistant_talk_toast(
-    w: W<'_>,
-    conv: String,
-    title: String,
-    body: String,
-) -> R<bool> {
+pub async fn assistant_talk_toast(w: W<'_>, conv: String, title: String, body: String) -> R<bool> {
     Ok(w.assistant_talk_toast(&conv, &title, &body))
 }
 

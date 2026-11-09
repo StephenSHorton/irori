@@ -90,7 +90,7 @@ fn let_it_answer_passes_ask_me_and_cannot_answer_twice() {
         .filter(|p| p.waiting.is_none())
         .count();
     assert_eq!(n, 1, "one answer");
-    assert_eq!(runs.load(Ordering::SeqCst), 2, "the control, and one tap");
+    assert_eq!(runs.load(Ordering::SeqCst), 1, "one tap, one turn");
     close(w);
 }
 
@@ -136,7 +136,10 @@ fn an_old_tap_says_tap_again_and_posts_nothing() {
     wait_for(WAIT, "the old tap has a record", || {
         lines(b1).iter().any(|u| u.request == "old-tap")
     });
-    let r = lines(b1).into_iter().find(|u| u.request == "old-tap").unwrap();
+    let r = lines(b1)
+        .into_iter()
+        .find(|u| u.request == "old-tap")
+        .unwrap();
     assert!(r.text.contains("Tap again"), "{}", r.text);
     control(&w);
     assert!(
@@ -177,7 +180,11 @@ fn a_tap_is_checked_against_the_post_itself() {
         lines(b1).iter().any(|u| u.request == req)
     });
     assert!(answers(b1, &w.conv, &chat.post_id).is_empty());
-    assert!(b1.core.assistant_answer_request("", &w.space, "let").is_err());
+    assert!(
+        b1.core
+            .assistant_answer_request("", &w.space, "let")
+            .is_err()
+    );
     assert!(
         b1.core
             .assistant_answer_request("post_x", &w.space, "shout")
