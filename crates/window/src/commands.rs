@@ -2871,8 +2871,9 @@ pub async fn assistant_chat_import(
 }
 
 /// Streams a turn's reply as this computer runs it: from now until the turn
-/// ends, starting with what it has said so far. Only the assistant's
-/// computer runs turns, so elsewhere nothing comes (card 7 streams there).
+/// ends, starting with what it has said so far. On another device the
+/// events come over the mesh from the assistant's computer (card 7); if
+/// that stream fails, nothing comes and the `said` row is the reply.
 #[tauri::command]
 #[specta::specta]
 pub async fn assistant_chat_watch(

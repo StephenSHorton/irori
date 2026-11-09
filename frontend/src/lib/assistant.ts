@@ -305,8 +305,9 @@ export type AssistantState = {
   open: boolean
   // The conversation, oldest first.
   entries: ChatEntry[]
-  // The replies being written, by turn (assistant_chat_watch): only on the
-  // assistant's computer; elsewhere nothing streams.
+  // The replies being written, by turn (assistant_chat_watch): from the
+  // assistant's computer itself, or over the mesh on the device that asked.
+  // The row replaces it when it lands.
   streams: Readonly<Record<string, Reply>>
   // Something waits on the person: a reply to a question this page asked
   // that came in while the panel was closed, or a follow-up line past
