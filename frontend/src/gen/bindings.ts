@@ -526,6 +526,13 @@ export const commands = {
 	agentsReviews: () => __TAURI_INVOKE<boolean>("agents_reviews"),
 	/**  The person changes it: the app only, never a tool. */
 	agentsReviewsSet: (on: boolean) => __TAURI_INVOKE<boolean>("agents_reviews_set", { on }),
+	/**
+	 *  "Start a reviewer on this machine when nobody else fits" (merge-desk
+	 *  §12.10): on unless the person turned it off.
+	 */
+	agentsReviewStarts: () => __TAURI_INVOKE<boolean>("agents_review_starts"),
+	/**  The person changes it: the app only, never a tool. */
+	agentsReviewStartsSet: (on: boolean) => __TAURI_INVOKE<boolean>("agents_review_starts_set", { on }),
 	/**  Pause agents (card #665): whether this device starts no agents now. */
 	agentsPause: () => __TAURI_INVOKE<AgentsPauseView>("agents_pause"),
 	/**

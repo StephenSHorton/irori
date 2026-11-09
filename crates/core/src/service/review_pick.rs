@@ -528,7 +528,7 @@ impl Services {
         let mut r = decide(&facts, &live, left_out.as_deref(), &login_of, &tier5);
         add_named(&mut r, &named, &eligible);
         let Some(pick) = r.pick else {
-            // Tier 7: B7 starts a new reviewer; for now the desk says so.
+            // Tier 7 (§12.10): a new reviewer, on another person's machine.
             let member = polls < TIER7_POLLS && member_card_since(self, b, &facts);
             logf(format_args!(
                 "desk: PR #{}: nobody to ask ({} live, poll {polls})",
@@ -536,8 +536,11 @@ impl Services {
                 live.len()
             ));
             if tier7_allowed(polls, member) {
-                self.desk_watch
-                    .set_note(repo_key, p.number, Some(NOBODY_NOTE.into()));
+                let note = match self.start_reviewer(f, p, &facts)? {
+                    super::review_start::Started::Nobody => Some(NOBODY_NOTE.into()),
+                    _ => None,
+                };
+                self.desk_watch.set_note(repo_key, p.number, note);
             }
             return Ok(());
         };

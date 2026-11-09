@@ -77,6 +77,9 @@ pub(crate) fn needs_agent(t: &Task) -> bool {
         // A PR card is where a PR's review meets, never work (merge desk
         // §12.2): handing it out would start an agent for every PR.
         && !pr_card(t)
+        // A review card is given to its reviewer and starts on their yes
+        // (or their switch), never from the author's hand-out (§12.10).
+        && t.review_of.is_empty()
         // An ask made into a card is a card from then on (card #454).
         && t.open_ask().is_none()
         && t.subtasks.is_empty()

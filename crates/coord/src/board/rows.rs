@@ -69,6 +69,10 @@ crate::go_struct! {
         pub pr: String = "pr" "omit",
         /// The PR author's GitHub login, on a PR card's creation row.
         pub pr_author: String = "prAuthor" "omit",
+        /// The PR card this is a review card for (merge desk §12.10): its
+        /// task id. The fold keeps it only on a person's row of the PR
+        /// card's own creator, so a review card is the PR author's.
+        pub review_of: String = "reviewOf" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }
