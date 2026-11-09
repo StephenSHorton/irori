@@ -262,7 +262,14 @@ impl Hub {
 
     /// A feed of `topics` (empty: every topic). Dropping it unsubscribes.
     pub fn subscribe(&self, topics: &[Topic]) -> Feed {
-        let q = Arc::new(Queue::new(FEED_BUFFER));
+        self.subscribe_sized(topics, FEED_BUFFER)
+    }
+
+    /// [`Hub::subscribe`] with a queue of `cap` slots (at least 1): the
+    /// window's debug switch makes feeds small so they overflow on purpose
+    /// (list-signals.md §8).
+    pub fn subscribe_sized(&self, topics: &[Topic], cap: usize) -> Feed {
+        let q = Arc::new(Queue::new(cap.max(1)));
         self.lock().push(Sub {
             q: Arc::downgrade(&q),
             topics: topics.to_vec(),

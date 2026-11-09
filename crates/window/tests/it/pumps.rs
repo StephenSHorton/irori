@@ -10,8 +10,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::*;
+use irori_core::{CoreEvent, NotifChange, TalkChange};
 use irori_window::events;
 use irori_window::inbox::InboxCounts;
+use irori_window::signals::{self, Bucket, Expander, MAX_IDS};
 use sys::cancel::Cancel;
 
 /// What the emitter saw, in order.
@@ -158,10 +160,17 @@ fn board_pump_forwards_and_coalesces() {
         (1..=10).contains(&n),
         "{n} emits for 21 changes, want them coalesced"
     );
+    // Every payload is the envelope; the first card's id rides in one.
+    let all = seen.of(events::EVENT_BOARD_CHANGED);
     assert!(
-        seen.of(events::EVENT_BOARD_CHANGED)
-            .iter()
-            .all(|v| *v == serde_json::json!({}))
+        all.iter()
+            .all(|v| v["seq"].is_u64() && v["all"].is_boolean() && v["cards"].is_array())
+    );
+    assert!(
+        all.iter()
+            .any(|v| v["cards"].as_array().unwrap().iter().any(|c| *c == t.id.as_str())),
+        "no payload named the card {}: {all:?}",
+        t.id
     );
     stop.cancel();
 }
@@ -246,4 +255,348 @@ fn pairing_changes_reach_the_page() {
     });
     assert!(!r.w.core.guest_windows().any_open());
     stop.cancel();
+}
+
+fn board_ev(kind: &str, task_id: &str, resource: &str) -> CoreEvent {
+    CoreEvent::Board(coord::Change {
+        kind: kind.into(),
+        task_id: task_id.into(),
+        resource: resource.into(),
+        ..Default::default()
+    })
+}
+
+fn strs(v: &serde_json::Value) -> Vec<String> {
+    v.as_array()
+        .unwrap_or_else(|| panic!("not a list: {v}"))
+        .iter()
+        .map(|x| x.as_str().unwrap().to_string())
+        .collect()
+}
+
+/// The kind map (list-signals.md §4): each kind goes where the table says,
+/// and anything else, an empty kind included, is `all`.
+#[test]
+fn the_kind_map_sends_each_kind_to_its_bucket() {
+    let r = Rig::new();
+    let mut ex = Expander::default();
+    let mut f = signals::fold_board(&[
+        board_ev(coord::TASK_CHANGED, "t1", ""),
+        board_ev(coord::COMMENT_ADDED, "t2", ""),
+        board_ev(coord::TASK_CHANGED, "t1", ""),
+        board_ev(coord::NOTE_CHANGED, "", "n1"),
+        board_ev(coord::DESK_CHANGED, "", "repo"),
+        board_ev(coord::BOARD_PIN_CHANGED, "board:b1", ""),
+    ]);
+    assert!(!f.all && f.desk && f.pin);
+    assert_eq!(f.cards, ["t1", "t2"], "a card once, the pin's id not a card");
+    assert_eq!(f.notes, ["n1"]);
+    // Expanded: unknown ids are carried as they are, the desk and the note
+    // ride along.
+    let c = r.w.expand(&mut ex, &mut f).unwrap();
+    assert!(!c.all && c.desk && c.notes == ["n1"]);
+    assert!(c.cards.contains(&"t1".to_string()) && c.cards.contains(&"t2".to_string()));
+    assert!(!c.cards.iter().any(|c| c.starts_with("board:")));
+
+    assert_eq!(signals::bucket_of(coord::TASK_CHANGED), Bucket::Card);
+    assert_eq!(signals::bucket_of(coord::BOARD_PIN_CHANGED), Bucket::Pin);
+    for kind in [
+        coord::RESYNC,
+        coord::LEASE_CHANGED,
+        coord::LEASE_EXPIRED,
+        coord::LEASE_REFUSED,
+        irori_core::spawn_capable::AGENTS_CHANGED,
+        "",
+        "a kind nobody mapped",
+    ] {
+        assert_eq!(signals::bucket_of(kind), Bucket::All, "{kind:?}");
+        let f = signals::fold_board(&[board_ev(kind, "t1", "")]);
+        assert!(f.all, "{kind:?} should read everything");
+    }
+    // A mapped kind with no id to name is all too.
+    assert!(signals::fold_board(&[board_ev(coord::TASK_CHANGED, "", "")]).all);
+    assert!(signals::fold_board(&[board_ev(coord::NOTE_CHANGED, "", "")]).all);
+    // Both Resync forms: the hub's and a board-set change's.
+    assert!(signals::fold_board(&[CoreEvent::Resync]).all);
+    let mut f = signals::fold_board(&[board_ev(coord::RESYNC, "", "")]);
+    assert!(f.all);
+    let c = r.w.expand(&mut ex, &mut f).unwrap();
+    assert!(c.all && c.cards.is_empty());
+}
+
+/// More than 200 ids is `all` (§3.3).
+#[test]
+fn more_than_200_ids_is_all() {
+    let r = Rig::new();
+    let mut ex = Expander::default();
+    let evs: Vec<CoreEvent> = (0..MAX_IDS)
+        .map(|i| board_ev(coord::TASK_CHANGED, &format!("t{i}"), ""))
+        .collect();
+    let c = r.w.expand(&mut ex, &mut signals::fold_board(&evs)).unwrap();
+    assert!(!c.all && c.cards.len() == MAX_IDS);
+    let evs: Vec<CoreEvent> = (0..=MAX_IDS)
+        .map(|i| board_ev(coord::TASK_CHANGED, &format!("t{i}"), ""))
+        .collect();
+    let c = r.w.expand(&mut ex, &mut signals::fold_board(&evs)).unwrap();
+    assert!(c.all && c.cards.is_empty());
+}
+
+/// A card's parent and subtasks ride with it (one hop of family), and a
+/// presence change that touches no card's row sends nothing.
+#[test]
+fn a_card_change_takes_its_family_and_a_quiet_presence_nothing() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let parent = co
+        .create_task(&r.key_a, coord::NewTask { title: "p".into(), ..Default::default() })
+        .unwrap();
+    let kid = co
+        .create_task(
+            &r.key_a,
+            coord::NewTask { title: "k".into(), parent: parent.id.clone(), ..Default::default() },
+        )
+        .unwrap();
+    let mut ex = Expander::default();
+    let c = r
+        .w
+        .expand(&mut ex, &mut signals::fold_board(&[board_ev(coord::TASK_CHANGED, &kid.id, "")]))
+        .unwrap();
+    assert!(!c.all);
+    assert!(c.cards.contains(&kid.id) && c.cards.contains(&parent.id), "{:?}", c.cards);
+    // And the other way: the parent's change names the kid.
+    let c = r
+        .w
+        .expand(&mut ex, &mut signals::fold_board(&[board_ev(coord::TASK_CHANGED, &parent.id, "")]))
+        .unwrap();
+    assert!(c.cards.contains(&kid.id) && c.cards.contains(&parent.id));
+
+    // An agent that holds nothing moved: no row to read.
+    let card = r.w.core.local_agents().into_iter().find(|c| c.key == r.key_b).unwrap();
+    let pc = presence::Change { kind: presence::ChangeKind::Updated, card };
+    let mut f = signals::fold_board(&[CoreEvent::Presence(Box::new(pc.clone()))]);
+    assert_eq!(f.agents, [r.key_b.clone()]);
+    assert!(r.w.expand(&mut ex, &mut f).is_none(), "nothing shows agent b");
+    // Once agent b holds the card, its presence change names the card.
+    co.claim_task(&r.key_b, &parent.id).unwrap();
+    r.w.expand(
+        &mut ex,
+        &mut signals::fold_board(&[board_ev(coord::TASK_CHANGED, &parent.id, "")]),
+    );
+    let mut f = signals::fold_board(&[CoreEvent::Presence(Box::new(pc))]);
+    let c = r.w.expand(&mut ex, &mut f).unwrap();
+    assert!(!c.all && c.cards == [parent.id.clone()], "{:?}", c.cards);
+}
+
+/// `seq` counts up per event name from 1, `boards_pin` included, whichever
+/// thread sends; and a card change's payload names the card.
+#[test]
+fn seq_counts_up_per_name_including_boards_pin() {
+    let r = Rig::new();
+    let (seen, stop) = pumps(&r);
+    let id = r.w.core.create_board("Alpha", "alpha").unwrap();
+    wait("the board opens", || r.w.core.board_coord(&id).is_ok());
+    for i in 0..6 {
+        r.w.boards_pin(&id, i % 2 == 0).unwrap();
+        if i == 2 {
+            r.w.core
+                .coord()
+                .create_task(&r.key_a, coord::NewTask { title: "t".into(), ..Default::default() })
+                .unwrap();
+        }
+    }
+    std::thread::sleep(Duration::from_millis(600));
+    for name in [events::EVENT_BOARDS_CHANGED, events::EVENT_BOARD_CHANGED] {
+        let seqs: Vec<u64> = seen.of(name).iter().map(|v| v["seq"].as_u64().unwrap()).collect();
+        assert!(seqs.len() >= 2, "{name}: {seqs:?}");
+        let want: Vec<u64> = (1..=seqs.len() as u64).collect();
+        assert_eq!(seqs, want, "{name} counts 1, 2, 3 with no gap");
+    }
+    assert!(
+        seen.of(events::EVENT_BOARDS_CHANGED).len() >= 6,
+        "every pin sent boards:changed"
+    );
+    stop.cancel();
+}
+
+/// A board opening reaches the page as `all` on both signals (a board-set
+/// `Resync`, list-signals.md §3.1), and a card change names its id.
+#[test]
+fn a_board_set_resync_reads_everything_and_a_card_names_itself() {
+    let r = Rig::new();
+    let (seen, stop) = pumps(&r);
+    r.w.core.create_board("Alpha", "alpha").unwrap();
+    wait("board:changed all", || {
+        seen.of(events::EVENT_BOARD_CHANGED).iter().any(|v| v["all"] == true)
+    });
+    wait("boards:changed", || !seen.of(events::EVENT_BOARDS_CHANGED).is_empty());
+    let all = seen
+        .of(events::EVENT_BOARD_CHANGED)
+        .into_iter()
+        .find(|v| v["all"] == true)
+        .unwrap();
+    assert!(strs(&all["cards"]).is_empty() && strs(&all["notes"]).is_empty());
+
+    let t = r
+        .w
+        .core
+        .coord()
+        .create_task(&r.key_a, coord::NewTask { title: "x".into(), ..Default::default() })
+        .unwrap();
+    wait("the card's id", || {
+        seen.of(events::EVENT_BOARD_CHANGED)
+            .iter()
+            .any(|v| v["all"] == false && strs(&v["cards"]).contains(&t.id))
+    });
+    stop.cancel();
+}
+
+/// Inbox: a delivery names itself and its card; a policy write (the
+/// `POLICY_SET` shape: `Updated`, no `to`, no delivery), a mesh re-fold,
+/// the inbox's own `Resync` and a kick are `all`.
+#[test]
+fn inbox_names_deliveries_and_cards_and_reads_all_for_the_rest() {
+    let r = Rig::new();
+    let (seen, stop) = pumps(&r);
+    let t = r
+        .w
+        .core
+        .coord()
+        .create_task(&r.key_a, coord::NewTask { title: "c".into(), ..Default::default() })
+        .unwrap();
+    let to = inbox::Address::new(inbox::addr::AGENT, &r.key_b);
+    let (_, d) = r
+        .w
+        .core
+        .inbox()
+        .send_with(
+            &agent(&r.key_a),
+            &to,
+            "see this",
+            inbox::SendOptions {
+                ref_: format!("task:{}", t.id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    wait("inbox:changed names the delivery and its card", || {
+        seen.of(events::EVENT_INBOX_CHANGED).iter().any(|v| {
+            v["all"] == false
+                && strs(&v["deliveries"]).contains(&d.id)
+                && strs(&v["cards"]).contains(&t.id)
+                && v["unread"].is_i64()
+        })
+    });
+    // A local policy write is POLICY_SET: all.
+    let before = seen.of(events::EVENT_INBOX_CHANGED).len();
+    r.w.inbox_set_paused(true).unwrap();
+    wait("a policy write reads all", || {
+        seen.of(events::EVENT_INBOX_CHANGED)
+            .iter()
+            .skip(before)
+            .any(|v| v["all"] == true && strs(&v["deliveries"]).is_empty())
+    });
+    stop.cancel();
+
+    // The shapes, for the writes a test can't make here (a remote
+    // POLICY_SET, the mesh re-fold, a lost event, a kick).
+    let ch = |kind, to: &str, did: &str| {
+        CoreEvent::Inbox(inbox::Change {
+            kind,
+            to: to.into(),
+            delivery_id: did.into(),
+            created: false,
+            was_to: None,
+        })
+    };
+    let updated = inbox::ChangeKind::Updated;
+    assert_eq!(signals::fold_inbox(&[ch(updated, "", "")], false), (true, vec![]));
+    assert_eq!(
+        signals::fold_inbox(&[ch(inbox::ChangeKind::Resync, "", "")], false),
+        (true, vec![])
+    );
+    assert_eq!(signals::fold_inbox(&[CoreEvent::Resync], false), (true, vec![]));
+    assert_eq!(signals::fold_inbox(&[], true), (true, vec![]));
+    // A wake issued names a recipient and no delivery: nothing to read.
+    assert_eq!(
+        signals::fold_inbox(&[ch(inbox::ChangeKind::WakeReady, "k", "")], false),
+        (false, vec![])
+    );
+    assert_eq!(
+        signals::fold_inbox(&[ch(updated, "k", "d1"), ch(inbox::ChangeKind::HeldNew, "k", "d1")], false),
+        (false, vec!["d1".to_string()])
+    );
+}
+
+/// Talk: a post names its conversation; a thread's read cursor has
+/// `thread:` stripped; the all rules (a store resync, `talk.card`, an
+/// empty change, a lost event, a re-fold) read everything.
+#[test]
+fn talk_names_conversations_and_reads_all_for_the_rest() {
+    let r = Rig::new();
+    let (seen, stop) = pumps(&r);
+    let ch = r.w.talk_channel_create("general", None, None).unwrap();
+    r.w.talk_post(&ch, "hello", &[], false, None, &[]).unwrap();
+    wait("talk:changed names the channel", || {
+        seen.of(events::EVENT_TALK_CHANGED)
+            .iter()
+            .any(|v| v["all"] == false && strs(&v["convs"]).contains(&ch))
+    });
+    stop.cancel();
+
+    let t = |c: TalkChange| CoreEvent::Talk(c);
+    let (all, convs, calls) = signals::fold_talk(&[
+        t(TalkChange::convs(["a", "thread:t9"])),
+        t(TalkChange::of(["a", "b"], ["c1"])),
+        t(TalkChange::convs(["t9"])),
+    ]);
+    assert!(!all);
+    assert_eq!(convs, ["a", "t9", "b"], "bare thread ids, each once");
+    assert_eq!(calls, ["c1"]);
+    for ev in [
+        t(TalkChange::all()),
+        t(TalkChange::convs(Vec::<String>::new())),
+        CoreEvent::Resync,
+    ] {
+        let (all, convs, calls) = signals::fold_talk(&[t(TalkChange::convs(["a"])), ev]);
+        assert!(all && convs.is_empty() && calls.is_empty());
+    }
+}
+
+/// Notifications: keys and ask ids by name; a store resync, an empty ask
+/// id (asks lost or refolded), a change that names nothing and a lost
+/// event read everything.
+#[test]
+fn notifications_name_keys_and_asks_and_read_all_for_the_rest() {
+    let n = |k: NotifChange| CoreEvent::Notifications(k);
+    let (all, keys, asks) = signals::fold_notifications(&[
+        n(NotifChange::keys(["k1", "k2"])),
+        n(NotifChange::keys(["k1"])),
+        CoreEvent::Asks("a1".into()),
+        CoreEvent::Asks("a1".into()),
+    ]);
+    assert!(!all);
+    assert_eq!((keys.as_slice(), asks.as_slice()), (&["k1".to_string(), "k2".to_string()][..], &["a1".to_string()][..]));
+    for ev in [
+        n(NotifChange::all()),
+        n(NotifChange::keys(Vec::<String>::new())),
+        CoreEvent::Asks(String::new()),
+        CoreEvent::Resync,
+    ] {
+        let (all, keys, asks) =
+            signals::fold_notifications(&[n(NotifChange::keys(["k1"])), CoreEvent::Asks("a1".into()), ev]);
+        assert!(all && keys.is_empty() && asks.is_empty());
+    }
+}
+
+/// The debug switches only count in a debug build, and only a number.
+#[test]
+fn the_debug_switches_take_a_number() {
+    use std::ffi::OsString;
+    let v = |s: &str| signals::dev_switch_of(Some(OsString::from(s)));
+    if cfg!(debug_assertions) {
+        assert_eq!((v("3"), v(" 7 "), v("x"), v("")), (3, 7, 0, 0));
+    } else {
+        assert_eq!(v("3"), 0, "a release build ignores it");
+    }
+    assert_eq!(signals::dev_switch_of(None), 0);
 }
