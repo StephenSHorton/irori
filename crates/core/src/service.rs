@@ -547,6 +547,11 @@ impl tools::Backend for ToolsView {
     fn agent_start(&self, caller: &str, task_id: &str) -> Result<String, String> {
         self.0.agent_start(caller, task_id)
     }
+    fn given_start(&self, _person_key: &str, task_id: &str) -> Result<String, String> {
+        self.0
+            .start_given_card(task_id)?
+            .ok_or_else(|| format!("no card {task_id} is given to you"))
+    }
     fn agent_end(&self, caller: &str, key: &str) -> Result<String, String> {
         self.0.agent_end(caller, key)
     }
@@ -3592,6 +3597,13 @@ impl Core {
 
     pub fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
         self.s.start_agent(id, note)
+    }
+
+    /// Start on a card given to the person (decision 69, §3.2), from any
+    /// device: what happened ("Started …", or "Asked {device} to start
+    /// it"), or `None` when `id` is no card given to them.
+    pub fn start_given_card(&self, id: &str) -> Result<Option<String>, String> {
+        self.s.start_given_card(id)
     }
 
     /// Pause agents (card #665): whether this device starts no agents now.
