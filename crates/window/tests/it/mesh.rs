@@ -380,3 +380,88 @@ fn three_devices_each_see_the_other_two() {
     }
     assert_eq!(b.state_of(&ids[0]), "connected");
 }
+
+/// One assistant, card 7: two paired windows. The asking window's
+/// `assistant_chat_watch` follows the other's running turn over the mesh and
+/// shows its deltas in order, ending with `done`; the reply row is the text.
+#[test]
+fn the_asking_window_streams_the_reply_of_the_assistants_computer() {
+    use irori_core::assistant_chat::{ChatDone, ChatEvent, ChatJob, ChatTurnFn};
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let l = lans(2);
+    let a = dev(l[0].0, l[0].1.clone(), true);
+    let b = dev(l[1].0, l[1].1.clone(), false);
+    pair(&a, &b);
+    let gate = Arc::new(AtomicUsize::new(1));
+    let said = Arc::new(AtomicUsize::new(0));
+    let turn_fn: ChatTurnFn = {
+        let (gate, said) = (gate.clone(), said.clone());
+        Arc::new(move |_job: &ChatJob, emit: &dyn Fn(ChatEvent) -> bool| {
+            for (i, p) in ["The ", "reply ", "streams."].iter().enumerate() {
+                while gate.load(Ordering::SeqCst) <= i {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                emit(ChatEvent {
+                    kind: "delta".into(),
+                    text: (*p).into(),
+                });
+                said.store(i + 1, Ordering::SeqCst);
+            }
+            emit(ChatEvent {
+                kind: "done".into(),
+                text: String::new(),
+            });
+            ChatDone {
+                text: "The reply streams.".into(),
+                ..ChatDone::default()
+            }
+        })
+    };
+    a.core().set_chat_turn(Some(turn_fn));
+    a.core().set_assistant_home(&a.id()).unwrap();
+    wait("B follows the pick", || {
+        b.core().assistant_home().as_deref() == Some(a.id().as_str())
+    });
+    wait("B sees A connected", || b.state_of(&a.id()) == "connected");
+    let turn = b.core().assistant_chat_ask("stream it", "", "").unwrap();
+    wait("the first part is said", || {
+        said.load(Ordering::SeqCst) == 1
+    });
+    let seen: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
+    {
+        let seen = seen.clone();
+        b.w.assistant_chat_watch(
+            &turn,
+            Box::new(move |e| {
+                seen.lock().unwrap().push((e.kind, e.text));
+                true
+            }),
+        );
+    }
+    gate.store(3, Ordering::SeqCst);
+    wait("the stream ends", || {
+        seen.lock().unwrap().iter().any(|(k, _)| k == "done")
+    });
+    let got = seen.lock().unwrap().clone();
+    let text: String = got
+        .iter()
+        .filter(|(k, _)| k == "delta")
+        .map(|(_, t)| t.as_str())
+        .collect();
+    assert_eq!(text, "The reply streams.", "{got:?}");
+    wait("the row reaches B", || {
+        b.core()
+            .assistant_chat_turn(&turn)
+            .is_some_and(|t| t.said.is_some())
+    });
+    assert_eq!(
+        b.core()
+            .assistant_chat_turn(&turn)
+            .unwrap()
+            .said
+            .unwrap()
+            .text,
+        "The reply streams."
+    );
+}
