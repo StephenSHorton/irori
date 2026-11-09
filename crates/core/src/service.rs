@@ -1853,6 +1853,9 @@ impl Core {
             terms: Arc::new(term::Terms::new()),
             closed: AtomicBool::new(false),
         };
+        // The old Pause all has no switch now (card #1196): a start lifts
+        // it, before catch_up decides the queued deliveries' holds.
+        s.lift_old_pause_all("start");
         // Other devices' queued deliveries get this device's own hold
         // decision before anything serves an attach stream that could wake
         // them.
@@ -3580,10 +3583,17 @@ impl Core {
 
     /// The person turns Pause agents on or off for this device, from the
     /// app (their agents use the `agents_pause` tool).
+    ///
+    /// Off also lifts the old inbox Pause all here, even when Stop here was
+    /// already off (card #1196): the person turned starts back on.
     pub fn set_agents_paused(&self, on: bool) -> Result<spawn_pause::AgentsPause, String> {
         let me = self.s.device.id.clone();
         let by = format!("user:{me}");
-        self.s.set_agents_paused(&me, on, &by)
+        let p = self.s.set_agents_paused(&me, on, &by)?;
+        if !on {
+            self.s.lift_old_pause_all("Stop here off");
+        }
+        Ok(p)
     }
 
     /// "Hand to an agent" (card #485): the person moves a card whose items
