@@ -88,6 +88,8 @@ function world(
     toolAnswers?: Array<{ status: number; text: string }>
     /** Answers for /v1/permission/wait, used up in order (GitHub #322). */
     permissionAnswers?: Array<{ status: number; text: string }>
+    /** What each built-in tool beneath the gate answers (card #1249); default `ran <tool>`. */
+    toolResults?: Record<string, { result: unknown; text?: string; isError?: boolean }>
   } = {},
 ) {
   const children: Array<ReturnType<typeof makeChild>> = []
@@ -107,8 +109,13 @@ function world(
     return { value: undefined } as never
   })
   // A tool beneath the mod's gate (card #207): runs when the gate lets it.
-  on('tool.call', { tool: 'Bash' }, () => ({ result: 'ran Bash' }) as never)
+  // Card #1249: each tool answers with the result object the test gives, as
+  // core does, `text` included (a backgrounded shell call's path is only there).
+  for (const tool of ['Bash', 'PowerShell', 'Agent', 'Workflow', 'TaskStop', 'Monitor']) {
+    on('tool.call', { tool: tool as 'Bash' }, () => (opts.toolResults?.[tool] ?? { result: `ran ${tool}` }) as never)
+  }
   on('session.id', () => ({ value: SESSION }) as never)
+  on('session.cwd', () => ({ value: 'C:/work/here' }) as never)
   on('command.register', () => ({ value: { command: 'irori' } }) as never)
   on('ui.toast', ($, e) => {
     toasts.push(String(e.text))
@@ -149,7 +156,7 @@ function world(
   on('classic.UserPromptSubmit', () => ({}))
   on('classic.PermissionRequest', () => ({}))
   on('http.fetch', ($, e) => {
-    calls.push({ url: e.url, method: e.init?.method ?? 'GET', headers: { ...(e.init?.headers ?? {}) }, body: e.init?.body })
+    calls.push({ url: e.url, method: e.init?.method ?? 'GET', headers: { ...(e.init?.headers ?? {}) }, body: e.init?.body as string | undefined })
     if (e.url.endsWith('/v1/permission/wait')) {
       const a = opts.permissionAnswers?.shift() ?? { status: 200, text: '{"decision":"none"}' }
       return { value: { ok: a.status < 300, status: a.status, headers: {}, text: a.text } } as never
@@ -192,7 +199,7 @@ describe('attach', () => {
       await band.unmount()
     }
     const ran = await $.command.run(irori(''))
-    expect(ran.text).toContain('irori mod 0.7.2')
+    expect(ran.text).toContain('irori mod 0.8.0')
     expect(ran.text).toContain('set iroriPath')
   })
 
@@ -200,7 +207,7 @@ describe('attach', () => {
     const w = world(on)
     await $.session.start({ cwd: 'C:/work/api', surface: 'terminal', isInteractive: true })
     await until(() => w.children.length === 1, 'spawn')
-    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.7.2'])
+    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.8.0'])
 
     // hello split across two pieces, a blank keepalive, and a stray log line.
     const h = line(hello)
@@ -845,7 +852,7 @@ describe('/irori', () => {
     }
     expect(w.calls.filter(c => c.url.endsWith('/v1/policy'))).toEqual([])
     const status = await $.command.run(irori(''))
-    expect(status.text).toContain('irori mod 0.7.2')
+    expect(status.text).toContain('irori mod 0.8.0')
     expect(status.text).toContain('Attached as api work')
   })
 
@@ -865,8 +872,9 @@ describe('/irori', () => {
     expect(policy[1]!.headers['X-Irori-Attach']).toBe('secret-1')
     expect(JSON.parse(policy[1]!.body!)).toEqual({ mode: 'everyone', block: ['grok-1'], allow: [], paused: false })
 
+    // Pause all is gone (card #1196): /irori pause says where Stop is instead.
     const paused = await $.command.run(irori('pause', PERSON))
-    expect(paused.text).toContain('Paused')
+    expect(paused.text).toContain('Pause all is gone')
     const bad = await $.command.run(irori('mode sometimes', PERSON))
     expect(bad.text).toContain('Use /irori mode everyone or /irori mode allowlist.')
   })
@@ -932,7 +940,8 @@ describe('held cards (GitHub #3)', () => {
     w.children[0]!.write(line(hello))
     await until(() => w.registered.length === 2, 'hello')
     const got = await $.classic.UserPromptSubmit({ prompt: 'hi' } as never)
-    expect(got.additionalContext ?? []).toEqual([`Irori: ${sideLine}`])
+    // The device_free line comes once a session (card #1035); it is not about the side.
+    expect((got.additionalContext ?? []).filter(t => !t.includes('device_free'))).toEqual([`Irori: ${sideLine}`])
   })
 
   test('no card held, no reminder', OPTIONS, async ($, on) => {
@@ -941,6 +950,9 @@ describe('held cards (GitHub #3)', () => {
     await until(() => w.children.length === 1, 'spawn')
     w.children[0]!.write(line(hello))
     await until(() => w.registered.length === 2, 'hello')
+    // Only the once-a-session device_free line (card #1035), then nothing.
+    const first = (await $.classic.UserPromptSubmit({ prompt: 'hi' } as never)).additionalContext ?? []
+    expect(first.filter(t => !t.includes('device_free'))).toEqual([])
     expect((await $.classic.UserPromptSubmit({ prompt: 'hi' } as never)).additionalContext ?? []).toEqual([])
   })
 })
@@ -953,7 +965,7 @@ describe('permission prompts (GitHub #322)', () => {
     output: { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } },
   }
 
-  async function attach($: Parameters<Parameters<typeof test>[2]>[0], w: ReturnType<typeof world>) {
+  async function attach($: Parameters<NonNullable<Parameters<typeof test>[2]>>[0], w: ReturnType<typeof world>) {
     await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
     await until(() => w.children.length === 1, 'spawn')
     w.children[0]!.write(line(hello))
@@ -1124,5 +1136,145 @@ describe('Claude usage (card #599)', () => {
     expect(r).toEqual({ changed: ['rateLimits'] })
     await pause(50)
     expect(posts(w.calls, '/v1/usage/limits')).toEqual([])
+  })
+})
+
+describe('live runs (card #1249)', () => {
+  const RUNS = '/v1/runs'
+  const OUT = 'C:\\Users\\4step\\AppData\\Local\\Temp\\claude\\C--Users-4step\\b886ef92\\tasks\\be9ihtlp2.output'
+  const bg = (id: string, path: string) => ({
+    result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: id },
+    text: `Command running in background with ID: ${id}. Output is being written to: ${path}`,
+  })
+  const bodies = (calls: Call[]) => posts(calls, RUNS).map(c => JSON.parse(c.body ?? '{}') as Record<string, unknown>)
+
+  async function attached($: Parameters<NonNullable<Parameters<typeof test>[2]>>[0], w: ReturnType<typeof world>) {
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line(hello))
+    await until(() => w.registered.length === 2, 'hello')
+  }
+
+  test('a foreground shell call posts fg-start before it runs, then fg', OPTIONS, async ($, on) => {
+    const w = world(on, { toolResults: { Bash: { result: { stdout: 'ok', stderr: '', interrupted: false } } } })
+    await attached($, w)
+    await $.tool.call({ tool: 'Bash', command: 'cargo build', description: 'build', tool_use_id: 'toolu_fg' } as never)
+    await until(() => bodies(w.calls).length === 2, 'fg-start and fg')
+    const [start, done] = bodies(w.calls)
+    expect(start).toMatchObject({ event: 'fg-start', kind: 'fg', toolUseId: 'toolu_fg', command: 'cargo build', description: 'build', cwd: 'C:/work/here' })
+    expect(typeof start!.startedAt).toBe('number')
+    expect(done).toMatchObject({ event: 'fg', kind: 'fg', toolUseId: 'toolu_fg', command: 'cargo build', interrupted: false, isError: false })
+    expect(done!.startedAt).toBe(start!.startedAt)
+    expect(done!.endedAt as number).toBeGreaterThanOrEqual(start!.startedAt as number)
+    // Like every control call: the bearer and the attach secret.
+    for (const c of posts(w.calls, RUNS)) expect(c.headers['X-Irori-Attach']).toBe('secret-1')
+  })
+
+  test('a backgrounded Bash or PowerShell call starts a bash run with the output path verbatim', OPTIONS, async ($, on) => {
+    const w = world(on, { toolResults: { Bash: bg('be9ihtlp2', OUT), PowerShell: bg('bps01', 'C:\\t\\284f1fee44e7a201\\s\\tasks\\bps01.output') } })
+    await attached($, w)
+    await $.tool.call({ tool: 'Bash', command: 'cargo test', run_in_background: true, tool_use_id: 'toolu_b' } as never)
+    await until(() => bodies(w.calls).length === 2, 'bash start')
+    expect(bodies(w.calls)[0]).toMatchObject({ event: 'fg-start', toolUseId: 'toolu_b' })
+    expect(bodies(w.calls)[1]).toMatchObject({ event: 'start', kind: 'bash', taskId: 'be9ihtlp2', toolUseId: 'toolu_b', command: 'cargo test', outputFile: OUT, cwd: 'C:/work/here' })
+
+    await $.tool.call({ tool: 'PowerShell', command: 'Start-Sleep 30', run_in_background: true, tool_use_id: 'toolu_p' } as never)
+    await until(() => bodies(w.calls).length === 4, 'powershell start')
+    expect(bodies(w.calls)[2]).toMatchObject({ event: 'fg-start', toolUseId: 'toolu_p', command: 'Start-Sleep 30' })
+    expect(bodies(w.calls)[3]).toMatchObject({
+      event: 'start',
+      kind: 'bash',
+      taskId: 'bps01',
+      toolUseId: 'toolu_p',
+      outputFile: 'C:\\t\\284f1fee44e7a201\\s\\tasks\\bps01.output',
+    })
+  })
+
+  test('a background Agent or Workflow starts a run; Monitor and Irori tools report nothing', OPTIONS, async ($, on) => {
+    const w = world(on, {
+      toolResults: {
+        Agent: { result: { status: 'async_launched', agentId: 'a7f3', description: 'review the diff', prompt: 'p', outputFile: 'C:\\t\\tasks\\a7f3.output' } },
+        Workflow: { result: { status: 'async_launched', taskId: 'w9k2', taskType: 'local_workflow', workflowName: 'card-1249', runId: 'r1' } },
+        Monitor: { result: { taskId: 'bmon1' } },
+      },
+    })
+    await attached($, w)
+    await $.tool.call({ tool: 'Monitor', command: 'tail -f x' } as never)
+    await $.tool.call({ tool: 'mcp__irori__send', to: 'bob', text: 'hi' } as never)
+    await $.tool.call({ tool: 'Agent', description: 'review the diff', prompt: 'p', run_in_background: true, tool_use_id: 'toolu_a' } as never)
+    await $.tool.call({ tool: 'Workflow', script: 's', tool_use_id: 'toolu_w' } as never)
+    await until(() => bodies(w.calls).length === 2, 'agent and workflow starts')
+    await pause(50)
+    const got = bodies(w.calls)
+    expect(got.length).toBe(2)
+    expect(got[0]).toMatchObject({ event: 'start', kind: 'agent', taskId: 'a7f3', toolUseId: 'toolu_a', command: 'review the diff', outputFile: 'C:\\t\\tasks\\a7f3.output' })
+    expect(got[1]).toMatchObject({ event: 'start', kind: 'workflow', taskId: 'w9k2', toolUseId: 'toolu_w', command: 'card-1249' })
+  })
+
+  test('a task-notification row ends the run, once, from message.task', OPTIONS, async ($, on) => {
+    const w = world(on)
+    await attached($, w)
+    const text = '<task-notification>\n<task-id>be9ihtlp2</task-id>\n<status>failed</status>\n<summary>Background command "cargo test" failed with exit code 101</summary>\n</task-notification>'
+    const row = (door: string, uuid: string) =>
+      ({
+        message: { type: 'user', content: [{ type: 'text', text }], task: { id: 'be9ihtlp2', status: 'failed', toolUseId: 'toolu_b' } },
+        door,
+        origin: { kind: 'task-notification' },
+        uuid,
+      }) as never
+    await $.session.append(row('queue', 'u1'))
+    await until(() => bodies(w.calls).length === 1, 'end')
+    expect(bodies(w.calls)[0]).toMatchObject({ event: 'end', kind: 'bash', taskId: 'be9ihtlp2', toolUseId: 'toolu_b', status: 'failed', exitCode: 101 })
+    // The same notification as a prompt row: not ended twice.
+    await $.session.append(row('prompt', 'u2'))
+    // A row anyone else appends is no end.
+    await $.session.append({ message: { type: 'user', content: [{ type: 'text', text }] }, door: 'prompt', origin: { kind: 'composer' }, uuid: 'u3' } as never)
+    await pause(50)
+    expect(bodies(w.calls).length).toBe(1)
+  })
+
+  test('TaskStop ends the run early as killed, and its notification adds nothing', OPTIONS, async ($, on) => {
+    const w = world(on, { toolResults: { TaskStop: { result: { message: 'stopped', task_id: 'be9ihtlp2', task_type: 'local_bash', command: 'cargo test' } } } })
+    await attached($, w)
+    await $.tool.call({ tool: 'TaskStop', task_id: 'be9ihtlp2' } as never)
+    await until(() => bodies(w.calls).length === 1, 'killed')
+    expect(bodies(w.calls)[0]).toMatchObject({ event: 'end', kind: 'bash', taskId: 'be9ihtlp2', status: 'killed' })
+    await $.session.append({
+      message: { type: 'user', content: [{ type: 'text', text: 'x' }], task: { id: 'be9ihtlp2', status: 'killed' } },
+      door: 'prompt',
+      origin: { kind: 'task-notification' },
+      uuid: 'u1',
+    } as never)
+    await pause(50)
+    expect(bodies(w.calls).length).toBe(1)
+  })
+
+  test('reports made before hello wait, and go out in order at hello', OPTIONS, async ($, on) => {
+    const w = world(on, { toolResults: { Bash: bg('be9ihtlp2', OUT) } })
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    const ran = await $.tool.call({ tool: 'Bash', command: 'cargo test', run_in_background: true, tool_use_id: 'toolu_q' } as never)
+    expect(ran.result).toMatchObject({ backgroundTaskId: 'be9ihtlp2' })
+    await pause(100)
+    expect(posts(w.calls, RUNS)).toEqual([])
+    w.children[0]!.write(line(hello))
+    await until(() => bodies(w.calls).length === 2, 'flushed at hello')
+    expect(bodies(w.calls).map(b => b.event)).toEqual(['fg-start', 'start'])
+    expect(bodies(w.calls)[1]).toMatchObject({ taskId: 'be9ihtlp2', outputFile: OUT })
+    // Sent once: a second hello (a reattach) sends nothing again.
+    w.children[0]!.write(line(hello))
+    await pause(100)
+    expect(bodies(w.calls).length).toBe(2)
+  })
+
+  test('a call the pause refuses reports nothing', OPTIONS, async ($, on) => {
+    const w = world(on, { board: { working: [{ short: '7', paused: true, holders: [hello.agentKey] }] } })
+    await attached($, w)
+    await until(() => w.calls.some(c => c.url.includes('/v1/board')), 'board read')
+    await pause(50)
+    const refused = await $.tool.call({ tool: 'Bash', command: 'ls' } as never)
+    expect(String(refused.result)).toContain('paused #7')
+    await pause(50)
+    expect(posts(w.calls, RUNS)).toEqual([])
   })
 })

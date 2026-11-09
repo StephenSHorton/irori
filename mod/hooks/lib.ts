@@ -1,10 +1,10 @@
 // Pure helpers for the Irori mod: no `$`, no engine imports, so `bun test`
 // can cover them as well as `claude plugin test`.
 
-import type { AttachEvent, AttachView, PausedCard, Policy, ToolSpec, TrackedAppend } from '../types'
+import type { AttachEvent, AttachView, PausedCard, Policy, RunReport, ToolSpec, TrackedAppend } from '../types'
 
 /** Matches .claude-plugin/plugin.json; sent to `irori attach` and shown by /irori. */
-export const MOD_VERSION = '0.7.2'
+export const MOD_VERSION = '0.8.0'
 /** hello's `v` from which `irori attach --standby` is safe: the Core refuses it while another attach is live. */
 export const STANDBY_SINCE = 3
 
@@ -472,4 +472,186 @@ export function permissionAnswer(body: unknown): { kind: 'pending' | 'none' } | 
     return { kind: 'decide', decision: decision as Record<string, unknown> }
   }
   return { kind: 'none' }
+}
+
+/** Where the mod reports background runs and foreground shell calls (card #1249). */
+export const RUNS_PATH = '/v1/runs'
+/** Unsent run reports the mod keeps for the next hello (newest kept). */
+export const MAX_RUNS = 50
+/** Longest command the mod sends; the Core scrubs and caps it further. */
+export const MAX_RUN_COMMAND = 2_000
+
+/** A tool whose result says whether it went to the background: Bash, and PowerShell on Windows. */
+export function isShellTool(tool: unknown): boolean {
+  return tool === 'Bash' || tool === 'PowerShell'
+}
+
+/**
+ * The task id and output path from a backgrounded shell call's result text.
+ * The typed result carries no path, so it is taken verbatim from the text:
+ * its folder is sometimes a hash and sometimes a project slug, so it is never
+ * rebuilt (live-tasks.md §2.1).
+ */
+export function parseBgResultText(text: unknown): { taskId: string; outputFile: string } | null {
+  if (typeof text !== 'string') return null
+  const m = /with ID: (\S+)\. Output is being written to: (.+?\.output)/.exec(text)
+  return m ? { taskId: m[1]!, outputFile: m[2]! } : null
+}
+
+type CallInput = { tool?: unknown; tool_use_id?: unknown; command?: unknown; description?: unknown }
+
+function str(v: unknown): string | undefined {
+  return typeof v === 'string' && v ? v : undefined
+}
+
+function cap(v: unknown): string | undefined {
+  const s = str(v)
+  return s && s.length > MAX_RUN_COMMAND ? s.slice(0, MAX_RUN_COMMAND) : s
+}
+
+/** Drops absent fields, so the body carries only what is known. */
+function compact(r: RunReport): RunReport {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(r)) if (v !== undefined) out[k] = v
+  return out as RunReport
+}
+
+/** The `fg-start` posted before a shell call runs: every shell call, until its result says otherwise. */
+export function fgStartFrom(e: CallInput, startedAt: number): RunReport | null {
+  if (!isShellTool(e.tool)) return null
+  return compact({
+    event: 'fg-start',
+    kind: 'fg',
+    toolUseId: str(e.tool_use_id),
+    command: cap(e.command),
+    description: cap(e.description),
+    startedAt,
+  })
+}
+
+/**
+ * What a finished tool call reports, decided from its result, not its input
+ * (live-tasks.md §2.1): a shell call that went to the background starts a
+ * `bash` run; one that didn't finished in the foreground (`fg`); a background
+ * Agent or Workflow starts an `agent` / `workflow` run; TaskStop ends one
+ * early as killed. Anything else, Monitor included on purpose, reports nothing.
+ */
+export function runStartFrom(
+  e: CallInput,
+  r: { result?: unknown; text?: unknown; isError?: unknown; deny?: unknown } | null | undefined,
+  startedAt: number,
+  endedAt: number,
+): RunReport | null {
+  const tool = e.tool
+  const toolUseId = str(e.tool_use_id)
+  const res = (r?.result && typeof r.result === 'object' ? r.result : {}) as Record<string, unknown>
+  if (isShellTool(tool)) {
+    const taskId = str(res.backgroundTaskId)
+    if (taskId && !r?.deny) {
+      const parsed = parseBgResultText(r?.text)
+      return compact({
+        event: 'start',
+        kind: 'bash',
+        taskId,
+        toolUseId,
+        command: cap(e.command),
+        description: cap(e.description),
+        outputFile: parsed && parsed.taskId === taskId ? parsed.outputFile : undefined,
+        startedAt,
+      })
+    }
+    // Finished in the foreground (or refused below the gate): pairs with its fg-start.
+    return compact({
+      event: 'fg',
+      kind: 'fg',
+      toolUseId,
+      command: cap(e.command),
+      startedAt,
+      endedAt,
+      interrupted: res.interrupted === true,
+      isError: r?.isError === true || typeof r?.deny === 'string',
+    })
+  }
+  if (r?.deny || r?.isError) return null
+  if (tool === 'Agent' && (res.status === 'async_launched' || res.status === 'remote_launched')) {
+    const taskId = str(res.agentId) ?? str(res.taskId)
+    if (!taskId) return null
+    return compact({
+      event: 'start',
+      kind: 'agent',
+      taskId,
+      toolUseId,
+      command: cap(res.description) ?? cap(e.description),
+      outputFile: str(res.outputFile),
+      startedAt,
+    })
+  }
+  if (tool === 'Workflow' && (res.status === 'async_launched' || res.status === 'remote_launched')) {
+    const taskId = str(res.taskId)
+    if (!taskId) return null
+    return compact({ event: 'start', kind: 'workflow', taskId, toolUseId, command: cap(res.workflowName) ?? 'workflow', startedAt })
+  }
+  if (tool === 'TaskStop') {
+    const taskId = str(res.task_id)
+    if (!taskId) return null
+    return compact({ event: 'end', kind: runKindOf(taskId), taskId, status: 'killed', endedAt })
+  }
+  return null
+}
+
+/** A task id's kind from Claude Code's prefix (b shell, a agent, w workflow); undefined otherwise. */
+export function runKindOf(taskId: string): RunReport['kind'] {
+  switch (taskId[0]) {
+    case 'b':
+      return 'bash'
+    case 'a':
+      return 'agent'
+    case 'w':
+      return 'workflow'
+    default:
+      return undefined
+  }
+}
+
+type AppendRow = {
+  door?: unknown
+  origin?: { kind?: unknown } | null
+  message?: { content?: unknown; task?: unknown } | null
+}
+
+function rowText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content.map(c => (c && typeof c === 'object' && typeof (c as { text?: unknown }).text === 'string' ? (c as { text: string }).text : '')).join('')
+}
+
+function tag(text: string, name: string): string | undefined {
+  const m = new RegExp(`<${name}>([^]*?)</${name}>`).exec(text)
+  return m ? m[1]!.trim() || undefined : undefined
+}
+
+/**
+ * The `end` a task-notification row reports (live-tasks.md §2.1), or null
+ * for any other row. Reads the structured `message.task`; the text's tags only
+ * when it is absent. `exit code N` comes from the summary either way. The
+ * mod's own appends (door `note`) and rows with no ended status are not ends.
+ */
+export function runEndFrom(row: AppendRow | null | undefined, endedAt?: number): RunReport | null {
+  if (!row || row.door === 'note' || row.origin?.kind !== 'task-notification') return null
+  const text = rowText(row.message?.content)
+  const task = (row.message?.task && typeof row.message.task === 'object' ? row.message.task : {}) as Record<string, unknown>
+  const taskId = str(task.id) ?? tag(text, 'task-id')
+  const status = str(task.status) ?? tag(text, 'status')
+  if (!taskId || !status) return null
+  const toolUseId = str(task.toolUseId) ?? tag(text, 'tool-use-id')
+  const code = /exit code (-?\d+)/.exec(tag(text, 'summary') ?? text)
+  return compact({
+    event: 'end',
+    kind: runKindOf(taskId),
+    taskId,
+    toolUseId,
+    status,
+    exitCode: code ? Number(code[1]) : undefined,
+    endedAt,
+  })
 }

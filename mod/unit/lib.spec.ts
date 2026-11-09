@@ -30,6 +30,13 @@ import {
   usageBody,
   accountFromConfig,
   claudeConfigPath,
+  MAX_RUN_COMMAND,
+  fgStartFrom,
+  isShellTool,
+  parseBgResultText,
+  runEndFrom,
+  runKindOf,
+  runStartFrom,
 } from '../hooks/lib'
 import type { Policy, TrackedAppend } from '../types'
 
@@ -376,5 +383,147 @@ describe('permission prompts (GitHub #322)', () => {
     expect(permissionAnswer({ decision: 'deny' })).toEqual({ kind: 'none' })
     const output = { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message: 'no' } } }
     expect(permissionAnswer({ decision: 'deny', output })).toEqual({ kind: 'decide', decision: { behavior: 'deny', message: 'no' } })
+  })
+})
+
+describe('live runs (card #1249)', () => {
+  const HASH = 'C:\\Users\\4step\\AppData\\Local\\Temp\\claude\\284f1fee44e7a201\\698690f6-423c-4581-bb6b-3b205e1c05fd\\tasks\\be9ihtlp2.output'
+  const SLUG = 'C:\\Users\\4step\\AppData\\Local\\Temp\\claude\\C--Users-4step\\e43a9506-0000\\tasks\\bx1.output'
+  const MAC = '/private/tmp/claude-501/-Users-s-proj/abc/tasks/b77.output'
+  const bgText = (id: string, path: string) => `Command running in background with ID: ${id}. Output is being written to: ${path}`
+
+  test('shell means Bash or PowerShell', () => {
+    expect(isShellTool('Bash')).toBe(true)
+    expect(isShellTool('PowerShell')).toBe(true)
+    expect(isShellTool('Monitor')).toBe(false)
+    expect(isShellTool('mcp__irori__send')).toBe(false)
+  })
+
+  test('the output path is taken verbatim, hash folder, slug folder or macOS', () => {
+    expect(parseBgResultText(bgText('be9ihtlp2', HASH))).toEqual({ taskId: 'be9ihtlp2', outputFile: HASH })
+    expect(parseBgResultText(bgText('bx1', SLUG) + '\nUse Read to check.')).toEqual({ taskId: 'bx1', outputFile: SLUG })
+    expect(parseBgResultText(bgText('b77', MAC))).toEqual({ taskId: 'b77', outputFile: MAC })
+    expect(parseBgResultText('ran Bash')).toBeNull()
+    expect(parseBgResultText(undefined)).toBeNull()
+  })
+
+  test('fg-start for shell calls only, with the call id and command', () => {
+    expect(fgStartFrom({ tool: 'Bash', tool_use_id: 'toolu_1', command: 'cargo test', description: 'tests' }, 5)).toEqual({
+      event: 'fg-start',
+      kind: 'fg',
+      toolUseId: 'toolu_1',
+      command: 'cargo test',
+      description: 'tests',
+      startedAt: 5,
+    })
+    expect(fgStartFrom({ tool: 'PowerShell', command: 'dir' }, 5)?.event).toBe('fg-start')
+    expect(fgStartFrom({ tool: 'Agent' }, 5)).toBeNull()
+    expect(fgStartFrom({ tool: 'Bash', command: 'x'.repeat(MAX_RUN_COMMAND + 10) }, 5)?.command?.length).toBe(MAX_RUN_COMMAND)
+  })
+
+  test('a shell result with a background id starts a bash run, PowerShell included', () => {
+    for (const tool of ['Bash', 'PowerShell']) {
+      const r = { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'be9ihtlp2' }, text: bgText('be9ihtlp2', HASH) }
+      expect(runStartFrom({ tool, tool_use_id: 'toolu_2', command: 'cargo test' }, r, 10, 20)).toEqual({
+        event: 'start',
+        kind: 'bash',
+        taskId: 'be9ihtlp2',
+        toolUseId: 'toolu_2',
+        command: 'cargo test',
+        outputFile: HASH,
+        startedAt: 10,
+      })
+    }
+    // No text (or another id in it): no path, never a rebuilt one.
+    const bare = runStartFrom({ tool: 'Bash', command: 'sleep 9' }, { result: { backgroundTaskId: 'b1' } }, 1, 2)
+    expect(bare).toEqual({ event: 'start', kind: 'bash', taskId: 'b1', command: 'sleep 9', startedAt: 1 })
+    expect(runStartFrom({ tool: 'Bash' }, { result: { backgroundTaskId: 'b1' }, text: bgText('b2', HASH) }, 1, 2)?.outputFile).toBeUndefined()
+  })
+
+  test('a shell result with no background id is a finished foreground call', () => {
+    const r = { result: { stdout: 'ok', stderr: '', interrupted: true }, isError: true }
+    expect(runStartFrom({ tool: 'Bash', tool_use_id: 'toolu_3', command: 'ls' }, r, 10, 20)).toEqual({
+      event: 'fg',
+      kind: 'fg',
+      toolUseId: 'toolu_3',
+      command: 'ls',
+      startedAt: 10,
+      endedAt: 20,
+      interrupted: true,
+      isError: true,
+    })
+    expect(runStartFrom({ tool: 'PowerShell' }, { result: 'ran' }, 1, 2)).toEqual({ event: 'fg', kind: 'fg', startedAt: 1, endedAt: 2, interrupted: false, isError: false })
+    expect(runStartFrom({ tool: 'Bash' }, { deny: 'no' }, 1, 2)?.isError).toBe(true)
+  })
+
+  test('background Agent and Workflow start runs; foreground ones and errors do not', () => {
+    const agent = { result: { status: 'async_launched', agentId: 'a12', description: 'review', prompt: 'p', outputFile: '/t/a12.output' } }
+    expect(runStartFrom({ tool: 'Agent', tool_use_id: 'toolu_4' }, agent, 1, 2)).toEqual({
+      event: 'start',
+      kind: 'agent',
+      taskId: 'a12',
+      toolUseId: 'toolu_4',
+      command: 'review',
+      outputFile: '/t/a12.output',
+      startedAt: 1,
+    })
+    const remote = { result: { status: 'remote_launched', taskId: 'r9', description: 'cloud', sessionUrl: 'u' } }
+    expect(runStartFrom({ tool: 'Agent' }, remote, 1, 2)?.taskId).toBe('r9')
+    expect(runStartFrom({ tool: 'Agent' }, { result: { agentId: 'a1', prompt: 'p' } }, 1, 2)).toBeNull()
+    expect(runStartFrom({ tool: 'Agent' }, { ...agent, isError: true }, 1, 2)).toBeNull()
+    const wf = { result: { status: 'async_launched', taskId: 'w5', taskType: 'local_workflow', workflowName: 'card-1249', runId: 'r' } }
+    expect(runStartFrom({ tool: 'Workflow', tool_use_id: 'toolu_5' }, wf, 1, 2)).toEqual({
+      event: 'start',
+      kind: 'workflow',
+      taskId: 'w5',
+      toolUseId: 'toolu_5',
+      command: 'card-1249',
+      startedAt: 1,
+    })
+  })
+
+  test('TaskStop ends a run as killed; Monitor and other tools report nothing', () => {
+    const stop = { result: { message: 'stopped', task_id: 'be9', task_type: 'local_bash', command: 'sleep 9' } }
+    expect(runStartFrom({ tool: 'TaskStop' }, stop, 1, 2)).toEqual({ event: 'end', kind: 'bash', taskId: 'be9', status: 'killed', endedAt: 2 })
+    expect(runStartFrom({ tool: 'Monitor' }, { result: { taskId: 'm1' } }, 1, 2)).toBeNull()
+    expect(runStartFrom({ tool: 'mcp__irori__send' }, { result: 'Sent' }, 1, 2)).toBeNull()
+    expect(runStartFrom({ tool: 'Read' }, { result: {} }, 1, 2)).toBeNull()
+  })
+
+  test('kind from the task id prefix', () => {
+    expect(runKindOf('b1')).toBe('bash')
+    expect(runKindOf('a1')).toBe('agent')
+    expect(runKindOf('w1')).toBe('workflow')
+    expect(runKindOf('r1')).toBeUndefined()
+  })
+
+  const note = (text: string) =>
+    `<task-notification>\n<task-id>bq1</task-id>\n<tool-use-id>toolu_9</tool-use-id>\n<status>failed</status>\n<summary>${text}</summary>\n</task-notification>`
+
+  test('end from the structured task, exit code from the summary', () => {
+    const row = {
+      door: 'queue',
+      origin: { kind: 'task-notification' },
+      message: {
+        content: [{ type: 'text', text: note('Background command "cargo test" failed with exit code 101') }],
+        task: { id: 'be9', status: 'completed', toolUseId: 'toolu_1' },
+      },
+    }
+    expect(runEndFrom(row, 7)).toEqual({ event: 'end', kind: 'bash', taskId: 'be9', toolUseId: 'toolu_1', status: 'completed', exitCode: 101, endedAt: 7 })
+  })
+
+  test('end from the tags when the row has no task', () => {
+    const row = { door: 'prompt', origin: { kind: 'task-notification' }, message: { content: note('Background command "x" failed with exit code -1') } }
+    expect(runEndFrom(row)).toEqual({ event: 'end', kind: 'bash', taskId: 'bq1', toolUseId: 'toolu_9', status: 'failed', exitCode: -1 })
+  })
+
+  test("not an end: the mod's own notes, other origins, rows with no id or status", () => {
+    const text = [{ type: 'text', text: note('done') }]
+    expect(runEndFrom({ door: 'note', origin: { kind: 'task-notification' }, message: { content: text } })).toBeNull()
+    expect(runEndFrom({ door: 'prompt', origin: { kind: 'composer' }, message: { content: text } })).toBeNull()
+    expect(runEndFrom({ door: 'prompt', origin: { kind: 'task-notification' }, message: { content: 'event from a monitor' } })).toBeNull()
+    expect(runEndFrom(null)).toBeNull()
+    // No exit code in the summary: none reported.
+    expect(runEndFrom({ door: 'prompt', origin: { kind: 'task-notification' }, message: { content: text } })?.exitCode).toBeUndefined()
   })
 })

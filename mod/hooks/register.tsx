@@ -9,7 +9,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
-import type { AttachEvent, AttachView, Policy, ToolSpec, TrackedAppend, TrackedWake } from '../types'
+import type { AttachEvent, AttachView, Policy, RunReport, ToolSpec, TrackedAppend, TrackedWake } from '../types'
 import {
   AppendGate,
   appendArgs,
@@ -51,6 +51,12 @@ import {
   reportsPermission,
   accountFromConfig,
   claudeConfigPath,
+  MAX_RUNS,
+  RUNS_PATH,
+  fgStartFrom,
+  isShellTool,
+  runEndFrom,
+  runStartFrom,
 } from './lib'
 
 /** How long /irori reconnect waits for the new hello before it answers. */
@@ -67,6 +73,8 @@ const appendsAtom = atom({ plugin: 'irori', key: 'appends' } as const, [])
 const titlesAtom = atom({ plugin: 'irori', key: 'titles' } as const, [] as string[])
 /** Cards the person paused that this session holds (card #207). */
 const pausedAtom = atom({ plugin: 'irori', key: 'paused' } as const, [] as PausedCard[])
+/** Run reports not sent yet (card #1249): flushed at the next hello. */
+const runsAtom = atom({ plugin: 'irori', key: 'runs' } as const, [] as RunReport[])
 
 // Reset on every (re)load; a reload also ends the running child.
 let pluginOptions: PluginOptions = {}
@@ -453,6 +461,56 @@ async function onHello($: EngineInterface, e: AttachEvent) {
   void loadTools($).catch(() => {})
   void refreshPaused($, e.agentKey).catch(() => {})
   void postUsageNow($).catch(() => {})
+  void flushRuns($).catch(() => {})
+}
+
+/** Task ids whose end this load reported: a notification can arrive as a queue row and again as a prompt row. */
+const endedRuns = new Set<string>()
+
+/**
+ * Reports a run to the Core (card #1249, live-tasks.md §2.1), fire and
+ * forget: no retry loop, so a tool call never waits on it. With no attach,
+ * or when the attach just died, the report waits in the runs atom for the
+ * next hello. A Core that refuses the route (an older one) drops it.
+ */
+async function postRun($: EngineInterface, run: RunReport | null) {
+  if (!run) return
+  const body = run.event === 'start' || run.event === 'fg-start' ? { ...run, cwd: await runCwd($) } : run
+  if (!body.cwd) delete body.cwd
+  if (!api || !attachSecret) return queueRun($, body)
+  const answer = await callCore($, 'POST', RUNS_PATH, body)
+  if (answer.ok) return
+  if (answer.status === 0 || answer.status === 401 || answer.status === 403) return queueRun($, body)
+  $.ui.log(`irori: run report refused: ${answer.error}`, { to: 'debug' })
+}
+
+/** Where the session runs now; the attach's cwd when the engine won't say. */
+async function runCwd($: EngineInterface): Promise<string | undefined> {
+  try {
+    return (await $.session.cwd()) || attachCwd || undefined
+  } catch {
+    return attachCwd || undefined
+  }
+}
+
+async function queueRun($: EngineInterface, run: RunReport) {
+  await update($, runsAtom, list => [...list, run].slice(-MAX_RUNS))
+}
+
+/** At hello: sends the reports kept while there was no attach, oldest first. */
+async function flushRuns($: EngineInterface) {
+  const pending = await read($, runsAtom)
+  if (!pending.length) return
+  // Reports queued while this flush ran stay behind the ones it takes.
+  await update($, runsAtom, list => list.slice(pending.length))
+  for (const run of pending) await postRun($, run)
+}
+
+/** A shell, Agent, Workflow or TaskStop call finished: what its result says ran (live-tasks.md §2.1). */
+async function observeRun($: EngineInterface, e: Record<string, unknown>, r: unknown, startedAt: number) {
+  const run = runStartFrom(e, r as Parameters<typeof runStartFrom>[1], startedAt, Date.now())
+  if (run?.event === 'end' && run.taskId) endedRuns.add(run.taskId)
+  await postRun($, run)
 }
 
 /**
@@ -872,7 +930,24 @@ export const register: Register = (on, options) => {
     const tool = String((e as unknown as { tool?: unknown }).tool ?? '')
     const why = pausedRefusal(await read($, pausedAtom), tool)
     if (why) return { result: why }
-    return next(e)
+    // Live tasks on cards (card #1249): every shell call posts fg-start
+    // before it runs, and its result says whether it went to the background.
+    // Never awaited, so no tool call waits on the Core; the result's report
+    // waits for the fg-start's, so the Core hears them in order.
+    const call = e as unknown as Record<string, unknown>
+    const startedAt = Date.now()
+    const before = isShellTool(tool) ? postRun($, fgStartFrom(call, startedAt)).catch(() => {}) : Promise.resolve()
+    const after = (r: unknown) => void before.then(() => observeRun($, call, r, startedAt)).catch(() => {})
+    let r: Awaited<ReturnType<typeof next>>
+    try {
+      r = await next(e)
+    } catch (err) {
+      // The call threw: its fg-start still gets its fg, as an error.
+      if (isShellTool(tool)) after({ isError: true })
+      throw err
+    }
+    after(r)
+    return r
   })
 
   // Every Irori tool, whichever names the Core listed (registered late, after hello).
@@ -928,6 +1003,26 @@ export const register: Register = (on, options) => {
     })
   } catch {
     // An engine older than session.measure.
+  }
+
+  // A background run ended (card #1249): its task-notification row carries
+  // the task. Observing only; an engine that refuses the hook loads without it.
+  try {
+    on('session.append', ($, e, next) => {
+      try {
+        const run = runEndFrom(e as never, Date.now())
+        if (run?.taskId && !endedRuns.has(run.taskId)) {
+          endedRuns.add(run.taskId)
+          if (endedRuns.size > MAX_RUNS * 4) endedRuns.delete(endedRuns.values().next().value as string)
+          void postRun($, run).catch(() => {})
+        }
+      } catch {
+        // Observing only: nothing here may fail the append.
+      }
+      return next(e)
+    })
+  } catch {
+    // An engine that doesn't raise session.append to plugins.
   }
 
   on('command.run', { command: 'irori' }, async ($, e) => {

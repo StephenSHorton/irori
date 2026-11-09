@@ -157,6 +157,17 @@ func main() {
 		record(r, string(b))
 		fmt.Fprint(w, `{"ok":true}`)
 	})
+	// Live tasks on cards (card #1249): run reports, attach-only like the Core's route.
+	mux.HandleFunc("POST /v1/runs", func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		record(r, string(b))
+		if r.Header.Get("X-Irori-Attach") != secret || r.Header.Get("Authorization") != "Bearer "+token {
+			w.WriteHeader(403)
+			fmt.Fprint(w, `{"error":"this route needs a current X-Irori-Attach"}`)
+			return
+		}
+		fmt.Fprint(w, `{"ok":true}`)
+	})
 	mux.HandleFunc("GET /v1/policy", func(w http.ResponseWriter, r *http.Request) {
 		record(r, "")
 		mu.Lock()

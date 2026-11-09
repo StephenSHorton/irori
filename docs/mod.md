@@ -47,7 +47,7 @@ There is no default, because the desktop app's PATH isn't reliable. While it's e
 
 ## What it does
 
-- **Attach.** At session start the mod spawns `irori attach --session <id> --cwd <cwd> --mod-version 0.7.2` and reads its NDJSON stream.
+- **Attach.** At session start the mod spawns `irori attach --session <id> --cwd <cwd> --mod-version 0.8.0` and reads its NDJSON stream.
   - The child's stdin is closed from the start: `$.process.spawn` can't keep it open (its `input` is written and then closed). `irori attach` must not treat stdin EOF as the end of the session. The mod ends the child itself, by killing it, when the mod unloads or the session ends.
   - If the child exits, the mod restarts it with backoff (1 s, doubling to 16 s).
   - A newer attach for the same session (a reload, or a second window on the same session) sends `superseded`. The older copy then waits: it runs `irori attach --standby`, which asks every 2 s and is refused (409) while another attach holds the session, so two live copies never kick each other off. The child says `standby` once per wait, so the band shows why instead of an old outage. When the holder leaves, the waiting copy attaches within seconds (GitHub #57). `standby` needs hello `v` 3; on an older Core the mod stops after `superseded`, as it always did, and `/irori reconnect` brings it back.
@@ -107,6 +107,8 @@ Policy verbs only work when **you** type them at the prompt (`origin.kind === "c
 This is provenance gating, not a security boundary. An agent with a shell can read `irori.json` and call the API directly; design §5 accepts that for a single-user mesh.
 
 ## Don't also add `irori mcp` to Claude Code
+
+- **Runs** (card #1249, [design/live-tasks.md](design/live-tasks.md) §2.1). Every Bash or PowerShell call posts `fg-start` to `POST /v1/runs` before it runs; its result then posts `start` (kind `bash`, the task id and the output path taken verbatim from the result text) when it went to the background, or `fg` when it finished in the foreground. A background Agent or Workflow posts `start` (kind `agent` / `workflow`), a TaskStop an early `end` as `killed`, and a task-notification row (`session.append`, its `message.task`) the `end` with the exit code from its summary, once per task. Monitor reports nothing on purpose, and a call the pause refuses reports nothing. Reports never hold a tool call up and are not retried; made with no attach, they wait in the `runs` atom (newest 50) and go out at the next hello.
 
 The mod already gives Claude Code sessions every Irori tool. `irori mcp` is the front end for Grok and other MCP clients. If a Claude Code session loads both, the model sees each tool twice (`mcp__irori__send` and `irori_send`), and Claude↔Claude messages would have two senders. Keep `irori mcp` out of Claude Code's MCP config.
 

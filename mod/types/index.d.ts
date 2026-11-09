@@ -103,6 +103,35 @@ export type TrackedAppend = {
 /** A card the person paused (card #207), and who paused it. */
 export type PausedCard = { ref: string; by: string }
 
+/**
+ * One `POST /v1/runs` body (card #1249, docs/design/live-tasks.md §2.1): a
+ * background run started or ended, or a foreground shell call started or
+ * finished. The Core keys it by the caller's attach, never by the body.
+ */
+export type RunReport = {
+  event: 'start' | 'end' | 'fg-start' | 'fg'
+  /** Absent on an end whose task id names no kind (not b/a/w-prefixed). */
+  kind?: 'bash' | 'agent' | 'workflow' | 'fg'
+  /** Claude Code's task id; absent on fg-start and fg. */
+  taskId?: string
+  /** The call that started it, when known. */
+  toolUseId?: string
+  /** The shell command, or the agent's description, or the workflow's name. */
+  command?: string
+  description?: string
+  /** Where Claude Code writes the run's output, verbatim from the result text. */
+  outputFile?: string
+  cwd?: string
+  startedAt?: number
+  endedAt?: number
+  /** end: completed, failed or killed (or the notification's own word). */
+  status?: string
+  exitCode?: number
+  /** fg: the foreground call was interrupted / reported an error. */
+  interrupted?: boolean
+  isError?: boolean
+}
+
 declare module 'claude-code' {
   interface PluginState {
     irori: {
@@ -115,6 +144,8 @@ declare module 'claude-code' {
       titles: string[]
       /** Cards the person paused that this session holds (card #207). */
       paused: PausedCard[]
+      /** Run reports not sent yet (no attach), oldest first; flushed at hello (card #1249). */
+      runs: RunReport[]
     }
   }
 }
