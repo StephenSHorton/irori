@@ -7,7 +7,8 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { subscribeCall, sharedCall, personWord, lengthText } from "./call"
-import { Events, TalkService } from "./host"
+import { TalkService } from "./host"
+import { onChange } from "./changes"
 import { timedRead } from "./window-log"
 import { inWails } from "./irori"
 import { errorText } from "./talk"
@@ -110,7 +111,7 @@ export function useHuddles(): {
     const offCall = subscribeCall(() => void reload())
     previewListeners.add(reload)
     const off = inWails()
-      ? Events.OnShown(EventTalkChanged, () => void reload())
+      ? onChange(EventTalkChanged, () => void reload())
       : () => {}
     return () => {
       offCall()

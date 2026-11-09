@@ -11,7 +11,8 @@
 import { useSyncExternalStore } from "react"
 import { sameAs } from "@/lib/talk"
 
-import { DeskService, Events } from "./host"
+import { DeskService } from "./host"
+import { onChange } from "./changes"
 import { timedRead } from "./window-log"
 import { inWails, parseTime } from "./irori"
 import type { DeskView } from "./models"
@@ -512,7 +513,7 @@ function subscribe(fn: () => void): () => void {
   listeners.add(fn)
   if (inWails() && !stopHost) {
     refresh()
-    const off = Events.OnShown("board:changed", () => refresh())
+    const off = onChange("board:changed", () => refresh())
     const id = window.setInterval(refresh, RefreshMs)
     stopHost = () => {
       off()

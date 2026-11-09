@@ -2740,6 +2740,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_answer_request,
             assistant_answer_send,
             assistant_answer_dismiss,
+            assistant_ask_prepare,
+            assistant_ask_send,
             assistant_talk_toast,
             assistant_chat_watch,
         ])
@@ -2898,6 +2900,32 @@ pub async fn assistant_answer_send(w: W<'_>, request: String) -> R<()> {
 #[specta::specta]
 pub async fn assistant_answer_dismiss(w: W<'_>, request: String) -> R<()> {
     blocking(&w, move |w| w.assistant_answer_dismiss(&request)).await
+}
+
+/// An ask the chat's reply drafted (assistants-talk.md §9): its target and
+/// the exact normalised text a tap on Send posts. Posts nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_ask_prepare(
+    w: W<'_>,
+    person: String,
+    space: String,
+    text: String,
+) -> R<crate::assistant_chat::AssistantAskPrepared> {
+    blocking(&w, move |w| w.assistant_ask_prepare(&person, &space, &text)).await
+}
+
+/// The tap on Send: posts the ask as the person's assistant card, after the
+/// scrub. The only way an ask is posted.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_ask_send(
+    w: W<'_>,
+    space: String,
+    person: String,
+    text: String,
+) -> R<crate::assistant_chat::AssistantAskSent> {
+    blocking(&w, move |w| w.assistant_ask_send(&space, &person, &text)).await
 }
 
 /// One toast for a chat line that waits on the person; a click opens the

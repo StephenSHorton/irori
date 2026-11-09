@@ -130,7 +130,9 @@ pub const ASSISTANT_TOOLS: [&str; 15] = [
     "screen",
 ];
 
-pub use assistant_writes::{ASSISTANT_WRITE_TOOLS, Grant, Grants, grants_for};
+pub use assistant_writes::{
+    ASSISTANT_WRITE_TOOLS, Grant, Grants, TOOL_COMMENT, TOOL_SEND, grants_for,
+};
 
 /// Who is calling, established by the transport (attach secret or member
 /// secret), never by the arguments.
@@ -607,7 +609,7 @@ const CALLER_READS: [&str; 10] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 70] = [
+    let list: [(&'static str, Handler); 72] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -638,6 +640,8 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("board_status", board::board_status),
         ("assistant_close", assistant_writes::assistant_close),
         ("assistant_tick", assistant_writes::assistant_tick),
+        ("assistant_send", assistant_writes::assistant_send),
+        ("assistant_comment", assistant_writes::assistant_comment),
         ("board_link", board::board_link),
         ("board_edit", board::board_edit),
         ("board_later", later::board_later),

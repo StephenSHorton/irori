@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { DevicesService, Events } from "./host"
+import { onChange } from "./changes"
 import {
   DeviceView,
   HomeServerView,
@@ -540,7 +541,7 @@ export function useDevices(active: boolean): DevicesState {
       ? Events.OnShown(EventRosterChanged, () => void reload())
       : () => {}
     const offDevices = inWails()
-      ? Events.OnShown(EventDevicesChanged, () => void reload())
+      ? onChange(EventDevicesChanged, () => void reload())
       : () => {}
     return () => {
       window.clearInterval(id)
