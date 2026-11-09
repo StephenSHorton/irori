@@ -395,6 +395,35 @@ pub struct CardSummary {
     /// offers Start an agent (card #573).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub given_no: bool,
+    /// Who gave this card to the viewer (decision 69): the giving person,
+    /// never an agent. None when it isn't given to them, or an older Irori
+    /// wrote the give.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub given_by: Option<AgentRef>,
+    /// The give's batch id; empty for a single give.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub given_batch: String,
+    /// The id of the card's open "OK to start an agent on this?" question.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub given_question: String,
+    /// Its place in Core's order of cards given to the viewer (giver, then
+    /// batch, then ref), from 1; 0 when it isn't given to them.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub given_rank: i64,
+    /// The person's assistant made the give.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub given_via_assistant: bool,
+    /// The person's last say on it: "start", "notnow" or "".
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub given_said: String,
+    /// The give's hand-off note (the giver's words).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub given_note: String,
     /// Its place in that device's spawn queue, from 1 (card #450): "queued:
     /// 1st for the PC". 0 when it isn't queued.
     #[serde(skip_serializing_if = "is_zero")]
@@ -580,6 +609,44 @@ pub(crate) fn pos_of(placed: &HashMap<String, (i64, i64)>, id: &str) -> Option<C
     placed.get(id).map(|&(x, y)| CanvasPos { x, y })
 }
 
+impl Window {
+    /// The fields Needs you groups a given card by (decision 69): who gave
+    /// it, its batch, its place in Core's order and the person's last say.
+    /// Set only for the person it was given to; the open given question is
+    /// set on any card, so a question made after reading others' text
+    /// (`marked`) shows too.
+    pub(crate) fn set_given(&self, cs: &mut CardSummary, t: &Task, co: &coord::Coord, p: &People) {
+        cs.given_question = t
+            .blockers
+            .iter()
+            .find(|b| b.open() && b.question == coord::GIVEN_QUESTION)
+            .map(|b| b.id.clone())
+            .unwrap_or_default();
+        let Some(g) = &t.given else { return };
+        if !co.mine_to_serve(t) {
+            return;
+        }
+        let me = self.user_key();
+        let Some(rank) = co.given_to(&me).iter().position(|i| i.task.id == t.id) else {
+            return;
+        };
+        cs.given_rank = rank as i64 + 1;
+        cs.given_batch = g.batch.clone();
+        cs.given_via_assistant = g.assistant;
+        cs.given_note = g.note.clone();
+        cs.given_said = match &t.given_said {
+            Some(s) if s.yes => "start",
+            Some(_) => "notnow",
+            None => "",
+        }
+        .into();
+        // Only a give written by an Irori that knows the giving person.
+        if !g.by_person.is_empty() {
+            cs.given_by = Some(p.ref_(&format!("{}{}", store::kinds::PERSON_ACTOR_PREFIX, g.by_person)));
+        }
+    }
+}
+
 fn is_zero(n: &i64) -> bool {
     *n == 0
 }
@@ -672,6 +739,11 @@ pub struct CardBlocker {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[specta(optional)]
     pub transfer: bool,
+    /// A card the receiver gave back (decision 69): Keep it keeps it on
+    /// the board, Cancel it closes it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub given_back: bool,
     /// On a shared board, the other member this question is for (card
     /// #264): it waits on them, not on this person, who can still answer.
     /// None when it's this person's.
@@ -2659,6 +2731,7 @@ impl Window {
                 let private = |k: &str| self.core.private_key(k);
                 // Comments are read only when nothing cheaper already said so.
                 cs.given_no = co.mine_to_serve(&t) && t.given_said.as_ref().is_some_and(|y| !y.yes);
+                self.set_given(&mut cs, &t, &co, p);
                 cs.ours = ours(&t, [], private)
                     || (t.comments > 0
                         && ours(
@@ -2778,6 +2851,7 @@ impl Window {
         d.summary.given_no = raw
             .as_ref()
             .is_some_and(|r| co.mine_to_serve(r) && r.given_said.as_ref().is_some_and(|y| !y.yes));
+        self.set_given(&mut d.summary, raw.as_ref().unwrap_or(&t), &co, p);
         if let Some(raw) = &raw
             && !d.summary.board.is_empty()
         {
@@ -2884,6 +2958,7 @@ impl Window {
                 options_aside: bl.options_aside && bl.open(),
                 done_check: bl.done_check,
                 transfer: bl.transfer,
+                given_back: bl.given_back,
                 decider: bl
                     .on
                     .as_ref()

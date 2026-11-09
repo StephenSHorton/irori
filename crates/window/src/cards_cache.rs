@@ -589,6 +589,7 @@ impl Window {
             Some(b) => {
                 let private = |k: &str| self.core.private_key(k);
                 s.given_no = co.mine_to_serve(t) && t.given_said.as_ref().is_some_and(|y| !y.yes);
+                self.set_given(&mut s, t, &co, p);
                 s.ours = ours(t, [], private)
                     || (t.comments > 0
                         && ours(t, a.commenters.iter().map(String::as_str), private));

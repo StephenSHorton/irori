@@ -108,6 +108,12 @@ export const commands = {
 	boardAskAgain: (id: string) => __TAURI_INVOKE<null>("board_ask_again", { id }),
 	/**  "Start an agent with this" on the person's comment (card #452). */
 	boardStartAgent: (id: string, note: string) => __TAURI_INVOKE<null>("board_start_agent", { id, note }),
+	/**  Start an agent / Not now on a card given to the person (decision 69). */
+	boardSayGiven: (id: string, say: string) => __TAURI_INVOKE<null>("board_say_given", { id, say }),
+	/**  Give a card back to its owner, with a reason if there is one. */
+	boardGiveBack: (id: string, reason: string) => __TAURI_INVOKE<null>("board_give_back", { id, reason }),
+	/**  Give new tasks or cards already on a space's board to one member. */
+	boardGiveBatch: (space: string, board: string, to: string, tasks: GiveTask[], cards: string[], note: string) => __TAURI_INVOKE<string[]>("board_give_batch", { space, board, to, tasks, cards, note }),
 	/**  "Hand to an agent" on an item whose agent is gone (card #485). */
 	boardHandOn: (id: string) => __TAURI_INVOKE<string>("board_hand_on", { id }),
 	boardAskRepos: () => __TAURI_INVOKE<AskRepo[]>("board_ask_repos"),
@@ -1681,6 +1687,11 @@ export type CardBlocker = {
 	 */
 	transfer?: boolean,
 	/**
+	 *  A card the receiver gave back (decision 69): Keep it keeps it on
+	 *  the board, Cancel it closes it.
+	 */
+	givenBack?: boolean,
+	/**
 	 *  On a shared board, the other member this question is for (card
 	 *  #264): it waits on them, not on this person, who can still answer.
 	 *  None when it's this person's.
@@ -2159,6 +2170,27 @@ export type CardSummary = {
 	 *  offers Start an agent (card #573).
 	 */
 	givenNo?: boolean,
+	/**
+	 *  Who gave this card to the viewer (decision 69): the giving person,
+	 *  never an agent. None when it isn't given to them, or an older Irori
+	 *  wrote the give.
+	 */
+	givenBy?: AgentRef | null,
+	/**  The give's batch id; empty for a single give. */
+	givenBatch?: string,
+	/**  The id of the card's open "OK to start an agent on this?" question. */
+	givenQuestion?: string,
+	/**
+	 *  Its place in Core's order of cards given to the viewer (giver, then
+	 *  batch, then ref), from 1; 0 when it isn't given to them.
+	 */
+	givenRank?: number,
+	/**  The person's assistant made the give. */
+	givenViaAssistant?: boolean,
+	/**  The person's last say on it: "start", "notnow" or "". */
+	givenSaid?: string,
+	/**  The give's hand-off note (the giver's words). */
+	givenNote?: string,
 	/**
 	 *  Its place in that device's spawn queue, from 1 (card #450): "queued:
 	 *  1st for the PC". 0 when it isn't queued.
@@ -2690,6 +2722,13 @@ export type Folder = {
 	 *  and works there), "repo" (a checkout of the card's repo) or "home".
 	 */
 	why: string,
+};
+
+/**  One new card in a batch the person gives. */
+export type GiveTask = {
+	title?: string,
+	objective?: string,
+	doneWhen?: string,
 };
 
 /**  A recently gone Claude Code session the person may revive. */
