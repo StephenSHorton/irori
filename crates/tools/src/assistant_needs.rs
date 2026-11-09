@@ -16,7 +16,9 @@
 //!   (with a person);
 //! - targets: refs; "all", "all of Spencer's", "Spencer's"; "the rest",
 //!   "the others"; "it", "them", "those" for what was named just before;
-//! - a reason, only after "because" or in a closing "tell <giver> …".
+//! - a reason, only after "because" (never with a set word) or in a
+//!   "tell <giver> …" clause, and only as one plain clause: no ref, no
+//!   member's name, no verb, no punctuation but '.' or '-' inside a word.
 //!
 //! "The first three" is not read: the window lists given cards space by
 //! space in its own order, so a position could name a card the person
