@@ -766,7 +766,9 @@ impl Window {
                     out.push(StorageItem {
                         id: name.clone(),
                         name: "Before a reset".into(),
-                        detail: format!("The log and identity a reset moved aside ({name})"),
+                        detail: format!(
+                            "The log, identity and spaces a reset moved aside ({name})"
+                        ),
                         bytes: b as i64,
                         at: mtime(&e.path()),
                         cleanable: true,

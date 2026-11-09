@@ -24,7 +24,7 @@ A space is a group of people that holds many boards and channels. v0.5 already h
 - never overwrites a file that is already in `spaces/`;
 - removes the emptied `boards/`.
 
-`irori-dev verify` reads both folders. Reset still leaves the space logs in place, as it did board logs.
+`irori-dev verify` reads both folders. Reset moves `spaces/` (and a leftover `boards/`) aside with the log and identity (card #1096): they are the old person's, and a start opens every log in `spaces/`. A space comes back over sync once the device is paired into the person again, or by a new invite.
 
 **Downgrade:** an Irori before spaces looks only in `boards/`, so it won't find a moved space. Going back means moving the files back by hand.
 
