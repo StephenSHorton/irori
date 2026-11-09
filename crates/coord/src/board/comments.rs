@@ -720,6 +720,7 @@ impl Fold {
                 && !contains(answer, k)
                 && !contains(watch, k)
                 && around.is_none_or(|f| f(k))
+                && self.here_now(k)
         };
         for h in &t.holders {
             if !contains(&t.assigned, h) && ok(h, &answer, &watch) {
@@ -1855,7 +1856,11 @@ impl Fold {
             self.mute_told.insert((h.clone(), id.clone()));
             let t = self.tasks[&id].clone();
             let poster = t.created_by.clone();
-            if poster != h && !self.is_owner(&poster) && live.contains(&poster) {
+            if poster != h
+                && !self.is_owner(&poster)
+                && live.contains(&poster)
+                && self.here_now(&poster)
+            {
                 out.push(Notice {
                     kind: NOTICE_RETURNED.into(),
                     task_id: id.clone(),
@@ -1942,8 +1947,13 @@ impl Fold {
                 // An agent Irori started for the card (card #446) finished:
                 // nobody is told to take it.
                 let finished = self.spawned_for(&h).is_some() && self.ended_by_irori.contains(&h);
-                let person =
-                    last && (self.is_owner(&creator) || creator == h || !live.contains(&creator));
+                // A resting poster can't act on it now (card #1215): the
+                // person is told instead.
+                let person = last
+                    && (self.is_owner(&creator)
+                        || creator == h
+                        || !live.contains(&creator)
+                        || !self.here_now(&creator));
                 self.write(
                     SWEEPER,
                     kinds::TASK_LEFT,

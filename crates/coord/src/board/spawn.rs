@@ -1094,20 +1094,37 @@ impl Fold {
         self.spawning.as_ref().is_some_and(|f| f())
     }
 
+    /// When local spawned agent `key` rested, `None` while it is awake,
+    /// retired, or not one (card #1215).
+    pub(crate) fn rested_at(&self, key: &str) -> Option<GoTime> {
+        self.resting.as_ref().and_then(|f| f(key))
+    }
+
+    /// Whether agent `key` is there to act on what is sent it now: every
+    /// agent but a resting one while [`super::RESTING_WAKES`] is off (Â§7's
+    /// fallback). Read where a delivery or hand-out is chosen at send time
+    /// (a thread's follow-up, a comment's hearers, a named ask, a handed
+    /// turn); never by gone checks: a resting agent is not gone.
+    pub(crate) fn here_now(&self, key: &str) -> bool {
+        super::RESTING_WAKES || self.rested_at(key).is_none()
+    }
+
     /// Whether ask t waits for the person before Irori starts another
     /// agent for it (card #470): Irori ended the last one it started (it
-    /// went quiet, or the app restarted under it), and the person hasn't
-    /// written on it or asked again since. Without this an ask nobody
-    /// answers would get a fresh agent every idle limit.
-    pub(crate) fn ask_resting(&self, t: &Task) -> bool {
+    /// went quiet, or the app restarted under it), or that agent rests
+    /// (card #1215), and the person hasn't written on it or asked again
+    /// since it let the ask go. Without this an ask nobody answers would
+    /// get a fresh agent every idle limit.
+    pub(crate) fn ask_waits_for_person(&self, t: &Task) -> bool {
         let Some(a) = t.open_ask() else {
             return false;
         };
         let Some(s) = t.spawn_request() else {
             return false;
         };
+        let rests = self.rested_at(&s.key).is_some();
         if s.key.is_empty()
-            || !self.ended_by_irori.contains(&s.key)
+            || !(rests || self.ended_by_irori.contains(&s.key))
             || self.usage_limited.contains(&s.key)
         {
             return false;
@@ -1115,10 +1132,19 @@ impl Fold {
         if a.reason == super::asks::TAKE_REOPENED {
             return false;
         }
+        // Since the agent let it go: its take's last change, never before
+        // the request. A word the person wrote while it worked was its to
+        // answer, so it doesn't start another (and a quiet retire after a
+        // rest doesn't either).
+        let since = if gotime::before(&s.at, &a.since) {
+            a.since
+        } else {
+            s.at
+        };
         !self
             .comments
             .values()
-            .any(|c| c.task_id == t.id && self.is_person(&c.by) && !gotime::before(&c.at, &s.at))
+            .any(|c| c.task_id == t.id && self.is_person(&c.by) && !gotime::before(&c.at, &since))
     }
 
     /// The requests naming this device that it may start an agent for now
@@ -1823,7 +1849,7 @@ impl Fold {
             || t.spawn_request()
                 .is_some_and(|s| s.pending() && !s.stale(&now))
             || t.spawn_crashes >= self.crash_limit()
-            || self.ask_resting(t)
+            || self.ask_waits_for_person(t)
             || self.waits_for_lead(t)
         {
             return false;
@@ -1856,7 +1882,7 @@ impl Fold {
         if unheld && t.subtasks.is_empty() && t.spawn_crashes >= self.crash_limit() {
             return SpawnHold::Crashed;
         }
-        if self.ask_resting(t) {
+        if self.ask_waits_for_person(t) {
             return SpawnHold::Resting;
         }
         let wanted = super::offers::needs_agent(t) || self.needs_lead(t) || self.ask_needs_agent(t);
@@ -1929,7 +1955,7 @@ impl Fold {
             // older device can still put one there.
             .filter(|t| !self.board_closed(&t.board))
             .filter(|t| t.spawn_crashes < self.crash_limit())
-            .filter(|t| !self.ask_resting(t))
+            .filter(|t| !self.ask_waits_for_person(t))
             .filter(|t| !self.waits_for_lead(t))
             .filter(|t| self.spawn_due(t, &now))
             .cloned()

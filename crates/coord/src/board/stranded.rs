@@ -54,6 +54,11 @@ impl Fold {
         {
             return false;
         }
+        // A resting agent is asleep, not gone (card #1215): it keeps its
+        // count and its name, even before the roster lists it again.
+        if self.rested_at(key).is_some() {
+            return false;
+        }
         if self.gone_rows.contains_key(key) || self.ended_by_irori.contains(key) {
             return true;
         }

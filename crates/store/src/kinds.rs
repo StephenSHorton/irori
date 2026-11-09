@@ -216,6 +216,16 @@ kinds! {
     /// `{key, on, by, at}`, actor `user`. Without it a terminal agent is
     /// never handed unheld cards, asks or threads. Set in the app only.
     AGENT_OFFER = "agent.offer" => Replicated, Refuses;
+    /// A spawned agent rests (agent-continuity §6, card #1215): `{key,
+    /// life, at, reason, ctx?, ctxAt?, compacted?, name?, by}`, actor
+    /// `irori`, written only on the agent's own device. Its process stopped
+    /// but its name and session stay; every device's roster shows it
+    /// `resting` until an `agent.retire` (or a later `agent.seen`).
+    AGENT_REST = "agent.rest" => Replicated, Refuses;
+    /// A spawned agent retires for good (agent-continuity §9, card #1215):
+    /// `{key, life, at, reason, by}`, actor `irori`, on the agent's own
+    /// device, just before the `agent.gone` "finished" every reader keeps.
+    AGENT_RETIRE = "agent.retire" => Replicated, Refuses;
     /// "Transcribe what I say in calls" (card #656): `{on, by, at}`, actor
     /// `user`, newest wins, none means on. Set in the app only.
     TRANSCRIBE_SET = "transcribe.set" => Replicated, Refuses;

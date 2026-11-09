@@ -80,6 +80,11 @@ pub const LEFT_REMOVED: &str = "member_removed";
 /// #446). Nobody is told the card is open again; the next agent starts
 /// from what is on it.
 pub const LEFT_FINISHED: &str = "finished";
+/// A task.left reason: the agent Irori started let the card go as it
+/// rested (agent-continuity Â§6, card #1215). Like [`LEFT_FINISHED`] it
+/// counts no crash and tells nobody; the card shows "agent resting" and
+/// names it as the card's last agent.
+pub const LEFT_RESTED: &str = "rested";
 
 /// Which leases found lapsed at replay still get their expiry row.
 const LAPSED_WITHIN: Duration = Duration::from_secs(24 * 3600);
@@ -276,6 +281,8 @@ pub struct Fold {
     pub(crate) offers: Option<super::OffersFn>,
     /// See [`super::Options::reusable`].
     pub(crate) reusable: Option<super::ReusableFn>,
+    /// See [`super::Options::resting`].
+    pub(crate) resting: Option<super::RestingFn>,
     /// See [`super::Options::crash_limit`].
     pub(crate) crash_limit: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
     /// See [`super::Options::outside_leases`].
@@ -523,6 +530,7 @@ impl Fold {
             agent_devices: o.agent_devices,
             offers: o.offers,
             reusable: o.reusable,
+            resting: o.resting,
             crash_limit: o.crash_limit,
             outside_leases: o.outside_leases,
             device_version: o.device_version,
@@ -1007,6 +1015,17 @@ impl Fold {
                     }
                     if p.reason == LEFT_FINISHED {
                         what = "finished: the agent Irori started for it ended".into();
+                    }
+                    if p.reason == LEFT_RESTED {
+                        what = "let it go: the agent Irori started for it is resting".into();
+                        if t.holders.is_empty() {
+                            t.rested = Some(Returned {
+                                was: p.who.clone(),
+                                at: at(p.at),
+                                person: false,
+                                row: format!("{}:{}", ev.device_id, ev.seq),
+                            });
+                        }
                     }
                     if p.reason == LEFT_GONE {
                         what = "went away".into();
@@ -2703,6 +2722,7 @@ pub(crate) fn sync_holder(t: &mut Task) {
     }
     t.holder = t.holders[0].clone();
     t.returned = None;
+    t.rested = None;
 }
 
 /// Derives co_holders: owners of open steps who don't hold the card,

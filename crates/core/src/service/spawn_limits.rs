@@ -403,6 +403,7 @@ impl Services {
                 || a.status == "busy"
                 || !self.coord.is_spawned(&a.key)
                 || self.coord.ended_by_irori(&a.key)
+                || self.resting(&a.key)
             {
                 continue;
             }

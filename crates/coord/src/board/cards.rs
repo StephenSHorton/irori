@@ -1138,7 +1138,14 @@ impl Fold {
                 if !dev.is_empty() && dev != self.dev {
                     return;
                 }
-                if !k.is_empty() && !self.is_owner(k) && k != SWEEPER && !contains(who, k) {
+                // A resting watcher reads the card when it next works
+                // (card #1215): a digest would only retire it.
+                if !k.is_empty()
+                    && !self.is_owner(k)
+                    && k != SWEEPER
+                    && !contains(who, k)
+                    && self.here_now(k)
+                {
                     who.push(k.into());
                 }
             };
