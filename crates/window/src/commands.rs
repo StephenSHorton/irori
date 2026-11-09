@@ -2738,6 +2738,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_chat_import,
             assistant_talk_cards,
             assistant_answer_request,
+            assistant_answer_send,
+            assistant_answer_dismiss,
             assistant_talk_toast,
             assistant_chat_watch,
         ])
@@ -2880,6 +2882,22 @@ pub async fn assistant_answer_request(
     how: String,
 ) -> R<String> {
     blocking(&w, move |w| w.assistant_answer_request(&post, &space, &how)).await
+}
+
+/// Send on an owner's-OK draft (assistants-talk card 8), from any device:
+/// posts exactly the draft's normalised text as the assistant's card. Refused
+/// once an answer to the question exists.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_answer_send(w: W<'_>, request: String) -> R<()> {
+    blocking(&w, move |w| w.assistant_answer_send(&request)).await
+}
+
+/// Don't send: closes an owner's-OK draft on every device.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_answer_dismiss(w: W<'_>, request: String) -> R<()> {
+    blocking(&w, move |w| w.assistant_answer_dismiss(&request)).await
 }
 
 /// One toast for a chat line that waits on the person; a click opens the

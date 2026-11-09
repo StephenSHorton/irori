@@ -31,6 +31,14 @@ pub const HOW_LET: &str = "let";
 /// Answer this: the owner's-OK draft (card 8).
 pub const HOW_DRAFT: &str = "draft";
 
+/// A question that passed [`Services::checked_question`].
+pub(crate) struct Checked {
+    pub(crate) b: Arc<BoardLog>,
+    /// The person's assistant card on the space.
+    pub(crate) card: String,
+    pub(crate) q: Question,
+}
+
 /// A space where the person has an assistant: what the chat needs to read
 /// the channel for lines about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,42 +53,45 @@ pub struct AssistantTalkCard {
 }
 
 impl Services {
-    /// Serves each `let` tap nothing has served yet, here, when this
-    /// device is the assistant's computer. Draft taps are card 8's.
+    /// Serves each tap nothing has served yet, here, when this device is
+    /// the assistant's computer: `let` runs the tool-less turn, `draft`
+    /// (Answer this) queues the owner's-OK turn (card 8).
     pub(crate) fn serve_answer_requests(&self) {
         if !self.is_assistant_home() {
             return;
         }
         for req in self.assistant_chat.unserved_requests() {
-            if req.how == HOW_LET {
-                self.serve_request(&req);
+            match req.how.as_str() {
+                HOW_LET => self.serve_request(&req),
+                HOW_DRAFT => self.serve_draft_request(&req),
+                _ => {}
             }
         }
     }
 
-    fn serve_request(&self, req: &AnswerRequested) {
+    /// "Tap again" when the tap is too old to become a public post.
+    pub(crate) fn request_too_old(&self, req: &AnswerRequested) -> Option<String> {
         let now_ms = (self.now)().unix_milli_value();
-        // A tap made long ago never becomes a public post: tap again.
-        if now_ms - req.at > MAX_AGE_SECS * 1000 {
-            let name = self
-                .device_labels()
-                .get(&self.device.id)
-                .filter(|n| !n.trim().is_empty())
-                .cloned()
-                .unwrap_or_else(|| "The assistant's computer".into());
-            self.request_record(
-                &req.request,
-                &format!(
-                    "{name} was away when you tapped this. Tap again if it still needs an answer."
-                ),
-            );
-            return;
+        if now_ms - req.at <= MAX_AGE_SECS * 1000 {
+            return None;
         }
-        // The post itself says where it is, who wrote it and what hop it
-        // is; the row's `space` is only a hint and isn't believed.
-        let Some((b, ev, r, author)) = self.find_question(&req.post) else {
-            return;
-        };
+        let name = self
+            .device_labels()
+            .get(&self.device.id)
+            .filter(|n| !n.trim().is_empty())
+            .cloned()
+            .unwrap_or_else(|| "The assistant's computer".into());
+        Some(format!(
+            "{name} was away when you tapped this. Tap again if it still needs an answer."
+        ))
+    }
+
+    /// The question post `post`, checked against the post itself (its own
+    /// space and channel, its author, the hop; never a row's `space`).
+    /// `None` when it isn't found; `Err` says why it isn't one this
+    /// person's assistant can answer.
+    pub(crate) fn checked_question(&self, post: &str) -> Option<Result<Checked, &'static str>> {
+        let (b, ev, r, author) = self.find_question(post)?;
         let card = b.verifier.profile_assistant_card(&self.person_id());
         let asker = ev.actor.clone();
         let me = format!("{AGENT_ACTOR_PREFIX}{card}");
@@ -94,20 +105,12 @@ impl Services {
             && self.talk.channel(&r.conv_id).is_some_and(|c| !c.archived)
             && coord::row_hop(&ev.payload) < MAX_HOP;
         if !ok {
-            self.request_record(
-                &req.request,
-                "That isn't a question your assistant can answer.",
-            );
-            return;
-        }
-        if self.talk.has_post(&answer_id(&card, &r.post_id)) {
-            self.request_record(&req.request, "That question is answered already.");
-            return;
+            return Some(Err("That isn't a question your assistant can answer."));
         }
         let hop = coord::row_hop(&ev.payload);
-        self.assistant_queue(Job {
-            kind: JobKind::Answer,
-            board_id: b.id.clone(),
+        Some(Ok(Checked {
+            b,
+            card,
             q: Question {
                 post_id: r.post_id.clone(),
                 conv_id: r.conv_id.clone(),
@@ -115,6 +118,34 @@ impl Services {
                 asker,
                 hop,
             },
+        }))
+    }
+
+    fn serve_request(&self, req: &AnswerRequested) {
+        // A tap made long ago never becomes a public post: tap again.
+        if let Some(why) = self.request_too_old(req) {
+            self.request_record(&req.request, &why);
+            return;
+        }
+        let checked = match self.checked_question(&req.post) {
+            None => return,
+            Some(Err(why)) => {
+                self.request_record(&req.request, why);
+                return;
+            }
+            Some(Ok(c)) => c,
+        };
+        if self
+            .talk
+            .has_post(&answer_id(&checked.card, &checked.q.post_id))
+        {
+            self.request_record(&req.request, "That question is answered already.");
+            return;
+        }
+        self.assistant_queue(Job {
+            kind: JobKind::Answer,
+            board_id: checked.b.id.clone(),
+            q: checked.q,
             request: req.request.clone(),
         });
     }
@@ -142,7 +173,7 @@ impl Services {
     }
 
     /// The `update` line that names a request: from then on it is served.
-    fn request_record(&self, request: &str, text: &str) {
+    pub(crate) fn request_record(&self, request: &str, text: &str) {
         let _ = self.write_chat(ChatRow::Update(Update {
             key: format!("{REQUEST_KEY}{request}"),
             text: text.to_string(),

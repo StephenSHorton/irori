@@ -301,3 +301,41 @@ fn screen_returns_the_windows_snapshot_and_only_to_the_assistant() {
         assert_eq!(has, client == "assistant", "client {client:?}");
     }
 }
+
+/// Assistants talk card 8: the owner's-OK turn holds the assistant secret
+/// but never begins grants. A chat run ends its grants before the next job
+/// starts, so the open set is empty when the owner's-OK turn begins, and an
+/// `assistant_close` from it gets a 403 and changes nothing, even for a card
+/// the previous run was allowed to close.
+#[test]
+fn an_owner_ok_turn_starts_with_nothing_open_so_close_is_refused() {
+    let rig = common::Rig::new();
+    let secret = rig.core.assistant_secret().to_string();
+    let me = format!("user:{}", rig.core.device_id());
+    let h = [(HEADER_ASSISTANT, secret.as_str())];
+    let card = cards(&rig, &me, "closeable by the last chat run");
+    let r = card.short_ref();
+    let before = rig.core.coord().get_task(&card.id).unwrap().state;
+
+    // The chat run before it was allowed to close the card, and ended.
+    let run = rig
+        .core
+        .assistant_grants()
+        .begin(tools::grants_for(&format!("close {r}"), &[]));
+    rig.core.assistant_grants().end(run);
+    let runs = rig.core.assistant_grants().runs();
+
+    // The owner's-OK turn starts: no grants begun, none open.
+    assert_eq!(rig.core.assistant_grants().open_count(), 0);
+    let (code, text) = call(&rig, &h, "assistant_close", json!({ "task_id": r }));
+    assert_eq!(code, 403, "{text}");
+    let (code, text) = call(
+        &rig,
+        &h,
+        "assistant_tick",
+        json!({ "task_id": r, "step_id": "s1" }),
+    );
+    assert_eq!(code, 403, "{text}");
+    assert_eq!(rig.core.coord().get_task(&card.id).unwrap().state, before);
+    assert_eq!(rig.core.assistant_grants().runs(), runs);
+}

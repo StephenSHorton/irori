@@ -71,11 +71,16 @@ struct Pending {
     took_ms: i64,
     /// A scan found it outside the newest five.
     skip: bool,
+    /// An owner's-OK draft (assistants-talk card 8): `turn` is
+    /// `ok:<request>`, there is no chat question behind it.
+    ok: Option<super::assistant_ok::OkAsk>,
 }
 
 /// The turn the worker is on.
 struct Running {
     turn: String,
+    /// An owner's-OK draft: a New chat doesn't end it.
+    ok: bool,
     /// Its question's place.
     at: Order,
     cancel: Arc<AtomicBool>,
@@ -305,7 +310,19 @@ impl Services {
                 self.republish_host();
             }
             self.chat_scan(Why::Install);
+            // Answer this taps that waited for the turn.
+            self.serve_answer_requests();
         }
+    }
+
+    /// The installed chat turn, if any.
+    pub(crate) fn chat_hook(&self) -> Option<ChatTurnFn> {
+        lock(&self.chat.hook).clone()
+    }
+
+    /// Tells the watchers of `turn` one event.
+    pub(crate) fn chat_stream_send(&self, turn: &str, ev: &ChatEvent) {
+        self.chat.stream_send(turn, ev);
     }
 
     /// Whether the chat turn is installed now: questions are queued.
@@ -347,7 +364,7 @@ impl Services {
             }
             CLEARED => {
                 let at = Order::of(ev);
-                self.chat_trip(|r| r.at < at);
+                self.chat_trip(|r| !r.ok && r.at < at);
             }
             _ => {}
         }
@@ -451,6 +468,7 @@ impl Services {
                     live: true,
                     took_ms: took,
                     skip: false,
+                    ok: None,
                 },
             );
         }
@@ -492,6 +510,7 @@ impl Services {
                         live: false,
                         took_ms: took,
                         skip: !answer.contains(turn.as_str()),
+                        ok: None,
                     },
                 );
                 added = true;
@@ -523,6 +542,7 @@ impl Services {
                     let cancel = Arc::new(AtomicBool::new(false));
                     q.running = Some(Running {
                         turn: p.turn.clone(),
+                        ok: p.ok.is_some(),
                         at,
                         cancel: cancel.clone(),
                     });
@@ -547,6 +567,31 @@ impl Services {
             drop(q);
             self.chat.stream_end(&p.turn);
         }
+    }
+
+    /// Queues an owner's-OK draft for the worker, in the place of the
+    /// tap's row, so it runs after the chat question before it and never
+    /// beside it. False when it is queued or running already.
+    pub(crate) fn chat_queue_ok(&self, at: Order, ok: super::assistant_ok::OkAsk) -> bool {
+        let turn = ok.turn();
+        {
+            let mut q = lock(&self.chat.q);
+            if !q.busy.insert(turn.clone()) {
+                return false;
+            }
+            q.pending.insert(
+                at,
+                Pending {
+                    turn,
+                    live: true,
+                    took_ms: self.now_ms(),
+                    skip: false,
+                    ok: Some(ok),
+                },
+            );
+        }
+        self.chat.kick.kick();
+        true
     }
 
     /// Whether the person has another device that isn't removed.
@@ -717,6 +762,9 @@ impl Services {
         if !self.chat_ready(cancel) {
             return;
         }
+        if let Some(ok) = &p.ok {
+            return self.owner_ok_take(&p.turn, ok, cancel);
+        }
         let Some(t) = self.assistant_chat.turn_at(&p.turn) else {
             return;
         };
@@ -791,6 +839,7 @@ impl Services {
             files: turn.asked.files.clone(),
             message,
             session,
+            system: String::new(),
         };
         let c = cancel.clone();
         let turn_id = p.turn.clone();

@@ -806,6 +806,11 @@ export const AssistantService = {
   TalkCards: () => call(commands.assistantTalkCards()),
   AnswerRequest: (post: string, space: string, how: "let" | "draft") =>
     call(commands.assistantAnswerRequest(post, space, how)),
+  // Send posts exactly the owner's-OK draft's text as the assistant's card
+  // (from any device, once); Don't send closes the draft (card #1064).
+  AnswerSend: (request: string) => done(commands.assistantAnswerSend(request)),
+  AnswerDismiss: (request: string) =>
+    done(commands.assistantAnswerDismiss(request)),
   TalkToast: (conv: string, title: string, body: string) =>
     call(commands.assistantTalkToast(conv, title, body)),
   // Rewrite in the Start a thread box (card #981): the checked wording.

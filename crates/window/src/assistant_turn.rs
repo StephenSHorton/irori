@@ -23,7 +23,7 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use irori_core::assistant_chat::{ChatDone, ChatEvent, ChatJob, Posted};
+use irori_core::assistant_chat::{ChatDone, ChatEvent, ChatJob, ChatKind, Posted};
 
 use crate::assistant::{
     AssistantEvent, Job, NO_CLAUDE, SCREEN_STATUS, SIGNED_OUT, STOPPED, Sink, TOO_LONG,
@@ -93,6 +93,9 @@ impl crate::Window {
         job: &ChatJob,
         emit: &dyn Fn(ChatEvent) -> bool,
     ) -> ChatDone {
+        if job.kind == ChatKind::OwnerOk {
+            return self.owner_ok_turn_with(bin, job, emit);
+        }
         let core = &self.core;
         core.set_assistant_screen(&job.screen);
         let run = core.assistant_grants().begin(job.grants.clone());
@@ -185,6 +188,69 @@ impl crate::Window {
         }
         if !cancelled && posts_by_itself(&text) {
             done.posted = self.chat_post(&job.turn, &text);
+        }
+        done
+    }
+
+    /// The owner's-OK turn (assistants-talk card 8, §7): one `claude -p`
+    /// of its own, never the chat's held session, with the owner's read
+    /// tools named one by one and the fenced question Core rendered. It
+    /// **never begins grants** (there is no person's message to grant from,
+    /// and `begin` would replace those of a chat run), parses no marker,
+    /// posts no thread and sets no screen. What it says is the draft's
+    /// text; Core normalises it and writes the row.
+    fn owner_ok_turn_with(
+        &self,
+        bin: Result<PathBuf, String>,
+        job: &ChatJob,
+        emit: &dyn Fn(ChatEvent) -> bool,
+    ) -> ChatDone {
+        let core = &self.core;
+        let (tx, rx) = mpsc::channel::<AssistantEvent>();
+        let sink: Sink = Box::new(move |e| tx.send(e).is_ok());
+        let id = self
+            .assistant
+            .start_with(bin, Job::owner_ok(core, job), sink);
+        let mut text = String::new();
+        let mut stopping = false;
+        let end = loop {
+            if !stopping && job.cancel.load(Ordering::SeqCst) {
+                stopping = true;
+                self.assistant.stop(id);
+            }
+            let ev = match rx.recv_timeout(POLL) {
+                Ok(ev) => ev,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => AssistantEvent::error(STOPPED),
+            };
+            if ev.kind == "delta" {
+                text.push_str(&ev.text);
+            }
+            let go_on = emit(ChatEvent {
+                kind: ev.kind.clone(),
+                text: ev.text.clone(),
+            });
+            if !go_on && !stopping {
+                stopping = true;
+                self.assistant.stop(id);
+            }
+            if ev.ends() {
+                break ev;
+            }
+        };
+        let cancelled = job.cancel.load(Ordering::SeqCst);
+        let mut done = ChatDone {
+            text: text.trim().to_string(),
+            ..ChatDone::default()
+        };
+        if end.kind == "error" {
+            if end.text.trim() == STOPPED && !cancelled {
+                // Irori is closing: the next start serves the tap again.
+                done.later = true;
+            } else if !cancelled {
+                let name = core.device_label(core.device_id());
+                done.error = chat_error(&name, &end.text);
+            }
         }
         done
     }

@@ -645,6 +645,14 @@ export const commands = {
 	 */
 	assistantAnswerRequest: (post: string, space: string, how: string) => __TAURI_INVOKE<string>("assistant_answer_request", { post, space, how }),
 	/**
+	 *  Send on an owner's-OK draft (assistants-talk card 8), from any device:
+	 *  posts exactly the draft's normalised text as the assistant's card. Refused
+	 *  once an answer to the question exists.
+	 */
+	assistantAnswerSend: (request: string) => __TAURI_INVOKE<null>("assistant_answer_send", { request }),
+	/**  Don't send: closes an owner's-OK draft on every device. */
+	assistantAnswerDismiss: (request: string) => __TAURI_INVOKE<null>("assistant_answer_dismiss", { request }),
+	/**
 	 *  One toast for a chat line that waits on the person; a click opens the
 	 *  Office Assistant chat. False when no card was shown.
 	 */
@@ -1016,6 +1024,8 @@ export type AssistantChatDraft = {
 	request: string,
 	post: string,
 	space: string,
+	/**  Who asked, as the space names them. */
+	asker: string,
 	text: string,
 	device: string,
 	at: number,

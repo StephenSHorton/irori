@@ -268,6 +268,7 @@ fn live_held_session_numbers() {
             tools: false,
             look: String::new(),
             no_settings: false,
+            read_only: false,
         };
         let bin = which_claude();
         let pool = HeldPool::new();

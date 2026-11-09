@@ -8,6 +8,7 @@ import { useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import {
+  answerThis,
   isAsking,
   letItAnswer,
   needsText,
@@ -34,9 +35,13 @@ export function fromHeader(f: From): string {
 export function FromLine({
   entry,
   onTalk,
+  drafted = false,
 }: {
   entry: ChatEntry
   onTalk: (conv: string) => void
+  // The owner's-OK draft for this question is in the chat already (card
+  // #1064): Answer this isn't offered again.
+  drafted?: boolean
 }) {
   const f = entry.from
   if (!f) return null
@@ -77,6 +82,9 @@ export function FromLine({
       )}
       <div className="flex flex-wrap items-center gap-2">
         {f.kind === "needs" && f.waiting === "ask" && <LetItAnswer from={f} />}
+        {f.kind === "needs" && f.waiting === "owner" && !drafted && (
+          <LetItAnswer from={f} how="draft" />
+        )}
         <Button
           type="button"
           variant="link"
@@ -93,9 +101,15 @@ export function FromLine({
 
 // LetItAnswer taps the request once; it says it is asking until the line
 // goes (the answer is posted) or the tap lapses.
-function LetItAnswer({ from }: { from: From }) {
+function LetItAnswer({
+  from,
+  how = "let",
+}: {
+  from: From
+  how?: "let" | "draft"
+}) {
   const [state, setState] = useState<"" | "asking">(
-    isAsking(from.postId) ? "asking" : ""
+    isAsking(from.postId, undefined, how) ? "asking" : ""
   )
   const [error, setError] = useState("")
   useEffect(() => {
@@ -113,7 +127,8 @@ function LetItAnswer({ from }: { from: From }) {
           if (state === "asking") return
           setError("")
           setState("asking")
-          void letItAnswer(from).then((why) => {
+          const tap = how === "draft" ? answerThis(from) : letItAnswer(from)
+          void tap.then((why) => {
             if (why) {
               setError(why)
               setState("")
@@ -121,7 +136,13 @@ function LetItAnswer({ from }: { from: From }) {
           })
         }}
       >
-        {state === "asking" ? "Asking your assistant…" : "Let it answer"}
+        {state === "asking"
+          ? how === "draft"
+            ? "Drafting your answer…"
+            : "Asking your assistant…"
+          : how === "draft"
+            ? "Answer this"
+            : "Let it answer"}
       </Button>
       {error && (
         <span className="text-[12px] text-destructive" role="alert">

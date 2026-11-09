@@ -941,6 +941,10 @@ pub struct Job {
     /// otherwise load) and no project settings, for a turn another person
     /// drives. Only a job with no tools reads it.
     pub no_settings: bool,
+    /// Name each of [`tools::ASSISTANT_TOOLS`] for `--allowedTools` instead
+    /// of the whole server: the owner's-OK turn (assistants-talk card 8)
+    /// lists no write tool at all, whatever the API would refuse.
+    pub read_only: bool,
 }
 
 impl Job {
@@ -967,7 +971,26 @@ impl Job {
             tools: true,
             look: String::new(),
             no_settings: false,
+            read_only: false,
         })
+    }
+
+    /// The owner's-OK turn (assistants-talk card 8, §7): the owner's read
+    /// tools and nothing else, with the system prompt and fenced question
+    /// Core built, in a folder of its own so it never swaps the chat's files
+    /// under a held session. It holds the assistant secret but no grants:
+    /// the caller never begins any.
+    pub fn owner_ok(
+        core: &irori_core::Core,
+        ask: &irori_core::assistant_chat::ChatJob,
+    ) -> Result<Job, String> {
+        let mut job = Job::assistant(core, ask.prompt.clone())?;
+        job.dir = job.dir.join(OWNER_OK_DIR);
+        job.system = ask.system.clone();
+        job.input = Input::Text;
+        job.read_only = true;
+        job.timeout = OWNER_OK_TIMEOUT;
+        Ok(job)
     }
 
     /// The turn that names a thread (card #782): no tools, its own folder
@@ -990,6 +1013,7 @@ impl Job {
             tools: false,
             look: String::new(),
             no_settings: false,
+            read_only: false,
         })
     }
 
@@ -1063,9 +1087,16 @@ impl Job {
             look: String::new(),
             // The canvas others read: no CLAUDE.md from above (#1139).
             no_settings: true,
+            read_only: false,
         })
     }
 }
+
+/// The owner's-OK turn's folder under the assistant's (assistants-talk
+/// card 8).
+pub const OWNER_OK_DIR: &str = "owner-ok";
+/// How long an owner's-OK turn may run: it reads, and writes one answer.
+pub const OWNER_OK_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// The answering turns' folder under the assistant's (assistants talk).
 pub const ANSWERS_DIR: &str = "answers";
@@ -1194,7 +1225,11 @@ fn with_effort(args: &mut Vec<String>, effort: Option<&str>) {
 /// no MCP server at all and nothing allowed.
 pub fn job_args(job: &Job) -> Vec<String> {
     let mut a = if job.tools {
-        args(&job.dir, &job.model, job.effort.as_deref())
+        let mut a = args(&job.dir, &job.model, job.effort.as_deref());
+        if job.read_only {
+            read_only_tools(&mut a);
+        }
+        a
     } else {
         bare_args(job)
     };
@@ -1202,6 +1237,23 @@ pub fn job_args(job: &Job) -> Vec<String> {
         a.extend(["--input-format".to_string(), "stream-json".to_string()]);
     }
     a
+}
+
+/// The `--allowedTools` of an owner's-OK turn: each of
+/// [`tools::ASSISTANT_TOOLS`] by name, instead of the whole irori server.
+/// None of [`tools::ASSISTANT_WRITE_TOOLS`] is among them.
+pub fn read_only_allowed() -> String {
+    tools::ASSISTANT_TOOLS
+        .iter()
+        .map(|t| format!("mcp__{SERVER}__{t}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn read_only_tools(a: &mut [String]) {
+    if let Some(i) = a.iter().position(|x| x == "--allowedTools") {
+        a[i + 1] = read_only_allowed();
+    }
 }
 
 /// `claude`'s arguments for a job with no tools.
@@ -2881,6 +2933,7 @@ mod tests {
             tools: true,
             look: String::new(),
             no_settings: false,
+            read_only: false,
         }
     }
 
@@ -3021,6 +3074,7 @@ mod tests {
             tools: false,
             look: String::new(),
             no_settings: false,
+            read_only: false,
         }
     }
 
@@ -3133,6 +3187,7 @@ mod tests {
             tools: false,
             look: String::new(),
             no_settings: false,
+            read_only: false,
         }
     }
 
