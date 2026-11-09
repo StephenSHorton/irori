@@ -16,23 +16,28 @@ use tauri::State;
 
 use crate::Window;
 use crate::agents::{
-    AgentStartsView, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings, RunningAgent,
+    AgentStartsView, AgentUsage, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings,
+    NamesThemesView, RunningAgent,
 };
+use crate::assistant::{AssistantEvent, AssistantFile};
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
 use crate::boards::{BoardSettings, BoardSummary, SharePreview, SpaceBoard};
 use crate::call::CallView;
 use crate::cards::{CardDetail, CardMessage, CardSummary, DonePage, IdleReport};
 use crate::desk::{DeskSettings, DeskView};
-use crate::devices::{DeviceView, HomeServerView, PairStatus, RelayView};
-use crate::events::{CaptureChange, Empty};
+use crate::devices::{DeviceView, HomeServerView, PairStatus};
+use crate::events::CaptureChange;
 use crate::inbox::{InboxCounts, SendResult};
 use crate::invites::InviteStatus;
 use crate::mentions::{MentionCandidate, MentionOutcome};
 use crate::meters::MetersSample;
 use crate::roster::{GoneSession, RosterChange};
 use crate::settings::{CardLook, NotifyOptions, Target};
-use crate::talk::{TalkConversation, TalkMemberRef, TalkPerson, TalkPost, TalkTranscript};
+use crate::talk::{
+    TalkCanvasItem, TalkConversation, TalkHuddle, TalkMemberRef, TalkPerson, TalkPost,
+    TalkTranscript,
+};
 use crate::ts::{self, Typed};
 use crate::update::UpdateStatus;
 use crate::usage::UsageLimits;
@@ -126,36 +131,66 @@ pub async fn roster_revive(w: W<'_>, session_id: String) -> R<String> {
     blocking(&w, move |w| w.revive(&session_id)).await
 }
 
-/// A check slot held now (card #437): the run in it (check.sh's name for
-/// itself) and when its lease ends unless the run renews it.
+/// One slot held now in a pool (card #1167): the pool's name as its creator
+/// gave it, the run holding the slot, and the slot's number out of `limit`.
 #[derive(Debug, Clone, serde::Serialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct CheckSlot {
-    pub resource: String,
+pub struct SlotHeld {
+    pub pool: String,
     pub run: String,
+    pub slot: i64,
+    pub limit: i64,
     pub until: String,
 }
 
-/// This device's check slots held now, by `scripts/check.sh` runs.
+/// The pool a slot lease belongs to and its number: `<pool>/slot-<n>`.
+fn split_slot(resource: &str) -> Option<(&str, i64)> {
+    let (pool, n) = resource.rsplit_once("/slot-")?;
+    let n = n.parse::<i64>().ok().filter(|n| *n > 0)?;
+    Some((pool, n))
+}
+
+/// A pool as a person reads it: a trailing `/<host>` naming this machine is
+/// the creator's way of keeping hosts apart, not part of the name.
+fn pool_label(pool: &str, host: &str) -> String {
+    match pool.rsplit_once('/') {
+        Some((name, h)) if !name.is_empty() && h == host => name.to_string(),
+        _ => pool.to_string(),
+    }
+}
+
+/// This machine's name the way `POST /v1/slots` callers spell it: short,
+/// lower case.
+fn slot_host() -> String {
+    let h = gethostname::gethostname().to_string_lossy().to_lowercase();
+    h.split('.').next().unwrap_or("").to_string()
+}
+
+/// Every slot of any pool held now by a run on this device, pools in name
+/// order, slots in number order.
 #[tauri::command]
 #[specta::specta]
-pub async fn roster_check_slots(w: W<'_>) -> R<Vec<CheckSlot>> {
+pub async fn roster_slots(w: W<'_>) -> R<Vec<SlotHeld>> {
     let dev = w.core.device_id().to_string();
+    let prefix = format!("{dev}/{}", coord::RUN_HOLDER);
+    let host = slot_host();
     let mut out = Vec::new();
     for l in w.core.coord().leases() {
-        let Some(run) = l
-            .holder
-            .strip_prefix(&format!("{dev}/{}", coord::RUN_HOLDER))
-            .filter(|_| l.resource.starts_with("check/"))
-        else {
+        let Some(run) = l.holder.strip_prefix(&prefix) else {
             continue;
         };
-        out.push(CheckSlot {
-            resource: l.resource.clone(),
+        let Some((pool, slot)) = split_slot(&l.resource) else {
+            continue;
+        };
+        out.push(SlotHeld {
+            pool: pool_label(pool, &host),
             run: run.to_string(),
+            slot,
+            limit: l.slots.max(slot),
             until: l.until.format_rfc3339(),
         });
     }
+    out.sort_by(|a, b| (&a.pool, a.slot).cmp(&(&b.pool, b.slot)));
     Ok(out)
 }
 
@@ -293,10 +328,28 @@ pub async fn inbox_set_paused(w: W<'_>, paused: bool) -> R<()> {
 
 // ---- BoardService ----------------------------------------------------------------
 
+/// Every live card for the grid, from the summary cache (card #1147).
 #[tauri::command]
 #[specta::specta]
 pub async fn board_cards(w: W<'_>) -> R<Vec<CardSummary>> {
-    Ok(w.cards())
+    blocking(&w, |w| Ok(w.cards())).await
+}
+
+/// The grid's patch read (card #1147): the live rows among `ids` and
+/// every live card's id in grid order.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_cards_patch(w: W<'_>, ids: Vec<String>) -> R<crate::cards_cache::CardsPatch> {
+    blocking(&w, move |w| Ok(w.cards_patch(&ids))).await
+}
+
+/// The grid's drift read (card #1147): every card built afresh, never
+/// from the cache, which it then replaces; irori.log gets
+/// `drift cards-cache <n>`.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_cards_cold(w: W<'_>) -> R<Vec<CardSummary>> {
+    blocking(&w, |w| Ok(w.cards_cold())).await
 }
 
 #[tauri::command]
@@ -308,8 +361,12 @@ pub async fn board_card(w: W<'_>, id: String) -> R<CardDetail> {
 /// Several cards in one call, each with its card or why not (card #468).
 #[tauri::command]
 #[specta::specta]
-pub async fn board_cards_by_id(w: W<'_>, ids: Vec<String>) -> R<Vec<crate::cards::CardRead>> {
-    blocking(&w, move |w| Ok(w.cards_by_id(&ids))).await
+pub async fn board_cards_by_id(
+    w: W<'_>,
+    ids: Vec<String>,
+    have: Vec<crate::cards::CardHave>,
+) -> R<Vec<crate::cards::CardRead>> {
+    blocking(&w, move |w| Ok(w.cards_by_id(&ids, &have))).await
 }
 
 #[tauri::command]
@@ -331,6 +388,16 @@ pub async fn board_idle_report(w: W<'_>) -> R<IdleReport> {
 #[specta::specta]
 pub async fn notifications_list(w: W<'_>) -> R<Vec<crate::notifications::Notification>> {
     Ok(w.notifications())
+}
+
+/// Just these keys' notifications (card #1151).
+#[tauri::command]
+#[specta::specta]
+pub async fn notifications_by_key(
+    w: W<'_>,
+    keys: Vec<String>,
+) -> R<Vec<crate::notifications::Notification>> {
+    blocking(&w, move |w| Ok(w.notifications_by_key(&keys))).await
 }
 
 /// How many notifications the person hasn't read (card #377).
@@ -609,6 +676,40 @@ pub async fn board_move(w: W<'_>, id: String, board: String) -> R<Typed<coord::T
     w.move_card(&id, &board).map(Typed::new)
 }
 
+/// The person undoes Irori's weighing of a card (card #965).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_undo_weight(w: W<'_>, id: String) -> R<Typed<coord::Task, ts::Task>> {
+    w.undo_weight(&id).map(Typed::new)
+}
+
+/// The person undoes Irori's name for their thread (card #782).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_undo_title(w: W<'_>, id: String) -> R<Typed<coord::Task, ts::Task>> {
+    w.undo_title(&id).map(Typed::new)
+}
+
+/// The person weighs a card (card #963): light, normal or heavy with an
+/// optional line on why, or "" to clear it.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_set_weight(
+    w: W<'_>,
+    id: String,
+    level: String,
+    reason: String,
+) -> R<Typed<coord::Task, ts::Task>> {
+    w.set_weight(&id, &level, &reason).map(Typed::new)
+}
+
+/// The person renames a card or thread by hand (card #779).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_rename(w: W<'_>, id: String, title: String) -> R<Typed<coord::Task, ts::Task>> {
+    w.rename_card(&id, &title).map(Typed::new)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn board_pin(w: W<'_>, id: String, pinned: bool) -> R<()> {
@@ -649,20 +750,24 @@ pub async fn agent_stop(w: W<'_>, key: String, text: String) -> R<()> {
     w.agent_stop(&key, &text)
 }
 
-/// Wind down all (card #220): asks every agent (`scope` "this" device or
-/// "all" devices) to save its place, hand back its cards and stop; with
-/// `pause_after`, Pause all turns on once every agent has answered.
+/// Wind down on (cards #220, #787): holds agent starts on every one of the
+/// person's devices and asks every agent to save its place, hand back its
+/// cards and stop.
 #[tauri::command]
 #[specta::specta]
-pub async fn wind_down_all(
-    w: W<'_>,
-    scope: String,
-    pause_after: bool,
-) -> R<crate::wind_down::WindDownStatus> {
-    w.wind_down_all(&scope, pause_after)
+pub async fn wind_down_all(w: W<'_>) -> R<crate::wind_down::WindDownStatus> {
+    w.wind_down_all()
 }
 
-/// The current Wind down all run, read fresh (empty id: none).
+/// Wind down off (card #787): wind-downs not reached yet close, the pauses
+/// Wind down set lift, and work resumes.
+#[tauri::command]
+#[specta::specta]
+pub async fn wind_down_off(w: W<'_>) -> R<crate::wind_down::WindDownStatus> {
+    w.wind_down_off()
+}
+
+/// The Wind down switch, and this device's run read fresh (empty id: none).
 #[tauri::command]
 #[specta::specta]
 pub async fn wind_down_status(w: W<'_>) -> R<crate::wind_down::WindDownStatus> {
@@ -734,8 +839,9 @@ pub async fn board_start_thread(
     mentions: Vec<crate::ts::Mention>,
     board_id: String,
     agents_now: Option<bool>,
+    assistant: bool,
 ) -> R<TaskResult> {
-    w.start_thread_with(&text, &mentions, &[], &board_id, agents_now)
+    w.start_thread_with(&text, &mentions, &[], &board_id, agents_now, assistant)
 }
 
 /// A thread with files (card #124), as an ask takes them; your own
@@ -748,9 +854,10 @@ pub async fn board_start_thread_with_files(
     mentions: Vec<crate::ts::Mention>,
     files: Vec<UploadFile>,
     agents_now: Option<bool>,
+    assistant: bool,
 ) -> R<TaskResult> {
     blocking(&w, move |w| {
-        w.start_thread_with(&text, &mentions, &files, "", agents_now)
+        w.start_thread_with(&text, &mentions, &files, "", agents_now, assistant)
     })
     .await
 }
@@ -782,6 +889,20 @@ pub async fn board_threads(w: W<'_>, board_id: String) -> R<Vec<crate::threads::
 #[specta::specta]
 pub async fn board_threads_all(w: W<'_>) -> R<Vec<crate::threads::ThreadSummary>> {
     blocking(&w, move |w| Ok(w.threads_all())).await
+}
+
+/// Just these threads' rows (card #1136).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_threads_by_id(w: W<'_>, ids: Vec<String>) -> R<crate::threads::ThreadsById> {
+    blocking(&w, move |w| Ok(w.threads_by_id(&ids))).await
+}
+
+/// The person has a thread open: what is in it now is read (card #719).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_read_thread(w: W<'_>, id: String) -> R<()> {
+    w.read_thread(&id)
 }
 
 /// Resolve on a thread: the person is done with it.
@@ -847,8 +968,43 @@ pub async fn boards_add_to_space(
     space_id: String,
     name: String,
     tag: String,
+    description: String,
 ) -> R<BoardSummary> {
-    w.boards_add_to_space(&space_id, &name, &tag)
+    w.boards_add_to_space_with(&space_id, &name, &tag, &description)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_set_description_in_space(
+    w: W<'_>,
+    space_id: String,
+    board_id: String,
+    description: String,
+) -> R<BoardSummary> {
+    w.boards_set_description_in_space(&space_id, &board_id, &description)
+}
+
+/// `open_cards`: "keep", "move" (to `move_to`) or "cancel" (card #690).
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_close_in_space(
+    w: W<'_>,
+    space_id: String,
+    board_id: String,
+    open_cards: String,
+    move_to: String,
+) -> R<BoardSummary> {
+    w.boards_close_in_space(&space_id, &board_id, &open_cards, &move_to)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_reopen_in_space(
+    w: W<'_>,
+    space_id: String,
+    board_id: String,
+) -> R<BoardSummary> {
+    w.boards_reopen_in_space(&space_id, &board_id)
 }
 
 #[tauri::command]
@@ -886,8 +1042,41 @@ pub async fn boards_personal(w: W<'_>) -> R<Vec<SpaceBoard>> {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn boards_add_to_personal(w: W<'_>, name: String, tag: String) -> R<Vec<SpaceBoard>> {
-    w.boards_add_to_personal(&name, &tag)
+pub async fn boards_add_to_personal(
+    w: W<'_>,
+    name: String,
+    tag: String,
+    description: String,
+) -> R<Vec<SpaceBoard>> {
+    w.boards_add_to_personal_with(&name, &tag, &description)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_set_description_in_personal(
+    w: W<'_>,
+    board_id: String,
+    description: String,
+) -> R<Vec<SpaceBoard>> {
+    w.boards_set_description_in_personal(&board_id, &description)
+}
+
+/// `open_cards`: "keep", "move" (to `move_to`) or "cancel" (card #690).
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_close_in_personal(
+    w: W<'_>,
+    board_id: String,
+    open_cards: String,
+    move_to: String,
+) -> R<Vec<SpaceBoard>> {
+    w.boards_close_in_personal(&board_id, &open_cards, &move_to)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_reopen_in_personal(w: W<'_>, board_id: String) -> R<Vec<SpaceBoard>> {
+    w.boards_reopen_in_personal(&board_id)
 }
 
 #[tauri::command]
@@ -1016,6 +1205,95 @@ pub async fn boards_set_reviewer(
 
 // ---- Notes (card #401; Mine only since #616) ------------------------------------
 
+// ---- Storage (card #728) ------------------------------------------------
+
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_report(w: W<'_>) -> R<crate::storage::StorageReport> {
+    blocking(&w, move |w| w.storage_report()).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_log(w: W<'_>) -> R<Vec<crate::storage::LogPart>> {
+    blocking(&w, move |w| w.storage_log()).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_items(w: W<'_>, kind: String) -> R<Vec<crate::storage::StorageItem>> {
+    blocking(&w, move |w| w.storage_items(&kind)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_clean(
+    w: W<'_>,
+    kind: String,
+    ids: Vec<String>,
+) -> R<crate::storage::StorageCleaned> {
+    timed(
+        "storage_clean",
+        blocking(&w, move |w| w.storage_clean(&kind, &ids)),
+    )
+    .await
+}
+
+/// Ends a process that holds a worktree (card #1118): Storage's End it.
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_end_holder(w: W<'_>, tree: String, pid: u32) -> R<String> {
+    timed(
+        "storage_end_holder",
+        blocking(&w, move |w| w.storage_end_holder(&tree, pid)),
+    )
+    .await
+}
+
+/// Deletes a canceled card's worktree whole (card #1118): Storage's
+/// "delete anyway".
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_delete_tree(w: W<'_>, tree: String) -> R<()> {
+    timed(
+        "storage_delete_tree",
+        blocking(&w, move |w| w.storage_delete_tree(&tree)),
+    )
+    .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_cleared(w: W<'_>) -> R<Vec<crate::storage::ClearedCard>> {
+    blocking(&w, move |w| Ok(w.storage_cleared())).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_unclear(w: W<'_>, ids: Vec<String>) -> R<i64> {
+    timed(
+        "storage_unclear",
+        blocking(&w, move |w| w.storage_unclear(&ids)),
+    )
+    .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn threads_clear_count(w: W<'_>, older_than_secs: i64) -> R<i64> {
+    blocking(&w, move |w| Ok(w.clear_threads_count(older_than_secs))).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn threads_clear(w: W<'_>, older_than_secs: i64) -> R<i64> {
+    timed(
+        "threads_clear",
+        blocking(&w, move |w| w.clear_threads(older_than_secs)),
+    )
+    .await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn notes_list(w: W<'_>, removed: bool) -> R<Vec<crate::notes::NoteView>> {
@@ -1083,7 +1361,12 @@ pub async fn agents_trust_and_start(
     w: W<'_>,
     task_id: String,
 ) -> R<crate::agents_trust::TrustStarted> {
-    blocking(&w, move |w| w.agents_trust_and_start(&task_id)).await
+    // Logged, so a click is found in irori.log (card #717).
+    timed(
+        "agents_trust_and_start",
+        blocking(&w, move |w| w.agents_trust_and_start(&task_id)),
+    )
+    .await
 }
 
 /// The person asks the device a card's agent must start on to trust its
@@ -1201,6 +1484,24 @@ pub async fn devices_set_person_avatar(w: W<'_>, avatar: String) -> R<()> {
     w.set_person_avatar(&avatar)
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn devices_assistant_name(w: W<'_>) -> R<String> {
+    Ok(w.assistant_name())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn devices_assistant_label(w: W<'_>) -> R<String> {
+    Ok(w.assistant_label())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn devices_set_assistant_name(w: W<'_>, name: String) -> R<()> {
+    w.set_assistant_name(&name)
+}
+
 /// Every work/personal side named on a device or a card (card #494).
 #[tauri::command]
 #[specta::specta]
@@ -1300,18 +1601,6 @@ pub async fn devices_set_home_server_awake(w: W<'_>, on: bool) -> R<HomeServerVi
 #[specta::specta]
 pub async fn devices_set_public_relays(w: W<'_>, on: bool) -> R<HomeServerView> {
     blocking(&w, move |w| w.set_public_relays(on)).await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn devices_relay(w: W<'_>) -> R<RelayView> {
-    Ok(w.relay())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn devices_set_relay(w: W<'_>, credential_url: String) -> R<RelayView> {
-    w.set_relay(&credential_url)
 }
 
 // ---- SettingsService -------------------------------------------------------------
@@ -1568,11 +1857,98 @@ pub async fn call_dismiss(w: W<'_>, call_id: String) -> R<()> {
     .await
 }
 
+/// "Name new threads" (#782): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_names(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_names())).await
+}
+
+/// Turns "Name new threads" on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_names_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_names_set(on)).await
+}
+
+/// Where the one assistant runs and whether that computer can be reached
+/// (one-assistant card 1).
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_home_status(w: W<'_>) -> R<crate::assistant_home::AssistantHomeStatus> {
+    blocking(&w, |w| Ok(w.assistant_home_status())).await
+}
+
+/// The person picks which computer runs the assistant, from any device.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_home_set(w: W<'_>, device: String) -> R<()> {
+    blocking(&w, move |w| w.assistant_home_set(&device)).await
+}
+
+/// Rewords the Start a thread box's draft (#981). The draft itself is
+/// never touched here: the window shows the wording and the person chooses.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_rewrite(w: W<'_>, text: String, mentions: Vec<String>) -> R<String> {
+    blocking(&w, move |w| w.rewrite_draft(&text, &mentions)).await
+}
+
+/// "Weigh new cards" (#965): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_weighs(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_weighs())).await
+}
+
+/// Turns "Weigh new cards" on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_weighs_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_weighs_set(on)).await
+}
+
+/// "Let my assistant add notes from what I say" (#1053): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_notes(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_huddle_notes())).await
+}
+
+/// Turns the notes switch on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_notes_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_huddle_notes_set(on)).await
+}
+
+/// "Let my assistant chair huddles I start" (#1053): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_chair(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_huddle_chair())).await
+}
+
+/// Turns the chair switch on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_chair_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_huddle_chair_set(on)).await
+}
+
 /// "Transcribe what I say in calls" (#656): on unless turned off.
 #[tauri::command]
 #[specta::specta]
 pub async fn call_transcribe(w: W<'_>) -> R<bool> {
     blocking(&w, |w| Ok(w.call_transcribe())).await
+}
+
+/// Whether a huddle in this conversation reaches agents live: false in a
+/// space some device of which is too old, for the start notice.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_agents_ready(w: W<'_>, conv_id: String) -> R<bool> {
+    blocking(&w, move |w| Ok(w.call_agents_ready(&conv_id))).await
 }
 
 /// Turns "Transcribe what I say in calls" on or off, on all the person's
@@ -1581,6 +1957,68 @@ pub async fn call_transcribe(w: W<'_>) -> R<bool> {
 #[specta::specta]
 pub async fn call_transcribe_set(w: W<'_>, on: bool) -> R<()> {
     blocking(&w, move |w| w.call_transcribe_set(on)).await
+}
+
+/// Every huddle in Talk (card #1044), newest first.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_huddles(w: W<'_>) -> R<Vec<TalkHuddle>> {
+    blocking(&w, move |w| Ok(w.talk_huddles())).await
+}
+
+/// Sets a huddle's title (card #1044); returns the title it now shows.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_call_title_set(w: W<'_>, call_id: String, title: String) -> R<String> {
+    blocking(&w, move |w| w.talk_call_title_set(&call_id, &title)).await
+}
+
+/// Sets a huddle's title (card #1051): the same write as
+/// `talk_call_title_set`, a person's title.
+#[tauri::command]
+#[specta::specta]
+pub async fn huddle_title_set(w: W<'_>, call_id: String, title: String) -> R<String> {
+    blocking(&w, move |w| w.talk_call_title_set(&call_id, &title)).await
+}
+
+/// Adds an item to a huddle's canvas (card #1051).
+#[tauri::command]
+#[specta::specta]
+pub async fn huddle_item_add(
+    w: W<'_>,
+    call_id: String,
+    kind: String,
+    text: String,
+) -> R<TalkCanvasItem> {
+    blocking(&w, move |w| w.huddle_item_add(&call_id, &kind, &text)).await
+}
+
+/// Changes a canvas item (card #1051): text, status, place or, once the
+/// huddle is over, the card it became (card #1054).
+#[tauri::command]
+#[specta::specta]
+#[allow(clippy::too_many_arguments)]
+pub async fn huddle_item_set(
+    w: W<'_>,
+    call_id: String,
+    item_id: String,
+    text: Option<String>,
+    status: Option<String>,
+    x: Option<f64>,
+    y: Option<f64>,
+    card: Option<String>,
+) -> R<TalkCanvasItem> {
+    blocking(&w, move |w| {
+        w.huddle_item_set(&call_id, &item_id, text, status, x, y, card)
+    })
+    .await
+}
+
+/// Asks the person's assistant a question in a live huddle (card #1051).
+#[tauri::command]
+#[specta::specta]
+pub async fn huddle_ask(w: W<'_>, call_id: String, text: String) -> R<TalkCanvasItem> {
+    blocking(&w, move |w| w.huddle_ask(&call_id, &text)).await
 }
 
 /// A huddle's transcript (#656): every line, named.
@@ -1662,6 +2100,13 @@ pub async fn agents_settings(w: W<'_>, board_id: String) -> R<AgentsSettings> {
     Ok(w.agents_settings(&board_id))
 }
 
+/// How cards ended, by weight, model and effort (card #966).
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_history(w: W<'_>) -> R<Vec<crate::agents::RunHistoryRow>> {
+    Ok(w.agents_history())
+}
+
 /// "My agents may start agents on my cards" and its maximum (card #575).
 #[tauri::command]
 #[specta::specta]
@@ -1689,6 +2134,51 @@ pub async fn agents_pause_set(w: W<'_>, on: bool) -> R<AgentsPauseView> {
 #[specta::specta]
 pub async fn agents_starts_set(w: W<'_>, on: bool, max: u32) -> R<AgentStartsView> {
     w.agents_starts_set(on, max)
+}
+
+/// "Agents review other people's PRs without asking" (merge-desk §12.8):
+/// on unless the person turned it off.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_reviews(w: W<'_>) -> R<bool> {
+    Ok(w.agents_reviews())
+}
+
+/// The person changes it: the app only, never a tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_reviews_set(w: W<'_>, on: bool) -> R<bool> {
+    w.agents_reviews_set(on)
+}
+
+/// "Start a reviewer on this machine when nobody else fits" (merge-desk
+/// §12.10): on unless the person turned it off.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_review_starts(w: W<'_>) -> R<bool> {
+    Ok(w.agents_review_starts())
+}
+
+/// The person changes it: the app only, never a tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_review_starts_set(w: W<'_>, on: bool) -> R<bool> {
+    w.agents_review_starts_set(on)
+}
+
+/// The themes new agents' names come from (card #702), each with its
+/// switch.
+#[tauri::command]
+#[specta::specta]
+pub async fn names_themes(w: W<'_>) -> R<NamesThemesView> {
+    blocking(&w, |w| Ok(w.names_themes())).await
+}
+
+/// The person turns a theme on or off: the app only, never a tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn names_theme_set(w: W<'_>, id: String, on: bool) -> R<NamesThemesView> {
+    blocking(&w, move |w| w.names_theme_set(&id, on)).await
 }
 
 /// The person changes them: the app only, never a tool.
@@ -1736,6 +2226,13 @@ pub async fn agents_running(w: W<'_>) -> R<Vec<RunningAgent>> {
     blocking(&w, move |w| Ok(w.agents_running())).await
 }
 
+/// An agent's model, effort and tokens, for its hover card: what is known.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_usage(w: W<'_>, key: String) -> R<AgentUsage> {
+    blocking(&w, move |w| Ok(w.agent_usage(&key))).await
+}
+
 /// The person ends an agent Irori started: its hand-off, then stop and rm.
 #[tauri::command]
 #[specta::specta]
@@ -1776,11 +2273,24 @@ pub async fn desk_set(w: W<'_>, settings: DeskSettings) -> R<()> {
 
 // ---- talk (card #389) -----------------------------------------------------
 
-/// Talk's list: channels, DMs and open threads, with unread counts.
+/// Talk's list: channels and DMs, with unread counts, and the open threads
+/// when `threads` (Talk's own list leaves them out, card #1150).
 #[tauri::command]
 #[specta::specta]
-pub async fn talk_conversations(w: W<'_>) -> R<Vec<TalkConversation>> {
-    w.talk_conversations()
+pub async fn talk_conversations(w: W<'_>, threads: bool) -> R<Vec<TalkConversation>> {
+    w.talk_conversations(threads)
+}
+
+/// The rows of just `convs` (channel and DM ids, bare thread ids): what a
+/// `talk:changed` named. One with no row is left out, so it is gone.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_conversations_by_id(
+    w: W<'_>,
+    convs: Vec<String>,
+    threads: bool,
+) -> R<Vec<TalkConversation>> {
+    w.talk_conversations_by_id(&convs, threads)
 }
 
 /// Up to `limit` posts before `before` (none: the newest), oldest first.
@@ -1978,7 +2488,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             roster_recent,
             roster_gone,
             roster_revive,
-            roster_check_slots,
+            roster_slots,
             inbox_list,
             inbox_held,
             inbox_held_history,
@@ -1996,12 +2506,15 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             inbox_set_policy,
             inbox_set_paused,
             board_cards,
+            board_cards_patch,
+            board_cards_cold,
             board_card,
             board_cards_by_id,
             board_done_cards,
             board_cards_in,
             board_idle_report,
             notifications_list,
+            notifications_by_key,
             notifications_unread,
             notifications_read,
             notifications_answer_ask,
@@ -2026,12 +2539,17 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_close,
             board_delete,
             board_move,
+            board_rename,
+            board_undo_title,
+            board_undo_weight,
             board_pin,
+            board_set_weight,
             board_pause,
             board_not_yet,
             board_start_now,
             agent_stop,
             wind_down_all,
+            wind_down_off,
             wind_down_status,
             wind_down_stop,
             inbox_reply_stop,
@@ -2041,7 +2559,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_start_thread_with_files,
             board_threads,
             board_threads_all,
+            board_threads_by_id,
             board_card_ref,
+            board_read_thread,
             board_resolve_thread,
             board_reopen_thread,
             board_thread_agents_now,
@@ -2063,6 +2583,12 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_rename_in_personal,
             boards_delete_in_space,
             boards_delete_in_personal,
+            boards_set_description_in_space,
+            boards_close_in_space,
+            boards_reopen_in_space,
+            boards_set_description_in_personal,
+            boards_close_in_personal,
+            boards_reopen_in_personal,
             boards_forget_now,
             boards_remove_member,
             boards_set_role,
@@ -2077,6 +2603,16 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_set_threads,
             boards_set_reviewer,
             notes_list,
+            storage_report,
+            storage_log,
+            storage_items,
+            storage_clean,
+            storage_end_holder,
+            storage_delete_tree,
+            storage_cleared,
+            storage_unclear,
+            threads_clear_count,
+            threads_clear,
             note_new,
             note_edit,
             note_remove,
@@ -2100,6 +2636,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             devices_set_person_color,
             devices_person_avatar,
             devices_set_person_avatar,
+            devices_assistant_name,
+            devices_assistant_label,
+            devices_set_assistant_name,
             devices_rename_device,
             devices_side_names,
             devices_set_device_sides,
@@ -2115,8 +2654,6 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             devices_set_home_server,
             devices_set_home_server_awake,
             devices_set_public_relays,
-            devices_relay,
-            devices_set_relay,
             settings_get_notifications,
             settings_set_notifications,
             settings_test_notification,
@@ -2151,7 +2688,25 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             call_dismiss,
             call_transcribe,
             call_transcribe_set,
+            call_agents_ready,
+            assistant_names,
+            assistant_names_set,
+            assistant_home_status,
+            assistant_home_set,
+            assistant_rewrite,
+            assistant_weighs,
+            assistant_weighs_set,
+            assistant_huddle_notes,
+            assistant_huddle_notes_set,
+            assistant_huddle_chair,
+            assistant_huddle_chair_set,
             talk_call_transcript,
+            talk_huddles,
+            talk_call_title_set,
+            huddle_title_set,
+            huddle_item_add,
+            huddle_item_set,
+            huddle_ask,
             share_sources,
             share_start,
             share_stop,
@@ -2160,6 +2715,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             share_keyframe,
             share_note_seen,
             talk_conversations,
+            talk_conversations_by_id,
             talk_posts,
             talk_post,
             talk_post_with_files,
@@ -2187,10 +2743,18 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             term_close,
             term_folders,
             term_list,
+            term_device_list,
             agents_settings,
+            agents_history,
             agents_set,
+            names_themes,
+            names_theme_set,
             agents_starts,
             agents_starts_set,
+            agents_reviews,
+            agents_reviews_set,
+            agents_review_starts,
+            agents_review_starts_set,
             agents_pause,
             agents_pause_set,
             agents_limits,
@@ -2201,14 +2765,37 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             agents_logs,
             agents_attach,
             agents_running,
+            agents_usage,
             desk_list,
             desk_set,
             meters_history,
             usage_limits,
+            assistant_attach,
+            assistant_chat_list,
+            assistant_chat_ask,
+            assistant_chat_stop,
+            assistant_chat_posted,
+            assistant_chat_clear,
+            assistant_chat_update,
+            assistant_chat_import,
+            assistant_talk_cards,
+            assistant_answer_request,
+            assistant_answer_send,
+            assistant_answer_dismiss,
+            assistant_ask_prepare,
+            assistant_ask_send,
+            assistant_talk_toast,
+            assistant_chat_watch,
         ])
         .typ::<RosterChange>()
         .typ::<CaptureChange>()
-        .typ::<Empty>()
+        .typ::<crate::signals::CardsChange>()
+        .typ::<crate::signals::TalkSignal>()
+        .typ::<crate::signals::NotifSignal>()
+        .typ::<crate::signals::InboxSignal>()
+        .typ::<crate::signals::DevicesSignal>()
+        .typ::<crate::signals::BoardsSignal>()
+        .typ::<crate::signals::AssistantSignal>()
         .typ::<Target>()
         .typ::<ts::TaskState>()
         .typ::<ts::LinkKind>()
@@ -2223,6 +2810,203 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .dangerously_cast_bigints_to_number()
         .disable_serde_phases()
+}
+
+// ---- The assistant (card #783) ----------------------------------------------
+
+/// Stores files for the corner chat (card #999) and says, for each, what
+/// the chat shows and whether the assistant can read it.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_attach(w: W<'_>, files: Vec<UploadFile>) -> R<Vec<AssistantFile>> {
+    blocking(&w, move |w| w.assistant_attach(&files)).await
+}
+
+/// A page of the assistant's one conversation, newest first (card #1102,
+/// docs/design/one-assistant.md §4): up to `limit` entries (0 is 50) older
+/// than the one whose cursor is `before` ("" starts at the newest). The
+/// same on every one of the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_list(
+    w: W<'_>,
+    before: String,
+    limit: u32,
+) -> R<crate::assistant_chat::AssistantChatPage> {
+    blocking(&w, move |w| w.assistant_chat_list(&before, limit as usize)).await
+}
+
+/// The person asks the assistant (one-assistant card 3, §5): writes the
+/// question's row, which the assistant's computer answers wherever it is,
+/// and returns its turn. `screen` is this device's snapshot; `again` the
+/// turn it asks again (Ask again). `files` are from [`assistant_attach`].
+/// `call_id` is the huddle it is asked from (Divide with my assistant, card
+/// #1054): the huddle goes in the prompt.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_ask(
+    w: W<'_>,
+    text: String,
+    screen: String,
+    again: Option<String>,
+    files: Vec<AssistantFile>,
+    call_id: Option<String>,
+) -> R<String> {
+    blocking(&w, move |w| {
+        w.assistant_chat_ask(
+            &text,
+            &screen,
+            again.as_deref().unwrap_or(""),
+            call_id.as_deref().unwrap_or(""),
+            &files,
+        )
+    })
+    .await
+}
+
+/// Stops a question, from any device: one that hasn't started never runs,
+/// and a running one ends at once.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_stop(w: W<'_>, turn: String) -> R<()> {
+    blocking(&w, move |w| w.core.assistant_chat_stop(&turn)).await
+}
+
+/// Post thread: the person posted a reply's draft as thread `id`.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_posted(
+    w: W<'_>,
+    turn: String,
+    id: String,
+    short: String,
+    tag: String,
+) -> R<()> {
+    blocking(&w, move |w| {
+        w.assistant_chat_posted(&turn, &id, &short, &tag)
+    })
+    .await
+}
+
+/// New chat: hides the conversation so far, on every device.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_clear(w: W<'_>) -> R<()> {
+    blocking(&w, move |w| w.assistant_chat_clear()).await
+}
+
+/// A follow-up line about a thread the chat posted: the first row per key
+/// wins on every device.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_update(
+    w: W<'_>,
+    line: crate::assistant_chat::AssistantChatUpdateIn,
+) -> R<()> {
+    blocking(&w, move |w| w.assistant_chat_update(line)).await
+}
+
+/// The spaces where the person has an Office Assistant: its card and the
+/// space's #office-assistants channel (assistants-talk.md §8).
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_talk_cards(w: W<'_>) -> R<Vec<crate::assistant_chat::AssistantTalkCard>> {
+    Ok(w.assistant_talk_cards())
+}
+
+/// Let it answer: a tap on question `post` of `space`, from any device. The
+/// assistant's computer answers it, or says why not in the chat. Returns the
+/// request's id.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_answer_request(
+    w: W<'_>,
+    post: String,
+    space: String,
+    how: String,
+) -> R<String> {
+    blocking(&w, move |w| w.assistant_answer_request(&post, &space, &how)).await
+}
+
+/// Send on an owner's-OK draft (assistants-talk card 8), from any device:
+/// posts exactly the draft's normalised text as the assistant's card. Refused
+/// once an answer to the question exists.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_answer_send(w: W<'_>, request: String) -> R<()> {
+    blocking(&w, move |w| w.assistant_answer_send(&request)).await
+}
+
+/// Don't send: closes an owner's-OK draft on every device.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_answer_dismiss(w: W<'_>, request: String) -> R<()> {
+    blocking(&w, move |w| w.assistant_answer_dismiss(&request)).await
+}
+
+/// An ask the chat's reply drafted (assistants-talk.md §9): its target and
+/// the exact normalised text a tap on Send posts. Posts nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_ask_prepare(
+    w: W<'_>,
+    person: String,
+    space: String,
+    text: String,
+) -> R<crate::assistant_chat::AssistantAskPrepared> {
+    blocking(&w, move |w| w.assistant_ask_prepare(&person, &space, &text)).await
+}
+
+/// The tap on Send: posts the ask as the person's assistant card, after the
+/// scrub. The only way an ask is posted.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_ask_send(
+    w: W<'_>,
+    space: String,
+    person: String,
+    text: String,
+) -> R<crate::assistant_chat::AssistantAskSent> {
+    blocking(&w, move |w| w.assistant_ask_send(&space, &person, &text)).await
+}
+
+/// One toast for a chat line that waits on the person; a click opens the
+/// Office Assistant chat. False when no card was shown.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_talk_toast(w: W<'_>, conv: String, title: String, body: String) -> R<bool> {
+    Ok(w.assistant_talk_toast(&conv, &title, &body))
+}
+
+/// Brings this computer's old chat history (localStorage) in as the
+/// conversation's first rows, once (card #1105, one-assistant §10). Refused
+/// on any device but the assistant's computer, and a second time with
+/// "the history was already imported".
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_import(
+    w: W<'_>,
+    entries: Vec<crate::assistant_chat::AssistantImportEntry>,
+) -> R<crate::assistant_chat::AssistantImported> {
+    blocking(&w, move |w| w.assistant_chat_import(entries)).await
+}
+
+/// Streams a turn's reply as this computer runs it: from now until the turn
+/// ends, starting with what it has said so far. On another device the
+/// events come over the mesh from the assistant's computer (card 7); if
+/// that stream fails, nothing comes and the `said` row is the reply.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_watch(
+    w: W<'_>,
+    turn: String,
+    on: tauri::ipc::Channel<AssistantEvent>,
+) -> R<()> {
+    blocking(&w, move |w| {
+        w.assistant_chat_watch(&turn, Box::new(move |e| on.send(e).is_ok()));
+        Ok(())
+    })
+    .await
 }
 
 // ---- Terminals (card #369; docs/design/inline-terminals.md section 5) ----------
@@ -2343,6 +3127,14 @@ pub async fn term_close(w: W<'_>, id: u32) -> R<()> {
 #[specta::specta]
 pub async fn term_list(w: W<'_>, card: String) -> R<Vec<term::TermInfo>> {
     Ok(w.term_list(&card))
+}
+
+/// The person's own terminals on this device, for the bottom panel off a
+/// card's page (card #734). It never starts one.
+#[tauri::command]
+#[specta::specta]
+pub async fn term_device_list(w: W<'_>) -> R<Vec<term::TermInfo>> {
+    Ok(w.term_device_list())
 }
 
 #[tauri::command]

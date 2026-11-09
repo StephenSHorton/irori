@@ -8,7 +8,7 @@
 // notes_list N notes. The hash picks the page (#notifications).
 
 import { emit } from "@tauri-apps/api/event"
-import { mockIPC } from "@tauri-apps/api/mocks"
+import { mockIPC, mockWindows } from "@tauri-apps/api/mocks"
 
 import bindings from "../gen/bindings.ts?raw"
 import { sampleCards } from "../lib/sample-cards"
@@ -124,6 +124,8 @@ const cards = sampleCards(now)
 // Each board:changed the harness sends changes one card (its first), as
 // an agent ticking a step does, so renders show what a real change costs.
 let gen = 0
+let talkGen = 0
+let seq = 0
 function current() {
   if (!gen) return cards
   const c = { ...cards[0], title: `${cards[0].title} (${gen})` }
@@ -183,10 +185,27 @@ function answer(cmd: string, args: Record<string, unknown>): unknown {
     case "core_ready":
       return null
     case "board_cards":
+    case "board_cards_cold":
       return current()
+    case "board_cards_patch": {
+      // The rows named and the whole order (card #1147).
+      const ids = args.ids as string[]
+      const all = current()
+      return {
+        rows: all.filter((c) => ids.includes(c.id)),
+        order: all.map((c) => c.id),
+      }
+    }
     case "board_card":
     case "board_cards_by_id": {
       const ids = cmd === "board_card" ? [args.id] : (args.ids as string[])
+      // The rev the host stamps a card with (card #1136): it moves when the
+      // card does, so a card that didn't change comes back `unchanged`.
+      const have = new Map(
+        ((args.have as { id: string; rev: string }[] | undefined) ?? []).map(
+          (h) => [h.id, h.rev]
+        )
+      )
       const got = ids.map((id) => {
         const c = current().find((x) => x.id === id)
         if (!c) throw new Error(`no such card: ${String(id)}`)
@@ -194,7 +213,20 @@ function answer(cmd: string, args: Record<string, unknown>): unknown {
       })
       return cmd === "board_card"
         ? got[0]
-        : got.map((card) => ({ id: card.id, card, error: "" }))
+        : got.map((card) => {
+            const rev = `r${card.id}:${card.title}`
+            return have.get(card.id) === rev
+              ? { id: card.id, card: null, error: "", rev, unchanged: true }
+              : { id: card.id, card, error: "", rev, unchanged: false }
+          })
+    }
+    case "talk_conversations_by_id":
+    case "talk_conversations": {
+      // One conversation a talk:changed edits, so a reload shows a change.
+      const c = zero(
+        returns.get("talk_conversations")?.replace(/\[\]$/, "") ?? "null"
+      ) as Record<string, unknown> | null
+      return c ? [{ ...c, id: "conv1", name: `general (${talkGen})` }] : []
     }
     case "notifications_list":
       return notifications()
@@ -203,14 +235,26 @@ function answer(cmd: string, args: Record<string, unknown>): unknown {
     case "notes_waiting":
       return Math.ceil(N / 10)
   }
+  // The by-id and by-key reads the event-driven window adds (design
+  // list-signals.md): a list of rows, none until a build fills them.
+  if (/_by_(id|key)$/.test(cmd) || cmd.endsWith("_patch")) return []
   return zero(returns.get(cmd) ?? "null")
 }
 
 const calls = new Map<string, number>()
+// The ids each CardsById read asked for, since the last reset (card #1148).
+const cardIds: string[][] = []
 const errors = new Map<string, number>()
+// The window's own state, which visibility.ts (card #1134) asks: a window
+// the person can see. Without a mocked window the page never mounts.
+mockWindows("main")
 mockIPC(
   (cmd, args) => {
+    if (cmd === "plugin:window|is_visible") return true
+    if (cmd.startsWith("plugin:")) return null
     calls.set(cmd, (calls.get(cmd) ?? 0) + 1)
+    if (cmd === "board_cards_by_id")
+      cardIds.push([...((args as { ids?: string[] })?.ids ?? [])])
     try {
       return answer(cmd, (args ?? {}) as Record<string, unknown>)
     } catch (e) {
@@ -234,23 +278,30 @@ function snapshot() {
       .map(([k, v]) => `${k} ${v}`)
       .join(", "),
     calls: Object.fromEntries([...calls].sort((a, b) => b[1] - a[1])),
+    // CardsById ids per read: after a notice, touched ∩ watched.
+    cardIds: cardIds.map((ids) => ids.length),
   }
 }
 function reset() {
   calls.clear()
+  cardIds.length = 0
   hook.commits = 0
   hook.rendered = 0
   hook.names.clear()
 }
 
-async function per(event: string, rounds: number) {
+// per emits event rounds times, each with payload when given (the signals
+// carry ids and a seq once card 4 of list-signals.md lands), and counts
+// what each cost.
+async function per(event: string, rounds: number, payload?: () => unknown) {
   const each = []
   quiet = true
   for (let i = 0; i < rounds; i++) {
     await wait(300)
     reset()
     if (event === "board:changed") gen++
-    if (event) await emit(event)
+    if (event === "talk:changed") talkGen++
+    if (event) await emit(event, payload?.())
     await wait(1500)
     each.push(snapshot())
   }
@@ -269,8 +320,21 @@ async function run() {
     mount,
     // No event: what timers alone cost in the same time.
     idle: await per("", 2),
-    boardChanged: await per("board:changed", 3),
-    talkChanged: await per("talk:changed", 2),
+    // The payloads of list-signals.md §4; a window that predates them
+    // ignores them, so the same run measures before and after.
+    boardChanged: await per("board:changed", 3, () => ({
+      seq: ++seq,
+      all: false,
+      cards: [cards[0].id],
+      notes: [],
+      desk: false,
+    })),
+    talkChanged: await per("talk:changed", 2, () => ({
+      seq: ++seq,
+      all: false,
+      convs: ["conv1"],
+      calls: [],
+    })),
     errors: Object.fromEntries(errors),
     mounted: document.getElementById("root")!.childElementCount > 0,
   }

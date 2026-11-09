@@ -343,7 +343,7 @@ pub(crate) fn search(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     let limit = limit.min(search::MAX_LIMIT);
     qy.limit = limit + 1;
-    let hits = match cp.search(&qy) {
+    let hits = match s.search_everywhere(cp, &qy) {
         Ok(h) => h,
         Err(e) => return err_text(&format!("search failed: {e}. Use plain words.")),
     };
@@ -413,6 +413,36 @@ pub(crate) fn search(s: &Inner, c: &Caller, raw: &[u8]) -> String {
 }
 
 impl Inner {
+    /// Hits for `qy` from capture's index and, when it may hold cards or
+    /// comments, from every shared space's log too (card #1198), which
+    /// capture doesn't index. The two lists are merged, then paged as one:
+    /// newest first without words; with words each list keeps its own
+    /// best-first order and they take turns, as their ranks can't be
+    /// compared.
+    fn search_everywhere(&self, cp: &capture::Capture, qy: &Query) -> Result<Vec<Hit>, String> {
+        let boards = qy.kinds.is_empty()
+            || qy
+                .kinds
+                .iter()
+                .any(|k| matches!(k, Kind::Task | Kind::Comment));
+        let docs = match self.b.board_viewer() {
+            Some(bv) if boards => bv.space_docs(),
+            _ => Vec::new(),
+        };
+        if docs.is_empty() {
+            return cp.search(qy).map_err(|e| e.to_string());
+        }
+        let n = qy.offset.max(0) + qy.limit.max(1);
+        let mine = cp.search_first(qy, n).map_err(|e| e.to_string())?;
+        let theirs = capture::search_docs(&docs, qy, n).map_err(|e| e.to_string())?;
+        let merged = merge_hits(mine, theirs, !qy.text.trim().is_empty());
+        Ok(merged
+            .into_iter()
+            .skip(qy.offset.max(0) as usize)
+            .take(qy.limit.max(1) as usize)
+            .collect())
+    }
+
     /// Puts the card a query names by its short ref first on the first
     /// page, when the query is only that ref and the filters allow it.
     fn short_hit(&self, qy: &Query, hits: Vec<Hit>) -> Vec<Hit> {
@@ -446,6 +476,33 @@ impl Inner {
         out.extend(hits.into_iter().filter(|h| h.r#ref != r));
         out
     }
+}
+
+/// Two hit lists as one (card #1198), each already in its own order:
+/// by time, newest first, when `ranked` is false; else taking turns, so
+/// each list's best come first. A ref in both is kept once.
+fn merge_hits(a: Vec<Hit>, b: Vec<Hit>, ranked: bool) -> Vec<Hit> {
+    let mut out: Vec<Hit> = Vec::with_capacity(a.len() + b.len());
+    let mut seen = std::collections::HashSet::new();
+    let (mut a, mut b) = (a.into_iter().peekable(), b.into_iter().peekable());
+    let mut turn_a = true;
+    loop {
+        let take_a = match (a.peek(), b.peek()) {
+            (None, None) => break,
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (Some(_), Some(_)) if ranked => turn_a,
+            (Some(x), Some(y)) => !after(&y.at, &x.at),
+        };
+        let h = if take_a { a.next() } else { b.next() };
+        turn_a = !take_a;
+        if let Some(h) = h
+            && seen.insert(h.r#ref.clone())
+        {
+            out.push(h);
+        }
+    }
+    out
 }
 
 /// A hit's time: the date and clock, and how long ago.
@@ -662,13 +719,66 @@ fn touches(cv: &capture::CommitView, path: &str) -> bool {
 
 const PRS_ARGS: &[(&str, Ty)] = &[("repo", Ty::Str)];
 
+/// The review lines of `prs` (merge desk §12.9): who claims each PR, who
+/// is related, GitHub's review state and why nothing is picked. They read
+/// the shared boards, so they show with capture off too. Agent and person
+/// names are other people's text: clipped to one line.
+fn review_lines(lines: &[crate::PrReviewLine]) -> String {
+    let mut b = String::new();
+    for l in lines {
+        let mut parts: Vec<String> = Vec::new();
+        if !l.claimer.is_empty() {
+            let until = if l.until.is_empty() {
+                String::new()
+            } else {
+                format!(" until {}", one_line(&l.until, 40))
+            };
+            parts.push(format!("claimed by {}{until}", one_line(&l.claimer, 120)));
+        } else if l.pick == "asked" {
+            parts.push(format!("asked {}", one_line(&l.asked, 80)));
+        } else if l.pick == "waiting" || l.pick == "none" {
+            parts.push("nobody picked".into());
+        } else if l.pick == "reviewed" {
+            parts.push("reviewed".into());
+        }
+        if !l.review.is_empty() {
+            parts.push(format!("GitHub {}", one_line(&l.review, 40)));
+        }
+        if !l.related.is_empty() {
+            let rel: Vec<String> = l.related.iter().map(|r| one_line(r, 120)).collect();
+            parts.push(format!("related {}", rel.join("; ")));
+        }
+        if !l.why_none.is_empty() {
+            parts.push(format!("why: {}", one_line(&l.why_none, 200)));
+        }
+        if parts.is_empty() {
+            continue;
+        }
+        let _ = writeln!(
+            b,
+            "- #{} {}: {}",
+            l.number,
+            one_line(&l.url, 200),
+            parts.join(", ")
+        );
+    }
+    if b.is_empty() {
+        return b;
+    }
+    format!(
+        "Review state ({} on the shared boards):\n{b}",
+        untrusted_names()
+    )
+}
+
+fn untrusted_names() -> &'static str {
+    "agent and person names are other people's text"
+}
+
 pub(crate) fn prs(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let a = match decode(raw, PRS_ARGS) {
         Ok(a) => a,
         Err(e) => return e,
-    };
-    let Some(cp) = s.b.capture() else {
-        return capture_off();
     };
     let mut repo = coord::canonical_repo_key(trim(a.str("repo")));
     if repo.is_empty() {
@@ -684,6 +794,18 @@ pub(crate) fn prs(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             "give repo: a GitHub repo as remote:github.com/<owner>/<name> or <owner>/<name>.",
         );
     }
+    let reviews = review_lines(&s.b.router().map(|r| r.pr_reviews(&gh)).unwrap_or_default());
+    let Some(cp) = s.b.capture() else {
+        // Capture off: the ledger of who wrote what is not kept, but who
+        // holds a review is on the boards and is what an agent needs.
+        return if reviews.is_empty() {
+            capture_off()
+        } else {
+            format!(
+                "{reviews}capture is off on this device, so who authored each PR is not recorded.\n"
+            )
+        };
+    };
     // ForRepo is newest PR number first, then best owner first.
     let mut keys: Vec<String> = vec![];
     let mut by_key: HashMap<String, Vec<ledger::Entry>> = HashMap::new();
@@ -694,6 +816,9 @@ pub(crate) fn prs(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         by_key.entry(e.key.clone()).or_default().push(e);
     }
     if keys.is_empty() {
+        if !reviews.is_empty() {
+            return reviews;
+        }
         return format!(
             "No pull requests linked to agents in {}.",
             one_line(&gh, 160)
@@ -728,5 +853,6 @@ pub(crate) fn prs(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         b += "(more not shown: search kinds=[\"pr\"] finds older ones)\n";
     }
     b += "show pr:<owner>/<name>#<n> for one.\n";
+    b += &reviews;
     b
 }

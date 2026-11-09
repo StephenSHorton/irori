@@ -7,6 +7,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { Events, InboxService, RosterService } from "./host"
+import { onChange } from "./changes"
+import { usePatched, type Want } from "./patched"
+import { Follows, heldUpsert, upsertRows } from "./small-lists"
 import {
   HoldReason,
   Mode,
@@ -404,7 +407,11 @@ export type Answer<T> = { value: T } | { error: unknown }
 export function latestReads<T>(
   show: (answer: Answer<T>) => void,
   now: () => number = Date.now,
-  report: (r: ReadReport) => void = () => {}
+  report: (r: ReadReport) => void = () => {},
+  // dropped hears an answer that is not shown (an older one than the last
+  // shown, or one of a load that is no longer the newest), so a read that
+  // covered something can see to it again (patched.ts).
+  dropped: (answer: Answer<T>) => void = () => {}
 ): (load: () => Promise<T>) => Promise<void> {
   let started = 0
   let landed = 0
@@ -431,7 +438,7 @@ export function latestReads<T>(
     if (shows) {
       landed = n
       show(answer)
-    }
+    } else dropped(answer)
     for (const done of covered) done()
     if (running?.n !== n) return
     running = null
@@ -533,7 +540,7 @@ export type InboxState = {
   reload: () => Promise<void>
 }
 
-type InboxValue = { deliveries: Delivery[]; policy: Policy | null }
+export type InboxValue = { deliveries: Delivery[]; policy: Policy | null }
 
 async function loadInbox(): Promise<InboxValue> {
   if (!inWails()) {
@@ -555,19 +562,77 @@ async function loadInbox(): Promise<InboxValue> {
   return { deliveries, policy }
 }
 
-// useInbox loads recent deliveries and the policy, and re-reads on every
-// inbox:changed (which the Go side already coalesces to 4 a second).
+// InboxPatch is what one inbox read brought: the whole list, or the rows of
+// the deliveries inbox:changed named (card #1152).
+export type InboxPatch =
+  | { kind: "full"; value: InboxValue }
+  | { kind: "rows"; got: Map<string, Delivery> }
+
+const newest = (a: Delivery, b: Delivery) => created(b) - created(a)
+
+// readInboxRows reads the deliveries a notice named, each by InboxService.Get.
+// null when one can't be read (a full read then settles it).
+export async function readDeliveries(
+  ids: readonly string[],
+  get: (id: string) => Promise<Delivery>
+): Promise<Map<string, Delivery> | null> {
+  const got = await Promise.allSettled(ids.map((id) => get(id)))
+  const out = new Map<string, Delivery>()
+  for (let i = 0; i < ids.length; i++) {
+    const r = got[i]
+    if (r.status !== "fulfilled" || !r.value) return null
+    out.set(ids[i], r.value)
+  }
+  return out
+}
+
+const deliveryIds = (want: Want) => want.ids["inbox:changed.deliveries"] ?? []
+
+// mergeInbox puts an inbox read into the list on screen: a full read
+// replaces it; a patch upserts the deliveries named, and drops what falls
+// past the InboxLimit unless it is held (a held message still needs the
+// person).
+export function mergeInbox(
+  cur: InboxValue,
+  patch: InboxPatch,
+  ids: readonly string[]
+): InboxValue {
+  if (patch.kind === "full") return patch.value
+  return {
+    ...cur,
+    deliveries: upsertRows(
+      cur.deliveries,
+      ids,
+      patch.got,
+      newest,
+      InboxLimit,
+      (d) => d.state === State.Held
+    ),
+  }
+}
+
+// useInbox loads recent deliveries and the policy. inbox:changed names the
+// deliveries it touched: each is read by id and upserted; anything it can't
+// name (the policy, a lost event) reads the list whole.
 export function useInbox(): InboxState {
-  const { value, loading, error, reload } = useLatest<InboxValue>(
-    loadInbox,
-    { deliveries: [], policy: null },
-    "inbox"
-  )
+  const { value, loading, error, reload } = usePatched<InboxValue, InboxPatch>({
+    name: "inbox",
+    initial: { deliveries: [], policy: null },
+    follow: [{ signal: "inbox:changed", buckets: Follows.deliveries }],
+    async read(want) {
+      const ids = deliveryIds(want)
+      if (!inWails() || want.full || !ids.length)
+        return { kind: "full", value: await loadInbox() }
+      const got = await readDeliveries(ids, (id) => InboxService.Get(id))
+      if (!got) return { kind: "full", value: await loadInbox() }
+      return { kind: "rows", got }
+    },
+    merge: (cur, patch, want) => mergeInbox(cur, patch, deliveryIds(want)),
+    rows: (v) => v.deliveries.map((d): [string, unknown] => [d.id, d]),
+  })
 
   useEffect(() => {
-    void reload()
     if (!inWails()) return onSample(() => void reload())
-    return Events.On(EventInboxChanged, () => void reload())
   }, [reload])
 
   return { ...value, loading, error, reload }
@@ -586,16 +651,42 @@ export type HeldState = {
   reload: () => Promise<void>
 }
 
-type HeldValue = { held: Delivery[]; history: Delivery[] }
+export type HeldValue = { held: Delivery[]; history: Delivery[] }
 
 const created = (d: Delivery) => parseTime(d.createdAt)?.getTime() ?? 0
 const decided = (d: Delivery) =>
   parseTime(d.decidedAt || d.updatedAt)?.getTime() ?? 0
 
-// useHeld loads the Held list (and, with history, its History), re-read on
-// every inbox:changed.
+export type HeldPatch =
+  | { kind: "full"; value: HeldValue }
+  | { kind: "rows"; got: Map<string, Delivery | null> }
+
+// mergeHeld puts a held read into the list on screen. A patch upserts the
+// deliveries named; one that is no longer held, or that can't be read, is
+// gone from the list.
+export function mergeHeld(
+  cur: HeldValue,
+  patch: HeldPatch,
+  ids: readonly string[]
+): HeldValue {
+  if (patch.kind === "full") return patch.value
+  return {
+    ...cur,
+    held: heldUpsert(
+      cur.held,
+      ids,
+      patch.got,
+      (d) => d.state === State.Held,
+      newest
+    ),
+  }
+}
+
+// useHeld loads the Held list (and, with history, its History). A change to
+// a delivery is read by id; History, which a decided message joins, reads
+// whole.
 export function useHeld(history: boolean): HeldState {
-  const load = useCallback(async (): Promise<HeldValue> => {
+  const loadFull = useCallback(async (): Promise<HeldValue> => {
     if (!inWails()) {
       const all = sampleState().deliveries
       return {
@@ -617,15 +708,29 @@ export function useHeld(history: boolean): HeldState {
     ])
     return { held: held ?? [], history: past ?? [] }
   }, [history])
-  const { value, loading, error, reload } = useLatest<HeldValue>(load, {
-    held: [],
-    history: [],
+  const { value, loading, error, reload } = usePatched<HeldValue, HeldPatch>({
+    name: "held",
+    initial: { held: [], history: [] },
+    follow: [{ signal: "inbox:changed", buckets: Follows.deliveries }],
+    rekey: String(history),
+    async read(want) {
+      const ids = deliveryIds(want)
+      if (!inWails() || want.full || history || !ids.length)
+        return { kind: "full", value: await loadFull() }
+      const got = new Map<string, Delivery | null>()
+      await Promise.all(
+        ids.map(async (id) => {
+          got.set(id, await InboxService.Get(id).catch(() => null))
+        })
+      )
+      return { kind: "rows", got }
+    },
+    merge: (cur, patch, want) => mergeHeld(cur, patch, deliveryIds(want)),
+    rows: (v) => v.held.map((d): [string, unknown] => [d.id, d]),
   })
 
   useEffect(() => {
-    void reload()
     if (!inWails()) return onSample(() => void reload())
-    return Events.On(EventInboxChanged, () => void reload())
   }, [reload])
 
   return { ...value, loading, error, reload }
@@ -650,12 +755,13 @@ async function loadRepoNames(): Promise<Array<[string, string]>> {
 export function useRepoNames(): (key: string) => string {
   const { value, reload } = useLatest<Array<[string, string]>>(
     loadRepoNames,
-    []
+    [],
+    "repo names"
   )
   useEffect(() => {
     void reload()
     if (!inWails()) return
-    return Events.On(EventInboxChanged, () => void reload())
+    return onChange(EventInboxChanged, () => void reload())
   }, [reload])
   return useMemo(() => {
     const names = new Map(value)
@@ -675,7 +781,11 @@ export function useGone(): {
   error: string | null
   reload: () => Promise<void>
 } {
-  const { value, error, reload } = useLatest<GoneSession[]>(loadGone, [])
+  const { value, error, reload } = useLatest<GoneSession[]>(
+    loadGone,
+    [],
+    "gone"
+  )
   const timer = useRef<number | undefined>(undefined)
 
   useEffect(() => {

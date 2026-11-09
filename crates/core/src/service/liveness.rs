@@ -88,6 +88,10 @@ pub struct BoardAgent {
     /// Its owner's name on the board, "" when unknown.
     pub person: String,
     pub card: coord::roster::AgentCard,
+    /// Set when the card is its owner's Office Assistant: kind `assistant`
+    /// and the owner's profile points at it. Holds the chosen name ("" for
+    /// the default). Card 3 of assistants talk.
+    pub assistant: Option<String>,
 }
 
 impl Services {
@@ -130,10 +134,15 @@ impl Services {
                     .profile(pid)
                     .or_else(|| mem.person(pid).map(|p| p.name.clone()))
                     .unwrap_or_default();
+                let assistant = (a.agent == coord::roster::ASSISTANT_KIND
+                    && a.key.strip_prefix(store::kinds::AGENT_ACTOR_PREFIX)
+                        == Some(b.verifier.profile_assistant_card(pid).as_str()))
+                .then(|| b.verifier.profile_assistant_name(pid));
                 out.push(BoardAgent {
                     board: label.clone(),
                     person,
                     card: a,
+                    assistant,
                 });
             }
         }

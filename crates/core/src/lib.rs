@@ -38,6 +38,7 @@
 
 pub mod agentnames;
 mod answering;
+pub mod assistant_draft;
 pub mod attachments;
 pub mod buildclean;
 pub mod deskmap;
@@ -55,6 +56,7 @@ pub mod meshview;
 pub mod namer;
 pub mod notice;
 pub mod offline;
+pub mod prcard;
 pub mod prefetch;
 pub mod prwatch;
 mod publicrelays;
@@ -66,6 +68,11 @@ pub mod usage;
 
 pub use crate::members::Member;
 pub use crate::meshnode::BoardParts;
+pub use crate::service::assistant_answers;
+pub use crate::service::assistant_ask;
+pub use crate::service::assistant_chat;
+pub use crate::service::assistant_home;
+pub use crate::service::assistant_packet;
 pub use crate::service::boards::{
     BOARDS_DIR, BoardAgent, BoardIdentity, BoardInfo, BoardMember, BoardSummary,
     Error as BoardError, SPACES_DIR, SharePreview, SharedCopy, SubtaskPreview, SummaryMember,
@@ -75,28 +82,41 @@ pub use crate::service::calls::{
     CAN_SHARE, CallPeer, CallShare, CallShareNote, CallSnapshot, Caption, LiveCall, MyCall, Ringing,
 };
 pub use crate::service::calls_share::{ShareNow, ShareSink, ShareSource};
+pub use crate::service::card_weights;
 pub use crate::service::freshness::{LogFreshness, PERSONAL as PERSONAL_LOG};
+pub use crate::service::huddle_canvas::CanvasEntry;
+pub use crate::service::huddle_host::{self as huddle_host, AssistantState};
+pub use crate::service::huddle_packet;
+pub use crate::service::huddle_session::{
+    self as huddle_session, HuddleRunner, HuddleSeed, Look, LookError,
+};
 pub use crate::service::invites::{InviteStatus, InviteWatchFn};
 pub use crate::service::space_move::{MOVED_FIELD, MoveOpts, SpaceMove};
 pub use crate::service::spaces::{
-    CALLS_TOLERANT, PERSONAL_BOARD, SpaceBoard, SpaceTolerance, fold_space_boards,
+    BOARD_ROWS_TOLERANT, BoardClosedRow, BoardDescribedRow, CALLS_TOLERANT, CLOSED_BOARD_NOTE,
+    MAX_BOARD_DESCRIPTION, OpenCards, PERSONAL_BOARD, SpaceBoard, SpaceTolerance,
+    fold_space_boards,
 };
 pub use crate::service::spawn;
 pub use crate::service::spawn_agents;
 pub use crate::service::spawn_capable;
 pub use crate::service::spawn_limits;
+pub use crate::service::spawn_pause;
 pub use crate::service::spawn_permissions;
+pub use crate::service::spawn_remote::SpawnHost;
 pub use crate::service::spawn_stop;
 pub use crate::service::spawn_waiting;
 pub use crate::service::spawn_why;
+pub use crate::service::storage::{BuildTree, LIVE_TREE, waiting_for_done};
 pub use crate::service::sync_out::{SyncOutLog, SyncOutReport};
 pub use crate::service::talk_replying::{REPLYING_CAP, Replier, TalkReplying};
+pub use crate::service::thread_names;
 pub use crate::service::trees;
 pub use crate::service::{
     BoardReviewer, Core, HomeEdit, NO_HOME_SERVER, NowFn, Options, ReviveFn, StartError,
 };
 pub use capture::DecisionView;
-pub use events::{CoreEvent, Feed, Hub, Topic};
+pub use events::{CoreEvent, Feed, Hub, NotifChange, TalkChange, Topic};
 pub use irori_net::share::ShareInfo;
 /// The share hub's insides, for `examples/share-call-dev.rs` (#658): not an
 /// API.

@@ -11,7 +11,10 @@
 import { useSyncExternalStore } from "react"
 import { sameAs } from "@/lib/talk"
 
-import { DeskService, Events } from "./host"
+import { DeskService } from "./host"
+import { onChange } from "./changes"
+import { deskWakes, Follows } from "./small-lists"
+import { timedRead } from "./window-log"
 import { inWails, parseTime } from "./irori"
 import type { DeskView } from "./models"
 import { previewFlag } from "./preview"
@@ -53,6 +56,9 @@ export type RepoDesk = {
   // Kept only so a save writes the row back as it was (card #625: no
   // per-PR OKs any more).
   perPrOk: boolean
+  // Other people's agents don't review this repo's PRs: off, the repo
+  // behaves like a solo one (card #1077). Absent is on.
+  reviewsOff: boolean
   by?: string
   at?: string
 }
@@ -64,6 +70,79 @@ export type PrAuthor = {
   cardRef?: string
   agent?: string
   name?: string
+  // Why the PR has no review card in a shared space yet (card #1077).
+  reviewNote?: string
+  // Who reviews it and where the review stands (card #1080).
+  review?: PrReview
+}
+
+// A PR's review (merge desk §12.9, card #1080), read from the shared
+// boards. pick: "none" (no PR card), "off", "waiting", "asked",
+// "claimed" or "reviewed".
+export type PrReview = {
+  pick: string
+  // GitHub's review decision: APPROVED, CHANGES_REQUESTED,
+  // REVIEW_REQUIRED, or empty.
+  review?: string
+  // The agent asked, while pick is "asked".
+  asked?: string
+  claimer?: { agent: string; person?: string; until?: string }
+  related?: { agent: string; person?: string; why: string }[]
+  // Why nothing is picked, as this viewer can see it.
+  whyNone?: string
+}
+
+// One person's review claims (card #1080).
+export type ClaimCount = { person: string; open: number; recent: number }
+
+export type ReviewParts = {
+  github?: string
+  pick?: string
+  claimer?: string
+  until?: string
+  related: string[]
+  why?: string
+}
+
+const githubLabel: Record<string, string> = {
+  APPROVED: "Approved",
+  CHANGES_REQUESTED: "Changes requested",
+  REVIEW_REQUIRED: "Review required",
+}
+
+const who = (agent: string, person?: string) =>
+  person ? `${agent || "an agent"} (${person})` : agent || "an agent"
+
+// reviewParts is what a desk line shows of a PR's review: each part is
+// absent when there is nothing to say, so an empty review draws nothing.
+export function reviewParts(r: PrReview | undefined): ReviewParts {
+  const out: ReviewParts = { related: [] }
+  if (!r) return out
+  if (r.review) out.github = githubLabel[r.review] ?? r.review
+  if (r.claimer) {
+    out.claimer = who(r.claimer.agent, r.claimer.person)
+    out.until = r.claimer.until
+  } else if (r.pick === "asked") {
+    out.pick = `Asked ${r.asked || "an agent"}`
+  } else if (r.pick === "waiting") {
+    out.pick = "Nobody picked yet"
+  } else if (r.pick === "reviewed") {
+    out.pick = "Reviewed"
+  }
+  out.related = (r.related ?? []).map(
+    (x) => `${who(x.agent, x.person)} · ${x.why}`
+  )
+  if (r.whyNone) out.why = r.whyNone
+  return out
+}
+
+// claimCountsLine is the header's "Maya 1 open · 3 in 14 days", one
+// entry per person with any claim; empty when nobody has one.
+export function claimCountsLine(counts: ClaimCount[] | undefined): string {
+  return (counts ?? [])
+    .filter((c) => c.open > 0 || c.recent > 0)
+    .map((c) => `${c.person} ${c.open} open · ${c.recent} in 14 days`)
+    .join(" · ")
 }
 
 export type MergedPr = {
@@ -137,6 +216,9 @@ export function deskQueue(inp: DeskInputs): QueueLine[] {
       state = "ready"
       note = author.card ? "ready for review" : "no author card yet"
     }
+    // The review's own line says it better than the desk's note (#1080).
+    if (author.reviewNote && !author.review?.whyNone)
+      note = `${note} · ${author.reviewNote}`
     lines.push({
       pr: p.number,
       url: p.url,
@@ -211,6 +293,8 @@ export type Desk = {
   // The poll device follows seenOn (the default, or a saved row that left
   // it blank): a save keeps it blank.
   followsSeen?: boolean
+  // Each person's open and 14-day claims (card #1080).
+  claimCounts?: ClaimCount[]
 }
 
 // inputsOf is what deskQueue needs from one desk.
@@ -243,6 +327,7 @@ export function newDesk(repoKey: string, pollDevice: string): RepoDesk {
     pollDevice,
     trusted: [],
     perPrOk: false,
+    reviewsOff: false,
   }
 }
 
@@ -260,6 +345,7 @@ export function fromHost(v: DeskView): Desk {
     isDefault: v.isDefault,
     seenOn: v.seenOn || undefined,
     followsSeen: v.followsSeen,
+    claimCounts: (v.claimCounts ?? []).map((c) => ({ ...c })),
     settings: {
       repoKey,
       enabled: st.enabled,
@@ -267,6 +353,7 @@ export function fromHost(v: DeskView): Desk {
       pollDevice: st.pollDevice ?? "",
       trusted: st.trusted ?? [],
       perPrOk: st.perPrOk ?? false,
+      reviewsOff: st.reviewsOff ?? false,
       by: st.by,
       at: time(st.at),
     },
@@ -292,6 +379,27 @@ export function fromHost(v: DeskView): Desk {
           card: a.card || undefined,
           cardRef: a.cardRef || undefined,
           agent: a.agent || undefined,
+          reviewNote: a.reviewNote || undefined,
+          review: a.review?.pick
+            ? {
+                pick: a.review.pick,
+                review: a.review.review || undefined,
+                asked: a.review.asked || undefined,
+                claimer: a.review.claimer
+                  ? {
+                      agent: a.review.claimer.agent,
+                      person: a.review.claimer.person || undefined,
+                      until: a.review.claimer.until || undefined,
+                    }
+                  : undefined,
+                related: (a.review.related ?? []).map((x) => ({
+                  agent: x.agent,
+                  person: x.person || undefined,
+                  why: x.why,
+                })),
+                whyNone: a.review.whyNone || undefined,
+              }
+            : undefined,
         },
       ])
     ),
@@ -307,6 +415,7 @@ function toHost(d: RepoDesk) {
     pollDevice: d.pollDevice,
     trusted: d.trusted,
     perPrOk: d.perPrOk,
+    reviewsOff: d.reviewsOff,
     by: "",
     at: "0001-01-01T00:00:00Z",
   }
@@ -368,10 +477,19 @@ listeners.add(() => {
 
 const shownDesks: { current: string | null } = { current: null }
 
+// verdictCards are the cards the desks show a verdict from: each PR's
+// author card.
+function verdictCards(): Set<string> {
+  const out = new Set<string>()
+  for (const d of snapshot)
+    for (const a of Object.values(d.authors ?? {})) if (a.card) out.add(a.card)
+  return out
+}
+
 // refresh reads every desk from the window again.
 function refresh(): void {
   if (!inWails()) return
-  DeskService.List()
+  timedRead("desk", () => DeskService.List())
     .then((list) => {
       const first = !hostRead
       hostRead = true
@@ -405,7 +523,15 @@ function subscribe(fn: () => void): () => void {
   listeners.add(fn)
   if (inWails() && !stopHost) {
     refresh()
-    const off = Events.On("board:changed", () => refresh())
+    // A desk row, or a card in a desk's verdicts (a PR's author card):
+    // nothing else on the board shows in a desk (card #1152).
+    const off = onChange(
+      "board:changed",
+      (n) => {
+        if (deskWakes(n, verdictCards())) refresh()
+      },
+      { follow: Follows.desk }
+    )
     const id = window.setInterval(refresh, RefreshMs)
     stopHost = () => {
       off()

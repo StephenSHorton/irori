@@ -120,8 +120,8 @@ Field rules:
 
 ### Parking
 
-- Refused while a person's question, done check, transfer, merge wait or
-  `INPUT_REQUIRED` is open: those stay Needs you, and raising would swallow
+- Refused while a person's question, done check, transfer or
+  `INPUT_REQUIRED` is open (a wait on a PR is its agent's, card #970): those stay Needs you, and raising would swallow
   them.
 - One park per card. Changing it raises a new item with a fresh id, then
   closes every old hold with a per-item `blocker.resolved`, on the card and

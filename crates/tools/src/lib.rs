@@ -26,6 +26,7 @@
 //! | `attachments` | `attachments.go` |
 //! | [`notify`] | `notify.go` |
 //! | [`talk`] | (Rust only, card #389) talk_post, talk_thread (#631), talk_read, talk_list, talk_join, talk_leave |
+//! | [`huddle`] (private) | (Rust only, card #1055) huddle_status, huddle_canvas, huddle_note |
 //!
 //! Wiring notes (for the merge):
 //! - The Core implements [`Backend`] (Go's `core.Core` does). Optional
@@ -45,12 +46,15 @@
 //!   attach or member secret resolved to.
 
 mod args;
+pub mod assistant_writes;
 mod attachments;
 mod avatar;
 mod board;
 mod capturetools;
+mod devicefree;
 mod explore;
 mod format;
+mod huddle;
 mod later;
 mod mention;
 mod messages;
@@ -58,8 +62,10 @@ mod notes;
 pub mod notice;
 pub mod notify;
 mod observe;
+mod review_claim;
 mod room;
 mod shared;
+mod slots;
 mod specs;
 mod started;
 pub mod talk;
@@ -95,6 +101,39 @@ pub const MAX_RESULT: usize = 8 << 10;
 pub const CLIENT_CLAUDE: &str = "claude";
 /// The client kind of `irori mcp` (`irori_<name>`).
 pub const CLIENT_GROK: &str = "grok";
+/// The window's assistant (card #783): `irori mcp` run by a headless
+/// `claude -p` for the corner chat, reading as the person. It lists and
+/// may call only [`ASSISTANT_TOOLS`].
+pub const CLIENT_ASSISTANT: &str = "assistant";
+
+/// The tools the window's assistant may read with (card #783), all
+/// read-only (its two writes are [`ASSISTANT_WRITE_TOOLS`], card #987):
+/// the API refuses any other for its caller, and `GET
+/// /v1/tools?client=assistant` lists exactly these. None of them marks
+/// anything delivered or read (inbox and talk_* are left out for that).
+pub const ASSISTANT_TOOLS: [&str; 15] = [
+    "search",
+    "show",
+    "board",
+    "overview",
+    "agents",
+    "agents_started",
+    "commits",
+    "prs",
+    "notes_search",
+    "timeline",
+    "why",
+    "leases",
+    "waits",
+    "events",
+    // Card #1009: what the window is showing (the window sends it with each ask).
+    "screen",
+];
+
+pub use assistant_writes::{
+    ASSISTANT_WRITE_TOOLS, Grant, Grants, TOOL_CLOSE, TOOL_COMMENT, TOOL_SEND, TOOL_TICK,
+    grants_for,
+};
 
 /// Who is calling, established by the transport (attach secret or member
 /// secret), never by the arguments.
@@ -179,6 +218,28 @@ pub trait TaskRouter: Send + Sync {
             format_args!("no shared space holds a lease on {resource}"),
         ))
     }
+    /// `review_claim` (merge desk §12.3): the one claim per PR. The Core
+    /// finds the PR's card on a shared board the caller's person belongs
+    /// to, checks who may claim, and writes the `pr/` lease straight to
+    /// that board's log. An `Err` is a refusal, in fixed words.
+    fn review_claim(
+        &self,
+        key: &str,
+        pr: &str,
+        action: &str,
+        reason: &str,
+    ) -> Result<ClaimAnswer, String> {
+        let _ = (key, pr, action, reason);
+        Err("review claims need a shared space with a card for this PR.".into())
+    }
+    /// Where each PR's review stands in `repo` (`owner/name`) on the
+    /// shared boards (merge desk §12.9, card #1080): who claims it,
+    /// who is related, GitHub's review state and why nothing is picked.
+    /// Needs no capture.
+    fn pr_reviews(&self, repo: &str) -> Vec<PrReviewLine> {
+        let _ = repo;
+        Vec::new()
+    }
     /// The shared board's coord holding comment `id`, or `None` when no
     /// shared board has it (card #189: show reads a shared card's comments
     /// from its board's log, which capture doesn't index).
@@ -186,6 +247,63 @@ pub trait TaskRouter: Send + Sync {
         let _ = id;
         None
     }
+}
+
+/// One PR's review as `prs` words it (merge desk §12.9).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PrReviewLine {
+    pub number: i64,
+    pub url: String,
+    /// `none`, `off`, `waiting`, `asked`, `claimed` or `reviewed`.
+    pub pick: String,
+    /// GitHub's review decision, "" none.
+    pub review: String,
+    /// The agent asked, while `pick` is `asked`.
+    pub asked: String,
+    /// `agent (person)`, "" none.
+    pub claimer: String,
+    /// When the claim lapses, RFC 3339.
+    pub until: String,
+    /// `agent (person): why` for each related agent.
+    pub related: Vec<String>,
+    pub why_none: String,
+}
+
+/// What a `review_claim` came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClaimOutcome {
+    /// The caller holds the claim (taken now, or renewed).
+    Claimed,
+    /// Someone else holds it: comment on the PR instead.
+    Held,
+    /// `confirm`: the caller still holds it.
+    Yours,
+    /// `confirm`: the caller does not hold it.
+    NotYours,
+    Released,
+    /// `release`: it held none.
+    NotHeld,
+    Declined,
+}
+
+/// `review_claim`'s answer, as fields: the tool words it in fixed text and
+/// never quotes a card or PR title.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClaimAnswer {
+    pub outcome: ClaimOutcome,
+    /// The PR's full URL, as its card names it.
+    pub pr: String,
+    /// The PR card's short ref.
+    pub card: String,
+    /// The holder's name, clipped, for `Held`; empty otherwise.
+    pub holder: String,
+    /// When the claim lapses unless renewed, RFC 3339; empty if none.
+    pub until: String,
+    /// The On go-ahead (§12.8): the setting is on and the caller's person
+    /// already works in this repo in that space.
+    pub go_ahead: bool,
+    /// `confirm`: the caller's own person signed off (the Off text).
+    pub signed_off: bool,
 }
 
 /// Another member's agent on a shared board ([`Backend::board_agents`]).
@@ -196,6 +314,9 @@ pub struct BoardAgent {
     /// Its person's name on the board, "" when unknown.
     pub person: String,
     pub card: presence::AgentCard,
+    /// Its owner's Office Assistant, verified (kind `assistant` and the
+    /// owner's profile points at it): the chosen name, "" for the default.
+    pub assistant: Option<String>,
 }
 
 /// "My agents may start agents on my cards", as an agent may read it.
@@ -218,13 +339,68 @@ pub struct AgentsPaused {
     pub by: String,
 }
 
+/// One of the person's own devices, as the agents tool lists it, so a
+/// device with no agents still reads as online or stopped.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OwnDevice {
+    pub id: String,
+    /// Its name for people (the person's rename when they gave one).
+    pub name: String,
+    /// This device: `device_phrase` says "online, this device".
+    pub this: bool,
+    /// connected, recent or offline (coord::roster's words); ignored for
+    /// this device.
+    pub state: String,
+    /// When it was last heard (zero: never).
+    pub seen: GoTime,
+    /// The name of the device its rows come through, while recent.
+    pub via: String,
+    /// Stop here on it: true while it starts no agents (its own Stop here,
+    /// or Stop everywhere's).
+    pub stopped: bool,
+    /// Which one holds it: false its own Stop here, true Stop everywhere.
+    pub everywhere: bool,
+    /// When that went on (zero when off).
+    pub since: GoTime,
+    /// Who turned it on, for people ("the person on Mac").
+    pub by: String,
+}
+
 /// Shared boards to show (Go `BoardViewer`).
 pub trait BoardViewer: Send + Sync {
     fn board_views(&self, f: &coord::BoardFilter) -> Vec<coord::BoardView>;
+    /// The search docs of every shared space's cards and comments the
+    /// person can see, their keys as this device knows them (card #1198):
+    /// capture indexes only Personal's log, so search adds these.
+    fn space_docs(&self) -> Vec<search::Doc> {
+        Vec::new()
+    }
+}
+
+/// A huddle as the Core sees it now (card #1055).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HuddleNow {
+    /// The huddle is over (call-agents.md §8): no more is being said.
+    pub over: bool,
+    /// The people in it now, by key in this device's form.
+    pub people: Vec<String>,
+    /// Each person's assistant: the person's key and its state
+    /// (`connected`, `reconnecting`, `not connected`).
+    pub assistants: Vec<(String, String)>,
 }
 
 /// What the tools act on (Go `Backend`); the Core provides it.
 pub trait Backend: Send + Sync {
+    /// This device's id (`deviceId` in `irori.json`); empty when the backend
+    /// has none, which turns heavy slots off.
+    fn device_id(&self) -> String {
+        String::new()
+    }
+    /// This device's free room for the folder `path` (empty: Irori's data
+    /// dir), read now; `None` when this backend can't read it.
+    fn device_free(&self, _path: &str) -> Option<DeviceFree> {
+        None
+    }
     /// This device's roster (presence plus Grok members).
     fn agents(&self) -> Vec<presence::AgentCard>;
     /// Whether this device's session `key` has a live attach stream
@@ -256,6 +432,11 @@ pub trait Backend: Send + Sync {
         Vec::new()
     }
     fn events(&self, f: &store::Filter) -> Result<Vec<store::Event>, String>;
+    /// What the window last said it shows (card #1009): the plain-text
+    /// snapshot the assistant's `screen` tool returns; empty when none.
+    fn assistant_screen(&self) -> String {
+        String::new()
+    }
     fn inbox(&self) -> &inbox::Inbox;
     fn coord(&self) -> &Arc<coord::Coord>;
     /// Every agent key → the last name it went by, gone agents included
@@ -275,9 +456,29 @@ pub trait Backend: Send + Sync {
     fn spawn_wait(&self, _task_id: &str, _asked: bool) -> String {
         String::new()
     }
+    /// Asks GitHub now about each PR card `task_id` (in `co`) links that is
+    /// last heard open, and records a merge or a closing (card #970):
+    /// agent `caller` is setting it completed, likely just after its own
+    /// `gh pr merge`, which the poll may not have heard yet. Default: none.
+    fn recheck_prs(&self, _co: &Arc<coord::Coord>, _caller: &str, _task_id: &str) {}
     /// Asks for an agent on card `task_id` for agent `caller` (card #575):
     /// what happens next, or why not.
     fn agent_start(&self, _caller: &str, _task_id: &str) -> Result<String, String> {
+        Err("agents can't start agents here".into())
+    }
+    /// What `agent_start` would refuse before anything is made, for a
+    /// thread `caller` is about to open for a fresh agent (card #1027).
+    fn thread_agent_check(&self, _caller: &str) -> Result<(), String> {
+        Err("agents can't start agents here".into())
+    }
+    /// Gives thread `task_id` that `caller` opened to a fresh agent, gated
+    /// as `agent_start` is (card #1027): what happens next, or why not.
+    fn thread_new_agent(
+        &self,
+        _caller: &str,
+        _task_id: &str,
+        _watch: bool,
+    ) -> Result<String, String> {
         Err("agents can't start agents here".into())
     }
     /// Ends agent `key` for agent `caller`, with its hand-off: the card it
@@ -294,6 +495,11 @@ pub trait Backend: Send + Sync {
     /// the backend keeps none.
     fn agents_paused(&self, _caller: &str) -> Option<AgentsPaused> {
         None
+    }
+    /// The person's own devices, this one first, removed ones left out
+    /// (Settings → Devices' rows); empty when the backend keeps none.
+    fn own_devices(&self) -> Vec<OwnDevice> {
+        Vec::new()
     }
     /// The person's limit on their agents' starts. There is no setter here,
     /// and none may be added: only the app changes it.
@@ -337,6 +543,12 @@ pub trait Backend: Send + Sync {
     fn talk(&self) -> Option<&Arc<coord::talk::Talk>> {
         None
     }
+    /// What only the Core knows of huddle `call` now (card #1055): whether
+    /// it is over, who is in it and whose assistant is connected. `None`:
+    /// not known here; the tools then read the huddle's end mark.
+    fn huddle_now(&self, _call: &str) -> Option<HuddleNow> {
+        None
+    }
     /// The face kept for an agent name (card #407), "" for none.
     fn avatar(&self, _name: &str) -> String {
         String::new()
@@ -372,8 +584,27 @@ pub(crate) struct Inner {
     pub(crate) board_requests: Mutex<shared::Requests>,
 }
 
+pub use devicefree::DeviceFree;
+
+/// Heavy slots per device (device-free plan §2): advisory, fixed at two.
+pub const HEAVY_SLOTS: usize = 2;
+
+/// The name of this device's heavy family, `heavy/<first 8 hex of the
+/// device id>`; `None` when the id is unknown.
+pub fn heavy_family(device_id: &str) -> Option<String> {
+    let id: String = device_id
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .take(8)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    (id.len() == 8).then(|| format!("heavy/{id}"))
+}
+
 /// The read-only tools that read as the caller.
-const CALLER_READS: [&str; 8] = [
+const CALLER_READS: [&str; 10] = [
+    "huddle_status",
+    "huddle_canvas",
     "inbox",
     "timeline",
     "overview",
@@ -385,7 +616,7 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 59] = [
+    let list: [(&'static str, Handler); 72] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -393,6 +624,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("agents_pause", started::agents_pause),
         ("agents", observe::agents),
         ("events", observe::events),
+        ("screen", observe::screen),
         ("send", messages::send),
         ("reply", messages::reply),
         ("inbox", messages::inbox),
@@ -410,8 +642,13 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("board_unblock", board::board_unblock),
         ("board_join", board::board_join),
         ("board_leave", board::board_leave),
+        ("board_move", board::board_move),
         ("board_assign", board::board_assign),
         ("board_status", board::board_status),
+        ("assistant_close", assistant_writes::assistant_close),
+        ("assistant_tick", assistant_writes::assistant_tick),
+        ("assistant_send", assistant_writes::assistant_send),
+        ("assistant_comment", assistant_writes::assistant_comment),
         ("board_link", board::board_link),
         ("board_edit", board::board_edit),
         ("board_later", later::board_later),
@@ -428,7 +665,11 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("prs", explore::prs),
         ("lease", board::lease),
         ("leases", board::leases),
+        ("device_free", devicefree::device_free),
         ("release", board::release),
+        ("slot_take", slots::slot_take),
+        ("slot_release", slots::slot_release),
+        ("review_claim", review_claim::review_claim),
         ("timeline", capturetools::timeline),
         ("why", capturetools::why),
         ("join", join),
@@ -443,6 +684,9 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("talk_list", talk::talk_list),
         ("talk_join", talk::talk_join),
         ("talk_leave", talk::talk_leave),
+        ("huddle_status", huddle::huddle_status),
+        ("huddle_canvas", huddle::huddle_canvas),
+        ("huddle_note", huddle::huddle_note),
         ("notes_propose", notes::notes_propose),
         ("notes_search", notes::notes_search),
     ];
@@ -496,11 +740,24 @@ impl Set {
     }
 
     /// The tools for a client kind (`"claude"` or `"grok"`); `""` lists
-    /// every tool.
+    /// every tool, and [`CLIENT_ASSISTANT`] lists [`ASSISTANT_TOOLS`].
     pub fn specs(&self, client: &str) -> Vec<Spec> {
+        if client == CLIENT_ASSISTANT {
+            return self
+                .inner
+                .specs
+                .iter()
+                .filter(|sp| {
+                    ASSISTANT_TOOLS.contains(&sp.name.as_str())
+                        || ASSISTANT_WRITE_TOOLS.contains(&sp.name.as_str())
+                })
+                .cloned()
+                .collect();
+        }
         self.inner
             .specs
             .iter()
+            .filter(|sp| !ASSISTANT_WRITE_TOOLS.contains(&sp.name.as_str()))
             .filter(|sp| client.is_empty() || sp.clients.iter().any(|c| c == client))
             .cloned()
             .collect()
@@ -539,7 +796,10 @@ impl Set {
 Claude Code: the Irori mod attaches your session; reload it if this persists.",
             ));
         }
-        let out = x.around_board(name, args, || h(x, c, args));
+        if !trim(&c.sender.key).is_empty() && name != "slot_release" {
+            slots::renew(x, c);
+        }
+        let out = x.around_board(c, name, args, || h(x, c, args));
         Ok(clip(&out, MAX_RESULT))
     }
 }
@@ -739,6 +999,14 @@ impl Names<'_> {
         let k = format::one_line(key, 120);
         if self.owner(key) {
             return format!("the person ({k})");
+        }
+        // Another person (a huddle's speaker) is never a gone agent: they
+        // print by name, or as "another person" when this device has none.
+        if coord::talk::is_other_person_key(key) {
+            return match self.known.get(key).filter(|n| !n.trim().is_empty()) {
+                Some(name) => format::one_line(name, 80),
+                None => "another person".into(),
+            };
         }
         if let Some(c) = self.cards.get(key) {
             let name = format::one_line(&c.name, 80);

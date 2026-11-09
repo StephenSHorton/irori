@@ -32,6 +32,24 @@ use crate::logf;
 /// `paused:<device id>`. Device ids are hex, so it names no device.
 pub const AGENTS_PAUSED_PREFIX: &str = "paused:";
 
+/// The `by` of a pause Wind down set (card #787): `winddown:<device id>`,
+/// the device whose person turned Wind down on. Off lifts only these, so a
+/// device paused before (`user:…` or an agent's key) stays paused.
+pub const WIND_DOWN_BY_PREFIX: &str = "winddown:";
+
+/// The reserved device Stop everywhere's own pause rides on (card #787):
+/// `paused:everywhere`. Device ids are hex, so it names no device. While it
+/// is on, no device starts agents, whatever its own pause says (an agent's
+/// `agents_pause` off, a device that joins later), and it is the switch
+/// itself, on even when every device was paused before. Stop everywhere
+/// still pauses each device too, so an older Irori holds its starts.
+pub const EVERYWHERE: &str = "everywhere";
+
+/// Whether a pause's `by` is Wind down's.
+pub fn by_wind_down(by: &str) -> bool {
+    by.starts_with(WIND_DOWN_BY_PREFIX)
+}
+
 /// Whether agent starts are paused on a device, since when and by whom.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentsPause {
@@ -91,14 +109,26 @@ impl Services {
             .unwrap_or_default()
     }
 
-    /// Whether device `dev` starts no agents now.
+    /// Whether device `dev` starts no agents now: its own pause, or Stop
+    /// everywhere's.
     pub(crate) fn agents_paused_on(&self, dev: &str) -> bool {
-        self.spawn
+        let m = self
+            .spawn
             .agents_pause
             .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(dev)
-            .is_some_and(|p| p.on)
+            .unwrap_or_else(|e| e.into_inner());
+        m.get(dev).is_some_and(|p| p.on) || m.get(EVERYWHERE).is_some_and(|p| p.on)
+    }
+
+    /// What holds device `dev`'s starts: its own pause when on, else Stop
+    /// everywhere's (off when neither is on).
+    pub(crate) fn pause_holding(&self, dev: &str) -> AgentsPause {
+        let p = self.agents_pause_on(dev);
+        if p.on {
+            return p;
+        }
+        let e = self.agents_pause_on(EVERYWHERE);
+        if e.on { e } else { p }
     }
 
     /// Pause agents on this device.
@@ -160,6 +190,14 @@ impl Services {
         if by.is_empty() {
             return String::new();
         }
+        if let Some(dev) = by.strip_prefix(WIND_DOWN_BY_PREFIX) {
+            let name = self.named_device(dev);
+            return if name.is_empty() {
+                "Stop everywhere".into()
+            } else {
+                format!("Stop everywhere on {name}")
+            };
+        }
         if let Some(dev) = by.strip_prefix("user:") {
             let name = self.named_device(dev);
             return if name.is_empty() {
@@ -176,6 +214,82 @@ impl Services {
         }
     }
 
+    /// Every device's Pause agents, by device id.
+    pub(crate) fn agents_pauses(&self) -> HashMap<String, AgentsPause> {
+        self.spawn
+            .agents_pause
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Stop everywhere on (card #787): its own pause ([`EVERYWHERE`]),
+    /// which holds every device, then Pause agents on each of `devs`, by
+    /// Stop everywhere from this device. A device already paused keeps its
+    /// pause and who set it, so Off leaves it paused. Says which devices it
+    /// paused.
+    pub(crate) fn wind_down_pause(&self, devs: &[String]) -> Result<Vec<String>, String> {
+        let by = format!("{WIND_DOWN_BY_PREFIX}{}", self.device.id);
+        self.set_agents_paused(EVERYWHERE, true, &by)?;
+        let mut paused = vec![];
+        for dev in devs {
+            if dev.is_empty() || dev == EVERYWHERE || self.agents_pause_on(dev).on {
+                continue;
+            }
+            self.set_agents_paused(dev, true, &by)?;
+            paused.push(dev.clone());
+        }
+        Ok(paused)
+    }
+
+    /// Lifts the old inbox Pause all on this device (card #1196, GitHub
+    /// #305). It left the app with card #787 (and the mod's `/irori pause`
+    /// and the API's way on with this card), but old Wind downs turned it
+    /// on when they finished, so a device could keep it with nothing in
+    /// the top bar saying so: no agent started or was woken here, and the
+    /// card's line pointed at a switch the person no longer has. Stop here
+    /// off, Start everywhere and each start lift it, as the person, the
+    /// way Resume wakes does, so the wakes it held go out again. `why`
+    /// goes in the log.
+    pub(crate) fn lift_old_pause_all(&self, why: &str) {
+        let mut p = self.inbox.policy();
+        if !p.paused {
+            return;
+        }
+        p.paused = false;
+        match self.inbox.set_policy(p, &self.user_sender().key) {
+            Ok(()) => {
+                logf(format_args!(
+                    "spawn: lifted the old Pause all on this device ({why})"
+                ));
+                self.asks_kick.kick();
+            }
+            Err(e) => logf(format_args!(
+                "spawn: couldn't lift the old Pause all ({why}): {e}"
+            )),
+        }
+    }
+
+    /// Stop everywhere off (card #787): lifts every pause it set, on any
+    /// of the person's devices, and only those, then its own. Says which
+    /// devices it lifted.
+    pub(crate) fn wind_down_lift(&self) -> Result<Vec<String>, String> {
+        let by = format!("user:{}", self.device.id);
+        let mut devs: Vec<String> = self
+            .agents_pauses()
+            .into_iter()
+            .filter(|(d, p)| d != EVERYWHERE && p.on && by_wind_down(&p.by))
+            .map(|(d, _)| d)
+            .collect();
+        devs.sort();
+        for dev in &devs {
+            self.set_agents_paused(dev, false, &by)?;
+        }
+        self.set_agents_paused(EVERYWHERE, false, &by)?;
+        self.lift_old_pause_all("Start everywhere");
+        Ok(devs)
+    }
+
     /// Agent `caller` pauses or unpauses agent starts on its own device
     /// (the `agents_pause` tool): the person's own agents only.
     pub(crate) fn agent_set_paused(&self, caller: &str, on: bool) -> Result<String, String> {
@@ -183,6 +297,12 @@ impl Services {
             return Err("only the person's own agents pause agents".into());
         }
         let dev = device_of(caller).to_string();
+        // Stop everywhere is the person's switch: only they lift it, and
+        // an agent's off would let its device start cards while the
+        // person's switch still reads on (card #787).
+        if !on && self.agents_pause_on(EVERYWHERE).on {
+            return Err("Stop everywhere is on: the person turns it off (Start everywhere); agents can't start work again while it is on".into());
+        }
         let name = self.named_device(&dev);
         let on_dev = if name.is_empty() {
             "your device".to_string()
@@ -210,7 +330,7 @@ impl Services {
         } else {
             dev
         };
-        (self.named_device(dev), self.agents_pause_on(dev))
+        (self.named_device(dev), self.pause_holding(dev))
     }
 }
 
@@ -253,6 +373,13 @@ mod tests {
         assert!(!pc.on);
         assert!(pc.since.is_zero());
         assert_eq!(pc.by, "user:mac");
+    }
+
+    #[test]
+    fn only_a_winddown_by_is_wind_downs() {
+        assert!(by_wind_down("winddown:mac"));
+        assert!(!by_wind_down("user:mac"));
+        assert!(!by_wind_down("abc/def"));
     }
 
     #[test]

@@ -672,6 +672,8 @@ fn a_review_request_reaches_the_other_persons_reviewer() {
                 from: CARD1.into(),
                 to: CARD2.into(),
                 at,
+                wake: true,
+                look: false,
             })
             .unwrap(),
             sig: Vec::new(),
@@ -2007,11 +2009,11 @@ fn a_merged_pr_on_a_board_card_tells_the_holder_once() {
     assert!(ns.is_empty(), "a merged PR is told once");
 }
 
-/// Card #509: on a board, an agent's external wait on a PR is its own
-/// person's merge, not every member's. Their device's poller hears the
-/// PR even after the agent left the card, and its row folds everywhere.
+/// Card #509: on a board, an agent's external wait on a PR is polled by
+/// its own person's device, not every member's, even after the agent left
+/// the card, and its row folds everywhere. Card #970: it needs nobody.
 #[test]
-fn a_merge_wait_on_a_board_is_its_raisers_persons() {
+fn a_pr_wait_on_a_board_is_polled_by_its_raisers_person() {
     const PR: &str = "https://github.com/a/b/pull/41";
     let (a, b, _) = two_people();
     let t = a.c.create_task(P1, nt("part 10", "")).unwrap();
@@ -2038,10 +2040,10 @@ fn a_merge_wait_on_a_board_is_its_raisers_persons() {
         .iter()
         .any(|c| c.task.id == t.id)
     };
-    assert!(!needs(&a, P1), "p2's agent's wait isn't p1's merge");
-    assert!(a.c.merge_waits(&t.id).is_empty());
-    assert!(needs(&b, P2), "p2's merge");
-    assert_eq!(b.c.merge_waits(&t.id), vec![PR.to_string()]);
+    assert!(!needs(&a, P1), "p2's agent's wait isn't p1's");
+    assert!(a.c.polled_waits(&t.id).is_empty());
+    assert!(!needs(&b, P2), "nor p2's merge");
+    assert_eq!(b.c.polled_waits(&t.id), vec![PR.to_string()]);
 
     // p2's device hears it merged, though nobody holds the card: it folds
     // on both sides and the wait no longer needs p2.
@@ -2056,6 +2058,7 @@ fn a_merge_wait_on_a_board_is_its_raisers_persons() {
     for s in [&a, &b] {
         assert_eq!(s.c.pr_state(&t.id, PR).unwrap().state, PR_MERGED);
     }
+    assert!(b.c.polled_waits(&t.id).is_empty());
     assert!(!needs(&b, P2));
 }
 
@@ -4222,4 +4225,25 @@ fn a_teammates_card_waits_on_nobody_here() {
         !b.c.waits_for_agent(&b.c.get_task(&t.id).unwrap()),
         "not p2's to start"
     );
+}
+
+/// Card #717: the person hands a given card to one of their agents while
+/// "OK to start an agent on this?" is open. Nothing is left to start, so it
+/// closes on every member, and the card leaves Needs you.
+#[test]
+fn an_agent_given_a_given_card_closes_its_question() {
+    let (a, b) = two_people_shared();
+    let t = given(&a, &b);
+    assert!(given_question(&t).open());
+    a.c.assign(P1, &t.id, CARD1).unwrap();
+    sync(&a, &b);
+    for s in [&a, &b] {
+        let got = s.c.get_task(&t.id).unwrap();
+        assert!(
+            !given_question(&got).open(),
+            "closed on {}",
+            s.c.device_id()
+        );
+        assert_ne!(got.state, coord::BLOCKED);
+    }
 }

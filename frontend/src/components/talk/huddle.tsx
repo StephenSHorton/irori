@@ -19,6 +19,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import {
   CircleDotIcon,
+  ExternalLinkIcon,
   FileTextIcon,
   HeadphoneOffIcon,
   HeadphonesIcon,
@@ -47,6 +48,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import {
+  agentsReady,
   canTranscribeHere,
   clockText,
   convLabel,
@@ -306,6 +308,8 @@ export type StartWhere = {
   // channel (in a space), personal (a Personal channel: your own devices)
   // or dm.
   kind: "channel" | "personal" | "dm"
+  // The conversation, to ask whether agents are live in its space.
+  convId?: string
 }
 
 // toldText is who a huddle's start reaches: the devices it rings, as the
@@ -339,7 +343,8 @@ export function StartSheet({
 }) {
   const transcribeOn = useCallPart((s) => s.transcribeOn)
   const canTranscribe = useCanTranscribe(true)
-  const notice = startNotice(start, transcribeOn, canTranscribe)
+  const agentsOff = useAgentsOff(true, start.convId)
+  const notice = startNotice(start, transcribeOn, canTranscribe, agentsOff)
   // The mic's name, asked once when the sheet opens (null until it
   // answers; "" when it can't say).
   const [mic, setMic] = useState<string | null>(null)
@@ -353,7 +358,7 @@ export function StartSheet({
     }
   }, [])
   return (
-    <div className="grid gap-3 text-[12.5px]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3 text-[12.5px]">
       <div className="grid gap-1">
         <h3 className="flex items-center gap-2 text-[14px] font-semibold text-ink">
           <HeadphonesIcon className="size-4 shrink-0" />
@@ -365,11 +370,14 @@ export function StartSheet({
         </h3>
         <p className="text-muted-foreground">{toldText(start)}</p>
       </div>
-      <div className="grid gap-1.5 rounded-lg border border-border bg-card/60 p-2.5">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-1.5 rounded-lg border border-border bg-card/60 p-2.5">
         <span className="flex items-center gap-2">
           <MicIcon className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="text-muted-foreground">Microphone</span>
-          <span className="ml-auto min-w-0 truncate text-right text-ink">
+          <span
+            className="ml-auto min-w-0 truncate text-right text-ink"
+            title={mic || undefined}
+          >
             {mic === null ? "…" : mic || "the default microphone"}
           </span>
         </span>
@@ -563,6 +571,7 @@ export function CallPanel({
   onShare,
   onStopShare,
   onShareNoteSeen,
+  onOpenHuddle,
 }: {
   mine: CallMineView
   wide?: boolean
@@ -575,6 +584,8 @@ export function CallPanel({
   onStopShare?: () => void
   // The share's note line was dismissed (its ×).
   onShareNoteSeen?: () => void
+  // Opens the huddle's page (card #1044).
+  onOpenHuddle?: () => void
 }) {
   const who = whoIn(mine)
   const captions = mine.captions.length > 0
@@ -653,6 +664,14 @@ export function CallPanel({
         </span>
       </div>
       {notes}
+      {onOpenHuddle && (
+        <div className="px-3 pb-2">
+          <Button size="xs" variant="secondary" onClick={onOpenHuddle}>
+            <ExternalLinkIcon />
+            Open huddle
+          </Button>
+        </div>
+      )}
       <div
         className={cn(
           "grid min-h-0 content-start gap-1.5 overflow-y-auto px-3 pb-3",
@@ -796,7 +815,7 @@ export function CallBar({
           type="button"
           onClick={onOpen}
           className="min-w-0 flex-1 truncate text-left font-medium text-ink hover:underline"
-          title={`Open ${where}`}
+          title={`Open the huddle in ${where}`}
         >
           Huddle · {where}
         </button>
@@ -855,9 +874,14 @@ export function CallBar({
 // HuddleStarted is the post a huddle's start leaves; Join while it's on.
 export function HuddleStarted({
   by,
+  title,
+  onOpen,
   onJoin,
 }: {
   by: string
+  // Its title when it has one (card #1044), and opening its page.
+  title?: string
+  onOpen?: () => void
   // Set while it's on and you aren't in it.
   onJoin?: () => void
 }) {
@@ -866,7 +890,23 @@ export function HuddleStarted({
       <HeadphonesIcon className="size-4 shrink-0 text-success" />
       <span className="min-w-0 text-ink-2">
         <span className="font-medium text-ink">{by}</span> started a huddle
+        {title && (
+          <>
+            {": "}
+            <span className="font-medium text-ink">{title}</span>
+          </>
+        )}
       </span>
+      {onOpen && (
+        <Button
+          size="xs"
+          variant="ghost"
+          className={cn("shrink-0", !onJoin && "ml-auto")}
+          onClick={onOpen}
+        >
+          Open
+        </Button>
+      )}
       {onJoin && (
         <Button
           size="xs"
@@ -886,10 +926,15 @@ export function HuddleStarted({
 export function HuddleEnded({
   durationMs,
   people,
+  title,
+  onOpen,
   onTranscript,
 }: {
   durationMs: number
   people: readonly string[]
+  // Its title when it has one (card #1044), and opening its page.
+  title?: string
+  onOpen?: () => void
   // Set when it has a transcript (#656): opens it.
   onTranscript?: () => void
 }) {
@@ -897,8 +942,11 @@ export function HuddleEnded({
     <div className="mx-2 my-1.5 rounded-lg border border-border bg-card/60 px-3 py-2 text-[13px]">
       <div className="flex items-center gap-2">
         <HeadphonesIcon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="shrink-0 font-medium text-ink">Huddle ended</span>
-        <span className="min-w-0 truncate text-[12px] text-muted-foreground">
+        <span className="min-w-0 truncate font-medium text-ink">
+          {title || "Huddle ended"}
+        </span>
+        <span className="shrink-0 text-[12px] text-muted-foreground">
+          {title && "ended · "}
           {lengthText(durationMs)}
         </span>
       </div>
@@ -907,12 +955,20 @@ export function HuddleEnded({
           {namesText(people)} {people.length === 1 ? "was" : "were"} in it.
         </p>
       )}
-      {onTranscript && (
-        <div className="mt-2 pl-6">
-          <Button size="xs" variant="secondary" onClick={onTranscript}>
-            <FileTextIcon />
-            Transcript
-          </Button>
+      {(onOpen || onTranscript) && (
+        <div className="mt-2 flex flex-wrap gap-1.5 pl-6">
+          {onOpen && (
+            <Button size="xs" variant="secondary" onClick={onOpen}>
+              <ExternalLinkIcon />
+              Open
+            </Button>
+          )}
+          {onTranscript && (
+            <Button size="xs" variant="secondary" onClick={onTranscript}>
+              <FileTextIcon />
+              Transcript
+            </Button>
+          )}
         </div>
       )}
     </div>
@@ -935,7 +991,9 @@ export function RingBanner({
   onDismiss: () => void
 }) {
   const where =
-    ring.convKind === "channel" ? `in ${convLabel(ring)}` : "with you"
+    ring.convKind === "channel" || ring.convKind === "personal"
+      ? `in ${convLabel(ring)}`
+      : "with you"
   return (
     <div
       role="status"
@@ -1018,6 +1076,7 @@ export function Ringing({ onJoined }: { onJoined: (convId: string) => void }) {
             callId: asking.callId,
             convKind: asking.convKind,
             convName: asking.convName,
+            convId: asking.convId,
           }
         }
         onConfirm={() => asking && join(asking)}
@@ -1035,12 +1094,13 @@ export type NoticeAsk = {
   callId?: string
   convKind: string
   convName: string
+  convId?: string
 }
 
 // NoticeText is the notice's words, with the badge's dot when what you say
 // is written down.
 export function NoticeText({ text }: { text: string }) {
-  const on = text.startsWith("This huddle is transcribed")
+  const on = text.startsWith("Agents hear this huddle")
   return (
     <span className="flex items-start gap-2 text-left">
       {on ? (
@@ -1062,6 +1122,23 @@ export function NoticeText({ text }: { text: string }) {
 // useCanTranscribe is whether this device can write down its person's
 // voice: null until it says, asked afresh each time `open` turns on, and
 // Start or Join waits for it.
+// useAgentsOff is whether a huddle in `convId` can't reach agents live: a
+// space where some device is too old for huddle rows (card #1047).
+function useAgentsOff(open: boolean, convId?: string): boolean {
+  const [off, setOff] = useState(false)
+  useEffect(() => {
+    if (!open || !convId) return
+    let live = true
+    void agentsReady(convId)
+      .then((ok) => live && setOff(!ok))
+      .catch(() => live && setOff(false))
+    return () => {
+      live = false
+    }
+  }, [open, convId])
+  return off
+}
+
 function useCanTranscribe(open: boolean): boolean | null {
   const [canTranscribe, setCanTranscribe] = useState<boolean | null>(null)
   // Opening forgets the last answer (set while rendering, so no stale
@@ -1090,10 +1167,12 @@ function useCanTranscribe(open: boolean): boolean | null {
 export function startNotice(
   start: StartWhere,
   transcribeOn: boolean,
-  canTranscribe: boolean | null
+  canTranscribe: boolean | null,
+  agentsOff = false
 ): string {
   if (canTranscribe === null) return "Checking…"
   return transcriptNotice({
+    agentsOff,
     convKind: start.kind,
     // The label is "#suzuri" for a channel; the notice names it itself.
     convName: start.kind === "dm" ? start.label : start.label.replace(/^#/, ""),
@@ -1118,6 +1197,7 @@ export function HuddleNotice({
   const transcribeOn = useCallPart((s) => s.transcribeOn)
   const open = !!ask
   const canTranscribe = useCanTranscribe(open)
+  const agentsOff = useAgentsOff(open, ask?.convId)
   // A join's huddle that ended, or stopped ringing, closes the notice.
   const callId = ask?.callId
   const stillOn = useCallPart(
@@ -1140,6 +1220,7 @@ export function HuddleNotice({
           convName: a.convName,
           transcribeOn,
           canTranscribe,
+          agentsOff,
         })
   const start = a?.action === "start"
   return (
@@ -1148,8 +1229,7 @@ export function HuddleNotice({
         <AlertDialogHeader>
           <AlertDialogTitle>
             {start ? "Start a huddle" : "Join the huddle"}
-            {a &&
-              ` ${a.convKind === "channel" ? "in" : "with"} ${convLabel(a)}`}
+            {a && ` ${a.convKind === "dm" ? "with" : "in"} ${convLabel(a)}`}
           </AlertDialogTitle>
           <AlertDialogDescription render={<div />}>
             <NoticeText text={text} />
@@ -1185,15 +1265,17 @@ export function PhoneCallBar({
 }: {
   // The conversation open now ("" for none).
   here: string
-  onOpen: (convId: string) => void
+  // Opens the huddle's page (card #1044).
+  onOpen: (callId: string) => void
 }) {
   const mine = useCallPart((s) => s.mine)
   if (!mine || mine.convId === here) return null
   return (
-    <div className="pt-2">
+    // Ask Irori's button and panel sit above it (card #783).
+    <div className="pt-2" data-assistant-avoid="bar">
       <CallBar
         mine={mine}
-        onOpen={() => onOpen(mine.convId)}
+        onOpen={() => onOpen(mine.callId)}
         onMute={(on) => void setMuted(on).catch(() => {})}
         onDeafen={(on) => void setDeafened(on).catch(() => {})}
         onLeave={() => void leaveHuddle().catch(() => {})}

@@ -1,5 +1,5 @@
-//! Check slots (card #437): `POST /v1/slots` takes one of N slot leases on
-//! a name for a run (a script such as `scripts/check.sh`, not an agent),
+//! Script slots (card #437): `POST /v1/slots` takes one of N slot leases on
+//! a name for a run (a script, not an agent),
 //! and `POST /v1/slots/release` gives it back. The token is enough: the
 //! holder is this device's run holder `<device>/run-<run>`, which the gone
 //! sweep leaves alone, so a run renews its lease while it lives (a short

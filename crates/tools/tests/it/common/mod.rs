@@ -144,6 +144,14 @@ pub struct TestBackend {
     /// Personal's boards past its default (card #698), which the private
     /// coord's board_tag reads too; empty: only the default.
     pub personal: Arc<Mutex<Vec<tools::PersonalBoard>>>,
+    /// What device_free reads (device-free plan §5 D), and the paths asked.
+    pub free: Mutex<Option<tools::DeviceFree>>,
+    pub free_asked: Mutex<Vec<String>>,
+    /// Set: this device's id, in place of [`DEVICE_ID`] (the store's own
+    /// device is `dev1`, so run holders of it need this).
+    pub device: Mutex<String>,
+    /// The person's devices the agents tool lists; empty: none.
+    pub own_devices: Mutex<Vec<tools::OwnDevice>>,
 }
 
 impl TestBackend {
@@ -161,7 +169,22 @@ impl TestBackend {
     }
 }
 
+/// This fake device's id; its heavy family is `heavy/3dc30c94`.
+pub const DEVICE_ID: &str = "3dc30c94c6a74af3c59d39f4ca02d6f1";
+
 impl Backend for TestBackend {
+    fn device_id(&self) -> String {
+        let d = self.device.lock().unwrap();
+        if d.is_empty() {
+            DEVICE_ID.into()
+        } else {
+            d.clone()
+        }
+    }
+    fn device_free(&self, path: &str) -> Option<tools::DeviceFree> {
+        self.free_asked.lock().unwrap().push(path.to_string());
+        self.free.lock().unwrap().clone()
+    }
     fn agents(&self) -> Vec<presence::AgentCard> {
         self.roster.cards()
     }
@@ -202,6 +225,9 @@ impl Backend for TestBackend {
     fn board_agents(&self) -> Vec<tools::BoardAgent> {
         self.board_agents.lock().unwrap().clone()
     }
+    fn own_devices(&self) -> Vec<tools::OwnDevice> {
+        self.own_devices.lock().unwrap().clone()
+    }
     fn known_names(&self) -> BTreeMap<String, String> {
         self.known.lock().unwrap().clone()
     }
@@ -210,6 +236,7 @@ impl Backend for TestBackend {
             board_id: tools::PERSONAL_DEFAULT.into(),
             name: "Personal".into(),
             tag: String::new(),
+            ..Default::default()
         }];
         out.extend(self.personal.lock().unwrap().iter().cloned());
         out
@@ -412,6 +439,10 @@ pub fn new_harness_setup(
         spawn_why: Mutex::default(),
         spawn_asked: Mutex::default(),
         book: OnceLock::new(),
+        free: Mutex::default(),
+        free_asked: Mutex::default(),
+        device: Mutex::default(),
+        own_devices: Mutex::default(),
     });
     setup(&b, &clk);
     let set = Set::new(b.clone(), Some(now));

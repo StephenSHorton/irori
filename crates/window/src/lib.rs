@@ -44,11 +44,17 @@
 
 pub mod agents;
 pub mod agents_trust;
+pub mod assistant;
+pub mod assistant_chat;
+pub mod assistant_held;
+pub mod assistant_home;
+pub mod assistant_turn;
 pub mod attachments;
 pub mod board;
 pub mod boards;
 pub mod call;
 pub mod cards;
+pub mod cards_cache;
 pub mod claude_trust;
 pub mod commands;
 pub mod comment_edit;
@@ -65,12 +71,16 @@ pub mod new_card;
 pub mod notes;
 pub mod notifications;
 pub mod ready;
+pub mod rewrite;
 pub mod roster;
 pub mod seams;
 pub mod settings;
+pub mod signals;
 pub mod spawn;
 pub mod spawn_cost;
 pub mod stop;
+pub mod storage;
+pub mod sync_badge;
 pub mod talk;
 pub mod terms;
 pub mod threads;
@@ -166,32 +176,67 @@ pub struct Window {
     pub seams: Seams,
     cfg: Config,
     cards: Mutex<roster::CardIndex>,
+    /// The grid's summary cache (card #1147), kept by the board pump.
+    cards_cache: Mutex<cards_cache::CardsCache>,
+    /// How many times a card read has built the roster's people (card
+    /// #1148): a test reads it to see one build per `cards_by_id` call.
+    people_builds: std::sync::atomic::AtomicU64,
     revives: Mutex<roster::ReviveGuard>,
     inbox_snap: Mutex<Option<inbox::Snapshot>>,
     inbox_kick: events::Kick,
+    /// The last `seq` minted per event name ([`Window::emit_change`]).
+    seqs: Mutex<std::collections::HashMap<String, u32>>,
+    /// Debug builds only: every Nth emit of a name skips a `seq`.
+    skip_seq: usize,
     on_counts: Mutex<Vec<CountsFn>>,
     on_decide: Mutex<Vec<DecideFn>>,
     emitter: OnceLock<EmitFn>,
     open_file: OnceLock<OpenFn>,
     on_reset: OnceLock<Box<dyn Fn() + Send + Sync>>,
-    /// The current Wind down all run (card #220).
+    /// The current Wind down run and the switch's listeners (cards #220,
+    /// #787).
     wind_down: wind_down::RunSlot,
     /// The voice input session (card #240).
     voice: voice::VoiceSlot,
     /// The hardware meters' recent samples (card #599).
     meters: meters::History,
+    /// The corner chat's headless runs (card #783).
+    assistant: assistant::Runner,
+    /// The turns that name the person's threads (card #782): their own
+    /// runner, so they never take the chat's.
+    names: assistant::Runner,
+    weighs: assistant::Runner,
+    chooses: assistant::Runner,
+    rewrites: assistant::Runner,
+    /// The turns that answer other people's questions to the person's
+    /// assistant (assistants talk, card 4): their own runner, so a peer
+    /// never takes a slot from the person's chat.
+    answers: assistant::Runner,
+    /// The held huddle sessions (card #1046), apart from the chat's runs.
+    huddles: Arc<assistant::HeldRunner>,
+    /// The open watches of the chat turns this computer runs
+    /// (one-assistant card 3).
+    chat_watch: assistant_turn::ChatWatch,
+    /// The chat's held session on the assistant's computer (one-assistant
+    /// card 8).
+    held_chat: assistant_held::HeldChat,
 }
 
 impl Window {
     pub fn new(core: Arc<Core>, seams: Seams, cfg: Config) -> Window {
+        let huddles = Arc::new(assistant::HeldRunner::for_core(&core));
         Window {
             core,
             seams,
             cfg,
             cards: Mutex::default(),
+            cards_cache: Mutex::default(),
+            people_builds: Default::default(),
             revives: Mutex::default(),
             inbox_snap: Mutex::default(),
             inbox_kick: events::Kick::default(),
+            seqs: Mutex::default(),
+            skip_seq: signals::dev_switch(signals::DEV_SKIP_SEQ_ENV),
             on_counts: Mutex::default(),
             on_decide: Mutex::default(),
             emitter: OnceLock::new(),
@@ -200,6 +245,15 @@ impl Window {
             wind_down: Mutex::default(),
             voice: voice::VoiceSlot::default(),
             meters: meters::History::default(),
+            assistant: assistant::Runner::new(),
+            names: assistant::Runner::new(),
+            weighs: assistant::Runner::new(),
+            chooses: assistant::Runner::new(),
+            rewrites: assistant::Runner::new(),
+            answers: assistant::Runner::new(),
+            huddles,
+            chat_watch: assistant_turn::ChatWatch::default(),
+            held_chat: assistant_held::HeldChat::new(),
         }
     }
 
@@ -235,6 +289,22 @@ impl Window {
         if let (Some(f), Ok(v)) = (self.emitter.get(), serde_json::to_value(payload)) {
             f(name, v);
         }
+    }
+
+    /// Emits a list signal (list-signals.md §4): `build` gets the next
+    /// `seq` of `name` and makes the payload. The count and the emitter call
+    /// share one mutex, so the page never sees seq 8 before 7, whichever
+    /// thread sends (`boards:changed` also comes from [`Window::boards_pin`]).
+    /// A debug build can skip a seq now and then (`IRORI_DEV_SKIP_SEQ=N`).
+    pub fn emit_change<T: serde::Serialize>(&self, name: &str, build: impl FnOnce(u32) -> T) {
+        let mut seqs = self.seqs.lock().unwrap_or_else(|e| e.into_inner());
+        let n = seqs.entry(name.to_string()).or_insert(0);
+        *n += 1;
+        if self.skip_seq > 0 && (*n as usize).is_multiple_of(self.skip_seq) {
+            *n += 1;
+        }
+        let payload = build(*n);
+        self.emit(name, &payload);
     }
 
     /// The version the window shows (RosterService.Version).
@@ -292,6 +362,11 @@ impl Window {
     /// Hands the inbox pump a nudge (see [`events::Kick`]).
     pub(crate) fn kick_inbox(&self, q: &Arc<gocompat::sub::Queue<CoreEvent>>) {
         self.inbox_kick.set(q.clone());
+    }
+
+    /// Whether the inbox was kicked since the pump last asked.
+    pub(crate) fn inbox_kicked(&self) -> bool {
+        self.inbox_kick.take()
     }
 }
 

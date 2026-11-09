@@ -71,14 +71,16 @@ impl Services {
         }
         // A shared board's holders on this device hear it here too.
         self.tell_pr_news();
+        self.tell_missed_reviews();
     }
 
-    /// Polls every desk this device polls now, whatever its cadence, when
-    /// an agent on any device ran `gh pr merge` since the last look.
-    pub(super) fn desk_merge_heard(self: &Arc<Self>) {
-        if self.desk_lister.is_none() {
-            return;
-        }
+    /// When an agent on any device ran `gh pr merge` since the last look:
+    /// asks GitHub about the open PRs this device's agents' cards link now
+    /// (card #970: an agent that merged its PR completes its card without
+    /// waiting on the next poll), and has the desks thread poll every desk
+    /// this device polls, whatever its cadence. Every device looks, merge
+    /// desk or not.
+    pub(super) fn merge_heard(self: &Arc<Self>) {
         let cmds = self.capture.commit_cmds();
         if !self
             .desk_merges
@@ -86,9 +88,30 @@ impl Services {
         {
             return;
         }
+        if self.pr_checker.is_some() {
+            self.pr_watch.rush();
+            self.check_prs(std::time::Instant::now());
+        }
+        if self.desk_lister.is_some() {
+            self.desks_due
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// Polls every desk this device polls now, whatever its cadence, when
+    /// [`Self::merge_heard`] asked for it. Only the desks thread calls it,
+    /// so a desk is never polled twice at once.
+    pub(super) fn desks_heard_merge(self: &Arc<Self>) {
+        if !self
+            .desks_due
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return;
+        }
         for d in self.polled_desks() {
             let k = d.settings.repo_key;
-            if let Err(e) = self.poll_desk(&k) {
+            // Not a counted poll: the pick waits for the next one.
+            if let Err(e) = self.poll_desk(&k, false) {
                 logf(format_args!("desk {k}: {e}"));
             }
         }

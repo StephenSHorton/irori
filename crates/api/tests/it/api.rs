@@ -394,6 +394,58 @@ fn token_alone_reads_as_an_agent() {
     assert!(whole.contains(&me));
 }
 
+/// The assistant's conversation (card #1102): without the person's secret
+/// its rows come back with every text field left out, by kind or not.
+#[test]
+fn token_alone_never_reads_the_assistants_conversation() {
+    let rig = common::Rig::new();
+    let st = rig.core.store();
+    st.append(
+        "user",
+        store::kinds::ASSISTANT_CHAT_ASKED,
+        &serde_json::json!({"turn": "t1", "text": "my private question", "screen": "the board I see", "device": "d", "at": 1}),
+    )
+    .unwrap();
+    st.append(
+        "irori",
+        store::kinds::ASSISTANT_CHAT_SAID,
+        &serde_json::json!({"turn": "t1", "text": "the private answer", "changed": ["closed the secret card"], "device": "d", "at": 2}),
+    )
+    .unwrap();
+    let get = |q: &str, hs: &[(&str, &str)]| {
+        String::from_utf8(
+            rig.rt
+                .block_on(rig.client.call("GET", q, hs, None))
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let secret = [
+        "my private question",
+        "the board I see",
+        "the private answer",
+        "closed the secret card",
+    ];
+    for q in [
+        "/v1/events?kind=assistant.chat.asked&kind=assistant.chat.said",
+        "/v1/events?limit=500",
+    ] {
+        let agent = get(q, &[]);
+        assert!(agent.contains(r#""text":"[left out]""#), "{agent}");
+        assert!(agent.contains(r#""changed":"[left out]""#), "{agent}");
+        assert!(agent.contains(r#""screen":"[left out]""#), "{agent}");
+        for s in secret {
+            assert!(!agent.contains(s), "{s} in {agent}");
+        }
+    }
+    let person = rig.server.person_secret();
+    let whole = get(
+        "/v1/events?kind=assistant.chat.said",
+        &[("X-Irori-Person", &person)],
+    );
+    assert!(whole.contains("the private answer"), "{whole}");
+}
+
 // ---- connection deadlines (Go http.Server's Read/Write/Idle timeouts) ----
 
 mod deadlines {

@@ -24,6 +24,8 @@
 
 extern crate irori_identity as identity;
 
+pub mod activity;
+pub mod assistant_stream;
 pub mod boardmesh;
 pub mod boards;
 pub mod devices;
@@ -41,14 +43,15 @@ pub mod servers;
 mod session;
 pub mod transport;
 
+pub use activity::Activity;
 pub use boards::BOARD_LABEL_PREFIX;
-pub use devices::{DeviceRead, DeviceRow, Fresh, PeerState, Status};
+pub use devices::{DeviceRead, DeviceRow, Fresh, Holdout, PeerState, Status};
 pub use fake::FakeNet;
 pub use files::{BLOB_LABEL_PREFIX, FetchError, FileOffer};
 pub use frames::{Frame, Row, batches, decode_frame};
 pub use node::{
-    ERR_NOT_PEER, Intervals, MSG_LEAVE, MSG_PRESENCE, Node, Options, Presence, STATE_ERROR,
-    STATE_OFF, STATE_ON, STATE_REMOVED, check_device,
+    AssistantTurnsFn, ERR_NOT_PEER, Intervals, MSG_LEAVE, MSG_PRESENCE, Node, Options, Presence,
+    STATE_ERROR, STATE_OFF, STATE_ON, STATE_REMOVED, check_device,
 };
 pub use peers::PEERS_FILE;
 pub use relay::{Relay, RelaySetter, RelayStatus, load_relay, save_relay, scrub_urls};

@@ -3,11 +3,12 @@
 
 use serde::Serialize;
 
+use crate::HEADER_ASSISTANT;
 use crate::attach::{HEADER_ATTACH, HEADER_MEMBER, HEADER_ORIGIN};
 use crate::backend::{Caller as ToolCaller, ToolError};
 use crate::body;
 use crate::http::{self, Resp};
-use crate::server::Handler;
+use crate::server::{AssistantHeader, Handler};
 
 /// Caps `GET /v1/inbox?limit=`.
 pub const MAX_INBOX_LIMIT: usize = 500;
@@ -129,7 +130,9 @@ fn tool_specs(h: &Handler) -> Resp {
     let client = h.r.query.get("client");
     let client = match client.as_str() {
         "" => "claude",
-        "claude" | "grok" => client.as_str(),
+        "claude" | "grok" | tools::CLIENT_ASSISTANT => client.as_str(),
+        // The assistant's client is Irori's own, so the error names only
+        // the public two (as Go's does; api golden).
         _ => return http::error(400, "client must be claude or grok"),
     };
     let specs = h.s.tools().map(|t| t.specs(client)).unwrap_or_default();
@@ -142,9 +145,30 @@ struct ToolResult {
 }
 
 fn tool(h: &Handler, name: &str) -> Resp {
-    let Some(c) = h.caller() else {
-        return forbidden(h);
+    let c = match h.assistant_header() {
+        AssistantHeader::Absent => match h.caller() {
+            Some(c) => c,
+            None => return forbidden(h),
+        },
+        AssistantHeader::Wrong => {
+            return http::error(
+                403,
+                &format!(
+                    "wrong {HEADER_ASSISTANT} secret (only the Irori app holds it; send it alone)"
+                ),
+            );
+        }
+        AssistantHeader::Ok => match h.assistant() {
+            Some(c) => c,
+            None => return forbidden(h),
+        },
     };
+    // Card #783: the window assistant only reads, whatever it asks for,
+    // but for the writes the person's own message allowed (card #987).
+    let write = c.assistant && tools::ASSISTANT_WRITE_TOOLS.contains(&name);
+    if c.assistant && !write && !tools::ASSISTANT_TOOLS.contains(&name) {
+        return http::error(403, "the assistant only reads");
+    }
     let Some(ts) = h.s.tools() else {
         return http::error(503, "tools are not running");
     };
@@ -152,21 +176,100 @@ fn tool(h: &Handler, name: &str) -> Resp {
         Ok(d) => d,
         Err(e) => return http::error(400, &e),
     };
-    let args = match d.raw(0) {
+    let mut args = match d.raw(0) {
         Some(a) if !a.is_empty() && a != b"null" => a,
         _ => b"{}".to_vec(),
     };
+    if write {
+        match assistant_write_allowed(h, name, &args) {
+            Some(a) => args = a,
+            None => {
+                return http::error(
+                    403,
+                    "the person's message didn't ask for that: say it plainly, naming the card or agent (close #12, tick s2 on #12, tell ringo ..., comment on #12: ...; tag#12 for a space's card, and a bare #12 that is on two boards needs its tag)",
+                );
+            }
+        }
+    }
     let caller = ToolCaller {
         sender: c.sender,
         path: c.path,
     };
     match ts.call(&caller, name, &args) {
-        Ok(text) => http::json(200, &ToolResult { text }),
+        Ok(text) => {
+            if write
+                && !text.starts_with("Error")
+                && let Some(g) = h.s.b.assistant_grants()
+            {
+                g.changed(text.lines().next().unwrap_or_default());
+            }
+            http::json(200, &ToolResult { text })
+        }
         Err(ToolError::UnknownTool) => http::error(
             404,
             &format!("no tool called {}", gocompat::quote::quote(name)),
         ),
         Err(ToolError::Other(e)) => http::error(400, &e),
+    }
+}
+
+/// Spends the grant the person's message gave for this write (card #987).
+/// What comes back are the arguments to run with: for a message or a
+/// comment the words are the grant's, the person's, whatever the model sent.
+fn assistant_write_allowed(h: &Handler, name: &str, args: &[u8]) -> Option<Vec<u8>> {
+    let g = h.s.b.assistant_grants()?;
+    let Ok(serde_json::Value::Object(v)) = serde_json::from_slice(args) else {
+        return None;
+    };
+    // Exactly the names read here: the tool's decoder also folds case, so
+    // a `TASK_ID` beside `task_id` would act on a card this didn't check.
+    // `text` is allowed to be sent but is never used (card #1193).
+    let known: &[&str] = match name {
+        "assistant_tick" => &["task_id", "step_id"],
+        "assistant_send" => &["to", "text"],
+        "assistant_comment" => &["task_id", "text"],
+        _ => &["task_id"],
+    };
+    if v.keys().any(|k| !known.contains(&k.as_str())) {
+        return None;
+    }
+    let arg = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or_default();
+    // Card #1198: grants match the card a ref names in any space, and the
+    // tool runs on that card by id, so the model's spelling never picks it.
+    let resolve = |r: &str| h.s.b.card_id(r);
+    match name {
+        tools::TOOL_SEND => {
+            let (to, text) = g.take_text(name, arg("to"), &resolve)?;
+            Some(
+                serde_json::json!({ "to": to, "text": text })
+                    .to_string()
+                    .into_bytes(),
+            )
+        }
+        tools::TOOL_COMMENT => {
+            let (card, text) = g.take_text(name, arg("task_id"), &resolve)?;
+            Some(
+                serde_json::json!({ "task_id": card, "text": text })
+                    .to_string()
+                    .into_bytes(),
+            )
+        }
+        tools::TOOL_TICK => {
+            let card = g.take(name, arg("task_id"), arg("step_id"), &resolve)?;
+            Some(
+                serde_json::json!({ "task_id": card, "step_id": arg("step_id") })
+                    .to_string()
+                    .into_bytes(),
+            )
+        }
+        _ => {
+            let card = g.take(name, arg("task_id"), "", &resolve)?;
+            Some(
+                serde_json::json!({ "task_id": card })
+                    .to_string()
+                    .into_bytes(),
+            )
+        }
     }
 }
 
@@ -186,6 +289,14 @@ fn set_policy(h: &Handler, ib: &inbox::Inbox) -> Resp {
         Ok(d) => d,
         Err(e) => return http::error(400, &e),
     };
+    // The old Pause all left with Stop here (cards #787, #1196): an older
+    // mod's `/irori pause` is refused, and resume still lifts it.
+    if d.bool(3) && !ib.policy().paused {
+        return http::error(
+            400,
+            "Pause all is gone: Stop here in Irori's top bar stops this machine's agents",
+        );
+    }
     let p = inbox::Policy {
         mode: d.str(0),
         block: d.strings(1).unwrap_or_default(),

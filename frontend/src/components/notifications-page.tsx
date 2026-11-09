@@ -7,6 +7,7 @@
 // what happened, who did it and when. A click re-checks too: Irori
 // refuses an answer to something already answered, and the row says so.
 
+import { Ago } from "@/components/common/ago"
 import { cardRef } from "@/components/cards/bits"
 import { PermissionPrompt } from "@/components/cards/permission-prompt"
 import { useEffect, useState, type ReactNode } from "react"
@@ -23,7 +24,7 @@ import {
 import { useCard } from "@/lib/cards"
 import { AnswersShape } from "@/components/common/loading-shapes"
 import { askKey, askPatch, instant } from "@/lib/optimistic"
-import { plainLine, relativeTime } from "@/lib/irori"
+import { plainLine } from "@/lib/irori"
 import { previewFlag } from "@/lib/preview"
 import {
   Kind,
@@ -33,6 +34,7 @@ import {
   blockerOpen,
   blockerOutcome,
   deliveryOutcome,
+  deliveryWakes,
   kindLabel,
   kindTone,
   readNotifications,
@@ -43,6 +45,7 @@ import {
   type NotificationFilter,
 } from "@/lib/notifications"
 import { talk, type Delivery } from "@/lib/talk"
+import { onChange } from "@/lib/changes"
 import { go } from "@/lib/nav"
 import { cn } from "@/lib/utils"
 
@@ -54,7 +57,6 @@ export function NotificationsPage({
   unreadTotal,
   loading,
   error,
-  now,
   onOpenCard,
   onOpenMessage,
 }: {
@@ -64,7 +66,6 @@ export function NotificationsPage({
   unreadTotal?: number
   loading: boolean
   error: string | null
-  now: Date
   onOpenCard: (id: string) => void
   onOpenMessage: (deliveryId: string) => void
 }) {
@@ -162,7 +163,7 @@ export function NotificationsPage({
               <li key={n.key} className="min-w-0">
                 <Item
                   n={n}
-                  now={now}
+
                   onRead={() => open(n)}
                   onOpenCard={onOpenCard}
                   onOpenMessage={onOpenMessage}
@@ -229,13 +230,11 @@ const at = (s: string) => {
 // it ended.
 function Item({
   n,
-  now,
   onRead,
   onOpenCard,
   onOpenMessage,
 }: {
   n: Notification
-  now: Date
   onRead: () => void
   onOpenCard: (id: string) => void
   onOpenMessage: (deliveryId: string) => void
@@ -281,7 +280,7 @@ function Item({
           className="ml-auto shrink-0 tabular-nums"
           title={at(n.at)?.toLocaleString()}
         >
-          {relativeTime(at(n.at), now)}
+          <Ago at={at(n.at)} />
         </span>
       </div>
       <h3
@@ -299,7 +298,7 @@ function Item({
       )}
       <Live
         n={n}
-        now={now}
+
         onOpenCard={openCard}
         onOpenMessage={() => onOpenMessage(n.deliveryId)}
       />
@@ -308,20 +307,17 @@ function Item({
 }
 
 // Outcome is how the thing ended, and when.
-function Outcome({
-  line,
-  when,
-  now,
-}: {
-  line: string
-  when?: string
-  now: Date
-}) {
+function Outcome({ line, when }: { line: string; when?: string }) {
   const t = when ? at(when) : null
   return (
     <p className="text-[13px] break-words text-muted-foreground" role="status">
       {line}
-      {t && <span className="tabular-nums"> · {relativeTime(t, now)}</span>}
+      {t && (
+        <span className="tabular-nums">
+          {" "}
+          · <Ago at={t} />
+        </span>
+      )}
     </p>
   )
 }
@@ -338,16 +334,14 @@ function OpenCard({ onOpen }: { onOpen: () => void }) {
 
 function Live({
   n,
-  now,
   onOpenCard,
   onOpenMessage,
 }: {
   n: Notification
-  now: Date
   onOpenCard: () => void
   onOpenMessage: () => void
 }): ReactNode {
-  if (asksOnCard(n)) return <CardLive n={n} now={now} onOpen={onOpenCard} />
+  if (asksOnCard(n)) return <CardLive n={n} onOpen={onOpenCard} />
   if (n.kind === Kind.Ask && n.ask) return <AskLive n={n} />
   // Several messages that waited: they're DMs, so Talk's list (card #482).
   if (waitedSummary(n))
@@ -363,28 +357,20 @@ function Live({
       </span>
     )
   if ((n.kind === Kind.Message || n.kind === Kind.Held) && n.deliveryId)
-    return <DeliveryLive n={n} now={now} onOpen={onOpenMessage} />
+    return <DeliveryLive n={n} onOpen={onOpenMessage} />
   if (n.taskId)
     return n.card ? (
       <OpenCard onOpen={onOpenCard} />
     ) : (
-      <Outcome line="The card is gone" now={now} />
+      <Outcome line="The card is gone" />
     )
   return null
 }
 
 // CardLive is a card's blocker, done check or question as it stands now.
-function CardLive({
-  n,
-  now,
-  onOpen,
-}: {
-  n: Notification
-  now: Date
-  onOpen: () => void
-}) {
+function CardLive({ n, onOpen }: { n: Notification; onOpen: () => void }) {
   const { detail, error } = useCard(n.card?.id ?? "")
-  if (!n.card) return <Outcome line="The card is gone" now={now} />
+  if (!n.card) return <Outcome line="The card is gone" />
   if (error) return <OpenCard onOpen={onOpen} />
   // The item's answers are on their way (card #644): their shape now,
   // not a gap that jumps when they come.
@@ -422,7 +408,7 @@ function CardLive({
         {!b.doneCheck && (
           <p className="text-sm break-words">{plainLine(b.question)}</p>
         )}
-        <Outcome line={blockerOutcome(b)} when={b.resolved?.at} now={now} />
+        <Outcome line={blockerOutcome(b)} when={b.resolved?.at} />
         <OpenCard onOpen={onOpen} />
       </>
     )
@@ -437,7 +423,6 @@ function CardLive({
         <Outcome
           line="Answered; the card has moved on"
           when={detail.updatedAt}
-          now={now}
         />
       )}
       <OpenCard onOpen={onOpen} />
@@ -452,7 +437,7 @@ function CardLive({
 function AskLive({ n }: { n: Notification }) {
   const a = n.ask!
   const ask = n.key.startsWith("ask:") ? n.key.slice(4) : ""
-  if (!a.open) return <Outcome line={askOutcome(a)} now={new Date()} />
+  if (!a.open) return <Outcome line={askOutcome(a)} />
   const pick = (l: string) =>
     instant({
       key: askKey(ask),
@@ -479,36 +464,38 @@ function AskLive({ n }: { n: Notification }) {
 
 // DeliveryLive is a message to the person, or one Irori held, as it
 // stands now.
-function DeliveryLive({
-  n,
-  now,
-  onOpen,
-}: {
-  n: Notification
-  now: Date
-  onOpen: () => void
-}) {
+function DeliveryLive({ n, onOpen }: { n: Notification; onOpen: () => void }) {
   const held = n.kind === Kind.Held
   const [d, setD] = useState<Delivery | null>(null)
   const [gone, setGone] = useState(false)
+  const deliveryId = n.deliveryId
   useEffect(() => {
     let live = true
-    talk
-      .get(n.deliveryId)
-      .then((x) => live && setD(x))
-      .catch(() => live && setGone(true))
+    const fetch = () =>
+      talk
+        .get(deliveryId)
+        .then((x) => live && setD(x))
+        .catch(() => live && setGone(true))
+    void fetch()
+    // Only a change to this delivery (or everything) reads it again.
+    const off = onChange(
+      "inbox:changed",
+      (c) => {
+        if (deliveryWakes(c, deliveryId)) void fetch()
+      },
+      { follow: ["deliveries"] }
+    )
     return () => {
       live = false
+      off()
     }
-    // n is re-read on every inbox change, so its object changes then.
-  }, [n])
+  }, [deliveryId])
   const act = useAct()
   const [replying, setReplying] = useState(false)
-  if (gone) return <Outcome line="The message is gone" now={now} />
+  if (gone) return <Outcome line="The message is gone" />
   if (!d) return null
   const ended = deliveryOutcome(d, held)
-  if (ended)
-    return <Outcome line={ended} when={d.decidedAt || d.updatedAt} now={now} />
+  if (ended) return <Outcome line={ended} when={d.decidedAt || d.updatedAt} />
   if (act.done) return <Said error={null} done={act.done} />
   if (held)
     return (

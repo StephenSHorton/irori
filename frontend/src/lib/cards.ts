@@ -14,7 +14,18 @@ import {
 } from "react"
 
 import { agentsNowDefault } from "./agents-now"
+import { onChange, type Notice } from "./changes"
 import { BoardService, Browser, Events } from "./host"
+import {
+  doneWakes,
+  Follows,
+  IdleEveryMs,
+  liveCards,
+  refsToDrop,
+  trailing,
+  type RefEntry,
+} from "./small-lists"
+import { timedRead } from "./window-log"
 import { checkUploads, uploadOf } from "./uploads"
 import {
   AnswerResult,
@@ -24,6 +35,7 @@ import {
   CardMessage,
   CardResolution,
   CardSummary,
+  type CardsPatch,
   CardLater,
   CardThreadItem,
   CommentResult,
@@ -39,7 +51,7 @@ import {
   type AgentRef,
   type CardActivity,
   type CardBlocker,
-  type CardDetail,
+  CardDetail,
   type CardHolder,
   type CardOption,
   type CardPR,
@@ -49,12 +61,13 @@ import {
   type GoneWait,
   type CardSubtask,
   type CardWait,
+  type CardWeight,
   LinkKind,
   TaskState,
   type Link,
   type Mention,
   type NewCardInput,
-  type Step,
+  Step,
   ThreadCard,
 } from "./models"
 import {
@@ -67,9 +80,26 @@ import {
 } from "./irori"
 import { safeHref } from "./rich"
 import { EventInboxChanged, useLatest } from "./talk"
-import { NoteItem, sampleAgents, sampleCards, sampleYou } from "./sample-cards"
+import { usePatched, type Follow, type Want } from "./patched"
+import {
+  mergeThreads,
+  readThreads,
+  threadFollow,
+  type ThreadList,
+  type ThreadPatch,
+} from "./thread-list"
+import {
+  NoteItem,
+  sampleAgents,
+  sampleCards,
+  sampleHolder,
+  sampleYou,
+} from "./sample-cards"
+import { sampleAgents as sampleAgentSettings } from "./agents"
 import { nameOr, unknownAgent } from "./names"
+import type { CardCandidate } from "./mentions"
 import { pending, type Pending } from "./pending"
+import { spawnLine, type SpawnLine, type SpawnState } from "./spawn-line"
 
 export type {
   AgentRef,
@@ -93,6 +123,7 @@ export type {
   CardLater,
   CardThreadItem,
   CardWait,
+  CardWeight,
   CommentResult,
   Link,
   Mention,
@@ -241,9 +272,34 @@ export function openAsk(c: { ask?: CardAsk | null }): boolean {
   return !!c.ask && c.ask.state !== AskState.Closed
 }
 
+// askSpawn is what Irori is doing to get an ask nobody took an agent
+// (card #739), from its card's spawn state: starting one, its place in a
+// queue, or why it can't. null once an agent took it or it closed, or
+// while Irori isn't getting it one. Without it a reopened thread whose
+// agent had gone read "Nobody took this yet" while its new agent started.
+export function askSpawn(
+  a: CardAsk,
+  spawn?: SpawnState | null
+): SpawnLine | null {
+  if (
+    !spawn ||
+    a.state === AskState.Taken ||
+    a.state === AskState.Handed ||
+    a.state === AskState.Closed
+  )
+    return null
+  return spawnLine(spawn)
+}
+
 // askLine is an open ask's line in place of the holder line: how many
-// it told, who it waits on, or who took it.
-export function askLine(a: CardAsk): string {
+// it told, who it waits on, or who took it; while nobody took it and
+// Irori gets it an agent, that (card #739).
+// A reason it can't start is a long sentence: the line says it short, and
+// the card page's queue row (and a tile's title) carries it in full.
+export function askLine(a: CardAsk, spawn?: SpawnState | null): string {
+  const sp = askSpawn(a, spawn)
+  if (sp?.tone === "warn") return "Can't start an agent"
+  if (sp) return sp.text.charAt(0).toUpperCase() + sp.text.slice(1)
   switch (a.state) {
     case AskState.Taken:
       return `${a.taker ? displayName(a.taker) : "An agent"} took it`
@@ -286,24 +342,31 @@ function sampleState(): CardDetail[] {
 // keeps the real ones.
 const sampleThreadIds = new Set<string>()
 const sampleThreadState = new Map<string, string>()
+// How many replies the person has read in each sample thread (card #719).
+const sampleThreadRead = new Map<string, number>()
 // sampleThreadBoard is the shared board a sample thread was started on.
 const sampleThreadBoard = new Map<string, string>()
 // sampleThreadAgentsNow is a sample thread's "Agents answer now" (card
 // #391) once it differs from on.
 const sampleThreadAgentsNow = new Map<string, boolean>()
 
-// sampleThread is one of the sample's threads.
+// sampleThread is one of the sample's threads: an ask card (ask.thread
+// in the app), so a thread opens in the ask card view (card #780).
+// extra makes one real-looking: an agent on it, its steps.
 function sampleThread(
   id: string,
   short: string,
   text: string,
   at: string,
   thread: CardThreadItem[],
-  state: string
+  state: string,
+  extra: Partial<CardDetail> = {}
 ): CardDetail {
   sampleThreadIds.add(id)
   sampleThreadState.set(id, state)
-  return {
+  const working = extra.working ?? []
+  const taker = working[0] ?? null
+  return CardDetail({
     id,
     short,
     shortWas: "",
@@ -311,34 +374,74 @@ function sampleThread(
     goal: text,
     doneWhen: "",
     note: "",
-    state: TaskState.Submitted,
+    state: state === "resolved" ? TaskState.Completed : TaskState.Submitted,
     repoKey: "",
-    scope: "",
-    scopeLabel: "",
+    scope: "mine",
+    scopeLabel: "My devices",
     steps: [],
     blockers: [],
     prs: [],
     links: [],
     comments: [],
-    working: [],
     watching: [],
     progress: { done: 0, total: 0 },
     openBlockers: 0,
     waiting: 0,
     blockerQuestion: "",
     recent: [],
-    thread,
     threadEarlier: 0,
     historyTrimmed: false,
     updatedAt: at,
-    ask: null,
-  } as unknown as CardDetail
+    talking: [],
+    ...extra,
+    working,
+    holder: sampleHolder(working),
+    thread,
+    ask: CardAsk({
+      state:
+        state === "resolved"
+          ? AskState.Closed
+          : taker
+            ? AskState.Taken
+            : state === "handed"
+              ? AskState.Handed
+              : AskState.Open,
+      told: 3,
+      owner: "Macbook Pro (this one)",
+      wake: true,
+      taker,
+      outcome: null,
+      outcomeRef: "",
+    }),
+  })
+}
+
+// sampleThreadAsk closes or reopens a sample thread's ask with it, as
+// Resolve and Reopen do in coord (card #780): the card view follows.
+function sampleThreadAsk(id: string, closed: boolean) {
+  sample = sampleState().map((c) =>
+    c.id !== id || !c.ask
+      ? c
+      : {
+          ...c,
+          state: closed ? TaskState.Completed : TaskState.Submitted,
+          ask: CardAsk({
+            ...c.ask,
+            state: closed
+              ? AskState.Closed
+              : c.ask.taker
+                ? AskState.Taken
+                : AskState.Open,
+          }),
+        }
+  )
 }
 
 // sampleThreadSeed is the preview's threads: one sample-heron answered,
 // one its named agent heard, one handed to an idle agent, one resolved.
 function sampleThreadSeed(now: Date): CardDetail[] {
   const ago = (s: number) => new Date(now.getTime() - s * 1000).toISOString()
+  sampleThreadRead.set("sample-thread-6", 1)
   return [
     sampleThread(
       "sample-thread-1",
@@ -346,6 +449,20 @@ function sampleThreadSeed(now: Date): CardDetail[] {
       "Is #3 still moving? And did anyone finish the release notes (#8)?",
       ago(120),
       [
+        CardThreadItem({
+          id: "sample-thread-1-asked",
+          kind: "event",
+          at: ago(120),
+          who: sampleYou,
+          text: "You asked the room",
+        }),
+        CardThreadItem({
+          id: "sample-thread-1-took",
+          kind: "event",
+          at: ago(100),
+          who: sampleAgents.heron,
+          text: "sample-heron took it",
+        }),
         CardThreadItem({
           id: "sample-thread-1-a",
           kind: "comment",
@@ -361,6 +478,47 @@ function sampleThreadSeed(now: Date): CardDetail[] {
           at: ago(30),
           who: sampleAgents.heron,
           text: "The build log is at builds/release/mac-universal/2026-11-01T18-37-38Z/irori-desktop-aarch64-apple-darwin-signed-notarized-stapled.log and the failing key was RELEASE_NOTES_EXPORT_PIPELINE_STAGE_THREE_MISSING_ARTIFACT_MANIFEST.",
+          attachments: [
+            {
+              sha256: "7".repeat(64),
+              name: "release-notes-draft.png",
+              size: 41870,
+              mime: "image/png",
+              device: sampleYou.deviceId ?? "",
+            },
+          ],
+        }),
+      ],
+      "answered",
+      // An agent on it, with its steps (card #780): the ask view's
+      // Progress and Who's on it have something to show.
+      {
+        working: [sampleAgents.heron],
+        steps: [
+          Step({ id: "s1", text: "Check #3's blocker", done: true }),
+          Step({
+            id: "s2",
+            text: "Finish the release notes (#8)",
+            doing: true,
+          }),
+          Step({ id: "s3", text: "Post the build log" }),
+        ],
+        progress: { done: 1, total: 3 },
+      }
+    ),
+    // Answered and opened since (card #719): not in Talk's count, no dot.
+    sampleThread(
+      "sample-thread-6",
+      "28",
+      "Which port does the preview use?",
+      ago(300),
+      [
+        CardThreadItem({
+          id: "sample-thread-6-a",
+          kind: "comment",
+          at: ago(240),
+          who: sampleAgents.otter,
+          text: "The first free one from 9246 up; it writes it to frontend/.preview-url.",
         }),
       ],
       "answered"
@@ -391,6 +549,43 @@ function sampleThreadSeed(now: Date): CardDetail[] {
       [],
       "waiting"
     ),
+    // Card #739: answered by an agent that has gone since, resolved,
+    // reopened, and written on. Nobody live heard the follow-up; Irori
+    // starts a new agent for it, and the thread says so while it starts.
+    {
+      ...sampleThread(
+        "sample-thread-6",
+        "28",
+        "Can we add shortcuts to the app, like Cmd+[ to go back?",
+        ago(600),
+        [
+          CardThreadItem({
+            id: "sample-thread-6-a",
+            kind: "comment",
+            at: ago(540),
+            who: { ...sampleAgents.heron, status: "gone", live: false },
+            text: "Yes: #733 adds Back/Forward, Cmd+1–5 and Cmd+B, and #734 a terminal panel on Ctrl+`.",
+          }),
+          CardThreadItem({
+            id: "sample-thread-6-b",
+            kind: "comment",
+            at: ago(15),
+            who: sampleYou,
+            text: "we're doing equivalent windows shortcuts right?",
+            unheard: true,
+          }),
+        ],
+        "waiting"
+      ),
+      ask: CardAsk({
+        state: "unclaimed",
+        told: 0,
+        owner: "",
+        wake: true,
+        outcomeRef: "",
+      }),
+      starting: "Macbook Pro (this one)",
+    } as CardDetail,
     sampleThread(
       "sample-thread-4",
       "26",
@@ -414,13 +609,27 @@ function sampleThreads(boardId: string | null = ""): ThreadSummary[] {
     const last = replies[replies.length - 1]
     const agents = replies.filter((it) => it.who.key !== sampleYou.key)
     const state = sampleThreadState.get(c.id) ?? "waiting"
+    // Unread (card #719): an agent replied after what the person read and
+    // after their own newest reply.
+    const seen = Math.max(
+      sampleThreadRead.get(c.id) ?? 0,
+      replies.findLastIndex((it) => it.who.key === sampleYou.key) + 1
+    )
+    const unread =
+      state !== "resolved" &&
+      replies.slice(seen).some((it) => it.who.key !== sampleYou.key)
     return ThreadSummary({
       id: c.id,
       short: c.short,
       title: c.title,
       text: c.goal,
+      // A follow-up nobody live heard waits on an agent (card #739).
       state:
-        state === "resolved" ? "resolved" : agents.length ? "answered" : state,
+        state === "resolved"
+          ? "resolved"
+          : agents.length && c.id !== "sample-thread-6"
+            ? "answered"
+            : state,
       told: c.id === "sample-thread-1" ? [sampleAgents.heron] : [],
       answeredBy: agents
         .map((it) => it.who)
@@ -446,8 +655,11 @@ function sampleThreads(boardId: string | null = ""): ThreadSummary[] {
       updatedAt: last?.at ?? c.updatedAt,
       agentsNow: sampleThreadAgentsNow.get(c.id) ?? true,
       spaceId: sampleThreadBoard.get(c.id),
+      unread,
       starting:
-        c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
+        c.id === "sample-thread-5" || c.id === "sample-thread-6"
+          ? "Macbook Pro (this one)"
+          : undefined,
     })
   })
   const t = (s: ThreadSummary) => Date.parse(s.updatedAt) || 0
@@ -478,19 +690,38 @@ export const threads = {
     return sampleThreads(null)
   },
 
+  // byId is just these threads' rows, for Ask Irori's follower, which
+  // follows a few (card #1136).
+  // gone are the ids with no row (not a thread, withdrawn, cleared, or no
+  // longer on this device), for a list to drop (card #1149).
+  async byId(
+    ids: string[]
+  ): Promise<{ rows: ThreadSummary[]; gone: string[] }> {
+    if (inWails()) {
+      const got = await BoardService.ThreadsById(ids)
+      return { rows: got?.rows ?? [], gone: got?.gone ?? [] }
+    }
+    const want = new Set(ids)
+    const rows = sampleThreads(null).filter((t) => want.has(t.id))
+    const have = new Set(rows.map((t) => t.id))
+    return { rows, gone: ids.filter((id) => !have.has(id)) }
+  },
+
   // start is the header box's message as a thread: the agents on the
   // cards it names (#12) and the ones it @mentions hear it, and at once
   // one idle agent or Irori's own agent gets it (card #512).
   // files (picked, dropped or pasted) go on it as an ask's do (card
   // #124). boardId starts it on that shared board (card #134): no
   // mentions or files there. agentsNow is the box's "Agents answer now"
-  // (card #391); null: the default for its mentions.
+  // (card #391); null: the default for its mentions. assistant: the Office
+  // Assistant is posting it (card #991), so it keeps its title.
   async start(
     text: string,
     mentions: Mention[] = [],
     files: File[] = [],
     boardId = "",
-    agentsNow: boolean | null = null
+    agentsNow: boolean | null = null,
+    { assistant = false }: { assistant?: boolean } = {}
   ): Promise<TaskResult> {
     checkUploads(files)
     if (inWails()) {
@@ -503,9 +734,16 @@ export const threads = {
             text,
             mentions,
             await Promise.all(files.map(uploadOf)),
-            agentsNow
+            agentsNow,
+            assistant
           )
-        : await BoardService.StartThread(text, mentions, boardId, agentsNow)
+        : await BoardService.StartThread(
+            text,
+            mentions,
+            boardId,
+            agentsNow,
+            assistant
+          )
       rememberStarted(boardId, startedRow(res))
       return res
     }
@@ -542,9 +780,22 @@ export const threads = {
     sampleChanged()
   },
 
+  // read marks what is in an open thread now as read (card #719): Talk's
+  // count drops it until an agent replies again.
+  async read(id: string): Promise<void> {
+    if (inWails()) return BoardService.ReadThread(id)
+    const n = sampleState()
+      .find((c) => c.id === id)
+      ?.thread.filter((it) => it.kind === "comment").length
+    if (n === undefined || sampleThreadRead.get(id) === n) return
+    sampleThreadRead.set(id, n)
+    sampleChanged()
+  },
+
   async resolve(id: string): Promise<void> {
     if (inWails()) return BoardService.ResolveThread(id)
     sampleThreadState.set(id, "resolved")
+    sampleThreadAsk(id, true)
     sampleChanged()
   },
 
@@ -553,6 +804,7 @@ export const threads = {
   async reopen(id: string): Promise<void> {
     if (inWails()) return BoardService.ReopenThread(id)
     sampleThreadState.set(id, "answered")
+    sampleThreadAsk(id, false)
     sampleChanged()
   },
 }
@@ -594,35 +846,88 @@ export function sampleCardRef(r: string): RefTarget | null {
   }
 }
 
-// refCache keeps each looked-up ref until the board changes, so a long
+// refCache keeps each looked-up ref until a change to its card, so a long
 // thread full of "#12" asks once per change; a minute at most, as a net.
-const refCache = new Map<string, { at: number; v: Promise<RefTarget | null> }>()
+// Each entry remembers the card it resolved to (card #1152), so a notice
+// that names cards drops those entries, and the ones that found no card or
+// have not answered yet (a new card, or a renumber, always comes with ids).
+type RefCached = RefEntry & { at: number; v: Promise<RefTarget | null> }
+const refCache = new Map<string, RefCached>()
 const RefTTL = 60_000
 
-// refGen counts board changes while some chip watches (card #343): each
-// one drops the cache, and every useCardRef asks again, so a looked-up
-// card's chip moves with the card, no reload. One subscription for all.
+// refGen counts the refreshes while some chip watches (card #343): each one
+// drops what the notices staled, and every useCardRef asks again, so a
+// looked-up card's chip moves with the card, no reload. One subscription
+// for all.
 let refGen = 0
+// RefRefreshMs is the wait that gathers a burst of board changes into one
+// refresh of the chips.
+export const RefRefreshMs = 1500
+let refTimer: ReturnType<typeof setTimeout> | undefined
+// The refs a notice staled, until the burst's refresh drops them.
+const refStale = new Set<string>()
 const refWatchers = new Set<() => void>()
 let refOff: (() => void) | null = null
-function watchRefs(fn: () => void): () => void {
-  refWatchers.add(fn)
-  refOff ??= subscribe(() => {
-    refCache.clear()
+// refNotice takes a notice: the entries it stales wait for the burst's end.
+export function refNotice(n: Notice): void {
+  for (const r of refsToDrop(n, refCache)) refStale.add(r)
+  if (!refStale.size || refTimer !== undefined) return
+  refTimer = setTimeout(() => {
+    refTimer = undefined
+    for (const r of refStale) refCache.delete(r)
+    refStale.clear()
     refGen++
     for (const w of refWatchers) w()
-  })
+  }, RefRefreshMs)
+}
+function watchRefs(fn: () => void): () => void {
+  refWatchers.add(fn)
+  // One refresh per burst (card #1136): a busy board changes many times a
+  // minute, and each change used to ask for every chip again.
+  refOff ??= subscribeIds(refNotice)
   return () => {
     refWatchers.delete(fn)
     if (!refWatchers.size && refOff) {
       refOff()
       refOff = null
+      clearTimeout(refTimer)
+      refTimer = undefined
+      refStale.clear()
     }
   }
 }
 
+// resetRefs is for tests.
+export function resetRefs(): void {
+  refCache.clear()
+  refStale.clear()
+  clearTimeout(refTimer)
+  refTimer = undefined
+  refGen = 0
+}
+
+// refEntry asks for r, or has the answer it asked for (card #1152).
+export function refEntry(r: string): RefCached {
+  let e = refCache.get(r)
+  if (!e || Date.now() - e.at > RefTTL) {
+    const made: RefCached = {
+      at: Date.now(),
+      id: "",
+      settled: false,
+      v: timedRead("refs", () => cardRef(r)).catch(() => null),
+    }
+    void made.v.then((v) => {
+      made.id = v?.id ?? ""
+      made.settled = true
+    })
+    refCache.set(r, made)
+    e = made
+  }
+  return e
+}
+
 // useCardRef is cardRef(r) for a component: undefined while it first
-// loads, then the target or null, fresh on every board change (the last
+// loads, then the target or null, fresh on a change to its card (the last
 // answer stays while the next loads). Off (r "") it asks nothing.
 export function useCardRef(r: string): RefTarget | null | undefined {
   const [got, setGot] = useState<{ r: string; v: RefTarget | null } | null>(
@@ -636,12 +941,7 @@ export function useCardRef(r: string): RefTarget | null | undefined {
   useEffect(() => {
     if (!r) return
     let live = true
-    let e = refCache.get(r)
-    if (!e || Date.now() - e.at > RefTTL) {
-      e = { at: Date.now(), v: cardRef(r).catch(() => null) }
-      refCache.set(r, e)
-    }
-    void e.v.then((v) => live && setGot({ r, v }))
+    void refEntry(r).v.then((v) => live && setGot({ r, v }))
     return () => {
       live = false
     }
@@ -711,6 +1011,59 @@ export function cardStatus(c: CardSummary): RefStatus {
   })
 }
 
+// LeadThreads is how many open threads the # picker mixes in among the
+// first cards; the rest follow the cards, for a search to find.
+export const LeadThreads = 5
+
+// refCandidates are the # picker's rows (cards #114, #982): the live cards
+// and the open threads, which the window keeps apart. Threads alternate
+// with the first cards: after every card they would sit below the list's
+// fold, or past its cap. A card stays first, so "#" and Enter means what
+// it did. A thread's ref carries its board's tag, as a card's does.
+export function refCandidates(
+  cards: readonly CardSummary[],
+  threads: readonly {
+    id: string
+    short: string
+    title: string
+    tag?: string
+    state?: string
+  }[]
+): (CardCandidate & { status: RefStatus; thread: boolean })[] {
+  const row = (
+    c: { id: string; short: string; title: string; tag?: string },
+    status: RefStatus,
+    thread: boolean
+  ) => ({
+    id: c.id,
+    short: c.short,
+    ref: `${c.tag ?? ""}#${c.short}`,
+    title: plainLine(c.title),
+    status,
+    thread,
+  })
+  // Its state as the chip it becomes shows it (card #343).
+  const cs = cards
+    .filter((c) => c.short)
+    .map((c) => row(c, cardStatus(c), false))
+  const open = refStatus({
+    thread: true,
+    done: false,
+    state: "",
+    blocked: false,
+  })
+  const ts = threads
+    .filter((t) => t.short && t.state !== "resolved")
+    .map((t) => row(t, open, true))
+  const lead = Math.min(LeadThreads, ts.length)
+  const out = []
+  for (let i = 0; i < lead; i++) {
+    if (i < cs.length) out.push(cs[i])
+    out.push(ts[i])
+  }
+  return [...out, ...cs.slice(lead), ...ts.slice(lead)]
+}
+
 // A thread the person just started shows at once (card #551), from what
 // StartThread answered: on a slow window the list's next read can be
 // seconds off, and Talk opens the new thread by finding it in the list.
@@ -725,6 +1078,12 @@ const startedListeners = new Set<() => void>()
 function rememberStarted(boardId: string, row: ThreadSummary) {
   startedThreads = [...startedThreads, { seq: ++startedSeq, boardId, row }]
   for (const fn of startedListeners) fn()
+}
+
+// wasStarted says StartThread made id in this window (card #780): it is a
+// thread even before a list read has it.
+export function wasStarted(id: string): boolean {
+  return startedThreads.some((s) => s.row.id === id)
 }
 
 function onStarted(fn: () => void): () => void {
@@ -751,17 +1110,18 @@ export function startedRow(res: TaskResult): ThreadSummary {
 
 // withStarted is rows, a read of boardId's threads begun at seq asOf, with
 // the threads started since on top, newest first.
+// A null boardId is every board's (ThreadsAll, card #780).
 export function withStarted(
   rows: ThreadSummary[],
   asOf: number,
-  boardId: string,
+  boardId: string | null,
   started: StartedThread[]
 ): ThreadSummary[] {
   const fresh = started
     .filter(
       (s) =>
         s.seq > asOf &&
-        s.boardId === boardId &&
+        (boardId === null || s.boardId === boardId) &&
         !rows.some((r) => r.id === s.row.id)
     )
     .map((s) => s.row)
@@ -769,42 +1129,76 @@ export function withStarted(
   return fresh.length ? [...fresh, ...rows] : rows
 }
 
-// useThreads is the Threads panel's rows, fresh on every card change.
+// useThreads is the Threads panel's rows. A card change or a read cursor
+// (card #1149) reads just the threads it names; anything else reads the list.
 export function useThreads(boardId = ""): {
   threads: ThreadSummary[]
   // True until the first read lands (card #598), never on a reload.
   loading: boolean
   error: string | null
 } {
-  const load = useCallback(async () => {
-    const asOf = startedSeq
-    return { rows: await threads.list(boardId), asOf }
-  }, [boardId])
-  const { value, loading, error, reload } = useLatest(
-    load,
-    { rows: [] as ThreadSummary[], asOf: startedSeq },
-    "threads"
-  )
-  useFresh(reload, error, true)
-  const started = useSyncExternalStore(onStarted, () => startedThreads)
-  const list = useMemo(
-    () => withStarted(value.rows, value.asOf, boardId, started),
-    [value, boardId, started]
-  )
+  const { list, loading, error } = useThreadList("threads", boardId, boardId)
   return { threads: list, loading, error }
 }
 
-// useAllThreads is every thread on this device, fresh on every card change.
+// useAllThreads is every thread on this device, fresh on a change to any of
+// them. A thread's read marker is a Talk read cursor (card #719): reading
+// one here or on another of the person's devices names it in
+// talk:changed.convs. Nothing in a row comes from the inbox, so
+// inbox:changed doesn't wake it.
 export function useAllThreads(): {
   threads: ThreadSummary[]
   // True until the first read lands (card #598), never on a reload.
   loading: boolean
   error: string | null
 } {
-  const load = useCallback(() => threads.listAll(), [])
-  const { value, loading, error, reload } = useLatest<ThreadSummary[]>(load, [])
-  useFresh(reload, error, true)
-  return { threads: value, loading, error }
+  const { list, loading, error } = useThreadList("threads-all", null, null)
+  return { threads: list, loading, error }
+}
+
+// useThreadList is both: one board's threads (boardId; "" is Personal's), or
+// every board's (null).
+function useThreadList(
+  name: string,
+  boardId: string | null,
+  rekey: string | null
+) {
+  const shown = useRef<ThreadSummary[]>([])
+  const { value, loading, error, reload } = usePatched<ThreadList, ThreadPatch>(
+    {
+      name,
+      initial: { rows: [], asOf: startedSeq },
+      follow: threadFollow,
+      rekey: rekey ?? undefined,
+      read: (want) =>
+        readThreads(want, {
+          startedSeq: () => startedSeq,
+          full: () =>
+            boardId === null ? threads.listAll() : threads.list(boardId),
+          byId: (ids) => threads.byId(ids),
+          current: () => shown.current,
+        }),
+      merge: (cur, patch) => mergeThreads(cur, patch, boardId),
+      rows: (v) => v.rows.map((r) => [r.id, r]),
+    }
+  )
+  useEffect(() => {
+    shown.current = value.rows
+  }, [value])
+  // The preview's cards change without events.
+  useEffect(() => {
+    if (inWails()) return
+    return subscribe(() => void reload())
+  }, [reload])
+  // A thread just started on any board is in it at once (card #780): a
+  // board's Threads panel and its ask box open it in Talk, which finds it
+  // here, before the next read has it.
+  const started = useSyncExternalStore(onStarted, () => startedThreads)
+  const list = useMemo(
+    () => withStarted(value.rows, value.asOf, boardId, started),
+    [value, boardId, started]
+  )
+  return { list, loading, error }
 }
 
 function sampleChanged() {
@@ -853,7 +1247,6 @@ function summary(c: CardDetail): CardSummary {
     queuePlace: c.queuePlace,
     usageLimit: c.usageLimit,
     waitPr: c.waitPr,
-    mergePr: c.mergePr,
     goneWait: c.goneWait,
     working: c.working,
     watching: c.watching,
@@ -874,6 +1267,7 @@ function summary(c: CardDetail): CardSummary {
     owner: c.owner,
     later: c.later,
     order: c.order,
+    weight: c.weight,
     // As crates/window's search_text (card #171), less the creator.
     searchText: [c.goal, c.doneWhen, ...c.steps.map((s) => s.text)]
       .map((w) => w.trim())
@@ -938,12 +1332,8 @@ export function setSampleBoards(fn: (id: string) => SampleBoard | undefined) {
 }
 
 // samplePersonalOf finds one of Personal's sample boards, the same way.
-let samplePersonalOf: (
-  id: string
-) => { boardId: string; tag: string } | undefined = () => undefined
-export function setSamplePersonal(
-  fn: (id: string) => { boardId: string; tag: string } | undefined
-) {
+let samplePersonalOf: (id: string) => SampleList | undefined = () => undefined
+export function setSamplePersonal(fn: (id: string) => SampleList | undefined) {
   samplePersonalOf = fn
 }
 
@@ -962,6 +1352,7 @@ function sampleCreate(input: NewCardInput): TaskResult {
     : input.spaceBoard
       ? samplePersonalOf(input.spaceBoard)
       : undefined
+  refuseClosed(list)
   const tag = list?.tag ?? board?.tag ?? ""
   const top = Math.max(
     0,
@@ -1092,6 +1483,42 @@ function samplePin(id: string, pinned: boolean) {
   sampleChanged()
 }
 
+// sampleSetWeight is BoardService.SetWeight on the sample (card #963): the
+// person's weight, mapped as the preview's Settings › Agents maps it; ""
+// clears it.
+function sampleSetWeight(id: string, level: string, reason: string) {
+  const c = sampleCard(id)
+  const why = reason.trim()
+  if (why.length > 200)
+    throw new Error("coord: invalid input: a weight's reason is 200 at most")
+  if (!level) {
+    c.weight = null
+    sampleChanged()
+    return
+  }
+  const a = sampleAgentSettings()
+  const [model, effort] =
+    level === "light"
+      ? [a.lightModel, a.lightEffort]
+      : level === "heavy"
+        ? [a.heavyModel, a.heavyEffort]
+        : level === "normal"
+          ? [a.model, a.effort]
+          : ["", ""]
+  if (!model)
+    throw new Error(`coord: invalid input: weight "${level}" isn't one`)
+  c.weight = {
+    level,
+    reason: why,
+    setBy: "person",
+    byName: "you",
+    model,
+    effort,
+    at: new Date().toISOString(),
+  } satisfies CardWeight
+  sampleChanged()
+}
+
 function sampleMovePin(id: string, before: string) {
   const list = sampleState()
     .filter((x) => x.pinned && x.id !== id)
@@ -1162,15 +1589,100 @@ function sampleDelete(id: string) {
 
 // sampleMoveBoard is BoardService.Move on the sample: the card shows the
 // new board and its tag at once, and the sample keeps no numbers per board.
-function sampleMoveBoard(id: string, board: string) {
+export function sampleMoveBoard(id: string, board: string) {
   const c = sampleCard(id)
   const space = c.board ? sampleBoardOf(c.board) : undefined
   const list = space
     ? space.boards?.find((x) => x.boardId === board)
     : samplePersonalOf(board)
+  refuseClosed(list)
   c.tag = list?.tag || space?.tag || ""
   c.spaceBoard = board
   sampleChanged()
+}
+
+// sampleRename is BoardService.Rename on the sample (card #779): cards
+// and threads alike, as the host's checks.
+export function sampleRename(id: string, title: string) {
+  const t = title.trim()
+  if (!t) throw new Error("coord: a card needs a title")
+  if ([...t].length > 200)
+    throw new Error("coord: title longer than 200 characters")
+  const c = sampleCard(id)
+  if (c.title === t) return
+  c.title = t
+  sampleChanged()
+}
+
+// sampleUndoTitle is BoardService.UndoTitle on the sample (card #782):
+// the title Irori's rename replaced comes back as the person's own, and
+// the line loses its Undo.
+export function sampleUndoTitle(id: string) {
+  const c = sampleCard(id)
+  const line = [...c.thread].reverse().find((it) => it.undoTitle)
+  if (!line?.undoTitle) throw new Error("Irori's name is already gone")
+  const was = c.title
+  c.title = line.undoTitle
+  c.thread = [
+    ...c.thread.map((it) =>
+      it.undoTitle ? { ...it, undoTitle: undefined } : it
+    ),
+    CardThreadItem({
+      id: `${id}-undo-${c.thread.length}`,
+      kind: "event",
+      at: new Date().toISOString(),
+      who: sampleYou,
+      text: `You renamed it from “${was}” to “${c.title}”`,
+    }),
+  ]
+  sampleChanged()
+}
+
+// sampleUndoWeight is BoardService.UndoWeight on the sample (card #965):
+// what Irori replaced comes back as the person's, and the line loses its
+// Undo.
+export function sampleUndoWeight(id: string) {
+  const c = sampleCard(id)
+  const line = [...c.thread].reverse().find((it) => it.undoWeight)
+  if (!line?.undoWeight) throw new Error("Irori's weight is already gone")
+  sampleSetWeight(
+    id,
+    line.undoWeight === "no weight" ? "" : line.undoWeight,
+    ""
+  )
+  c.thread = c.thread.map((it) =>
+    it.undoWeight ? { ...it, undoWeight: undefined } : it
+  )
+  sampleChanged()
+}
+
+// sampleCancel is BoardService.Close as canceled on the sample, with its
+// note (card #690: a closed board's open cards).
+export function sampleCancel(id: string, note: string) {
+  sampleClose(id, TaskState.Canceled, note)
+}
+
+// refuseClosed is coord's read-only closed board on the sample (card
+// #690): nothing new goes onto one.
+function refuseClosed(list: SampleList | undefined) {
+  if (list?.closed)
+    throw new Error(
+      `coord: not allowed: board "${list.tag || list.name}" is closed: reopen it first, or pick another board`
+    )
+}
+
+// sampleOpenOn is the open cards on one board of a space (or of Personal
+// when space is ""), for the sample's Close board (card #690). Only a
+// board that isn't the first can close, so a card with no inner board
+// never counts.
+export function sampleOpenOn(space: string, boardId: string): CardDetail[] {
+  return sampleState().filter(
+    (c) =>
+      (c.board ?? "") === space &&
+      c.spaceBoard === boardId &&
+      !over(c) &&
+      !sampleThreadIds.has(c.id)
+  )
 }
 
 // sampleBoardGone is a board delete on the sample (card #563): its cards go
@@ -1199,7 +1711,15 @@ type SampleBoard = {
   name: string
   tag: string
   people: string[]
-  boards?: { boardId: string; name: string; tag: string }[]
+  boards?: SampleList[]
+}
+
+// SampleList is one board inside a sample space or Personal.
+type SampleList = {
+  boardId: string
+  name?: string
+  tag: string
+  closed?: boolean
 }
 
 // strictPass is internal/scrub.Strict for the sample: absolute paths and
@@ -1928,6 +2448,18 @@ export const cards = {
     samplePin(id, pinned)
   },
 
+  // setWeight weighs card id for the person (card #963): "light", "normal"
+  // or "heavy", with an optional line on why. Theirs: agents and the
+  // assistant can't change it after. "" clears it, handing it back to the
+  // agents; until one weighs it again it runs as normal.
+  async setWeight(id: string, level: string, reason = ""): Promise<void> {
+    if (inWails()) {
+      await BoardService.SetWeight(id, level, reason)
+      return
+    }
+    sampleSetWeight(id, level, reason)
+  },
+
   // pause pauses card id or resumes it (card #207): its holders are
   // stopped and their tools refused until Resume. Returns who was told.
   async pause(id: string, paused: boolean, note = ""): Promise<string[]> {
@@ -2002,6 +2534,37 @@ export const cards = {
       return
     }
     sampleDelete(id)
+  },
+
+  // rename is the person renaming a card or thread by hand (card #779):
+  // the board, the Threads list and its page show it at the next read,
+  // and an agent's later rename doesn't land.
+  async rename(id: string, title: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.Rename(id, title)
+      return
+    }
+    sampleRename(id, title)
+  },
+
+  // undoTitle is the person's Undo on Irori's name for their thread (card
+  // #782): the title it had comes back as theirs, and Irori leaves it.
+  async undoTitle(id: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.UndoTitle(id)
+      return
+    }
+    sampleUndoTitle(id)
+  },
+
+  // undoWeight is the person's Undo on Irori's weighing of a card (card
+  // #965): what it replaced comes back as theirs, and Irori leaves it.
+  async undoWeight(id: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.UndoWeight(id)
+      return
+    }
+    sampleUndoWeight(id)
   },
 
   // move puts a card on another board in its space (card #563), with its
@@ -2109,13 +2672,71 @@ const RetryMs = 4000
 
 // subscribe re-runs fn on every board:changed (or sample change), and on
 // devices:changed: a renamed device changes the cards' "on <device>" lines.
-function subscribe(fn: () => void): () => void {
+// onCardsChanged calls fn on every card change (board:changed,
+// devices:changed; the sample's changes in the preview).
+export function onCardsChanged(fn: () => void): () => void {
+  return subscribe(fn)
+}
+
+// cardsById reads cards by id in one call, as the card hooks share
+// (readCards): each id's card, or its error. Ask Irori's follower (card
+// #785) reads the threads it posted and the cards made from them.
+// It holds what it last read of each id and asks with its rev (card
+// #1136), so a card that hasn't moved costs a stamp, not its whole body.
+let followed = new Map<string, CardSlot>()
+export async function cardsById(ids: string[]): Promise<Map<string, CardSlot>> {
+  const held = followed
+  const have = new Map<string, string>()
+  for (const id of ids) {
+    const s = held.get(id)
+    if (s?.rev && s.detail && !s.error) have.set(id, s.rev)
+  }
+  const got = await timedRead("cardsById", () => readCards(ids, have))
+  const out = new Map<string, CardSlot>()
+  for (const [id, slot] of got) {
+    if (!slot.same) {
+      out.set(id, slot)
+      continue
+    }
+    // Same as held; if the held one moved on meanwhile (another caller),
+    // leave it out: the caller tries again next round.
+    const was = held.get(id)
+    if (was && was.rev === slot.rev) out.set(id, was)
+  }
+  followed = new Map(out)
+  return out
+}
+
+//
+// focus: also a full read when the window gets focus, at most once a minute
+// (changes.ts). Only one of the two signals carries it.
+function subscribe(fn: () => void, focus = false): () => void {
   if (!inWails()) {
     sampleListeners.add(fn)
     return () => sampleListeners.delete(fn)
   }
-  const offBoard = Events.On(EventBoardChanged, fn)
-  const offDevices = Events.On(EventDevicesChanged, fn)
+  const offBoard = onChange(EventBoardChanged, () => fn(), { focus })
+  const offDevices = onChange(EventDevicesChanged, () => fn())
+  return () => {
+    offBoard()
+    offDevices()
+  }
+}
+
+// subscribeIds is subscribe for a list that reads from the ids a card change
+// names (card #1152): fn gets the notice, `all` for a devices change. The
+// sample has no ids, so a change there is `all`.
+function subscribeIds(fn: (n: Notice) => void, focus = false): () => void {
+  if (!inWails()) {
+    const all = () => fn({ signal: "board:changed", all: true })
+    sampleListeners.add(all)
+    return () => sampleListeners.delete(all)
+  }
+  const offBoard = onChange(EventBoardChanged, fn, {
+    follow: Follows.cards,
+    focus,
+  })
+  const offDevices = onChange(EventDevicesChanged, fn)
   return () => {
     offBoard()
     offDevices()
@@ -2127,27 +2748,24 @@ function subscribe(fn: () => void): () => void {
 // inbox:changed too (coalesced to 4 a second on the Go side): the card
 // page's "queued for / sent to, not read yet" lines come from the inbox,
 // so they change when a delivery does, not when the card does.
+//
+// wake, when given, is what a change calls in place of reload() (the idle
+// line reads at most every 5 s); the mount's read and the retry stay direct.
 function useFresh(
   reload: () => Promise<void>,
   error: string | null,
-  inbox = false
+  inbox = false,
+  wake?: () => void
 ) {
   useEffect(() => {
     void reload()
-    return subscribe(() => void reload())
-  }, [reload])
+    return subscribe(wake ?? (() => void reload()), true)
+  }, [reload, wake])
 
   useEffect(() => {
     if (!inbox || !inWails()) return
-    return Events.On(EventInboxChanged, () => void reload())
+    return onChange(EventInboxChanged, () => void reload())
   }, [inbox, reload])
-
-  useEffect(() => {
-    if (!inWails()) return
-    const onFocus = () => void reload()
-    window.addEventListener("focus", onFocus)
-    return () => window.removeEventListener("focus", onFocus)
-  }, [reload])
 
   useEffect(() => {
     if (!error) return
@@ -2217,22 +2835,99 @@ export type CardsState = {
   error: string | null
 }
 
+// CardsRead is one grid read: every row with no order (a full read), or
+// the rows named with every live card's id in grid order (a patch).
+export type CardsRead = { rows: CardSummary[]; order: string[] | null }
+
+// The grid's ids in a notice: board:changed's cards.
+export const CardsBucket = "board:changed.cards"
+
+// The grid follows card changes (the focus read rides on them) and device
+// changes, whose names and colours show on every row (always `all`).
+const cardsFollow: readonly Follow[] = [
+  { signal: EventBoardChanged, buckets: ["cards"], focus: true },
+  { signal: EventDevicesChanged },
+]
+
+export type CardsHost = {
+  Cards(): Promise<CardSummary[] | null>
+  CardsCold(): Promise<CardSummary[] | null>
+  CardsPatch(ids: string[]): Promise<CardsPatch | null>
+}
+
+// readGrid is the grid's one read (card #1147, list-signals.md §6.1): a
+// drift sample reads cold on the host (never from its summary cache, which
+// it then replaces), `all` reads the whole grid, and a notice's cards read
+// just their rows with the whole order.
+export async function readGrid(
+  want: Want,
+  host: CardsHost
+): Promise<CardsRead> {
+  if (want.drift) return { rows: (await host.CardsCold()) ?? [], order: null }
+  if (want.full) return { rows: (await host.Cards()) ?? [], order: null }
+  const p = await host.CardsPatch(want.ids[CardsBucket] ?? [])
+  return { rows: p?.rows ?? [], order: p?.order ?? [] }
+}
+
+// mergeCards puts a read on the grid: a full read replaces it; a patch
+// upserts its rows and lays them out in the host's order, so a card the
+// order leaves out (closed) goes, and an id with no row yet is skipped
+// (its own notice brings the row). The result is always the whole grid,
+// which pending.observeSummaries needs: a card missing from it is gone.
+export function mergeCards(
+  current: CardSummary[],
+  read: CardsRead,
+  want: Want
+): CardSummary[] {
+  if (want.full || read.order === null) return read.rows
+  const byId = new Map(current.map((c) => [c.id, c]))
+  for (const r of read.rows) byId.set(r.id, r)
+  return read.order.flatMap((id) => {
+    const c = byId.get(id)
+    return c ? [c] : []
+  })
+}
+
 // useCards is the grid: every live card, cards waiting on a decision first,
-// with the person's pending changes on them (card #644).
+// with the person's pending changes on them (card #644). It patches (card
+// #1147): a card change reads only the rows it names.
 export function useCards(): CardsState {
-  const { value, loading, error, reload } = useLatest<CardSummary[]>(
-    loadCards,
-    [],
-    "cards"
-  )
-  useFresh(reload, error)
+  const { value, loading, error, reload } = usePatched<
+    CardSummary[],
+    CardsRead
+  >({
+    name: "cards",
+    initial: [],
+    follow: cardsFollow,
+    read: (want) =>
+      inWails()
+        ? readGrid(want, BoardService)
+        : loadCards().then((rows) => ({ rows, order: null })),
+    merge: mergeCards,
+    rows: (v) => v.map((c) => [c.id, c]),
+  })
+  // The sample has no host signals: its changes read it whole.
+  useEffect(() => {
+    if (inWails()) return
+    const fn = () => void reload()
+    sampleListeners.add(fn)
+    return () => {
+      sampleListeners.delete(fn)
+    }
+  }, [reload])
   // A read the person sees ends the changes it agrees with: after it is
   // shown, so the old state never paints in between (the change applied
   // to data that already says so changes nothing). Not the empty list
   // before the first read lands, where every card would seem gone.
   useEffect(() => {
-    if (!loading && !error) pending.observeSummaries(value)
+    if (loading || error) return
+    pending.observeSummaries(value)
+    // The Done tab reads when a card leaves this list (card #1152).
+    liveCards.note(value.map((c) => c.id))
   }, [value, loading, error])
+  // With no grid watching, the Done tab can't tell what closed: any card a
+  // change names reads it, as before.
+  useEffect(() => () => liveCards.reset(), [])
   const v = useSyncExternalStore(pending.subscribe, pending.version)
   const cards = useMemo(
     () => pending.summaries(value),
@@ -2260,14 +2955,32 @@ export function useIdleReport(
       inWails() ? BoardService.IdleReport() : sampleIdleReport(sampleIdle),
     [sampleIdle]
   )
-  const { value, error, reload } = useLatest<IdleReport>(load, IdleReport())
-  useFresh(reload, error)
+  const { value, error, reload } = useLatest<IdleReport>(
+    load,
+    IdleReport(),
+    "idle"
+  )
+  // At most one read every IdleEveryMs (card #1152): the line is an
+  // aggregate with no rows to patch, and a busy board changes it far more
+  // often than anyone reads it.
+  const slow = useMemo(
+    () => trailing(() => void reload(), IdleEveryMs),
+    [reload]
+  )
+  useEffect(() => () => slow.cancel(), [slow])
+  useFresh(reload, error, false, slow.call)
   const statuses = agents
     .map((a) => `${a.status}/${a.deviceState ?? ""}`)
     .join(",")
+  const firstStatuses = useRef(true)
   useEffect(() => {
-    void reload()
-  }, [statuses, reload])
+    // The mount's read is useFresh's.
+    if (firstStatuses.current) {
+      firstStatuses.current = false
+      return
+    }
+    slow.call()
+  }, [statuses, slow])
   return value
 }
 
@@ -2356,7 +3069,9 @@ export function useDoneCards(active: boolean, scope = ""): DoneState {
   const reload = useCallback(async () => {
     const n = ++req.current
     try {
-      const p = await loadDone(shown.current, "", scope)
+      const p = await timedRead("done", () =>
+        loadDone(shown.current, "", scope)
+      )
       if (n !== req.current) return
       setSt({ cards: p.cards ?? [], next: p.next, loading: false, error: null })
     } catch (err) {
@@ -2374,16 +3089,22 @@ export function useDoneCards(active: boolean, scope = ""): DoneState {
     void reload()
   }, [st, reload])
 
+  // Only a change to a card on the page, or a card the grid had and no
+  // longer has (it closed), reads the Done tab again (card #1152).
+  const onPage = useRef(new Set<string>())
+  useEffect(() => {
+    onPage.current = new Set(st.cards.map((c) => c.id))
+  }, [st.cards])
   useEffect(() => {
     if (!active) return
     void reload()
-    const off = subscribe(() => void reload())
-    if (!inWails()) return off
-    const onFocus = () => void reload()
-    window.addEventListener("focus", onFocus)
+    const off = subscribeIds((n) => {
+      if (doneWakes(n, onPage.current, liveCards)) void reload()
+    }, true)
+    const offLeft = liveCards.onLeft(() => void reload())
     return () => {
       off()
-      window.removeEventListener("focus", onFocus)
+      offLeft()
     }
   }, [active, reload])
 
@@ -2433,18 +3154,34 @@ export function useCard(id: string): {
 export type CardSlot = {
   detail: CardDetail | null
   error: string | null
+  // The host's stamp of this card as read (card #1136): sent back as
+  // `have`, so a card that hasn't changed comes back without its body.
+  rev?: string
+  // Set on a read of a card that still has the rev asked with: detail is
+  // null on purpose and the held slot stands.
+  same?: boolean
 }
 
 // readCards is the shared read: each id's card, or why not.
-async function readCards(ids: string[]): Promise<Map<string, CardSlot>> {
+async function readCards(
+  ids: string[],
+  have: ReadonlyMap<string, string> = new Map()
+): Promise<Map<string, CardSlot>> {
   const out = new Map<string, CardSlot>()
   if (inWails()) {
     try {
-      for (const r of await BoardService.CardsById(ids))
-        out.set(r.id, {
-          detail: (r.card as CardDetail | null) ?? null,
-          error: r.card ? null : r.error || "coord: no such card",
-        })
+      const held = [...have].map(([id, rev]) => ({ id, rev }))
+      for (const r of await BoardService.CardsById(ids, held))
+        out.set(
+          r.id,
+          r.unchanged
+            ? { detail: null, error: null, rev: r.rev, same: true }
+            : {
+                detail: (r.card as CardDetail | null) ?? null,
+                error: r.card ? null : r.error || "coord: no such card",
+                ...(r.rev ? { rev: r.rev } : {}),
+              }
+        )
     } catch (err) {
       for (const id of ids) out.set(id, { detail: null, error: errText(err) })
     }
@@ -2466,16 +3203,26 @@ async function readCards(ids: string[]): Promise<Map<string, CardSlot>> {
 }
 
 // cardStore keeps the cards the mounted useCard hooks show and reads them
-// all in one call: on every card change (board:changed, devices:changed),
-// inbox:changed (the open card's "queued for / sent to" lines), focus,
-// and a few seconds after a failed read; a newly watched id is read at
-// once. One read runs at a time; what comes in meanwhile waits for it,
-// then reads again.
-export const cardStore = createCardStore(readCards)
+// in one call. A board:changed or inbox:changed notice (the open card's
+// "queued for / sent to" lines) names the cards that moved, and only the
+// watched ones among them are read (card #1148, list-signals.md §6.2); the
+// host names a card's chain too, since its dependency index puts the cards
+// a row reads into the notice. `all` (a devices change, focus, a gap, the
+// first notice) reads every watched id, and so does a few seconds after a
+// failed read; a newly watched id is read at once. One read runs at a
+// time; what comes in meanwhile waits for it, then reads again.
+export const cardStore = createCardStore((ids, have) =>
+  timedRead("cardStore", () => readCards(ids, have))
+)
 
 export function createCardStore(
-  read: (ids: string[]) => Promise<Map<string, CardSlot>>,
-  events: (again: () => void) => () => void = cardEvents,
+  read: (
+    ids: string[],
+    have: ReadonlyMap<string, string>
+  ) => Promise<Map<string, CardSlot>>,
+  // events calls again() to read every watched card, or again(ids) to read
+  // the watched ones among ids.
+  events: (again: (ids?: readonly string[]) => void) => () => void = cardEvents,
   retryMs = RetryMs,
   pend: Pending = pending
 ) {
@@ -2511,6 +3258,17 @@ export function createCardStore(
     if (!running) void run()
   }
 
+  // A notice's ids: only the watched ones are read.
+  function touched(ids: readonly string[]) {
+    let any = false
+    for (const id of ids)
+      if (users.has(id)) {
+        want.add(id)
+        any = true
+      }
+    if (any && !running) void run()
+  }
+
   async function run() {
     running = true
     // After the effects of one commit: every row mounted with it is in.
@@ -2523,9 +3281,28 @@ export function createCardStore(
         all = false
         want = new Set()
         if (!ids.length) continue
-        const got = await read(ids)
+        // What it holds, by rev: a card still the same comes back as a
+        // stamp, not as every comment and step of it (card #1136).
+        const have = new Map<string, string>()
+        for (const id of ids) {
+          const s = slots.get(id)
+          if (s?.rev && s.detail && !s.error) have.set(id, s.rev)
+        }
+        const got = await read(ids, have)
         for (const [id, got1] of got) {
           if (!users.has(id)) continue
+          if (got1.same) {
+            // Nothing changed, yet the person's change may now agree with
+            // it: that still ends the change.
+            const held = slots.get(id)
+            if (held?.detail && held.rev === got1.rev) {
+              pend.observeDetail(held.detail)
+              continue
+            }
+            // The held card moved on meanwhile: read it whole.
+            want.add(id)
+            continue
+          }
           // A failed read keeps the card shown, with the error beside it,
           // as each useCard's own read did.
           const slot = got1.error
@@ -2559,7 +3336,7 @@ export function createCardStore(
   }
 
   function listen() {
-    const stop = events(() => request())
+    const stop = events((ids) => (ids ? touched(ids) : request()))
     // A change shown or taken back renders the cards it touches.
     offPending = pend.subscribe(() => {
       for (const [id, fns] of users)
@@ -2607,19 +3384,17 @@ export function createCardStore(
   }
 }
 
-// cardEvents is when the card hooks read again: every card change, every
-// inbox change, and focus.
-function cardEvents(again: () => void): () => void {
-  const offCards = subscribe(again)
-  const offInbox = inWails() ? Events.On(EventInboxChanged, again) : () => {}
-  const onFocus = () => {
-    if (inWails()) again()
-  }
-  window.addEventListener("focus", onFocus)
+// cardEvents is when the card hooks read again: a card change or an inbox
+// change for the cards it names, a devices change and focus for all.
+function cardEvents(again: (ids?: readonly string[]) => void): () => void {
+  const hear = (n: Notice) => (n.all ? again() : again(n.ids.cards ?? []))
+  const offCards = subscribeIds(hear, true)
+  const offInbox = inWails()
+    ? onChange(EventInboxChanged, hear, { follow: Follows.cards })
+    : () => {}
   return () => {
     offCards()
     offInbox()
-    window.removeEventListener("focus", onFocus)
   }
 }
 

@@ -5,10 +5,12 @@ import "./index.css"
 import App from "./App.tsx"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster, toast } from "@/components/ui/toast"
-import { commands } from "./gen/bindings"
+import { commands as bindings } from "./gen/bindings"
+import { counted } from "./lib/ipc-count"
 import { inHost } from "./lib/irori"
 import {
   applyAppearance,
+  followSystem,
   clean,
   loadAppearance,
   onAppearanceApplied,
@@ -25,6 +27,9 @@ followInsets()
 // variant in index.css keys off this to turn that off on a Mac only, so
 // scroll chaining on touch and Windows stays as it was.
 if (isMac()) document.documentElement.dataset.os = "mac"
+
+// Counted for the lists line in irori.log (ipc-count.ts).
+const commands = counted(bindings)
 
 // Card #232: index.html shows the opening screen while the Core starts on
 // its own thread (a fully synced log takes a while on a phone); every
@@ -53,6 +58,20 @@ async function mount() {
     )
     return
   }
+  // Card #1038: the huddle prototype, browser preview only (?huddle).
+  if (!inHost() && new URLSearchParams(window.location.search).has("huddle")) {
+    const Huddle = lazy(() => import("./design/huddle-mock"))
+    createRoot(document.getElementById("root")!).render(
+      <StrictMode>
+        <TooltipProvider delay={300}>
+          <Suspense fallback={null}>
+            <Huddle />
+          </Suspense>
+        </TooltipProvider>
+      </StrictMode>
+    )
+    return
+  }
   // Card #275: index.html applied the saved appearance before the first
   // paint; apply it again from this build's code (a custom theme's CSS is
   // made afresh). The browser preview can try one without saving it:
@@ -69,6 +88,7 @@ async function mount() {
       glass: previewFlag("glass") ?? saved.glass,
     })
   )
+  followSystem()
   setToast((title, reason) =>
     toast.add({ title, description: reason, type: "error", timeout: 8000 })
   )

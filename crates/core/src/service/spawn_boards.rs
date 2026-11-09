@@ -172,6 +172,27 @@ impl Services {
                 )
             })
             .unwrap_or_default();
+        if !t.review_of.is_empty() {
+            let pr = t
+                .links
+                .iter()
+                .find(|l| coord::pr_link(l).is_some())
+                .map(|l| l.reference.clone())
+                .unwrap_or_default();
+            return format!(
+                "{failed}{giver}'s Irori found no one free to review {pr} in {repo}, so it \
+                 gave you this review. A reviewer would run on this computer at this card's \
+                 weight, under your own settings and cap: it reads the pull request and \
+                 comments, and never merges, pushes or runs its code. You can turn the \
+                 question off in Settings › Agents (Start a reviewer on this machine when \
+                 nobody else fits).",
+                repo = if t.repo_key.is_empty() {
+                    "this repo"
+                } else {
+                    &t.repo_key
+                },
+            );
+        }
         format!(
             "{failed}{giver} gave you this card. It asks: {cut}{more}\n\nIrori stopped here \
              because someone else wrote it. An agent would run on this computer, under your own \
@@ -194,9 +215,65 @@ impl Services {
                     continue;
                 }
                 let context = self.given_context(&log, &t);
-                if let Err(e) = co.ask_given(&me, &t.id, &context) {
+                // A review card the PR's author gave them starts without
+                // the question while their switch is on (merge-desk
+                // §12.10); with it off, or any other given card, it asks.
+                let res = if t.review_of.is_empty()
+                    || !self.review_starts()
+                    || coord::Coord::given_failed(&t).is_some()
+                {
+                    co.ask_given(&me, &t.id, &context)
+                } else {
+                    co.start_given(&me, &t.id, &context)
+                };
+                if let Err(e) = res {
                     logf(format_args!("given card {}: {e}", t.short_ref()));
                 }
+            }
+        }
+    }
+
+    /// Flags the agents Irori started that read another person's text
+    /// (card #1075): their spawn rows say so, and the inbox's flag for them
+    /// is in memory, so this sets it again after a restart. Cheap and
+    /// idempotent, every sweep.
+    pub(crate) fn mark_spawned_others(&self) {
+        let mut keys = self.coord.spawned_others();
+        for b in self.visible_boards() {
+            keys.extend(b.coord().spawned_others());
+        }
+        for k in keys {
+            self.inbox.mark_saw_others(&k);
+        }
+    }
+
+    /// Stops at each card on the private log that an agent made or changed
+    /// after it read another person's text: it asks the person in Needs
+    /// you "OK to start an agent on this?", and nothing starts without
+    /// their yes (card #1075, decision 50). One device asks, the one that
+    /// would start the agent. Runs even while paused: it starts nothing.
+    pub(crate) fn ask_marked_cards(&self) {
+        let me = self.user_sender().key;
+        for t in self.coord.marked_to_ask() {
+            if self.spawn_device(&t).is_none_or(|d| d != self.device.id) {
+                continue;
+            }
+            let asks = if t.objective.trim().is_empty() {
+                &t.title
+            } else {
+                &t.objective
+            };
+            let cut: String = asks.chars().take(GIVEN_CONTEXT_CHARS).collect();
+            let more = if cut.len() < asks.len() {
+                "… (open the card for the rest)"
+            } else {
+                ""
+            };
+            let context = format!(
+                "An agent made or changed this card after it read another person's text. It asks: {cut}{more}\n\nIrori stopped here because that text may not be yours. An agent would run on this computer, under your own settings and cap, never on Bypass, and treat the card as that person's request."
+            );
+            if let Err(e) = self.coord.ask_marked(&me, &t.id, &context) {
+                logf(format_args!("marked card {}: {e}", t.short_ref()));
             }
         }
     }
@@ -301,7 +378,37 @@ impl Services {
             BriefMore::default(),
         );
         let setting = self.spawn_setting(&b.id);
-        let perms = spawn_permissions(&setting, &b.id, &repo_key, &brief);
+        // A review card's rules bind to its PR card's PR alone, whatever
+        // else its links name: the card's links are the author's to edit
+        // (merge-desk §12.10).
+        let rt;
+        let perm_card = if t.review_of.is_empty() {
+            t
+        } else {
+            let pr = log
+                .co
+                .get_task(&t.review_of)
+                .and_then(|c| c.pr_card.map(|k| k.pr))
+                .unwrap_or_default();
+            rt = Task {
+                links: t
+                    .links
+                    .iter()
+                    .filter(|l| l.reference == pr)
+                    .cloned()
+                    .collect(),
+                ..t.clone()
+            };
+            &rt
+        };
+        let perms = spawn_permissions(
+            &setting,
+            &b.id,
+            &repo_key,
+            &brief,
+            perm_card,
+            self.reviews_unasked(),
+        );
         let ask = SpawnAsk {
             task_id: t.id.clone(),
             device: me,
@@ -309,9 +416,15 @@ impl Services {
             folder: folder.clone().unwrap_or_default(),
             permission_mode: perms.mode,
             name: name.clone(),
-            model: setting.model().into(),
-            effort: setting.effort().into(),
+            // By the card's weight (card #963); none is normal.
+            model: setting.pick_for(t).0,
+            effort: setting.pick_for(t).1,
+            weight: t.run_level().to_string(),
+            advisor: super::spawn::advisor_in(std::path::Path::new(&self.presence.claude_dir())),
             counted: self.start_counts(&log.co, t),
+            // On a shared board its agent reads the members' words (card
+            // #1075): the session starts flagged.
+            others: true,
             ..SpawnAsk::default()
         };
         let Some(g) = log
@@ -321,6 +434,7 @@ impl Services {
         else {
             return Ok(false);
         };
+        super::spawn::log_asked(t, t.spawn_request(), g, &name, "this device", &(self.now)());
         self.settle_ask(&t.id);
         if t.given.is_some() {
             self.spawn
@@ -407,8 +521,16 @@ impl Services {
                     continue;
                 }
             };
-            if let Err(e) = co.bind_spawn(&t.id, s.generation, &key) {
-                logf(format_args!("spawn {}: bind {key}: {e}", t.short_ref()));
+            match co.bind_spawn(&t.id, s.generation, &key) {
+                Ok(true) => logf(format_args!(
+                    "spawn {} gen {}: {} showed {}s after it was asked; bound to {key}",
+                    t.short_ref(),
+                    s.generation,
+                    s.name,
+                    super::spawn::secs_since(&(self.now)(), &s.at)
+                )),
+                Ok(false) => {}
+                Err(e) => logf(format_args!("spawn {}: bind {key}: {e}", t.short_ref())),
             }
         }
     }
@@ -526,6 +648,9 @@ impl Services {
         }
         if !t.holders.is_empty() {
             return Err(format!("{} has an agent on it", t.short_ref()));
+        }
+        if !self.spawn_setting(&b.id).on {
+            return Err(super::spawn::SWITCH_OFF_LINE.into());
         }
         if !co.hands_out_here(id) {
             return Err(format!(

@@ -20,6 +20,9 @@ export type MentionCandidate = {
   cwd: string
   repo: string
   board?: string
+  // "assistant" for an Office Assistant the backend verified; the picker
+  // offers one only in #office-assistants.
+  kind?: string
   // A "the agent on #N" row (card #452, spawned-agents §4): the agent
   // holding card ref (#N, or tag#N on a shared board) now. Picking it
   // mentions that agent, so the row reads by the card, not the name.
@@ -69,6 +72,7 @@ export function agentOnRows(
         cwd: known?.cwd ?? "",
         repo: known?.repo ?? "",
         board: known?.board,
+        kind: known?.kind,
         card: `${c.tag ?? ""}#${c.short}`,
       },
     })
@@ -88,10 +92,24 @@ export function rowName(c: MentionCandidate): string {
 // and their agents, and only there (card #177).
 export const MentionBoard = createContext("")
 
+// MentionAssistants is true inside a space's #office-assistants channel,
+// where the picker offers assistants; everywhere else it leaves them out.
+export const MentionAssistants = createContext(false)
+
 // boardRows keeps the candidates a box on board `board` may mention: your
 // own agents everywhere, another person and their agents on their board.
-export function boardRows(cands: MentionCandidate[], board: string) {
-  return cands.filter((c) => !c.board || c.board === board)
+export function boardRows(
+  cands: MentionCandidate[],
+  board: string,
+  assistants = false
+) {
+  return cands.filter(
+    (c) =>
+      (!c.board || c.board === board) &&
+      // An Office Assistant is offered only in #office-assistants (assistants
+      // talk §3): the channel says so through MentionAssistants.
+      (c.kind !== "assistant" || assistants)
+  )
 }
 
 // MaxMentions mirrors coord's MAX_MENTIONS.
@@ -524,6 +542,8 @@ export type CardRef = {
   n: string
 }
 
+// The leading char is JS `\s` or "("; the core's `card_refs` (fold.rs) takes
+// only ASCII whitespace, so NBSP and U+3000 differ between the two.
 export function cardRefs(text: string): CardRef[] {
   const out: CardRef[] = []
   const re = /([A-Za-z0-9_-]*)#(\d+)(?![A-Za-z0-9_])/g
@@ -558,6 +578,7 @@ export function localRef(
     short: string
     title: string
     spaceId?: string
+    private?: boolean
   }[]
 ): RefHit {
   const c = cards.filter(
@@ -565,10 +586,12 @@ export function localRef(
   )
   if (c.length === 1 && (r.tag !== null || !c[0].tag))
     return { kind: "card", id: c[0].id, title: c[0].title }
-  if (c.length > 0 || r.tag !== null) return null
+  if (r.tag !== null || c.some((x) => !x.tag)) return null
   // A space's thread numbers in its own log, so a bare ref is the backend's
-  // to read across them (card #558).
-  const t = threads.filter((x) => x.short === r.n && !x.spaceId)
+  // to read across them (card #558). A private one is in your own log. Your
+  // own thread has no other ref, so it wins over a tagged card's number
+  // (card #982): the lookup would call that ambiguous and leave it text.
+  const t = threads.filter((x) => x.short === r.n && (!x.spaceId || x.private))
   if (t.length === 1) return { kind: "thread", id: t[0].id, title: t[0].title }
   return null
 }

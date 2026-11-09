@@ -25,6 +25,26 @@ impl Core {
         tools::talk::conversations(&self.talk_view(), reader)
     }
 
+    /// [`Core::talk_conversations`] with the thread rows left out unless
+    /// `threads` (card #1150).
+    pub fn talk_conversations_with(
+        &self,
+        reader: &str,
+        threads: bool,
+    ) -> Result<Vec<Conversation>, String> {
+        tools::talk::conversations_with(&self.talk_view(), reader, threads)
+    }
+
+    /// Just the rows of `convs` ([`tools::talk::conversations_by_id`]).
+    pub fn talk_conversations_by_id(
+        &self,
+        reader: &str,
+        convs: &[String],
+        threads: bool,
+    ) -> Result<Vec<Conversation>, String> {
+        tools::talk::conversations_by_id(&self.talk_view(), reader, convs, threads)
+    }
+
     /// Up to `limit` posts of `conv` before post `before` (`None`: the
     /// newest), oldest first, as `reader` may read them.
     pub fn talk_posts(
@@ -93,7 +113,9 @@ impl Core {
         let id = tools::talk::open_dm(&self.talk_view(), me, key)?;
         // A DM with another person opens as a draft, which writes no row:
         // tell the window, so its list has it (card #538).
-        self.s.hub.publish(crate::events::CoreEvent::Talk);
+        self.s.hub.publish(crate::events::CoreEvent::Talk(
+            crate::events::TalkChange::convs([id.as_str()]),
+        ));
         Ok(id)
     }
 
@@ -113,7 +135,9 @@ impl Core {
         };
         self.s.dm_leave(&other).map_err(|e| e.to_string())?;
         self.s.talk.drop_draft(conv);
-        self.s.hub.publish(crate::events::CoreEvent::Talk);
+        self.s.hub.publish(crate::events::CoreEvent::Talk(
+            crate::events::TalkChange::convs([conv]),
+        ));
         Ok(())
     }
 

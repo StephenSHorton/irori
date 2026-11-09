@@ -229,6 +229,7 @@ fn message_schema() -> Schema {
     f.push(("ref", Schema::String));
     f.push(("notice", Schema::Bool));
     f.push(("stop", Schema::Bool));
+    f.push(("others", Schema::Bool));
     f.push(("board", crate::bridge::board_from_schema()));
     f.push((
         "attachments",
@@ -306,6 +307,7 @@ pub fn decode_message(payload: &[u8]) -> std::result::Result<Message, json::Erro
         ref_: s(&o, "ref"),
         notice: b(&o, "notice"),
         stop: b(&o, "stop"),
+        others: b(&o, "others"),
         board: o
             .get("board")
             .map(crate::bridge::decode_board_from)
@@ -654,6 +656,8 @@ pub(crate) struct Limits {
 }
 
 pub(crate) struct Inner {
+    /// The Inbox's "review without asking" setting, shared (§12.8).
+    pub reviews_unasked: Arc<std::sync::atomic::AtomicBool>,
     pub st: Arc<Store>,
     pub roster: Arc<dyn Roster>,
     pub owners: Option<PrOwnersFn>,
@@ -696,6 +700,8 @@ pub(crate) struct Inner {
     pub progress: HashMap<String, GoTime>,
     /// Commits already counted as progress, by sha (a relink isn't new).
     pub progress_shas: HashSet<String>,
+    /// Agents that read another person's text (card #1075).
+    pub sawn: Arc<SawOthers>,
     pub pairs: HashMap<String, Vec<GoTime>>,
     /// receive.set rows by (boardId, personId).
     pub receive: BTreeMap<(String, String), crate::bridge::Setting<crate::ReceiveSetting>>,
@@ -716,7 +722,11 @@ pub(crate) struct Inner {
     pub appendable: HashMap<String, bool>,
     pub visible_at: HashMap<String, GoTime>,
     pub held_first: HashSet<String>,
-    pub subs: Vec<Arc<Queue<Change>>>,
+    /// Deliveries folded before their message (a row from another device
+    /// can come first), by message id: when the message folds, each is
+    /// noted as new then, so Talk shows its DM (list-signals.md §3.2).
+    pub early: HashMap<String, Vec<String>>,
+    pub subs: Vec<Sub>,
 
     pub replaying: bool,
     pub changes: Vec<Change>,
@@ -726,6 +736,43 @@ pub(crate) struct Inner {
 /// The messaging core. Safe for concurrent use.
 pub struct Inbox {
     pub(crate) inner: Mutex<Inner>,
+    /// Beside the lock on purpose (card #1075): a board coord's write asks
+    /// it under the coord's own lock, and the inbox calls into coords under
+    /// its own, so it may not wait on `inner`.
+    pub(crate) sawn: Arc<SawOthers>,
+    /// Whether the person lets their agents review other people's PRs
+    /// without asking (merge-desk §12.8). On until core says otherwise
+    /// (decision 52). The fence's header reads it per batch.
+    pub(crate) reviews_unasked: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// The agents that read another person's text, sticky for their session
+/// (card #1075): folded from the deliveries that reached them (a board row,
+/// or a send from a session already flagged), and marked in memory by core
+/// (a spawn with others' text, a `review_claim`), which marks its spawned
+/// agents again after a restart. Its own lock, taken last: nothing is
+/// called while it is held.
+#[derive(Default)]
+pub struct SawOthers {
+    set: Mutex<BTreeSet<String>>,
+}
+
+impl SawOthers {
+    pub fn has(&self, agent: &str) -> bool {
+        self.set
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(agent)
+    }
+
+    pub fn add(&self, agent: &str) {
+        if !agent.is_empty() {
+            self.set
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(agent.to_string());
+        }
+    }
 }
 
 /// A change stream from [`Inbox::subscribe`]. Dropping it (or
@@ -796,7 +843,10 @@ impl Inbox {
             let me = format!("user:{}", opts.device_id);
             Arc::new(move |k: &str| k == me)
         });
+        let reviews_unasked = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let sawn = Arc::new(SawOthers::default());
         let mut b = Inner {
+            reviews_unasked: reviews_unasked.clone(),
             st,
             roster,
             owners: opts.pr_owners,
@@ -833,6 +883,7 @@ impl Inbox {
             known: BTreeMap::new(),
             pol: Policy::default(),
             running: BTreeMap::new(),
+            sawn: sawn.clone(),
             turned: HashSet::new(),
             progress: HashMap::new(),
             progress_shas: HashSet::new(),
@@ -851,6 +902,7 @@ impl Inbox {
             appendable: HashMap::new(),
             visible_at: HashMap::new(),
             held_first: HashSet::new(),
+            early: HashMap::new(),
             subs: vec![],
             replaying: false,
             changes: vec![],
@@ -858,7 +910,9 @@ impl Inbox {
         };
         b.replay()?;
         Ok(Inbox {
+            sawn: b.sawn.clone(),
             inner: Mutex::new(b),
+            reviews_unasked,
         })
     }
 
@@ -884,12 +938,22 @@ impl Inbox {
     }
 
     /// Changes until the subscription is dropped (buffered, 64; a full
-    /// queue drops the change and the reader should re-read).
+    /// reader gets a [`ChangeKind::Resync`] before the next change that
+    /// fits, and should re-read).
     pub fn subscribe(&self) -> Subscription {
         let q = Arc::new(Queue::new(SUB_BUFFER));
-        lock(&self.inner).subs.push(q.clone());
+        lock(&self.inner).subs.push(Sub {
+            q: q.clone(),
+            lost: false,
+        });
         Subscription { q }
     }
+}
+
+/// One subscriber's queue and whether it lost a change.
+pub struct Sub {
+    q: Arc<Queue<Change>>,
+    lost: bool,
 }
 
 impl Inner {
@@ -1032,9 +1096,16 @@ impl Inner {
                 m.writer = ev.device_id.clone();
                 self.fold_bridged(&m);
                 let from = m.from.clone();
+                let id = m.id.clone();
                 self.msgs.insert(m.id.clone(), m);
                 if !from.key.is_empty() && !self.is_person(&from) && !from.is_system() {
                     self.known.entry(from.key).or_default();
+                }
+                // Deliveries that came first show their message only now.
+                for did in self.early.remove(&id).unwrap_or_default() {
+                    if let Some(to) = self.dels.get(&did).map(|d| d.d.to.clone()) {
+                        self.note_delivery(ChangeKind::Updated, &to, &did, true, None);
+                    }
                 }
             }
             kinds::DELIVERY_STATE => {
@@ -1183,6 +1254,12 @@ impl Inner {
             };
             self.dels.insert(r.delivery_id.clone(), d);
             self.order.push(r.delivery_id.clone());
+            if !self.msgs.contains_key(&r.message_id) {
+                self.early
+                    .entry(r.message_id.clone())
+                    .or_default()
+                    .push(r.delivery_id.clone());
+            }
             if !self.counted.contains(&r.message_id) {
                 self.counted.insert(r.message_id.clone());
                 if let Some(m) = self.msgs.get(&r.message_id)
@@ -1203,6 +1280,21 @@ impl Inner {
             }
         }
         let is_owner_to = !r.to.is_empty() && self.is_owner(&r.to);
+        // Card #1075: an agent that has the text of another person (a
+        // board row) or of a session that read it (a flagged send) has
+        // read it. Held and queued rows haven't reached it yet.
+        if matches!(
+            r.state.as_str(),
+            st::DELIVERED | st::ENGAGED | st::ANSWERED | st::DEFERRED
+        ) && !r.to.is_empty()
+            && !is_owner_to
+            && self
+                .msgs
+                .get(&r.message_id)
+                .is_some_and(|m| !m.board.is_empty() || m.others)
+        {
+            self.sawn.add(&r.to);
+        }
         let d = self.dels.get_mut(&r.delivery_id).expect("delivery");
         if r.state != st::QUEUED || r.to != prev_to {
             d.wake_tries = 0;
@@ -1266,12 +1358,14 @@ impl Inner {
             self.known.entry(to.clone()).or_default();
         }
         self.touch(&[&prev_to, &to]);
+        let created = !existed;
+        let was_to = (existed && prev_to != to && state != st::MOVED).then(|| prev_to.clone());
         if state == st::HELD && (!existed || prev_state != st::HELD) {
-            self.note(ChangeKind::HeldNew, &to, &id);
+            self.note_delivery(ChangeKind::HeldNew, &to, &id, created, was_to);
         } else if state == st::MOVED {
-            self.note(ChangeKind::MovedAway, &prev_to, &id);
+            self.note_delivery(ChangeKind::MovedAway, &prev_to, &id, created, None);
         } else {
-            self.note(ChangeKind::Updated, &to, &id);
+            self.note_delivery(ChangeKind::Updated, &to, &id, created, was_to);
         }
     }
 
@@ -1299,11 +1393,26 @@ impl Inner {
     }
 
     pub(crate) fn note(&mut self, kind: ChangeKind, to: &str, did: &str) {
+        self.note_delivery(kind, to, did, false, None);
+    }
+
+    /// [`Self::note`], saying whether this was the delivery's first row,
+    /// and who it was to when its recipient changed.
+    fn note_delivery(
+        &mut self,
+        kind: ChangeKind,
+        to: &str,
+        did: &str,
+        created: bool,
+        was_to: Option<String>,
+    ) {
         if !self.replaying {
             self.changes.push(Change {
                 kind,
                 to: to.into(),
                 delivery_id: did.into(),
+                created,
+                was_to,
             });
         }
     }
@@ -1319,6 +1428,8 @@ impl Inner {
                     kind: ChangeKind::WakeReady,
                     to: agent.clone(),
                     delivery_id: String::new(),
+                    created: false,
+                    was_to: None,
                 });
             }
             self.submit.insert(agent.clone(), now);
@@ -1328,14 +1439,30 @@ impl Inner {
                     kind: ChangeKind::AppendReady,
                     to: agent.clone(),
                     delivery_id: String::new(),
+                    created: false,
+                    was_to: None,
                 });
             }
             self.appendable.insert(agent, app);
         }
-        self.subs.retain(|q| !q.is_closed());
+        self.subs.retain(|s| !s.q.is_closed());
         for c in self.changes.drain(..) {
-            for q in &self.subs {
-                let _ = q.push(c.clone()); // slow reader; it re-reads
+            for s in &mut self.subs {
+                // A full reader loses changes and gets a Resync before the
+                // next one that fits, which still comes: an agent's stream
+                // acts on a held or moved one (list-signals.md §3.1).
+                if s.lost {
+                    s.lost = !s.q.push(Change {
+                        kind: ChangeKind::Resync,
+                        to: String::new(),
+                        delivery_id: String::new(),
+                        created: false,
+                        was_to: None,
+                    });
+                }
+                if !s.lost {
+                    s.lost = !s.q.push(c.clone());
+                }
             }
         }
     }
