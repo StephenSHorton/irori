@@ -3,7 +3,8 @@
 // TranscriptView draws a transcript it's given, so the server-rendered
 // tests can feed it directly; TranscriptPane reads one by its call.
 
-import { useEffect, useState, type ReactNode } from "react"
+import { useToday } from "@/lib/clock"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { FileTextIcon, SearchIcon, XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -20,6 +21,7 @@ import {
 import { Events } from "@/lib/host"
 import { inWails } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
+import { onSampleHuddle } from "@/lib/sample-huddle"
 import { cn } from "@/lib/utils"
 import { dayLabel } from "./conversation"
 import { hueOf, initials } from "./huddle"
@@ -87,19 +89,18 @@ function Frame({
 // lines with who said each and when.
 export function TranscriptView({
   t,
-  now,
   wide,
   onClose,
 }: {
   t: TalkTranscript
-  now: Date
   wide?: boolean
   onClose?: () => void
 }) {
   const [q, setQ] = useState("")
+  const today = useToday()
   const shown = findLines(t.lines, q)
   return (
-    <Frame wide={wide} onClose={onClose} sub={whenText(t, now)}>
+    <Frame wide={wide} onClose={onClose} sub={whenText(t, today)}>
       <div className="grid gap-2 border-b border-border px-3 pt-1 pb-3">
         <span className="text-[11.5px] text-muted-foreground">
           {whoCanRead(t)}
@@ -163,12 +164,14 @@ export function TranscriptView({
 export function useTranscript(
   callId: string,
   follow = false
-): { t?: TalkTranscript; error?: string } {
+): { t?: TalkTranscript; error?: string; reload: () => void } {
   const [got, setGot] = useState<{
     callId: string
     t?: TalkTranscript
     error?: string
   } | null>(null)
+  const readRef = useRef<() => void>(() => {})
+  const reload = useCallback(() => readRef.current(), [])
   useEffect(() => {
     let live = true
     const read = () =>
@@ -184,6 +187,7 @@ export function useTranscript(
                 : { callId, error: errorText(err) }
             )
         )
+    readRef.current = () => void read()
     void read()
     if (!follow) {
       return () => {
@@ -194,33 +198,34 @@ export function useTranscript(
       ? Events.On("talk:changed", () => void read())
       : () => {}
     const timer = inWails() ? 0 : window.setInterval(() => void read(), 3_000)
+    // The preview's canvas writes show at once (card #1052).
+    const offSample = inWails() ? () => {} : onSampleHuddle(() => void read())
     return () => {
       live = false
       off()
+      offSample()
       window.clearInterval(timer)
     }
   }, [callId, follow])
   const here = got?.callId === callId ? got : null
-  return { t: here?.t, error: here?.error }
+  return { t: here?.t, error: here?.error, reload }
 }
 
 // TranscriptPane reads huddle `callId`'s transcript and shows it. `follow`
 // keeps it current while the huddle is on.
 export function TranscriptPane({
   callId,
-  now,
   wide,
   follow,
   onClose,
 }: {
   callId: string
-  now: Date
   wide?: boolean
   follow?: boolean
   onClose?: () => void
 }) {
   const { t, error } = useTranscript(callId, follow)
-  if (t) return <TranscriptView t={t} now={now} wide={wide} onClose={onClose} />
+  if (t) return <TranscriptView t={t} wide={wide} onClose={onClose} />
   return (
     <Frame wide={wide} onClose={onClose}>
       <p

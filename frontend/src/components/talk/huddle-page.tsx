@@ -1,17 +1,22 @@
 // A huddle's page (card #1044; docs/design/call-agents.md §3), "#huddle/
 // <callId>": its title (click to edit), where it was, whether it's on or
 // how long it ran, Join while it's on, who is in it, and its transcript,
-// which follows new lines while the huddle is on. The canvas takes the
-// middle later (cards 8 and 9); until then that space says there are no
-// notes. HuddleHeader and Roster take their data as props so the
+// which follows new lines while the huddle is on. The canvas (card #1052)
+// has the middle: people and their assistants across the top, the notes
+// under whoever asked, an Add box and, while the viewer's own assistant is
+// connected, an Ask box. Roster takes its data as props so the
 // server-rendered tests can feed them.
 
-import { useEffect, useRef, useState } from "react"
+import { useToday } from "@/lib/clock"
+import { lazy, Suspense, useEffect, useRef, useState } from "react"
 import {
   ChevronLeftIcon,
   FileTextIcon,
   HeadphonesIcon,
   PencilIcon,
+  PlusIcon,
+  SendIcon,
+  SparklesIcon,
   UsersIcon,
   LayoutDashboardIcon,
 } from "lucide-react"
@@ -19,8 +24,18 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loading } from "@/components/ui/loading"
-import { clockText, joinHuddle, personWord } from "@/lib/call"
+import { agentsReady, clockText, joinHuddle, personWord } from "@/lib/call"
 import {
+  Kinds,
+  askAvailable,
+  emptyWords,
+  rosterRows,
+  type AddKind,
+  type RosterRow,
+} from "@/lib/huddle-canvas"
+import {
+  addCanvasItem,
+  askAssistant,
   huddleName,
   isLive,
   lengthOf,
@@ -31,11 +46,15 @@ import {
   type TalkHuddle,
 } from "@/lib/huddles"
 import { useNarrow } from "@/lib/media"
+import { previewFlag } from "@/lib/preview"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import { dayLabel } from "./conversation"
 import { HuddleNotice, hueOf, initials, useCallPart } from "./huddle"
-import { TranscriptPane } from "./transcript-pane"
+import { TranscriptView, useTranscript } from "./transcript-pane"
+
+// The canvas is its own chunk: React Flow loads when a huddle page opens.
+const HuddleCanvas = lazy(() => import("@/components/canvas/huddle"))
 
 // whenOf is when it started: "Today 10:02".
 export function whenOf(h: TalkHuddle, now: Date): string {
@@ -131,47 +150,235 @@ export function Title({
   )
 }
 
-// Roster is the people in the huddle, each with whether they are in it now.
+const stateDot: Record<RosterRow["state"], string> = {
+  connected: "bg-success",
+  notes: "bg-success",
+  reconnecting: "bg-warning",
+  off: "bg-muted-foreground",
+  "": "bg-transparent",
+}
+
+// Roster is the people in the huddle, each with whether they are in it now
+// and, while it is on, their assistant's state: connected, taking notes,
+// reconnecting or not connected, and what is wrong with their lines.
 export function Roster({
   people,
   inNow,
+  rows = [],
 }: {
   people: readonly string[]
   // Who is in it right now (empty once it is over).
   inNow: readonly string[]
+  rows?: readonly RosterRow[]
 }) {
   const now = new Set(inNow.map(personWord))
-  if (people.length === 0)
+  const names = [
+    ...new Set([...people.map(personWord), ...rows.map((r) => r.name)]),
+  ]
+  if (names.length === 0)
     return (
       <p className="text-[12.5px] text-muted-foreground">
         Nobody is listed yet.
       </p>
     )
   return (
-    <ul aria-label="People" className="grid gap-1.5">
-      {people.map((p) => {
-        const name = personWord(p)
+    <ul aria-label="People" className="grid gap-2">
+      {names.map((name) => {
+        const row = rows.find((r) => r.name === name)
         return (
-          <li key={name} className="flex items-center gap-2 text-[13px]">
-            <span
-              className="flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-background"
-              style={{ background: hueOf(name) }}
-              aria-hidden
-            >
-              {initials(name)}
-            </span>
-            <span className="min-w-0 truncate font-medium text-ink">
-              {name}
-            </span>
-            {now.has(name) && (
-              <span className="ml-auto shrink-0 text-[11.5px] text-success">
-                In the huddle
+          <li key={name} className="grid gap-0.5 text-[13px]">
+            <div className="flex items-center gap-2">
+              <span
+                className="flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-background"
+                style={{ background: hueOf(name) }}
+                aria-hidden
+              >
+                {initials(name)}
               </span>
+              <span className="min-w-0 truncate font-medium text-ink">
+                {name}
+              </span>
+              {now.has(name) && (
+                <span className="ml-auto shrink-0 text-[11.5px] text-success">
+                  In the huddle
+                </span>
+              )}
+            </div>
+            {row && row.words && (
+              <p
+                className="flex items-start gap-1.5 pl-8 text-[12px] text-muted-foreground"
+                data-assistant-state={row.state}
+              >
+                <span
+                  aria-hidden
+                  className={cn(
+                    "mt-1.5 size-1.5 shrink-0 rounded-full",
+                    stateDot[row.state]
+                  )}
+                />
+                <span>
+                  {row.mine ? "Your assistant" : "Assistant"}: {row.words}
+                </span>
+              </p>
             )}
+            {row?.notes.map((n) => (
+              <p key={n} className="pl-8 text-[11.5px] text-muted-foreground">
+                {n}
+              </p>
+            ))}
           </li>
         )
       })}
     </ul>
+  )
+}
+
+// useAgentsOff is whether the huddle's space can't carry agents and the
+// canvas live (some device there is too old: card #1047).
+function useAgentsOff(convId: string | undefined): boolean {
+  const [off, setOff] = useState(false)
+  useEffect(() => {
+    if (!convId) return
+    let live = true
+    void agentsReady(convId)
+      .then((ok) => live && setOff(!ok))
+      .catch(() => live && setOff(false))
+    return () => {
+      live = false
+    }
+  }, [convId])
+  return off
+}
+
+const kindLabel: Record<AddKind, string> = {
+  note: "Note",
+  question: "Question",
+  decision: "Decision",
+  task: "Task",
+}
+
+// AddItem is a note, question, decision or task of the person's own.
+export function AddItem({
+  add,
+}: {
+  add: (kind: AddKind, text: string) => Promise<unknown>
+}) {
+  const [kind, setKind] = useState<AddKind>("note")
+  const [text, setText] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const submit = async () => {
+    const v = text.trim()
+    if (!v || busy) return
+    setBusy(true)
+    setError("")
+    try {
+      await add(kind, v)
+      setText("")
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <form
+      className="flex flex-wrap items-center gap-1.5"
+      aria-label="Add to the canvas"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void submit()
+      }}
+    >
+      <select
+        aria-label="Kind"
+        value={kind}
+        onChange={(e) => setKind(e.target.value as AddKind)}
+        className="h-8 rounded-md border border-input bg-transparent px-2 text-[12.5px] text-ink"
+      >
+        {Kinds.map((k) => (
+          <option key={k} value={k}>
+            {kindLabel[k]}
+          </option>
+        ))}
+      </select>
+      <Input
+        value={text}
+        maxLength={2000}
+        aria-label="Add to the canvas"
+        placeholder="Add a note, question, decision or task"
+        onChange={(e) => setText(e.target.value)}
+        className="h-8 min-w-0 flex-1 basis-40 text-[12.5px]"
+      />
+      <Button
+        type="submit"
+        size="sm"
+        variant="secondary"
+        disabled={busy || !text.trim()}
+      >
+        <PlusIcon />
+        Add
+      </Button>
+      {error && (
+        <p role="alert" className="basis-full text-[11.5px] text-destructive">
+          {error}
+        </p>
+      )}
+    </form>
+  )
+}
+
+// AskBox puts a question to the viewer's own assistant. The answer comes
+// back on the canvas as an item.
+export function AskBox({ ask }: { ask: (text: string) => Promise<unknown> }) {
+  const [text, setText] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const submit = async () => {
+    const v = text.trim()
+    if (!v || busy) return
+    setBusy(true)
+    setError("")
+    try {
+      await ask(v)
+      setText("")
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <form
+      className="flex flex-wrap items-center gap-1.5"
+      aria-label="Ask your assistant"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void submit()
+      }}
+    >
+      <SparklesIcon
+        className="size-4 shrink-0 text-muted-foreground"
+        aria-hidden
+      />
+      <Input
+        value={text}
+        maxLength={2000}
+        aria-label="Ask your assistant"
+        placeholder="Ask your assistant about this huddle"
+        onChange={(e) => setText(e.target.value)}
+        className="h-8 min-w-0 flex-1 basis-40 text-[12.5px]"
+      />
+      <Button type="submit" size="sm" disabled={busy || !text.trim()}>
+        <SendIcon />
+        Ask
+      </Button>
+      {error && (
+        <p role="alert" className="basis-full text-[11.5px] text-destructive">
+          {error}
+        </p>
+      )}
+    </form>
   )
 }
 
@@ -181,15 +388,14 @@ type Tab = "canvas" | "transcript" | "people"
 // onOpenConv opens the conversation it was in.
 export function HuddlePage({
   callId,
-  now,
   onBack,
   onOpenConv,
 }: {
   callId: string
-  now: Date
   onBack: () => void
   onOpenConv: (convId: string) => void
 }) {
+  const today = useToday()
   const narrow = useNarrow()
   const { huddles, loading, error } = useHuddles()
   const h = huddles.find((x) => x.callId === callId)
@@ -201,8 +407,18 @@ export function HuddlePage({
   const mineHere = useCallPart((s) => s.mine?.callId === callId)
   const [asking, setAsking] = useState(false)
   const [joinError, setJoinError] = useState("")
-  const [tab, setTab] = useState<Tab>("transcript")
+  // ?huddletab=people (the browser preview) opens a phone's other tabs.
+  const [tab, setTab] = useState<Tab>(() => {
+    const f = previewFlag("huddletab")
+    return f === "people" || f === "transcript" ? f : "canvas"
+  })
   const live = !!h && isLive(h)
+  // One read of the transcript feeds the canvas, the roster and the
+  // transcript pane, and follows Talk's changes (the canvas changes too
+  // when another member settles or moves an item).
+  const { t, error: tError, reload } = useTranscript(callId, true)
+  const agentsOff = useAgentsOff(h?.convId)
+  const [writeError, setWriteError] = useState("")
 
   if (!h) {
     return (
@@ -228,18 +444,104 @@ export function HuddlePage({
   }
 
   const people = h.people
+  const rows = t ? rosterRows(t, people, { live, agentsOff }) : []
   const roster = (
-    <Roster people={people} inNow={live ? (livePeople ?? []) : []} />
+    <Roster
+      people={people}
+      inNow={live ? (livePeople ?? []) : []}
+      rows={rows}
+    />
   )
+  const canAsk = !!t && askAvailable(t, live)
+  const empty = !!t && t.canvas.length === 0
   const canvas = (
-    <div className="grid content-start gap-3 p-4">
-      <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-[12.5px] text-muted-foreground">
-        No notes from this huddle yet.
-      </p>
+    <div className="flex min-h-0 flex-1 flex-col">
+      {agentsOff && (
+        <p
+          role="status"
+          className="mx-4 mt-3 rounded-lg border border-border px-3 py-2 text-[12.5px] text-muted-foreground"
+        >
+          Agents and the canvas are off: someone's Irori in this space needs
+          updating.
+        </p>
+      )}
+      <div className="relative min-h-[340px] flex-1">
+        {t ? (
+          <Suspense
+            fallback={
+              <p className="p-4 text-[12.5px] text-muted-foreground">
+                Laying out the canvas…
+              </p>
+            }
+          >
+            <HuddleCanvas
+              callId={callId}
+              t={t}
+              people={people}
+              onError={setWriteError}
+              onChanged={reload}
+            />
+          </Suspense>
+        ) : (
+          <p
+            role={tError ? "alert" : undefined}
+            className="p-4 text-[12.5px] text-muted-foreground"
+          >
+            {tError
+              ? `Could not read the canvas: ${tError}`
+              : "Reading the canvas…"}
+          </p>
+        )}
+        {empty && !agentsOff && (
+          <p className="pointer-events-none absolute inset-x-4 top-3 rounded-lg border border-dashed border-border bg-background/80 px-3 py-3 text-center text-[12.5px] text-muted-foreground">
+            {emptyWords({
+              live,
+              agentsOff,
+              anyAssistant: !!t?.assistants.some(
+                (a) => a.state !== "not connected"
+              ),
+            })}
+          </p>
+        )}
+      </div>
+      {t && (
+        <div className="grid gap-2 border-t border-border px-4 py-3 max-md:pr-16">
+          {writeError && (
+            <p role="alert" className="text-[11.5px] text-destructive">
+              {writeError}
+            </p>
+          )}
+          {canAsk && (
+            <AskBox
+              ask={async (text) => {
+                setWriteError("")
+                await askAssistant(callId, text)
+                reload()
+              }}
+            />
+          )}
+          <AddItem
+            add={async (kind, text) => {
+              setWriteError("")
+              await addCanvasItem(callId, kind, text)
+              reload()
+            }}
+          />
+        </div>
+      )}
     </div>
   )
-  const transcript = (
-    <TranscriptPane callId={callId} now={now} wide follow={live} />
+  const transcript = t ? (
+    <TranscriptView t={t} wide />
+  ) : (
+    <p
+      role={tError ? "alert" : undefined}
+      className="px-3 py-3 text-[12.5px] text-muted-foreground"
+    >
+      {tError
+        ? `Could not read the transcript: ${tError}`
+        : "Reading the transcript…"}
+    </p>
   )
 
   const join = live ? (
@@ -291,7 +593,7 @@ export function HuddlePage({
             >
               {placeText(h)}
             </button>
-            {whenOf(h, now) && <span>· {whenOf(h, now)}</span>}
+            {whenOf(h, today) && <span>· {whenOf(h, today)}</span>}
             <span
               className={cn(live && "font-medium text-success")}
               data-live={live ? "on" : "over"}
@@ -352,16 +654,17 @@ export function HuddlePage({
         </>
       ) : (
         <div className="flex min-h-0 flex-1">
-          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
-            <section aria-label="People" className="grid gap-2 p-4 pb-0">
+          <div className="flex min-w-0 flex-1 flex-col">{canvas}</div>
+          <div className="flex w-[380px] shrink-0 flex-col border-l border-border">
+            <section
+              aria-label="People"
+              className="grid max-h-[40%] shrink-0 gap-2 overflow-y-auto border-b border-border p-4"
+            >
               <h2 className="text-[12px] font-medium text-muted-foreground">
                 People
               </h2>
               {roster}
             </section>
-            {canvas}
-          </div>
-          <div className="flex w-[380px] shrink-0 flex-col border-l border-border">
             {transcript}
           </div>
         </div>

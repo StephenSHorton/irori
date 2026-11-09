@@ -1,4 +1,5 @@
 import { NotYetButton, WhenLine } from "@/components/cards/order"
+import { Ago } from "@/components/common/ago"
 import { WeightButton, WeightLine } from "@/components/cards/weight"
 import { laterOf } from "@/lib/later"
 import { useContext, useState, type FormEvent, type ReactNode } from "react"
@@ -217,7 +218,6 @@ export function CardPage({
   detail,
   error,
   gone,
-  now,
   onBack,
   onOpen,
   thread,
@@ -231,7 +231,6 @@ export function CardPage({
   detail: CardDetail | null
   error: string | null
   gone: GoneSession[]
-  now: Date
   onBack: () => void
   // onOpen opens another card's page: a subtask's parent, a parent's
   // subtasks.
@@ -373,7 +372,7 @@ export function CardPage({
       links={links}
       files={files}
       gone={gone}
-      now={now}
+
       spinning={spinning}
       onOpen={onOpen}
     />
@@ -455,7 +454,7 @@ export function CardPage({
           <BlockerItem
             cardId={detail.id}
             blocker={ready}
-            now={now}
+
             noFiles={!!detail.onBoard}
             onNoteAnswered={() => {}}
           />
@@ -524,7 +523,7 @@ export function CardPage({
                 key={b.id}
                 cardId={detail.id}
                 blocker={b}
-                now={now}
+
                 noFiles={!!detail.onBoard}
                 onNoteAnswered={(answer, told) =>
                   setAnswered({
@@ -554,7 +553,7 @@ export function CardPage({
         <Thread
           cardId={detail.id}
           items={detail.thread}
-          now={now}
+
           starting={!!detail.starting}
           earlier={detail.threadEarlier}
           historyTrimmed={detail.historyTrimmed}
@@ -631,7 +630,6 @@ function AboutCard({
   links,
   files,
   gone,
-  now,
   spinning,
   onOpen,
 }: {
@@ -641,7 +639,6 @@ function AboutCard({
   links: CardDetail["links"]
   files: FileRef[]
   gone: GoneSession[]
-  now: Date
   spinning: boolean
   onOpen?: (id: string) => void
 }) {
@@ -685,7 +682,7 @@ function AboutCard({
             />
           )
         )}
-        <WhereLines detail={detail} now={now} />
+        <WhereLines detail={detail} />
       </Section>
 
       <Section
@@ -707,7 +704,7 @@ function AboutCard({
         >
           <div className="grid gap-2">
             {detail.reviews.map((r) => (
-              <ReviewRow key={r.reviewer.key} review={r} now={now} />
+              <ReviewRow key={r.reviewer.key} review={r} />
             ))}
           </div>
         </Section>
@@ -1574,7 +1571,7 @@ function cardFiles(d: CardDetail): FileRef[] {
 // (card #137): the branch, its last commit and whether it's pushed, the
 // worktree and the device, then the holder's last line on what's done and
 // what's next. So whoever picks the card up after a crash can find it.
-function WhereLines({ detail, now }: { detail: CardDetail; now: Date }) {
+function WhereLines({ detail }: { detail: CardDetail }) {
   const w = detail.where
   const l = detail.leftOff
   if (!w && !l) return null
@@ -1586,7 +1583,7 @@ function WhereLines({ detail, now }: { detail: CardDetail; now: Date }) {
           {plainLine(l.text)}
           <span className="text-muted-foreground/70">
             {" "}
-            · {name(l.by)}, {relativeTime(parseTime(l.at), now)}
+            · {name(l.by)}, <Ago at={parseTime(l.at)} />
           </span>
         </p>
       )}
@@ -1614,7 +1611,7 @@ function WhereLines({ detail, now }: { detail: CardDetail; now: Date }) {
           </p>
           <p className="text-[11px]">
             on {plainLine(w.who.where) || "this device"} · {name(w.who)} · seen{" "}
-            {relativeTime(parseTime(w.at), now)}
+            <Ago at={parseTime(w.at)} />
           </p>
         </div>
       )}
@@ -1987,13 +1984,11 @@ const NoteNoFiles =
 function BlockerItem({
   cardId,
   blocker: b,
-  now,
   noFiles = false,
   onNoteAnswered,
 }: {
   cardId: string
   blocker: CardBlocker
-  now: Date
   // A shared board's card: the answer box takes no files (card #195).
   noFiles?: boolean
   // The note item (an input_required card's question) leaves the card once
@@ -2322,7 +2317,7 @@ function BlockerItem({
             dateTime={raised?.toISOString()}
             title={raised?.toLocaleString()}
           >
-            {relativeTime(raised, now)}
+            <Ago at={raised} />
           </time>
           {by && ` · ${by}`}
         </div>
@@ -2401,7 +2396,7 @@ function BlockerItem({
             says here who raised it. */}
         {b.doneCheck && <>Raised by {name(b.raisedBy)} · </>}
         <time dateTime={raised?.toISOString()} title={raised?.toLocaleString()}>
-          {relativeTime(raised, now)}
+          <Ago at={raised} />
         </time>
         {/* Another member decides (card #264); anyone can still answer. */}
         {b.decider && !r && ` · for ${name(b.decider)} to decide`}
@@ -2414,7 +2409,7 @@ function BlockerItem({
           inBlocker
           cardId={cardId}
           items={b.thread}
-          now={now}
+
           composer={form}
         />
       ) : (
@@ -2965,7 +2960,7 @@ const reviewStates: Record<
 
 /** One reviewer's review of a private card (#88): its state, who asked,
  *  and the verdict comment once there is one. */
-function ReviewRow({ review, now }: { review: CardReview; now: Date }) {
+function ReviewRow({ review }: { review: CardReview }) {
   const st = reviewStates[review.state] ?? reviewStates.requested
   return (
     <div className="grid gap-1.5 rounded-lg border border-border bg-background/40 px-3 py-2.5">
@@ -2981,7 +2976,7 @@ function ReviewRow({ review, now }: { review: CardReview; now: Date }) {
         <Badge
           variant={st.variant}
           className="h-5 px-2 text-[11px]"
-          title={relativeTime(parseTime(review.at), now)}
+          title={relativeTime(parseTime(review.at), new Date())}
         >
           {st.label}
         </Badge>

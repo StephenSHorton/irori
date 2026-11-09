@@ -43,7 +43,7 @@ export const commands = {
 	boardCards: () => __TAURI_INVOKE<CardSummary[]>("board_cards"),
 	boardCard: (id: string) => __TAURI_INVOKE<CardDetail>("board_card", { id }),
 	/**  Several cards in one call, each with its card or why not (card #468). */
-	boardCardsById: (ids: string[]) => __TAURI_INVOKE<CardRead[]>("board_cards_by_id", { ids }),
+	boardCardsById: (ids: string[], have: CardHave[]) => __TAURI_INVOKE<CardRead[]>("board_cards_by_id", { ids, have }),
 	boardDoneCards: (limit: number, before: string) => __TAURI_INVOKE<DonePage>("board_done_cards", { limit, before }),
 	/**
 	 *  One scope's live cards (card #161): "" every card, "own" the private
@@ -173,6 +173,8 @@ export const commands = {
 	boardThreads: (boardId: string) => __TAURI_INVOKE<ThreadSummary[]>("board_threads", { boardId }),
 	/**  Every thread on this device, each with its space (card #558). */
 	boardThreadsAll: () => __TAURI_INVOKE<ThreadSummary[]>("board_threads_all"),
+	/**  Just these threads' rows (card #1136). */
+	boardThreadsById: (ids: string[]) => __TAURI_INVOKE<ThreadSummary[]>("board_threads_by_id", { ids }),
 	/**  What a #ref in text names (card #144), or null. */
 	boardCardRef: (r: string) => __TAURI_INVOKE<RefTarget | null>("board_card_ref", { r }),
 	/**  The person has a thread open: what is in it now is read (card #719). */
@@ -232,6 +234,13 @@ export const commands = {
 	storageLog: () => __TAURI_INVOKE<LogPart[]>("storage_log"),
 	storageItems: (kind: string) => __TAURI_INVOKE<StorageItem[]>("storage_items", { kind }),
 	storageClean: (kind: string, ids: string[]) => __TAURI_INVOKE<StorageCleaned>("storage_clean", { kind, ids }),
+	/**  Ends a process that holds a worktree (card #1118): Storage's End it. */
+	storageEndHolder: (tree: string, pid: number) => __TAURI_INVOKE<string>("storage_end_holder", { tree, pid }),
+	/**
+	 *  Deletes a canceled card's worktree whole (card #1118): Storage's
+	 *  "delete anyway".
+	 */
+	storageDeleteTree: (tree: string) => __TAURI_INVOKE<null>("storage_delete_tree", { tree }),
 	storageCleared: () => __TAURI_INVOKE<ClearedCard[]>("storage_cleared"),
 	storageUnclear: (ids: string[]) => __TAURI_INVOKE<number>("storage_unclear", { ids }),
 	threadsClearCount: (olderThanSecs: number) => __TAURI_INVOKE<number>("threads_clear_count", { olderThanSecs }),
@@ -378,12 +387,31 @@ export const commands = {
 	assistantWeighs: () => __TAURI_INVOKE<boolean>("assistant_weighs"),
 	/**  Turns "Weigh new cards" on or off, on all the person's devices. */
 	assistantWeighsSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_weighs_set", { on }),
+	/**  "Let my assistant add notes from what I say" (#1053): on unless turned off. */
+	assistantHuddleNotes: () => __TAURI_INVOKE<boolean>("assistant_huddle_notes"),
+	/**  Turns the notes switch on or off, on all the person's devices. */
+	assistantHuddleNotesSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_huddle_notes_set", { on }),
+	/**  "Let my assistant chair huddles I start" (#1053): on unless turned off. */
+	assistantHuddleChair: () => __TAURI_INVOKE<boolean>("assistant_huddle_chair"),
+	/**  Turns the chair switch on or off, on all the person's devices. */
+	assistantHuddleChairSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_huddle_chair_set", { on }),
 	/**  A huddle's transcript (#656): every line, named. */
 	talkCallTranscript: (callId: string) => __TAURI_INVOKE<TalkTranscript>("talk_call_transcript", { callId }),
 	/**  Every huddle in Talk (card #1044), newest first. */
 	talkHuddles: () => __TAURI_INVOKE<TalkHuddle[]>("talk_huddles"),
 	/**  Sets a huddle's title (card #1044); returns the title it now shows. */
 	talkCallTitleSet: (callId: string, title: string) => __TAURI_INVOKE<string>("talk_call_title_set", { callId, title }),
+	/**
+	 *  Sets a huddle's title (card #1051): the same write as
+	 *  `talk_call_title_set`, a person's title.
+	 */
+	huddleTitleSet: (callId: string, title: string) => __TAURI_INVOKE<string>("huddle_title_set", { callId, title }),
+	/**  Adds an item to a huddle's canvas (card #1051). */
+	huddleItemAdd: (callId: string, kind: string, text: string) => __TAURI_INVOKE<TalkCanvasItem>("huddle_item_add", { callId, kind, text }),
+	/**  Changes a canvas item (card #1051): text, status or place. */
+	huddleItemSet: (callId: string, itemId: string, text: string | null, status: string | null, x: number | null, y: number | null) => __TAURI_INVOKE<TalkCanvasItem>("huddle_item_set", { callId, itemId, text, status, x, y }),
+	/**  Asks the person's assistant a question in a live huddle (card #1051). */
+	huddleAsk: (callId: string, text: string) => __TAURI_INVOKE<TalkCanvasItem>("huddle_ask", { callId, text }),
 	/**  What this device can share: displays, then windows. */
 	shareSources: () => __TAURI_INVOKE<ShareSourceView[]>("share_sources"),
 	/**  Shares a window or display (an id from share_sources) in the huddle. */
@@ -561,6 +589,13 @@ export const commands = {
 	 *  more. An unknown or finished id is fine.
 	 */
 	assistantStop: (id: number) => __TAURI_INVOKE<null>("assistant_stop", { id }),
+	/**
+	 *  A page of the assistant's one conversation, newest first (card #1102,
+	 *  docs/design/one-assistant.md §4): up to `limit` entries (0 is 50) older
+	 *  than the one whose cursor is `before` ("" starts at the newest). The
+	 *  same on every one of the person's devices.
+	 */
+	assistantChatList: (before: string, limit: number) => __TAURI_INVOKE<AssistantChatPage>("assistant_chat_list", { before, limit }),
 };
 
 /* Types */
@@ -900,6 +935,98 @@ export type Ask = {
 export type AskRepo = {
 	repoKey: string,
 	label: string,
+};
+
+/**  What a follow-up line lets the person do. */
+export type AssistantChatAct = {
+	/**  Today `answer`. */
+	kind: string,
+	card: string,
+	blocker: string,
+};
+
+/**  An owner's-OK draft of an answer to another person. */
+export type AssistantChatDraft = {
+	request: string,
+	post: string,
+	space: string,
+	text: string,
+	device: string,
+	at: number,
+};
+
+/**
+ *  One entry of the conversation: exactly one of `turn`, `update` and
+ *  `draft`, as `kind` says.
+ */
+export type AssistantChatItem = {
+	/**  Pass it as `before` for the entries older than this one. */
+	cursor: string,
+	/**  `turn`, `update` or `draft`. */
+	kind: string,
+	turn?: AssistantChatTurn | null,
+	update?: AssistantChatUpdate | null,
+	draft?: AssistantChatDraft | null,
+};
+
+/**  A page of the conversation, newest first. */
+export type AssistantChatPage = {
+	items: AssistantChatItem[],
+	/**  Older entries remain. */
+	more: boolean,
+};
+
+/**  A thread a reply posted, or the person posted from its draft. */
+export type AssistantChatPosted = {
+	id: string,
+	short: string,
+	/**  Its board's tag: numbers are per board. */
+	tag: string,
+};
+
+/**  The assistant's reply to a question. */
+export type AssistantChatReply = {
+	text: string,
+	/**  What its write tools changed, a line each (card #987). */
+	changed: string[],
+	/**  The label of the screen it looked at. */
+	looked: string,
+	error: string,
+	/**  The assistant's computer didn't get to it. */
+	skipped: boolean,
+	/**  The assistant's computer. */
+	device: string,
+	/**  Unix milliseconds. */
+	at: number,
+};
+
+/**  One question and its reply, once there is one. */
+export type AssistantChatTurn = {
+	turn: string,
+	text: string,
+	/**  The device the person typed on. */
+	device: string,
+	/**  Unix milliseconds on that device. */
+	at: number,
+	/**  The turn this one asks again. */
+	again: string,
+	/**  Brought in from the assistant's computer's old history. */
+	imported: boolean,
+	callId: string,
+	reply?: AssistantChatReply | null,
+	posted?: AssistantChatPosted | null,
+	/**  The person stopped it. */
+	stopped: boolean,
+};
+
+/**  A follow-up line about a thread the chat posted. */
+export type AssistantChatUpdate = {
+	key: string,
+	thread: string,
+	text: string,
+	act?: AssistantChatAct | null,
+	at: number,
+	imported: boolean,
 };
 
 /**
@@ -1430,6 +1557,12 @@ export type CardDetail = {
 	sharedTo?: SharedCopy | null,
 } & CardSummary;
 
+/**  What the window holds of one card: the `rev` it was last sent. */
+export type CardHave = {
+	id: string,
+	rev: string,
+};
+
 /**  The holder line. */
 export type CardHolder = {
 	who: AgentRef,
@@ -1578,6 +1711,15 @@ export type CardRead = {
 	card: CardDetail | null,
 	/**  "" when card is there. */
 	error: string,
+	/**
+	 *  A stamp of the card as read (card #1136): the window sends it back in
+	 *  `have`, and a card that still hashes to it comes back `unchanged`
+	 *  with no card, so a quiet board costs a few bytes a card, not every
+	 *  comment and step of it. "" when the card isn't there.
+	 */
+	rev: string,
+	/**  The card is what `have` said: `card` is empty on purpose. */
+	unchanged: boolean,
 };
 
 /**  Another card: a subtask's parent. */
@@ -2203,6 +2345,18 @@ export type DeviceView = {
 	 *  reads it.
 	 */
 	via?: string,
+	/**
+	 *  How this device reaches it: direct, relay or unreachable (card
+	 *  #1119). Empty (omitted): this device, or a removed one.
+	 */
+	reach?: string,
+	/**  The app version it runs, when known. */
+	version?: string,
+	/**
+	 *  The newest version among the devices, when this one runs an older
+	 *  one (omitted otherwise).
+	 */
+	behind?: string,
 	color?: string,
 	/**
 	 *  The work/personal sides it runs, the first its new cards' (card
@@ -3005,6 +3159,12 @@ export type StorageCleaned = {
 	kept: StorageKept[],
 };
 
+/**  A process that holds a worktree (card #1118). */
+export type StorageHolder = {
+	pid: number,
+	name: string,
+};
+
 /**  One item of a kind: a file, a folder, a space, a tree. */
 export type StorageItem = {
 	/**
@@ -3030,6 +3190,19 @@ export type StorageItem = {
 	 *  no copy, so deleting it here may lose it.
 	 */
 	onlyHere: boolean,
+	/**
+	 *  Why the sweep keeps a worktree (card #1118), when it does: "waiting
+	 *  for Done", or "canceled, 3 unpushed commits". A process holding it
+	 *  is `holders`.
+	 */
+	pinned: string,
+	/**  Processes with their folder in this worktree: End it ends one. */
+	holders: StorageHolder[],
+	/**
+	 *  A canceled card's worktree, which the person may delete whole,
+	 *  unpushed work and all.
+	 */
+	deleteAnyway: boolean,
 };
 
 /**  One item a clean left. */
@@ -3106,6 +3279,20 @@ export type SummaryMember = {
 	avatar?: string,
 };
 
+/**  One person's assistant in a huddle's roster (card #1049). */
+export type TalkAssistant = {
+	/**  The person, as a key. */
+	person: string,
+	/**  The person's name ("you" for this person), never a key (card #1052). */
+	name: string,
+	/**  The person is this one. */
+	mine: boolean,
+	/**  `connected`, `reconnecting` or `not connected`. */
+	state: string,
+	/**  Why it isn't connected, when this device knows; else empty. */
+	why: string,
+};
+
 /**  What a huddle's start or end post says about it (#654). */
 export type TalkCall = {
 	callId: string,
@@ -3125,6 +3312,42 @@ export type TalkCall = {
 	transcript: boolean,
 	/**  The huddle's title (card #1043); empty when it has none. */
 	title: string,
+};
+
+/**  One item on a huddle's canvas (card #1051), with the names it shows by. */
+export type TalkCanvasItem = {
+	itemId: string,
+	/**  `question`, `answer`, `decision`, `task`, `note` or `summary`. */
+	kind: string,
+	text: string,
+	/**  `open`, `settled`, `dropped` or `carded`; empty for a note or summary. */
+	status: string,
+	/**  The item this answers, when it names one. */
+	reply: string,
+	/**  The items a summary judges answered or superseded. */
+	refs: string[],
+	/**
+	 *  What woke the look that wrote it (`name`, `own`, `digest`, `routed`,
+	 *  `end`, `ask`), else empty.
+	 */
+	why: string,
+	/**  Written by a person's assistant: never shown as the person's words. */
+	assistant: boolean,
+	/**  Who signed it. */
+	byName: string,
+	/**  "Juno \u{b7} Addam's assistant" for an assistant's item, else empty. */
+	label: string,
+	/**  Who asked, when the item says; empty groups it under the signer. */
+	askerName: string,
+	/**  The signer is this person. */
+	mine: boolean,
+	/**  The asker is this person. */
+	askerMine: boolean,
+	atMs: number,
+	x: number | null,
+	y: number | null,
+	/**  The ref of the card it became, once a person divided the canvas. */
+	card: string,
 };
 
 /**  One conversation in Talk's list. */
@@ -3318,6 +3541,13 @@ export type TalkTranscript = {
 	 *  mark, or a crash that left the call quiet. False when unsure.
 	 */
 	over: boolean,
+	/**
+	 *  Each person's assistant in a live huddle (card #1049): connected,
+	 *  reconnecting or not connected. Empty once it is over.
+	 */
+	assistants: TalkAssistant[],
+	/**  The canvas (card #1051), oldest first. */
+	canvas: TalkCanvasItem[],
 	/**  What was said, oldest first. */
 	lines: TalkTranscriptLine[],
 };
@@ -3328,6 +3558,11 @@ export type TalkTranscriptLine = {
 	name: string,
 	/**  The person said it. */
 	mine: boolean,
+	/**
+	 *  Said under the notice that lets agents read it (card #1047); the
+	 *  roster says when a person's lines aren't (card #1052).
+	 */
+	agents: boolean,
 	/**  When the phrase began, Unix ms. */
 	atMs: number,
 	text: string,

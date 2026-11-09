@@ -226,6 +226,44 @@ kinds! {
     /// card. `{on, by, at}`, actor `user`, newest wins, none means on. Set
     /// in the app only.
     ASSISTANT_WEIGHS_SET = "assistant.weighs.set" => Replicated, Refuses;
+    /// "Let my assistant add notes from what I say" (card #1053,
+    /// docs/design/call-agents.md §12): off stops the assistant's own digest
+    /// in huddles. `{on, by, at}`, actor `user`, newest wins, none means on.
+    /// Set in the app only.
+    ASSISTANT_HUDDLE_NOTES_SET = "assistant.huddle.notes.set" => Replicated, Refuses;
+    /// "Let my assistant chair huddles I start" (card #1053, §12): off
+    /// passes the chair to the next person's assistant. `{on, by, at}`,
+    /// actor `user`, newest wins, none means on. Set in the app only.
+    ASSISTANT_HUDDLE_CHAIR_SET = "assistant.huddle.chair.set" => Replicated, Refuses;
+    /// The Office Assistant's one conversation (card #1102,
+    /// docs/design/one-assistant.md §4): private rows every one of the
+    /// person's devices folds the same (`core::service::assistant_chat`).
+    /// No tool writes them, and the events tool leaves their text out. Every
+    /// `at` is Unix milliseconds. A question the person typed: `{turn, text,
+    /// screen, device, at, again?, imported?, callId?}`, actor `user`,
+    /// written only by a host command.
+    ASSISTANT_CHAT_ASKED = "assistant.chat.asked" => Replicated, Refuses;
+    /// The assistant's reply to a question: `{turn, text, changed?, posted?,
+    /// looked?, error?, skipped?, device, at, imported?}`, actor `irori`,
+    /// written by the assistant's computer. The first per turn wins.
+    ASSISTANT_CHAT_SAID = "assistant.chat.said" => Replicated, Refuses;
+    /// A follow-up line: `{key, thread?, text, act?, request?, at,
+    /// imported?}`, actor `irori`. The first per key wins.
+    ASSISTANT_CHAT_UPDATE = "assistant.chat.update" => Replicated, Refuses;
+    /// The person posted a reply's draft as a thread: `{turn, posted}`,
+    /// actor `user`. The first per turn wins.
+    ASSISTANT_CHAT_POSTED = "assistant.chat.posted" => Replicated, Refuses;
+    /// New chat: `{by, at}`, actor `user`. The newest hides what came before.
+    ASSISTANT_CHAT_CLEARED = "assistant.chat.cleared" => Replicated, Refuses;
+    /// The person stopped a turn: `{turn, by, at}`, actor `user`.
+    ASSISTANT_CHAT_STOP = "assistant.chat.stop" => Replicated, Refuses;
+    /// Let it answer or Answer this, tapped on any device (§9): `{request,
+    /// post, space, how: let|draft, by, at}`, actor `user`.
+    ASSISTANT_ANSWER_REQUESTED = "assistant.answer.requested" => Replicated, Refuses;
+    /// The owner's-OK draft of an answer to another person (§9): `{request,
+    /// post, space, text, device, at}`, actor `irori`. The first per request
+    /// wins.
+    ASSISTANT_ANSWER_DRAFT = "assistant.answer.draft" => Replicated, Refuses;
     // capture
     CAPTURE_TURN = "capture.turn" => Replicated, Refuses;
     CAPTURE_EDIT = "capture.edit" => Replicated, Refuses;
@@ -384,6 +422,22 @@ kinds! {
     /// a person or proposed by an assistant (`assistant: true`); a person's
     /// newest title beats an assistant's (docs/design/call-agents.md §8).
     CALL_TITLE = "call.title" => Replicated, Accepts;
+    /// `{callId, convId, device, state, chair, by, at}`: a person's assistant
+    /// is hosted (`on`) or not (`off`) on `device` for this huddle (card
+    /// #1049, docs/design/call-agents.md §7, §8). Arbitrates which of a
+    /// person's devices hosts it.
+    CALL_ASSIST = "call.assist" => Replicated, Accepts;
+    /// `{itemId, callId, convId, kind, text, status, reply?, refs?, asker?,
+    /// why?, assistant, by, at}`: one item on a huddle's canvas (card #1051,
+    /// docs/design/call-agents.md §8). A person's, their assistant's
+    /// (`assistant: true`) or an agent's; an assistant's or agent's status
+    /// reads as `open`.
+    CALL_ITEM = "call.item" => Replicated, Accepts;
+    /// `{itemId, callId, convId, text?, status?, x?, y?, card?, assistant,
+    /// by, at}`: a change to a canvas item, per field, newest wins (card
+    /// #1051). `status`, `card`, `x` and `y` count only from a person's row
+    /// with no `assistant` flag.
+    CALL_ITEM_SET = "call.item.set" => Replicated, Accepts;
     // device-local board rows
     /// `{cardId, agentKey}`; still read, no longer written.
     BOARD_CARD_KEY = "board.cardkey" => Local;

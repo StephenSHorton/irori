@@ -18,6 +18,14 @@ export type AgentsSettings = B.AgentsSettings
 export type AnswerResult = B.AnswerResult
 export type Ask = B.Ask
 export type AskRepo = B.AskRepo
+export type AssistantChatAct = B.AssistantChatAct
+export type AssistantChatDraft = B.AssistantChatDraft
+export type AssistantChatItem = B.AssistantChatItem
+export type AssistantChatPage = B.AssistantChatPage
+export type AssistantChatPosted = B.AssistantChatPosted
+export type AssistantChatReply = B.AssistantChatReply
+export type AssistantChatTurn = B.AssistantChatTurn
+export type AssistantChatUpdate = B.AssistantChatUpdate
 export type AssistantEvent = B.AssistantEvent
 export type AssistantFile = B.AssistantFile
 export type AssistantTurn = B.AssistantTurn
@@ -46,6 +54,7 @@ export type CardBlocker = B.CardBlocker
 export type CardBoard = B.CardBoard
 export type CardColors = B.CardColors
 export type CardDetail = B.CardDetail
+export type CardHave = B.CardHave
 export type CardHolder = B.CardHolder
 export type CardLater = B.CardLater
 export type CardLeftOff = B.CardLeftOff
@@ -153,13 +162,16 @@ export type StartedAgent = B.StartedAgent
 export type State = B.State
 export type Step = B.Step
 export type StorageCleaned = B.StorageCleaned
+export type StorageHolder = B.StorageHolder
 export type StorageItem = B.StorageItem
 export type StorageKept = B.StorageKept
 export type StorageKind = B.StorageKind
 export type StorageReport = B.StorageReport
 export type SubtaskPreview = B.SubtaskPreview
 export type SummaryMember = B.SummaryMember
+export type TalkAssistant = B.TalkAssistant
 export type TalkCall = B.TalkCall
+export type TalkCanvasItem = B.TalkCanvasItem
 export type TalkConversation = B.TalkConversation
 export type TalkHuddle = B.TalkHuddle
 export type TalkMember = B.TalkMember
@@ -265,6 +277,46 @@ export function Ask(p: Partial<B.Ask> = {}): B.Ask {
 /** AskRepo with Go's zero values for every field left out. */
 export function AskRepo(p: Partial<B.AskRepo> = {}): B.AskRepo {
   return { "repoKey": "", "label": "", ...p } as B.AskRepo
+}
+
+/** AssistantChatAct with Go's zero values for every field left out. */
+export function AssistantChatAct(p: Partial<B.AssistantChatAct> = {}): B.AssistantChatAct {
+  return { "kind": "", "card": "", "blocker": "", ...p } as B.AssistantChatAct
+}
+
+/** AssistantChatDraft with Go's zero values for every field left out. */
+export function AssistantChatDraft(p: Partial<B.AssistantChatDraft> = {}): B.AssistantChatDraft {
+  return { "request": "", "post": "", "space": "", "text": "", "device": "", "at": 0, ...p } as B.AssistantChatDraft
+}
+
+/** AssistantChatItem with Go's zero values for every field left out. */
+export function AssistantChatItem(p: Partial<B.AssistantChatItem> = {}): B.AssistantChatItem {
+  return { "cursor": "", "kind": "", ...p } as B.AssistantChatItem
+}
+
+/** AssistantChatPage with Go's zero values for every field left out. */
+export function AssistantChatPage(p: Partial<B.AssistantChatPage> = {}): B.AssistantChatPage {
+  return { "items": [], "more": false, ...p } as B.AssistantChatPage
+}
+
+/** AssistantChatPosted with Go's zero values for every field left out. */
+export function AssistantChatPosted(p: Partial<B.AssistantChatPosted> = {}): B.AssistantChatPosted {
+  return { "id": "", "short": "", "tag": "", ...p } as B.AssistantChatPosted
+}
+
+/** AssistantChatReply with Go's zero values for every field left out. */
+export function AssistantChatReply(p: Partial<B.AssistantChatReply> = {}): B.AssistantChatReply {
+  return { "text": "", "changed": [], "looked": "", "error": "", "skipped": false, "device": "", "at": 0, ...p } as B.AssistantChatReply
+}
+
+/** AssistantChatTurn with Go's zero values for every field left out. */
+export function AssistantChatTurn(p: Partial<B.AssistantChatTurn> = {}): B.AssistantChatTurn {
+  return { "turn": "", "text": "", "device": "", "at": 0, "again": "", "imported": false, "callId": "", "stopped": false, ...p } as B.AssistantChatTurn
+}
+
+/** AssistantChatUpdate with Go's zero values for every field left out. */
+export function AssistantChatUpdate(p: Partial<B.AssistantChatUpdate> = {}): B.AssistantChatUpdate {
+  return { "key": "", "thread": "", "text": "", "at": 0, "imported": false, ...p } as B.AssistantChatUpdate
 }
 
 /** AssistantEvent with Go's zero values for every field left out. */
@@ -397,6 +449,11 @@ export function CardDetail(p: Partial<B.CardDetail> = {}): B.CardDetail {
   return { ...CardSummary(), "goal": "", "doneWhen": "", "note": "", "steps": [], "blockers": [], "reviews": [], "prs": [], "links": [], "recent": [], "comments": [], "thread": [], "threadEarlier": 0, "historyTrimmed": false, "subtaskList": [], "waits": [], ...p } as B.CardDetail
 }
 
+/** CardHave with Go's zero values for every field left out. */
+export function CardHave(p: Partial<B.CardHave> = {}): B.CardHave {
+  return { "id": "", "rev": "", ...p } as B.CardHave
+}
+
 /** CardHolder with Go's zero values for every field left out. */
 export function CardHolder(p: Partial<B.CardHolder> = {}): B.CardHolder {
   return { "who": AgentRef(), "state": "", "others": 0, ...p } as B.CardHolder
@@ -454,7 +511,7 @@ export function CardProgress(p: Partial<B.CardProgress> = {}): B.CardProgress {
 
 /** CardRead with Go's zero values for every field left out. */
 export function CardRead(p: Partial<B.CardRead> = {}): B.CardRead {
-  return { "id": "", "card": null, "error": "", ...p } as B.CardRead
+  return { "id": "", "card": null, "error": "", "rev": "", "unchanged": false, ...p } as B.CardRead
 }
 
 /** CardRef with Go's zero values for every field left out. */
@@ -877,9 +934,14 @@ export function StorageCleaned(p: Partial<B.StorageCleaned> = {}): B.StorageClea
   return { "removed": 0, "freed": 0, "kept": [], ...p } as B.StorageCleaned
 }
 
+/** StorageHolder with Go's zero values for every field left out. */
+export function StorageHolder(p: Partial<B.StorageHolder> = {}): B.StorageHolder {
+  return { "pid": 0, "name": "", ...p } as B.StorageHolder
+}
+
 /** StorageItem with Go's zero values for every field left out. */
 export function StorageItem(p: Partial<B.StorageItem> = {}): B.StorageItem {
-  return { "id": "", "name": "", "bytes": 0, "at": "", "detail": "", "cards": [], "cleanable": false, "keep": "", "onlyHere": false, ...p } as B.StorageItem
+  return { "id": "", "name": "", "bytes": 0, "at": "", "detail": "", "cards": [], "cleanable": false, "keep": "", "onlyHere": false, "pinned": "", "holders": [], "deleteAnyway": false, ...p } as B.StorageItem
 }
 
 /** StorageKept with Go's zero values for every field left out. */
@@ -907,9 +969,19 @@ export function SummaryMember(p: Partial<B.SummaryMember> = {}): B.SummaryMember
   return { "personId": "", "name": "", "me": false, "presence": "", "working": 0, "free": 0, ...p } as B.SummaryMember
 }
 
+/** TalkAssistant with Go's zero values for every field left out. */
+export function TalkAssistant(p: Partial<B.TalkAssistant> = {}): B.TalkAssistant {
+  return { "person": "", "name": "", "mine": false, "state": "", "why": "", ...p } as B.TalkAssistant
+}
+
 /** TalkCall with Go's zero values for every field left out. */
 export function TalkCall(p: Partial<B.TalkCall> = {}): B.TalkCall {
   return { "callId": "", "op": "", "durationMs": 0, "people": [], "transcript": false, "title": "", ...p } as B.TalkCall
+}
+
+/** TalkCanvasItem with Go's zero values for every field left out. */
+export function TalkCanvasItem(p: Partial<B.TalkCanvasItem> = {}): B.TalkCanvasItem {
+  return { "itemId": "", "kind": "", "text": "", "status": "", "reply": "", "refs": [], "why": "", "assistant": false, "byName": "", "label": "", "askerName": "", "mine": false, "askerMine": false, "atMs": 0, "x": null, "y": null, "card": "", ...p } as B.TalkCanvasItem
 }
 
 /** TalkConversation with Go's zero values for every field left out. */
@@ -954,12 +1026,12 @@ export function TalkReplying(p: Partial<B.TalkReplying> = {}): B.TalkReplying {
 
 /** TalkTranscript with Go's zero values for every field left out. */
 export function TalkTranscript(p: Partial<B.TalkTranscript> = {}): B.TalkTranscript {
-  return { "callId": "", "convId": "", "convName": "", "convKind": "", "agents": false, "startedAtMs": null, "ended": false, "durationMs": 0, "title": "", "titleByAssistant": false, "over": false, "lines": [], ...p } as B.TalkTranscript
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "agents": false, "startedAtMs": null, "ended": false, "durationMs": 0, "title": "", "titleByAssistant": false, "over": false, "assistants": [], "canvas": [], "lines": [], ...p } as B.TalkTranscript
 }
 
 /** TalkTranscriptLine with Go's zero values for every field left out. */
 export function TalkTranscriptLine(p: Partial<B.TalkTranscriptLine> = {}): B.TalkTranscriptLine {
-  return { "name": "", "mine": false, "atMs": 0, "text": "", ...p } as B.TalkTranscriptLine
+  return { "name": "", "mine": false, "agents": false, "atMs": 0, "text": "", ...p } as B.TalkTranscriptLine
 }
 
 /** Target with Go's zero values for every field left out. */

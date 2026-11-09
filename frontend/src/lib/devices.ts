@@ -85,6 +85,8 @@ function sampleList(): DeviceView[] {
       color: "orange",
       state: "connected",
       lastSeen: new Date().toISOString(),
+      reach: "direct",
+      version: "0.12.1",
       sides: ["Work"],
     }),
     // Reached only through another device (card #544).
@@ -96,6 +98,8 @@ function sampleList(): DeviceView[] {
       state: "recent",
       lastSeen: new Date(Date.now() - 2 * 60_000).toISOString(),
       via: "Phone",
+      reach: "unreachable",
+      version: "0.12.1",
     }),
     DeviceView({
       deviceId: "sample-node",
@@ -104,6 +108,9 @@ function sampleList(): DeviceView[] {
       color: "pink",
       state: "offline",
       lastSeen: new Date(Date.now() - 3 * 3600_000).toISOString(),
+      reach: "unreachable",
+      version: "0.11.0",
+      behind: "0.12.1",
       warning: "It runs an older Irori. Update it.",
     }),
   ]
@@ -557,6 +564,26 @@ export function usePairing(active: boolean): {
   }, [active])
 
   return { status, setStatus }
+}
+
+// reachLine is how this device reaches another and what it is behind on
+// (card #1119): "direct", "relay" or "unreachable", then "runs 0.11.0,
+// behind 0.12.1" when its version is older than the newest. "" for this
+// device and a removed one.
+export function reachLine(d: DeviceView): string {
+  if (d.this || d.revoked || !d.reach) return ""
+  // Its rows still reach this device through another (card #544): no
+  // session of its own, not out of reach.
+  const parts: string[] = [
+    d.reach === "relay"
+      ? "via relay"
+      : d.reach === "unreachable" && d.via
+        ? "no direct link"
+        : d.reach,
+  ]
+  if (d.behind)
+    parts.push(`${d.version ? `runs ${d.version}, ` : ""}behind ${d.behind}`)
+  return parts.join(" · ")
 }
 
 // stateDot is a device's one status dot.

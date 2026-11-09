@@ -68,6 +68,8 @@ pub mod usage;
 pub use crate::members::Member;
 pub use crate::meshnode::BoardParts;
 pub use crate::service::assistant_answers;
+pub use crate::service::assistant_chat;
+pub use crate::service::assistant_packet;
 pub use crate::service::boards::{
     BOARDS_DIR, BoardAgent, BoardIdentity, BoardInfo, BoardMember, BoardSummary,
     Error as BoardError, SPACES_DIR, SharePreview, SharedCopy, SubtaskPreview, SummaryMember,
@@ -79,6 +81,8 @@ pub use crate::service::calls::{
 pub use crate::service::calls_share::{ShareNow, ShareSink, ShareSource};
 pub use crate::service::card_weights;
 pub use crate::service::freshness::{LogFreshness, PERSONAL as PERSONAL_LOG};
+pub use crate::service::huddle_canvas::CanvasEntry;
+pub use crate::service::huddle_host::{self as huddle_host, AssistantState};
 pub use crate::service::huddle_packet;
 pub use crate::service::huddle_session::{
     self as huddle_session, HuddleRunner, HuddleSeed, Look, LookError,
@@ -99,7 +103,7 @@ pub use crate::service::spawn_permissions;
 pub use crate::service::spawn_stop;
 pub use crate::service::spawn_waiting;
 pub use crate::service::spawn_why;
-pub use crate::service::storage::{BuildTree, LIVE_TREE};
+pub use crate::service::storage::{BuildTree, LIVE_TREE, waiting_for_done};
 pub use crate::service::sync_out::{SyncOutLog, SyncOutReport};
 pub use crate::service::talk_replying::{REPLYING_CAP, Replier, TalkReplying};
 pub use crate::service::thread_names;

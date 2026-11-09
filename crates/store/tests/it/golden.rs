@@ -74,7 +74,7 @@ fn board_name(b: Board) -> &'static str {
 
 /// Kinds added after the Go port (shared boards stage 2, waits on card
 /// #87), which Go's table can't list: board logs accept them.
-const SINCE_GO: [&str; 30] = [
+const SINCE_GO: [&str; 33] = [
     kinds::BOARD_ASK_REQUESTED,
     kinds::BOARD_ASK_STATE,
     kinds::BOARD_ASK_MOVED,
@@ -112,6 +112,11 @@ const SINCE_GO: [&str; 30] = [
     kinds::CALL_SEGMENT,
     // A huddle's title (card #1043).
     kinds::CALL_TITLE,
+    // Which device hosts a person's assistant in a huddle (card #1049).
+    kinds::CALL_ASSIST,
+    // A huddle canvas's items and their changes (card #1051).
+    kinds::CALL_ITEM,
+    kinds::CALL_ITEM_SET,
     // A card's weight (card #963).
     kinds::TASK_WEIGHT,
     // A board's description, and closing it (card #690).
@@ -126,7 +131,7 @@ const SINCE_GO: [&str; 30] = [
 /// history, card #377; spawned agents, card #446; the sides a device
 /// runs, card #494; spawning across the person's devices, card #455; a
 /// hidden DM space's marker, card #538; the names themes, card #702).
-const SINCE_GO_REFUSED: [&str; 30] = [
+const SINCE_GO_REFUSED: [&str; 40] = [
     kinds::AGENT_OFFER,
     kinds::SPAWN_HOST,
     kinds::SPAWN_END_REQUESTED,
@@ -162,6 +167,18 @@ const SINCE_GO_REFUSED: [&str; 30] = [
     kinds::ASSISTANT_NAMES_SET,
     // "Weigh new cards" (card #965).
     kinds::ASSISTANT_WEIGHS_SET,
+    // The two huddle switches (card #1053).
+    kinds::ASSISTANT_HUDDLE_NOTES_SET,
+    kinds::ASSISTANT_HUDDLE_CHAIR_SET,
+    // The Office Assistant's one conversation (card #1102).
+    kinds::ASSISTANT_CHAT_ASKED,
+    kinds::ASSISTANT_CHAT_SAID,
+    kinds::ASSISTANT_CHAT_UPDATE,
+    kinds::ASSISTANT_CHAT_POSTED,
+    kinds::ASSISTANT_CHAT_CLEARED,
+    kinds::ASSISTANT_CHAT_STOP,
+    kinds::ASSISTANT_ANSWER_REQUESTED,
+    kinds::ASSISTANT_ANSWER_DRAFT,
 ];
 
 /// Device-local kinds added after the Go port: the last hello this device

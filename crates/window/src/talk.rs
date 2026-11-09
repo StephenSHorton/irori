@@ -215,8 +215,90 @@ pub struct TalkTranscript {
     /// The huddle is over as this device can tell (card #1043): an end
     /// mark, or a crash that left the call quiet. False when unsure.
     pub over: bool,
+    /// Each person's assistant in a live huddle (card #1049): connected,
+    /// reconnecting or not connected. Empty once it is over.
+    pub assistants: Vec<TalkAssistant>,
+    /// The canvas (card #1051), oldest first.
+    pub canvas: Vec<TalkCanvasItem>,
     /// What was said, oldest first.
     pub lines: Vec<TalkTranscriptLine>,
+}
+
+/// One item on a huddle's canvas (card #1051), with the names it shows by.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TalkCanvasItem {
+    pub item_id: String,
+    /// `question`, `answer`, `decision`, `task`, `note` or `summary`.
+    pub kind: String,
+    pub text: String,
+    /// `open`, `settled`, `dropped` or `carded`; empty for a note or summary.
+    pub status: String,
+    /// The item this answers, when it names one.
+    pub reply: String,
+    /// The items a summary judges answered or superseded.
+    pub refs: Vec<String>,
+    /// What woke the look that wrote it (`name`, `own`, `digest`, `routed`,
+    /// `end`, `ask`), else empty.
+    pub why: String,
+    /// Written by a person's assistant: never shown as the person's words.
+    pub assistant: bool,
+    /// Who signed it.
+    pub by_name: String,
+    /// "Juno \u{b7} Addam's assistant" for an assistant's item, else empty.
+    pub label: String,
+    /// Who asked, when the item says; empty groups it under the signer.
+    pub asker_name: String,
+    /// The signer is this person.
+    pub mine: bool,
+    /// The asker is this person.
+    pub asker_mine: bool,
+    pub at_ms: i64,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    /// The ref of the card it became, once a person divided the canvas.
+    pub card: String,
+}
+
+impl From<irori_core::CanvasEntry> for TalkCanvasItem {
+    fn from(e: irori_core::CanvasEntry) -> TalkCanvasItem {
+        let i = e.item;
+        TalkCanvasItem {
+            item_id: i.item_id,
+            kind: i.kind,
+            text: i.text,
+            status: i.status,
+            reply: i.reply.unwrap_or_default(),
+            refs: i.refs,
+            why: i.why.unwrap_or_default(),
+            assistant: i.assistant,
+            by_name: e.by_name,
+            label: e.label,
+            asker_name: e.asker_name,
+            mine: e.mine,
+            asker_mine: e.asker_mine,
+            at_ms: i.at.unix_milli_value(),
+            x: i.x,
+            y: i.y,
+            card: i.card,
+        }
+    }
+}
+
+/// One person's assistant in a huddle's roster (card #1049).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TalkAssistant {
+    /// The person, as a key.
+    pub person: String,
+    /// The person's name ("you" for this person), never a key (card #1052).
+    pub name: String,
+    /// The person is this one.
+    pub mine: bool,
+    /// `connected`, `reconnecting` or `not connected`.
+    pub state: String,
+    /// Why it isn't connected, when this device knows; else empty.
+    pub why: String,
 }
 
 /// One line of a huddle's transcript.
@@ -227,6 +309,9 @@ pub struct TalkTranscriptLine {
     pub name: String,
     /// The person said it.
     pub mine: bool,
+    /// Said under the notice that lets agents read it (card #1047); the
+    /// roster says when a person's lines aren't (card #1052).
+    pub agents: bool,
     /// When the phrase began, Unix ms.
     pub at_ms: i64,
     pub text: String,
@@ -479,6 +564,65 @@ impl Window {
         self.core.call_title_set(crate::trim(call_id), title)
     }
 
+    /// The canvas item `item_id` of huddle `call_id`, named (card #1051).
+    fn canvas_item(&self, call_id: &str, item_id: &str) -> Result<TalkCanvasItem, String> {
+        self.core
+            .call_canvas(call_id)
+            .into_iter()
+            .find(|e| e.item.item_id == item_id)
+            .map(TalkCanvasItem::from)
+            .ok_or_else(|| "that item isn't on this canvas".to_string())
+    }
+
+    /// Adds an item to a huddle's canvas as the person (card #1051). `kind`
+    /// is `question`, `answer`, `decision`, `task`, `note` or `summary`.
+    pub fn huddle_item_add(
+        &self,
+        call_id: &str,
+        kind: &str,
+        text: &str,
+    ) -> Result<TalkCanvasItem, String> {
+        let id = crate::trim(call_id);
+        let i = self.core.huddle_item_add(id, kind, text, "")?;
+        self.canvas_item(id, &i.item_id)
+    }
+
+    /// Changes a canvas item as the person (card #1051): its text (their own
+    /// item's), its status (`open`, `settled`, `dropped`; `carded` only once
+    /// the huddle is over), or its place. Each field is optional.
+    pub fn huddle_item_set(
+        &self,
+        call_id: &str,
+        item_id: &str,
+        text: Option<String>,
+        status: Option<String>,
+        x: Option<f64>,
+        y: Option<f64>,
+    ) -> Result<TalkCanvasItem, String> {
+        let id = crate::trim(call_id);
+        let item = crate::trim(item_id);
+        self.core.huddle_item_set(
+            id,
+            coord::talk::NewItemSet {
+                item_id: item.to_string(),
+                text,
+                status,
+                x,
+                y,
+                ..coord::talk::NewItemSet::default()
+            },
+        )?;
+        self.canvas_item(id, item)
+    }
+
+    /// Puts a question to the person's own assistant in a live huddle
+    /// (card #1051): an item of theirs, and a look.
+    pub fn huddle_ask(&self, call_id: &str, text: &str) -> Result<TalkCanvasItem, String> {
+        let id = crate::trim(call_id);
+        let i = self.core.huddle_ask(id, text)?;
+        self.canvas_item(id, &i.item_id)
+    }
+
     /// Huddle `call_id`'s transcript (#656), every line, when the person
     /// may read the conversation it was in.
     pub fn talk_call_transcript(&self, call_id: &str) -> Result<TalkTranscript, String> {
@@ -509,6 +653,12 @@ impl Window {
         for p in &lines {
             if !keys.contains(&p.by) {
                 keys.push(p.by.clone());
+            }
+        }
+        let assistants = self.core.call_assistants(id);
+        for a in &assistants {
+            if !keys.contains(&a.person) {
+                keys.push(a.person.clone());
             }
         }
         let names: std::collections::HashMap<String, String> = keys
@@ -558,6 +708,25 @@ impl Window {
             title,
             title_by_assistant,
             over: self.core.call_over(id),
+            assistants: assistants
+                .into_iter()
+                .map(|a| {
+                    let mine = coord::talk::is_person_key(&a.person) || a.person == me_board;
+                    TalkAssistant {
+                        name: if mine { "you".into() } else { name(&a.person) },
+                        mine,
+                        person: a.person,
+                        state: a.state,
+                        why: a.why,
+                    }
+                })
+                .collect(),
+            canvas: self
+                .core
+                .call_canvas(id)
+                .into_iter()
+                .map(TalkCanvasItem::from)
+                .collect(),
             lines: lines
                 .into_iter()
                 .map(|p| {
@@ -565,6 +734,7 @@ impl Window {
                     TalkTranscriptLine {
                         name: if mine { "you".into() } else { name(&p.by) },
                         mine,
+                        agents: p.agents,
                         at_ms: p.at.unix_milli_value(),
                         text: p.text,
                     }

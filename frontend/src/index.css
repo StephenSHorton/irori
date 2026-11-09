@@ -219,3 +219,15 @@
     --skullet-base: color-mix(in oklab, var(--foreground) 9%, transparent);
     --skullet-highlight: color-mix(in oklab, var(--foreground) 7%, transparent);
 }
+/* Content fades in where a skeleton stood (card #1100: it renders outside
+   skullet once loaded); it just appears under Reduce Motion. */
+@keyframes irori-loading-reveal {
+    from {
+        opacity: 0;
+    }
+}
+@media (prefers-reduced-motion: no-preference) {
+    .loading-reveal {
+        animation: irori-loading-reveal 0.2s ease-out;
+    }
+}

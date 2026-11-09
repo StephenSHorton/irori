@@ -804,6 +804,47 @@ pub(super) enum Kind {
     Summary,
 }
 
+impl Kind {
+    /// The kind a row or block names.
+    pub(super) fn parse(s: &str) -> Option<Kind> {
+        Some(match s {
+            "question" => Kind::Question,
+            "answer" => Kind::Answer,
+            "decision" => Kind::Decision,
+            "task" => Kind::Task,
+            "note" => Kind::Note,
+            "summary" => Kind::Summary,
+            _ => return None,
+        })
+    }
+
+    /// The word a `call.item` row carries.
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Kind::Question => "question",
+            Kind::Answer => "answer",
+            Kind::Decision => "decision",
+            Kind::Task => "task",
+            Kind::Note => "note",
+            Kind::Summary => "summary",
+        }
+    }
+}
+
+impl Layer {
+    /// What a `call.item` row's `why` says of the look that wrote it.
+    pub(super) fn why(self) -> &'static str {
+        match self {
+            Layer::Named => "name",
+            Layer::Ask => "ask",
+            Layer::Own => "own",
+            Layer::Digest => "digest",
+            Layer::Routed => "routed",
+            Layer::End => "end",
+        }
+    }
+}
+
 /// Only a `question` item fires a look (L3b); nothing else on the canvas
 /// triggers anything, so assistants can't set each other off in a loop.
 pub(super) fn triggers_look(kind: Kind) -> bool {
@@ -1058,6 +1099,12 @@ impl Brain {
         self.looks
     }
 
+    /// "Let my assistant add notes from what I say" changed (card #1053):
+    /// off stops L3 from now on; the other layers are not touched.
+    pub(super) fn set_digest(&mut self, on: bool) {
+        self.settings.digest = on;
+    }
+
     /// The cap is reached (the roster says so).
     pub(super) fn capped(&self) -> bool {
         self.looks >= CAP
@@ -1065,6 +1112,12 @@ impl Brain {
 
     pub(super) fn busy(&self) -> bool {
         self.busy.is_some()
+    }
+
+    /// L4 ran and its look is over (written, empty or failed): there is
+    /// nothing more to wait for (card #1053).
+    pub(super) fn end_finished(&self) -> bool {
+        self.ended && self.busy.is_none() && self.queued.is_empty()
     }
 
     /// The next time `tick` has something to do, if any: the hold's end, or a
@@ -1291,10 +1344,24 @@ impl Brain {
         Step::default()
     }
 
+    /// The chair's one look for a title (card #1053): a digest-shaped look
+    /// that may carry a `<<title>>`.
+    pub(super) fn title(&mut self, now: SystemTime) -> Step {
+        self.launch(now, Look::new(Layer::Digest))
+    }
+
     /// The person used Ask on the page (L1, no hold, not throttled).
     pub(super) fn ask(&mut self, now: SystemTime) -> Step {
+        self.ask_about(now, None)
+    }
+
+    /// [`Brain::ask`] for the question item `item` (card #1051): the look
+    /// carries its id, so a look that waits behind another still knows what
+    /// it was asked.
+    pub(super) fn ask_about(&mut self, now: SystemTime, item: Option<&str>) -> Step {
         let mut l = Look::new(Layer::Ask);
         l.caller = Some(self.me.clone());
+        l.question = item.map(str::to_string);
         self.accept(now, l, None)
     }
 

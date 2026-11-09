@@ -144,3 +144,72 @@ describe("cardStore", () => {
     offs.forEach((off) => off())
   })
 })
+
+describe("cardStore rev gate (card #1136)", () => {
+  // A host that stamps each card and answers "same" for a stamp it holds.
+  function gated() {
+    const asked: Map<string, string>[] = []
+    let rev = 1
+    let fire = () => {}
+    const store = createCardStore(
+      async (ids, have) => {
+        asked.push(new Map(have))
+        return new Map<string, CardSlot>(
+          ids.map((id) => {
+            const r = `${id}:${rev}`
+            return [
+              id,
+              have.get(id) === r
+                ? { detail: null, error: null, rev: r, same: true }
+                : {
+                    detail: { id, title: r } as unknown as CardDetail,
+                    error: null,
+                    rev: r,
+                  },
+            ]
+          })
+        )
+      },
+      (again) => {
+        fire = again
+        return () => {}
+      },
+      20
+    )
+    return { store, asked, bump: () => rev++, change: () => fire() }
+  }
+
+  test("a change asks with the revs it holds; an unchanged card keeps its slot", async () => {
+    const g = gated()
+    let renders = 0
+    const off = g.store.watch("a", () => renders++)
+    await tick()
+    expect(g.asked[0].size).toBe(0)
+    const before = g.store.slot("a")
+    g.change()
+    await tick()
+    expect(g.asked[1].get("a")).toBe("a:1")
+    expect(g.store.slot("a")).toBe(before)
+    expect(renders).toBe(1)
+    // Moved on: the card comes whole and renders.
+    g.bump()
+    g.change()
+    await tick()
+    expect(g.store.slot("a")).not.toBe(before)
+    expect(g.store.slot("a")?.detail?.title).toBe("a:2")
+    expect(renders).toBe(2)
+    off()
+  })
+
+  test("a stamp for a card the store no longer holds reads it whole", async () => {
+    const g = gated()
+    const off = g.store.watch("a", () => {})
+    await tick()
+    off()
+    const off2 = g.store.watch("a", () => {})
+    await tick()
+    expect(g.asked[1].size).toBe(0)
+    expect(g.store.slot("a")?.detail?.id).toBe("a")
+    off2()
+  })
+})

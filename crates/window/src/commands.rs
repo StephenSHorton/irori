@@ -35,7 +35,8 @@ use crate::meters::MetersSample;
 use crate::roster::{GoneSession, RosterChange};
 use crate::settings::{CardLook, NotifyOptions, Target};
 use crate::talk::{
-    TalkConversation, TalkHuddle, TalkMemberRef, TalkPerson, TalkPost, TalkTranscript,
+    TalkCanvasItem, TalkConversation, TalkHuddle, TalkMemberRef, TalkPerson, TalkPost,
+    TalkTranscript,
 };
 use crate::ts::{self, Typed};
 use crate::update::UpdateStatus;
@@ -312,8 +313,12 @@ pub async fn board_card(w: W<'_>, id: String) -> R<CardDetail> {
 /// Several cards in one call, each with its card or why not (card #468).
 #[tauri::command]
 #[specta::specta]
-pub async fn board_cards_by_id(w: W<'_>, ids: Vec<String>) -> R<Vec<crate::cards::CardRead>> {
-    blocking(&w, move |w| Ok(w.cards_by_id(&ids))).await
+pub async fn board_cards_by_id(
+    w: W<'_>,
+    ids: Vec<String>,
+    have: Vec<crate::cards::CardHave>,
+) -> R<Vec<crate::cards::CardRead>> {
+    blocking(&w, move |w| Ok(w.cards_by_id(&ids, &have))).await
 }
 
 #[tauri::command]
@@ -828,6 +833,16 @@ pub async fn board_threads_all(w: W<'_>) -> R<Vec<crate::threads::ThreadSummary>
     blocking(&w, move |w| Ok(w.threads_all())).await
 }
 
+/// Just these threads' rows (card #1136).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_threads_by_id(
+    w: W<'_>,
+    ids: Vec<String>,
+) -> R<Vec<crate::threads::ThreadSummary>> {
+    blocking(&w, move |w| Ok(w.threads_by_id(&ids))).await
+}
+
 /// The person has a thread open: what is in it now is read (card #719).
 #[tauri::command]
 #[specta::specta]
@@ -1165,6 +1180,29 @@ pub async fn storage_clean(
     timed(
         "storage_clean",
         blocking(&w, move |w| w.storage_clean(&kind, &ids)),
+    )
+    .await
+}
+
+/// Ends a process that holds a worktree (card #1118): Storage's End it.
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_end_holder(w: W<'_>, tree: String, pid: u32) -> R<String> {
+    timed(
+        "storage_end_holder",
+        blocking(&w, move |w| w.storage_end_holder(&tree, pid)),
+    )
+    .await
+}
+
+/// Deletes a canceled card's worktree whole (card #1118): Storage's
+/// "delete anyway".
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_delete_tree(w: W<'_>, tree: String) -> R<()> {
+    timed(
+        "storage_delete_tree",
+        blocking(&w, move |w| w.storage_delete_tree(&tree)),
     )
     .await
 }
@@ -1800,6 +1838,34 @@ pub async fn assistant_weighs_set(w: W<'_>, on: bool) -> R<()> {
     blocking(&w, move |w| w.assistant_weighs_set(on)).await
 }
 
+/// "Let my assistant add notes from what I say" (#1053): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_notes(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_huddle_notes())).await
+}
+
+/// Turns the notes switch on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_notes_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_huddle_notes_set(on)).await
+}
+
+/// "Let my assistant chair huddles I start" (#1053): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_chair(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_huddle_chair())).await
+}
+
+/// Turns the chair switch on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_chair_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_huddle_chair_set(on)).await
+}
+
 /// "Transcribe what I say in calls" (#656): on unless turned off.
 #[tauri::command]
 #[specta::specta]
@@ -1835,6 +1901,51 @@ pub async fn talk_huddles(w: W<'_>) -> R<Vec<TalkHuddle>> {
 #[specta::specta]
 pub async fn talk_call_title_set(w: W<'_>, call_id: String, title: String) -> R<String> {
     blocking(&w, move |w| w.talk_call_title_set(&call_id, &title)).await
+}
+
+/// Sets a huddle's title (card #1051): the same write as
+/// `talk_call_title_set`, a person's title.
+#[tauri::command]
+#[specta::specta]
+pub async fn huddle_title_set(w: W<'_>, call_id: String, title: String) -> R<String> {
+    blocking(&w, move |w| w.talk_call_title_set(&call_id, &title)).await
+}
+
+/// Adds an item to a huddle's canvas (card #1051).
+#[tauri::command]
+#[specta::specta]
+pub async fn huddle_item_add(
+    w: W<'_>,
+    call_id: String,
+    kind: String,
+    text: String,
+) -> R<TalkCanvasItem> {
+    blocking(&w, move |w| w.huddle_item_add(&call_id, &kind, &text)).await
+}
+
+/// Changes a canvas item (card #1051): text, status or place.
+#[tauri::command]
+#[specta::specta]
+pub async fn huddle_item_set(
+    w: W<'_>,
+    call_id: String,
+    item_id: String,
+    text: Option<String>,
+    status: Option<String>,
+    x: Option<f64>,
+    y: Option<f64>,
+) -> R<TalkCanvasItem> {
+    blocking(&w, move |w| {
+        w.huddle_item_set(&call_id, &item_id, text, status, x, y)
+    })
+    .await
+}
+
+/// Asks the person's assistant a question in a live huddle (card #1051).
+#[tauri::command]
+#[specta::specta]
+pub async fn huddle_ask(w: W<'_>, call_id: String, text: String) -> R<TalkCanvasItem> {
+    blocking(&w, move |w| w.huddle_ask(&call_id, &text)).await
 }
 
 /// A huddle's transcript (#656): every line, named.
@@ -2344,6 +2455,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_start_thread_with_files,
             board_threads,
             board_threads_all,
+            board_threads_by_id,
             board_card_ref,
             board_read_thread,
             board_resolve_thread,
@@ -2391,6 +2503,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             storage_log,
             storage_items,
             storage_clean,
+            storage_end_holder,
+            storage_delete_tree,
             storage_cleared,
             storage_unclear,
             threads_clear_count,
@@ -2476,9 +2590,17 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_rewrite,
             assistant_weighs,
             assistant_weighs_set,
+            assistant_huddle_notes,
+            assistant_huddle_notes_set,
+            assistant_huddle_chair,
+            assistant_huddle_chair_set,
             talk_call_transcript,
             talk_huddles,
             talk_call_title_set,
+            huddle_title_set,
+            huddle_item_add,
+            huddle_item_set,
+            huddle_ask,
             share_sources,
             share_start,
             share_stop,
@@ -2542,6 +2664,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_attach,
             assistant_ask,
             assistant_stop,
+            assistant_chat_list,
         ])
         .typ::<RosterChange>()
         .typ::<CaptureChange>()
@@ -2609,6 +2732,20 @@ pub async fn assistant_ask(
 pub async fn assistant_stop(w: W<'_>, id: u32) -> R<()> {
     w.assistant_stop(id);
     Ok(())
+}
+
+/// A page of the assistant's one conversation, newest first (card #1102,
+/// docs/design/one-assistant.md §4): up to `limit` entries (0 is 50) older
+/// than the one whose cursor is `before` ("" starts at the newest). The
+/// same on every one of the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_list(
+    w: W<'_>,
+    before: String,
+    limit: u32,
+) -> R<crate::assistant_chat::AssistantChatPage> {
+    blocking(&w, move |w| w.assistant_chat_list(&before, limit as usize)).await
 }
 
 // ---- Terminals (card #369; docs/design/inline-terminals.md section 5) ----------

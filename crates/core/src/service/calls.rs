@@ -754,6 +754,10 @@ impl Services {
         if keep_heard {
             self.heard_ticker();
         }
+        if matches!(f.op.as_str(), "ring" | "join" | "leave" | "end") {
+            // The person's assistant follows the call (card #1049).
+            self.huddle_host_kick();
+        }
         if let Some(d) = expire {
             self.publish_after(d + Duration::from_secs(1));
         }
@@ -771,6 +775,9 @@ impl Services {
             loop {
                 tokio::time::sleep(calls_over::TICK_EVERY).await;
                 let Some(s) = w.upgrade() else { return };
+                // A huddle that is over with no end mark gets one from a
+                // device that heard it, when no assistant is there to (#1053).
+                s.huddle_crash_check();
                 let up = s.mesh.net.link_up();
                 let mut g = s.calls.inner.lock().expect("calls");
                 if !g.heard.tick(SystemTime::now(), up) {
@@ -806,6 +813,108 @@ impl Services {
             last_line: info.as_ref().and_then(|c| c.last_line).and_then(ms),
             newest_row: info.as_ref().and_then(|c| ms(c.last)),
         })
+    }
+
+    /// The huddles whose call has `person` in it, as this device knows:
+    /// (callId, convId, spaceId). Live ones heard within [`LIVE_FOR`], and
+    /// the one this device is in (card #1049).
+    pub(super) fn calls_with_person(&self, person: &str) -> Vec<(String, String, String)> {
+        let now = SystemTime::now();
+        let me = self.person_id();
+        let g = self.calls.inner.lock().expect("calls");
+        let mut out: Vec<(String, String, String)> = g
+            .live
+            .iter()
+            .filter(|(_, l)| now.duration_since(l.heard).unwrap_or_default() < LIVE_FOR)
+            .filter(|(_, l)| l.devices.values().any(|p| p == person))
+            .map(|(id, l)| (id.clone(), l.conv_id.clone(), l.space_id.clone()))
+            .collect();
+        if person == me
+            && let Some(a) = g.mine.as_ref()
+            && !out.iter().any(|(id, _, _)| *id == a.call_id)
+        {
+            out.push((a.call_id.clone(), a.conv_id.clone(), a.space_id.clone()));
+        }
+        out
+    }
+
+    /// The devices of space `space` reachable now ("" the person's own), or
+    /// None when that space isn't open here (card #1049).
+    pub(super) fn space_devices_live(&self, space: &str) -> Option<BTreeSet<String>> {
+        Some(
+            self.ride(space)?
+                .live()
+                .into_iter()
+                .map(|p| p.device_id)
+                .collect(),
+        )
+    }
+
+    /// Huddle `call_id` as the tools show it to an agent (card #1055):
+    /// whether it is over, who is in it now and whose assistant is
+    /// connected. `None` for a huddle this device doesn't know.
+    pub(crate) fn huddle_now(&self, call_id: &str) -> Option<tools::HuddleNow> {
+        self.talk.call_conv(call_id)?;
+        let over = self.call_over(call_id);
+        if over {
+            return Some(tools::HuddleNow {
+                over,
+                ..tools::HuddleNow::default()
+            });
+        }
+        let me = self.person_id();
+        let me_key = self.user_sender().key;
+        let people = self
+            .call_people_now(call_id)
+            .0
+            .into_iter()
+            .map(|p| {
+                if p == me {
+                    me_key.clone()
+                } else {
+                    format!("{}{p}", store::kinds::PERSON_ACTOR_PREFIX)
+                }
+            })
+            .collect();
+        let assistants = self
+            .call_assistants(call_id)
+            .into_iter()
+            .map(|a| (a.person, a.state))
+            .collect();
+        Some(tools::HuddleNow {
+            over,
+            people,
+            assistants,
+        })
+    }
+
+    /// The person ids in huddle `call_id` now, as this device knows (card
+    /// #1049), and its space.
+    pub(super) fn call_people_now(&self, call_id: &str) -> (Vec<String>, String) {
+        let now = SystemTime::now();
+        let g = self.calls.inner.lock().expect("calls");
+        let mut out: Vec<String> = Vec::new();
+        let mut space = String::new();
+        if let Some(l) = g
+            .live
+            .get(call_id)
+            .filter(|l| now.duration_since(l.heard).unwrap_or_default() < LIVE_FOR)
+        {
+            space = l.space_id.clone();
+            for p in l.devices.values() {
+                if !out.contains(p) {
+                    out.push(p.clone());
+                }
+            }
+        }
+        if let Some(a) = g.mine.as_ref().filter(|a| a.call_id == call_id) {
+            space = a.space_id.clone();
+            let me = self.person_id();
+            if !out.contains(&me) {
+                out.push(me);
+            }
+        }
+        (out, space)
     }
 
     /// Writes huddle `call_id`'s title as this device's person
@@ -1438,6 +1547,7 @@ impl Services {
     /// every tick, and the space hears this device is still in it every
     /// heartbeat.
     fn call_ticker(self: &Arc<Self>, call_id: String, generation: u64) {
+        self.huddle_host_kick();
         let w = Arc::downgrade(self);
         self.pairing.handle.spawn(async move {
             let mut beat = tokio::time::Instant::now();
@@ -1739,6 +1849,19 @@ impl Services {
             ) {
                 Ok(_) => {
                     self.hub.publish(CoreEvent::Talk);
+                    // The follows hear this row too; the feed drops the
+                    // second sighting by the line's id.
+                    self.huddle_line(&super::huddle_feed::Heard {
+                        call_id: call_id.to_string(),
+                        conv_id: conv.to_string(),
+                        device: self.device.id.clone(),
+                        seg: seq as i64,
+                        start_ms,
+                        end_ms,
+                        text: text.clone(),
+                        agents: true,
+                        by: self.user_sender().key,
+                    });
                     return;
                 }
                 // Kept for the fallback post, so nothing is lost (the gate
@@ -2278,11 +2401,75 @@ impl Core {
         self.s.call_over(call_id)
     }
 
+    /// How many lines the assistant feed holds for huddle `call_id` (for
+    /// tests: a line seen twice counts once).
+    #[doc(hidden)]
+    pub fn huddle_fed(&self, call_id: &str) -> usize {
+        self.s.huddle_fed(call_id)
+    }
+
+    /// Each person's assistant in huddle `call_id`, as the roster shows it
+    /// (card #1049): connected, reconnecting or not connected.
+    pub fn call_assistants(&self, call_id: &str) -> Vec<super::huddle_host::AssistantState> {
+        self.s.call_assistants(call_id)
+    }
+
+    /// Whether this device hosts its person's assistant in huddle `call_id`,
+    /// after running the pick again (card #1049): what a look asks before
+    /// it runs.
+    pub fn huddle_hosting(&self, call_id: &str) -> bool {
+        self.s.huddle_hosting(call_id)
+    }
+
+    /// One pass of the hosting sweep now, apart from its timer (tests,
+    /// card #1049). True while anything remains to watch.
+    #[doc(hidden)]
+    pub fn huddle_host_sweep(&self) -> bool {
+        self.s.huddle_host_sweep()
+    }
+
     /// Sets huddle `call_id`'s title as the person (card #1043); every
     /// member device gets it, and it beats an assistant's. Refused when a
     /// device of the space can't store `call.` rows yet (the gate).
     pub fn call_title_set(&self, call_id: &str, title: &str) -> Result<String, String> {
         self.s.call_title_set(call_id, title, false)
+    }
+
+    /// Huddle `call_id`'s canvas, each item with the names it is shown by
+    /// (card #1051).
+    pub fn call_canvas(&self, call_id: &str) -> Vec<super::huddle_canvas::CanvasEntry> {
+        self.s.call_canvas(call_id)
+    }
+
+    /// A person adds an item (`question`, `answer`, `decision`, `task`,
+    /// `note` or `summary`) to huddle `call_id`'s canvas (card #1051).
+    /// `status` is "" for open. `carded` is refused while the huddle is
+    /// live.
+    pub fn huddle_item_add(
+        &self,
+        call_id: &str,
+        kind: &str,
+        text: &str,
+        status: &str,
+    ) -> Result<coord::talk::CanvasItem, String> {
+        self.s.huddle_item_add(call_id, kind, text, status)
+    }
+
+    /// A person changes a canvas item: its text (their own), status,
+    /// position or card. `carded` and a card are refused while the huddle
+    /// is live.
+    pub fn huddle_item_set(
+        &self,
+        call_id: &str,
+        set: coord::talk::NewItemSet,
+    ) -> Result<coord::talk::CanvasItem, String> {
+        self.s.huddle_item_set(call_id, set)
+    }
+
+    /// The Ask box: puts `text` to this person's assistant as a question
+    /// item and gives it a look (card #1051).
+    pub fn huddle_ask(&self, call_id: &str, text: &str) -> Result<coord::talk::CanvasItem, String> {
+        self.s.huddle_ask(call_id, text)
     }
 
     /// Stops ringing for `call_id` here.

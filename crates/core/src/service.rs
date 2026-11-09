@@ -56,7 +56,9 @@ use crate::timers::{self, Kick, Ticker};
 use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
 pub mod assistant_answers;
+pub mod assistant_chat;
 mod assistant_name;
+pub mod assistant_packet;
 pub mod boards;
 mod boards_members;
 mod boards_own;
@@ -71,9 +73,14 @@ pub mod card_weights;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
+pub mod huddle_canvas;
+mod huddle_end;
+pub mod huddle_feed;
+pub mod huddle_host;
 pub mod huddle_packet;
 mod huddle_rules;
 pub mod huddle_session;
+mod huddle_settings;
 mod liveness;
 mod mirror;
 pub mod name_themes;
@@ -325,6 +332,8 @@ struct Services {
     talk: Arc<coord::talk::Talk>,
     /// The person's notification history (card #377).
     notifications: Arc<coord::notifications::History>,
+    /// The Office Assistant's one conversation (card #1102).
+    assistant_chat: Arc<assistant_chat::Fold>,
     files: blob::Files,
     scrubber: Arc<scrub::Scrubber>,
     secrets: Mutex<Vec<String>>,
@@ -366,10 +375,16 @@ struct Services {
     naming: thread_names::Naming,
     /// Irori's assistant weighing new cards (card #965).
     weighing: card_weights::Weighing,
+    /// The two huddle switches (card #1053).
+    huddle_switches: huddle_settings::HuddleSwitches,
     /// Office Assistants answering other people (assistants-talk card 4).
     asst: assistant_answers::Answering,
     /// The assistant's held session per huddle (card #1046).
     held: huddle_session::HeldSessions,
+    /// Which device hosts each person's assistant per huddle (card #1049).
+    hosting: huddle_host::Hosting,
+    /// The live lines of the huddles this device serves (card #1050).
+    feed: huddle_feed::Feed,
     /// The themes new agents' names come from (card #702), shared with
     /// `names`.
     name_themes: Arc<name_themes::NameThemes>,
@@ -598,6 +613,9 @@ impl tools::Backend for ToolsView {
     }
     fn talk(&self) -> Option<&Arc<coord::talk::Talk>> {
         Some(&self.0.talk)
+    }
+    fn huddle_now(&self, call: &str) -> Option<tools::HuddleNow> {
+        self.0.huddle_now(call)
     }
     fn notes(&self) -> Option<&dyn tools::NotesBackend> {
         Some(self)
@@ -1316,6 +1334,7 @@ impl Core {
         let call_settings = call_settings::CallSettings::load(&st);
         let naming = thread_names::Naming::load(&st);
         let weighing = card_weights::Weighing::load(&st);
+        let huddle_switches = huddle_settings::HuddleSwitches::load(&st);
         let co = Arc::new(
             Coord::new(
                 st.clone(),
@@ -1490,6 +1509,8 @@ impl Core {
         }
         let notifications = Arc::new(coord::notifications::History::new());
         load_notifications(&st, &notifications);
+        let assistant_chat = Arc::new(assistant_chat::Fold::new());
+        assistant_chat::load(&st, &assistant_chat);
         laps.lap("colors+names");
         let decisions_sub = Arc::new(st.subscribe());
 
@@ -1662,6 +1683,7 @@ impl Core {
             device_names,
             talk,
             notifications,
+            assistant_chat,
             files,
             scrubber,
             secrets: Mutex::new(Vec::new()),
@@ -1693,8 +1715,11 @@ impl Core {
             call_settings,
             naming,
             weighing,
+            huddle_switches,
             asst: Default::default(),
             held: Default::default(),
+            hosting: Default::default(),
+            feed: Default::default(),
             name_themes,
             invites,
         });
@@ -2108,6 +2133,8 @@ impl Core {
                         s.settle_notifications();
                         s.hub.publish(CoreEvent::Devices);
                         s.hub.publish(CoreEvent::Notifications);
+                        s.assistant_chat.reload(&s.store);
+                        s.hub.publish(CoreEvent::AssistantChat);
                         // Card #538: this thread doesn't wait for the
                         // reconcile, which reads the markers too.
                         if let Err(e) = s.dm_spaces.load(&s.store) {
@@ -2122,6 +2149,11 @@ impl Core {
                     } else if ev.kind == kinds::ASSISTANT_NAMES_SET {
                         // Another device's "Name new threads" (card #782).
                         s.follow_names_on();
+                    } else if ev.kind == kinds::ASSISTANT_HUDDLE_NOTES_SET
+                        || ev.kind == kinds::ASSISTANT_HUDDLE_CHAIR_SET
+                    {
+                        // Another device's huddle switches (card #1053).
+                        s.follow_huddle_switches();
                     } else if ev.kind == kinds::ASSISTANT_WEIGHS_SET {
                         // Another device's "Weigh new cards" (card #965).
                         s.follow_weighs_on();
@@ -2139,6 +2171,8 @@ impl Core {
                         if ev.kind == kinds::TALK_POST {
                             s.talk_note(&ev);
                         }
+                        // A live line feeds the assistant (card #1050).
+                        s.huddle_line_row(&ev);
                     } else if ev.kind == kinds::MESSAGE_SENT {
                         // Agents' messages show as DMs (card #389); a
                         // notice, a stop or a mention's wake never does,
@@ -2148,6 +2182,12 @@ impl Core {
                             .map_or(true, |m| tools::talk::mirrors(&m))
                         {
                             s.hub.publish(CoreEvent::Talk);
+                        }
+                    } else if assistant_chat::KINDS.contains(&ev.kind.as_str()) {
+                        // The assistant's conversation (card #1102); a row
+                        // written here was folded when it was written.
+                        if s.assistant_chat.apply(&ev) {
+                            s.hub.publish(CoreEvent::AssistantChat);
                         }
                     } else if ev.kind == coord::notifications::POSTED
                         || ev.kind == coord::notifications::READ
@@ -2998,6 +3038,40 @@ impl Core {
     /// The person turns "Weigh new cards" on or off, from the app only.
     pub fn set_weighs_on(&self, on: bool) -> Result<(), String> {
         self.s.set_weighs_on(on)
+    }
+
+    /// A crashed huddle's end mark check at `now` (tests move the clock).
+    #[doc(hidden)]
+    pub fn huddle_crash_check_at(&self, now: std::time::SystemTime) {
+        self.s.huddle_crash_check_at(now)
+    }
+
+    /// How long a huddle runs before its chair proposes a title (tests).
+    #[doc(hidden)]
+    pub fn set_huddle_title_after(&self, d: std::time::Duration) {
+        self.s.set_huddle_title_after(d)
+    }
+
+    /// "Let my assistant add notes from what I say" (card #1053): on unless
+    /// the person turned it off.
+    pub fn huddle_notes_on(&self) -> bool {
+        self.s.huddle_notes_on()
+    }
+
+    /// Turns the notes switch on or off, on all the person's devices.
+    pub fn set_huddle_notes_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_huddle_notes_on(on)
+    }
+
+    /// "Let my assistant chair huddles I start" (card #1053): on unless the
+    /// person turned it off.
+    pub fn huddle_chair_on(&self) -> bool {
+        self.s.huddle_chair_on()
+    }
+
+    /// Turns the chair switch on or off, on all the person's devices.
+    pub fn set_huddle_chair_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_huddle_chair_on(on)
     }
 
     /// "Name new threads" (card #782): on unless the person turned it off.

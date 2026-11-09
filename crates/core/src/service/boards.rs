@@ -1776,6 +1776,8 @@ impl Services {
             // folded when it was written; the window still hears it.
             self.talk.apply(&row);
             self.hub.publish(crate::events::CoreEvent::Talk);
+            // A live line feeds the assistant (card #1050).
+            self.huddle_line_row(&row);
             // A DM from the other person rings here (card #538); the
             // private log's follower never sees this row.
             if hidden && row.kind == kinds::TALK_POST && ev.actor != self.person_actor() {
