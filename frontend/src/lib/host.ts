@@ -15,6 +15,7 @@ import { openUrl } from "@tauri-apps/plugin-opener"
 
 import { commands } from "../gen/bindings"
 import type * as B from "../gen/bindings"
+import { whileShown } from "./shown"
 
 // asError makes a Tauri rejection (the command's error text) an Error.
 export function asError(err: unknown): Error {
@@ -71,6 +72,17 @@ export const Events = {
       cancelled = true
       off?.()
       off = null
+    }
+  },
+  // OnShown is On for a signal that only re-reads a list (board:changed,
+  // inbox:changed and the like): while the window is hidden the signals
+  // are held, and fn runs once when it shows again (card #765).
+  OnShown(name: string, fn: () => void): () => void {
+    const held = whileShown(fn)
+    const off = Events.On(name, held.run)
+    return () => {
+      off()
+      held.stop()
     }
   },
   // Emit tells the host something happened here.
@@ -159,11 +171,12 @@ export const InboxService = {
   SetPaused: (paused: boolean) => done(commands.inboxSetPaused(paused)),
 }
 
-// Wind down all (card #220): every agent saves its place, hands back its
-// cards and stops; Pause all turns on after, if asked.
+// Wind down (cards #220, #787): a switch. All turns it on: agent starts
+// held on every device, and every agent saves its place, hands back its
+// cards and stops. Off turns it off at any time, mid-run too.
 export const WindDownService = {
-  All: (scope: string, pauseAfter: boolean) =>
-    call(commands.windDownAll(scope, pauseAfter)),
+  All: () => call(commands.windDownAll()),
+  Off: () => call(commands.windDownOff()),
   Status: () => call(commands.windDownStatus()),
   Stop: (key: string) => done(commands.windDownStop(key)),
 }
@@ -181,7 +194,10 @@ export const BoardService = {
   Cards: () => call(commands.boardCards()),
   IdleReport: () => call(commands.boardIdleReport()),
   Card: (id: string) => call(commands.boardCard(id)),
-  CardsById: (ids: string[]) => call(commands.boardCardsById(ids)),
+  // have: the rev of each card the caller already holds (card #1136); one
+  // that still matches comes back unchanged, without its card.
+  CardsById: (ids: string[], have: { id: string; rev: string }[] = []) =>
+    call(commands.boardCardsById(ids, have)),
   DoneCards: (limit: number, before: string) =>
     call(commands.boardDoneCards(limit, before)),
   DoneCardsIn: (limit: number, before: string, scope: string) =>
@@ -250,7 +266,16 @@ export const BoardService = {
   Delete: (id: string) => done(commands.boardDelete(id)),
   // Another board in the card's space (card #563).
   Move: (id: string, board: string) => call(commands.boardMove(id, board)),
+  // The person renames a card or thread by hand (card #779).
+  Rename: (id: string, title: string) => call(commands.boardRename(id, title)),
+  // Undo on Irori's name for the person's thread (card #782).
+  UndoTitle: (id: string) => call(commands.boardUndoTitle(id)),
+  // Undo on Irori's weighing of a card (card #965).
+  UndoWeight: (id: string) => call(commands.boardUndoWeight(id)),
   Pin: (id: string, pinned: boolean) => done(commands.boardPin(id, pinned)),
+  // A card's weight (card #963): light, normal or heavy, or "" to clear.
+  SetWeight: (id: string, level: string, reason: string) =>
+    call(commands.boardSetWeight(id, level, reason)),
   // Pause / Resume (card #207): who was told.
   Pause: (id: string, paused: boolean, note: string) =>
     call(commands.boardPause(id, paused, note)),
@@ -267,20 +292,36 @@ export const BoardService = {
     text: string,
     mentions: B.Mention[],
     boardId: string,
-    agentsNow: boolean | null
-  ) => call(commands.boardStartThread(text, mentions, boardId, agentsNow)),
+    agentsNow: boolean | null,
+    assistant: boolean
+  ) =>
+    call(
+      commands.boardStartThread(text, mentions, boardId, agentsNow, assistant)
+    ),
   StartThreadWithFiles: (
     text: string,
     mentions: B.Mention[],
     files: B.UploadFile[],
-    agentsNow: boolean | null
+    agentsNow: boolean | null,
+    assistant: boolean
   ) =>
-    call(commands.boardStartThreadWithFiles(text, mentions, files, agentsNow)),
+    call(
+      commands.boardStartThreadWithFiles(
+        text,
+        mentions,
+        files,
+        agentsNow,
+        assistant
+      )
+    ),
   ThreadAgentsNow: (id: string, on: boolean) =>
     done(commands.boardThreadAgentsNow(id, on)),
   Threads: (boardId: string) => call(commands.boardThreads(boardId)),
   ThreadsAll: () => call(commands.boardThreadsAll()),
+  // Just these threads' rows (card #1136).
+  ThreadsById: (ids: string[]) => call(commands.boardThreadsById(ids)),
   CardRef: (r: string) => call(commands.boardCardRef(r)),
+  ReadThread: (id: string) => done(commands.boardReadThread(id)),
   ResolveThread: (id: string) => done(commands.boardResolveThread(id)),
   ReopenThread: (id: string) => done(commands.boardReopenThread(id)),
   CommentModify: (id: string, commentId: string) =>
@@ -295,6 +336,23 @@ export const BoardService = {
 // TalkService is Talk's channels, DMs and posts (cards #389, #390).
 export const TalkService = {
   Conversations: () => call(commands.talkConversations()),
+  // Every huddle in Talk, and a huddle's title (card #1044).
+  Huddles: () => call(commands.talkHuddles()),
+  CallTitleSet: (callId: string, title: string) =>
+    call(commands.talkCallTitleSet(callId, title)),
+  // A huddle's canvas, as the person (card #1052).
+  HuddleItemAdd: (callId: string, kind: string, text: string) =>
+    call(commands.huddleItemAdd(callId, kind, text)),
+  HuddleItemSet: (
+    callId: string,
+    itemId: string,
+    text: string | null,
+    status: string | null,
+    x: number | null,
+    y: number | null
+  ) => call(commands.huddleItemSet(callId, itemId, text, status, x, y)),
+  HuddleAsk: (callId: string, text: string) =>
+    call(commands.huddleAsk(callId, text)),
   Posts: (convId: string, before: string | null, limit: number) =>
     call(commands.talkPosts(convId, before, limit)),
   // mentions: the keys the composer's picker recorded (#461).
@@ -358,15 +416,42 @@ export const NotesService = {
   Remove: (id: string, why: string) => call(commands.noteRemove(id, why)),
 }
 
+// StorageService is the window's storage_* commands (card #728).
+export const StorageService = {
+  Report: () => call(commands.storageReport()),
+  Log: () => call(commands.storageLog()),
+  Items: (kind: string) => call(commands.storageItems(kind)),
+  Clean: (kind: string, ids: string[]) =>
+    call(commands.storageClean(kind, ids)),
+  EndHolder: (tree: string, pid: number) =>
+    call(commands.storageEndHolder(tree, pid)),
+  DeleteTree: (tree: string) => call(commands.storageDeleteTree(tree)),
+  Cleared: () => call(commands.storageCleared()),
+  Unclear: (ids: string[]) => call(commands.storageUnclear(ids)),
+  ClearThreadsCount: (olderThanSecs: number) =>
+    call(commands.threadsClearCount(olderThanSecs)),
+  ClearThreads: (olderThanSecs: number) =>
+    call(commands.threadsClear(olderThanSecs)),
+}
+
 // AgentsService is the window's agents_* commands (card #449): Trust and
 // start for a card whose repo isn't trusted, and a board's permissions;
 // and (card #448) a board's spawning switch, model and effort.
 export const AgentsService = {
   Settings: (boardId: string) => call(commands.agentsSettings(boardId)),
   Set: (change: B.AgentsChange) => call(commands.agentsSet(change)),
+  // How cards ended, by weight, model and effort (card #966).
+  History: () => call(commands.agentsHistory()),
   Starts: () => call(commands.agentsStarts()),
   SetStarts: (on: boolean, max: number) =>
     call(commands.agentsStartsSet(on, max)),
+  // "Agents review other people's PRs without asking" (merge-desk §12.8).
+  Reviews: () => call(commands.agentsReviews()),
+  SetReviews: (on: boolean) => call(commands.agentsReviewsSet(on)),
+  // The themes new agents' names come from (card #702), each with a switch.
+  NamesThemes: () => call(commands.namesThemes()),
+  NamesThemeSet: (id: string, on: boolean) =>
+    call(commands.namesThemeSet(id, on)),
   // Pause agents (card #665): no device starts agents while it is on.
   Pause: () => call(commands.agentsPause()),
   PauseSet: (on: boolean) => call(commands.agentsPauseSet(on)),
@@ -377,6 +462,7 @@ export const AgentsService = {
   Attach: (key: string, cols: number, rows: number) =>
     call(commands.agentsAttach(key, cols, rows)),
   Running: () => call(commands.agentsRunning()),
+  Usage: (key: string) => call(commands.agentsUsage(key)),
   Limits: () => call(commands.agentsLimits()),
   CapSet: (device: string, cap: number) =>
     call(commands.agentsCapSet(device, cap)),
@@ -403,19 +489,46 @@ export const BoardsService = {
   Create: (name: string, tag: string) => call(commands.boardsCreate(name, tag)),
   Rename: (boardId: string, name: string) =>
     call(commands.boardsRename(boardId, name)),
-  AddToSpace: (spaceId: string, name: string, tag: string) =>
-    call(commands.boardsAddToSpace(spaceId, name, tag)),
+  AddToSpace: (
+    spaceId: string,
+    name: string,
+    tag: string,
+    description: string
+  ) => call(commands.boardsAddToSpace(spaceId, name, tag, description)),
   RenameInSpace: (spaceId: string, boardId: string, name: string) =>
     call(commands.boardsRenameInSpace(spaceId, boardId, name)),
   Personal: () => call(commands.boardsPersonal()),
-  AddToPersonal: (name: string, tag: string) =>
-    call(commands.boardsAddToPersonal(name, tag)),
+  AddToPersonal: (name: string, tag: string, description: string) =>
+    call(commands.boardsAddToPersonal(name, tag, description)),
   RenameInPersonal: (boardId: string, name: string) =>
     call(commands.boardsRenameInPersonal(boardId, name)),
   DeleteInSpace: (spaceId: string, boardId: string) =>
     call(commands.boardsDeleteInSpace(spaceId, boardId)),
   DeleteInPersonal: (boardId: string) =>
     call(commands.boardsDeleteInPersonal(boardId)),
+  // A board's description, and closing or reopening it (card #690).
+  // openCards is "keep", "move" or "cancel"; moveTo is the board a move
+  // goes to.
+  SetDescriptionInSpace: (
+    spaceId: string,
+    boardId: string,
+    description: string
+  ) =>
+    call(commands.boardsSetDescriptionInSpace(spaceId, boardId, description)),
+  CloseInSpace: (
+    spaceId: string,
+    boardId: string,
+    openCards: string,
+    moveTo: string
+  ) => call(commands.boardsCloseInSpace(spaceId, boardId, openCards, moveTo)),
+  ReopenInSpace: (spaceId: string, boardId: string) =>
+    call(commands.boardsReopenInSpace(spaceId, boardId)),
+  SetDescriptionInPersonal: (boardId: string, description: string) =>
+    call(commands.boardsSetDescriptionInPersonal(boardId, description)),
+  CloseInPersonal: (boardId: string, openCards: string, moveTo: string) =>
+    call(commands.boardsCloseInPersonal(boardId, openCards, moveTo)),
+  ReopenInPersonal: (boardId: string) =>
+    call(commands.boardsReopenInPersonal(boardId)),
   Pin: (boardId: string, pinned: boolean) =>
     done(commands.boardsPin(boardId, pinned)),
   Leave: (boardId: string) => done(commands.boardsLeave(boardId)),
@@ -461,6 +574,10 @@ export const DevicesService = {
   PersonAvatar: () => call(commands.devicesPersonAvatar()),
   SetPersonAvatar: (avatar: string) =>
     done(commands.devicesSetPersonAvatar(avatar)),
+  AssistantName: () => call(commands.devicesAssistantName()),
+  AssistantLabel: () => call(commands.devicesAssistantLabel()),
+  SetAssistantName: (name: string) =>
+    done(commands.devicesSetAssistantName(name)),
   RenameDevice: (deviceId: string, name: string) =>
     call(commands.devicesRenameDevice(deviceId, name)),
   SideNames: () => call(commands.devicesSideNames()),
@@ -482,9 +599,6 @@ export const DevicesService = {
   SetHomeServerAwake: (on: boolean) =>
     call(commands.devicesSetHomeServerAwake(on)),
   SetPublicRelays: (on: boolean) => call(commands.devicesSetPublicRelays(on)),
-  Relay: () => call(commands.devicesRelay()),
-  SetRelay: (credentialUrl: string) =>
-    call(commands.devicesSetRelay(credentialUrl)),
 }
 
 export const SettingsService = {
@@ -541,6 +655,8 @@ export const CallService = {
   // "Transcribe what I say in calls" (#656), on all the person's devices.
   Transcribe: () => call(commands.callTranscribe()),
   TranscribeSet: (on: boolean) => done(commands.callTranscribeSet(on)),
+  // Whether a huddle in this conversation reaches agents live (#1047).
+  AgentsReady: (convId: string) => call(commands.callAgentsReady(convId)),
   // A huddle's transcript (#656): every line, named.
   Transcript: (callId: string) => call(commands.talkCallTranscript(callId)),
 }
@@ -570,6 +686,8 @@ export const ShareService = {
 export const TermService = {
   Folders: (card: string) => call(commands.termFolders(card)),
   List: (card: string) => call(commands.termList(card)),
+  // The person's own shells here, off a card (the bottom panel, card #734).
+  DeviceList: () => call(commands.termDeviceList()),
   Open: (scope: B.Scope, cols: number, rows: number, cwd: string | null) =>
     call(commands.termOpen(scope, cols, rows, cwd)),
   Attach(
@@ -612,4 +730,43 @@ export const MetersService = {
 // Claude usage left (card #599): the newest reading of the plan's windows.
 export const UsageService = {
   Limits: () => call(commands.usageLimits()),
+}
+
+// Ask Irori (card #783): the read-only helper's answer comes as
+// AssistantEvents on a Channel (delta, tool, then done or error); Ask
+// returns the run's id at once, and Stop(id) ends it.
+export const AssistantService = {
+  // Card #999: stores the chat's files; Ask takes back what this returned.
+  Attach: (files: B.UploadFile[]) => call(commands.assistantAttach(files)),
+  Ask(
+    history: B.AssistantTurn[],
+    text: string,
+    files: B.AssistantFile[],
+    screen: string,
+    onEvent: (ev: B.AssistantEvent) => void
+  ): Promise<number> {
+    const on = new Channel<B.AssistantEvent>()
+    on.onmessage = onEvent
+    return call(commands.assistantAsk(history, text, files, screen, on))
+  },
+  Stop: (id: number) => done(commands.assistantStop(id)),
+  // The one conversation, the same on every device (card #1102): a page,
+  // newest first, older than the entry whose cursor is before ("" is the
+  // newest); limit 0 is 50. "assistant:changed" says to read it again.
+  ChatList: (before: string, limit: number) =>
+    call(commands.assistantChatList(before, limit)),
+  // Rewrite in the Start a thread box (card #981): the checked wording.
+  Rewrite: (text: string, mentions: string[]) =>
+    call(commands.assistantRewrite(text, mentions)),
+  // "Name new threads" (card #782): on unless the person turned it off.
+  Names: () => call(commands.assistantNames()),
+  NamesSet: (on: boolean) => done(commands.assistantNamesSet(on)),
+  // "Weigh new cards" (card #965): on unless the person turned it off.
+  Weighs: () => call(commands.assistantWeighs()),
+  WeighsSet: (on: boolean) => done(commands.assistantWeighsSet(on)),
+  // The two huddle switches (card #1053): on unless the person turned them off.
+  HuddleNotes: () => call(commands.assistantHuddleNotes()),
+  HuddleNotesSet: (on: boolean) => done(commands.assistantHuddleNotesSet(on)),
+  HuddleChair: () => call(commands.assistantHuddleChair()),
+  HuddleChairSet: (on: boolean) => done(commands.assistantHuddleChairSet(on)),
 }

@@ -135,7 +135,7 @@ function DeskEditor({
             {
               value: NONE,
               label: follow
-                ? `Where agents last worked in it (${follow})`
+                ? `Last device to start work in it (${follow})`
                 : "Pick a device",
             },
             ...devices,
@@ -144,16 +144,30 @@ function DeskEditor({
       </Field>
       <Field
         label="Trusted authors"
-        hint="GitHub logins whose PRs show here too, beside yours, your space members' and your agents'. Anyone else's PR isn't listed."
+        hint="GitHub logins whose PRs also show on this desk, beside yours, your space members' and your agents'. Anyone else's PR isn't listed."
       >
         <Input
           className="h-8 text-[12.5px]"
-          placeholder="your-login, a-collaborator"
+          placeholder="a-collaborator, another-login"
           value={trusted}
           onChange={(e) => setTrusted(e.target.value)}
           aria-label="Trusted GitHub logins"
         />
       </Field>
+      <Field
+        label="Other people's agents review PRs here"
+        hint="On by default. In a repo you work on with someone in a space, each PR that needs a reviewer gets a card on that space's board. Off, this repo stays yours: no card, and your agent asks you 'Can I merge?' as before."
+      >
+        <Switch
+          checked={!d.reviewsOff}
+          onCheckedChange={(v) => set({ reviewsOff: !v })}
+          aria-label="Other people's agents review PRs here"
+        />
+      </Field>
+      <p className="text-xs text-muted-foreground">
+        A desk you add stays only if you or your space members own the repo or
+        open PRs in it.
+      </p>
       {error && (
         <p className="text-[12px] text-destructive" role="alert">
           {error}
@@ -205,11 +219,13 @@ export function DesksPane({ open }: { open: boolean }) {
   return (
     <div className="grid gap-3">
       <p className="text-[12.5px] text-muted-foreground">
-        A GitHub repo you or your space members open PRs in has a desk: it lists
-        your PRs, your people&apos;s and your agents&apos; from GitHub, and
-        shows while one is open, for review. The desk never merges: each agent
-        asks you &ldquo;Can I merge PR #N?&rdquo; on its own card and merges on
-        your yes. Only you change these: agents can&apos;t.
+        A GitHub repo your agents work in gets a desk by itself, if you or your
+        space members own it or open PRs in it. It lists open PRs from you, your
+        space members and your agents, and shows while one is open, for review.
+        The desk never merges: each agent asks you &ldquo;Can I merge PR
+        #N?&rdquo; on its own card and merges on your yes. Your desks are your
+        own, on all your devices: your space members have their own, and agents
+        can&apos;t change yours.
       </p>
       {/* The desks wait on the first read (card #598), rather than popping
           in above the form. With no desks it takes no row, as before. */}
@@ -264,10 +280,10 @@ export function DesksPane({ open }: { open: boolean }) {
                           Edit
                         </Button>
                       )}
-                      Desk {s.enabled ? "on" : "off"}
+                      Desk {on ? "on" : "off"}
                       <Switch
-                        checked={s.enabled}
-                        disabled={!s.takesPrs && !s.enabled}
+                        checked={on}
+                        disabled={!s.takesPrs}
                         aria-label={`Desk for ${ownerName(s.repoKey)}`}
                         onCheckedChange={(v) =>
                           deskActions

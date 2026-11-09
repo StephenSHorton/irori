@@ -48,7 +48,7 @@ use store::{Event, Filter, Store, kinds};
 use crate::board::{Error, ErrorKind, MAX_COMMENT, MAX_MENTIONS, MAX_PERSON_TEXT, Result, new_id};
 
 /// The rows Talk folds.
-pub const KINDS: [&str; 7] = [
+pub const KINDS: [&str; 11] = [
     kinds::TALK_CHANNEL_CREATED,
     kinds::TALK_CHANNEL_EDITED,
     kinds::TALK_MEMBER,
@@ -56,6 +56,10 @@ pub const KINDS: [&str; 7] = [
     kinds::TALK_READ,
     kinds::TALK_CARD,
     kinds::CALL_SEGMENT,
+    kinds::CALL_TITLE,
+    kinds::CALL_ASSIST,
+    kinds::CALL_ITEM,
+    kinds::CALL_ITEM_SET,
 ];
 
 /// A member's kind: the person.
@@ -174,6 +178,34 @@ pub fn pair_dm_id(a: &str, b: &str) -> String {
     format!("{DM_PREFIX}{}", &hex::encode(sum)[..16])
 }
 
+/// What [`assistants_channel_id`] hashes before the space id.
+pub const ASSISTANTS_DOMAIN: &str = "irori.assistants.channel.1";
+/// A space's assistants channel's id starts with this. Ordinary channel ids
+/// are `ch_` and an uppercase ULID, so `oa_` is unambiguous.
+pub const ASSISTANTS_PREFIX: &str = "ch_oa_";
+/// The assistants channel's name and topic (assistants-talk.md §4).
+pub const ASSISTANTS_NAME: &str = "office-assistants";
+pub const ASSISTANTS_TOPIC: &str = "Ask anyone's assistant. It answers from what is on this space.";
+
+/// Space `space`'s assistants channel (assistants-talk.md §4): `ch_oa_` and
+/// the first 16 hex digits of the SHA-256 of [`ASSISTANTS_DOMAIN`] and the
+/// space id. Every member's Core computes the same id, so the fold keeps
+/// one channel however many of them write it.
+pub fn assistants_channel_id(space: &str) -> String {
+    let sum = Sha256::digest(format!("{ASSISTANTS_DOMAIN}|{space}").as_bytes());
+    format!("{ASSISTANTS_PREFIX}{}", &hex::encode(sum)[..16])
+}
+
+/// Whether `id` is space `space`'s assistants channel.
+pub fn is_assistants_channel(id: &str, space: &str) -> bool {
+    !space.is_empty() && id == assistants_channel_id(space)
+}
+
+/// Whether `id` is in the assistants channels' id range, whichever space.
+fn in_assistants_range(id: &str) -> bool {
+    id.starts_with(ASSISTANTS_PREFIX)
+}
+
 /// Whether `conv` names a DM.
 pub fn is_dm(conv: &str) -> bool {
     conv.starts_with(DM_PREFIX)
@@ -265,6 +297,15 @@ pub struct PostRow {
     pub agents_now: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_from: Option<String>,
+    /// The post this one answers (assistants-talk.md §5): an assistant's
+    /// answer or waiting line names the question. An older reader ignores
+    /// it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
+    /// `ask` or `owner` on an assistant's waiting line (§5); none on any
+    /// other post.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<String>,
     /// The files sent with it (card #643), as a comment's: the bytes stay
     /// on the attaching device until another one fetches them.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -412,6 +453,90 @@ pub struct SegmentRow {
     pub start_ms: i64,
     pub end_ms: i64,
     pub text: String,
+    /// The speaker's notice allowed the huddle's assistants and agents to
+    /// read this line (call-agents.md section 10). Written `false` until the
+    /// notice that sets it ships; an older row reads as `false`.
+    pub agents: bool,
+    pub by: String,
+    pub at: GoTime,
+}
+
+/// The longest huddle title, in bytes.
+pub const MAX_TITLE: usize = 200;
+
+/// `call.title` (card #1043): a huddle's title, set by a person or proposed
+/// by an assistant (`assistant: true`, written by the person's device under
+/// their own key). A person's newest title beats an assistant's.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TitleRow {
+    pub call_id: String,
+    pub conv_id: String,
+    pub title: String,
+    pub assistant: bool,
+    pub by: String,
+    pub at: GoTime,
+}
+
+/// The longest canvas item, in characters.
+pub const MAX_ITEM: usize = 2000;
+/// A canvas item's kinds.
+pub const ITEM_KINDS: [&str; 6] = ["question", "answer", "decision", "task", "note", "summary"];
+/// A canvas item's statuses (`summary` and `note` have none).
+pub const ITEM_STATUSES: [&str; 4] = ["open", "settled", "dropped", "carded"];
+/// Why an assistant wrote an item (`call.item`'s `why`).
+pub const ITEM_WHYS: [&str; 6] = ["name", "own", "digest", "routed", "end", "ask"];
+
+/// Whether canvas items of `kind` carry a status.
+pub fn item_has_status(kind: &str) -> bool {
+    !matches!(kind, "summary" | "note")
+}
+
+/// `call.item` (card #1051, call-agents.md section 8): one item on a
+/// huddle's canvas. Written by a person, by their assistant (the person's
+/// row with `assistant: true`) or, outside hidden spaces, by an agent.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ItemRow {
+    pub item_id: String,
+    pub call_id: String,
+    pub conv_id: String,
+    pub kind: String,
+    pub text: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub refs: Vec<String>,
+    /// The person who started the look that wrote it (display only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asker: Option<String>,
+    /// What woke the look (`name`, `own`, `digest`, `routed`, `end`, `ask`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+    pub assistant: bool,
+    pub by: String,
+    pub at: GoTime,
+}
+
+/// `call.item.set` (card #1051): a change to a canvas item, per field.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ItemSetRow {
+    pub item_id: String,
+    pub call_id: String,
+    pub conv_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub card: Option<String>,
+    pub assistant: bool,
     pub by: String,
     pub at: GoTime,
 }
@@ -474,8 +599,18 @@ pub struct Post {
     pub text: String,
     pub mentions: Vec<String>,
     pub agents_now: bool,
+    /// A huddle line the speaker's notice let agents read (call-agents.md
+    /// section 10); false on every other post.
+    #[serde(skip_serializing_if = "is_false")]
+    pub agents: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_from: Option<String>,
+    /// The post it answers (assistants-talk.md §5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
+    /// `ask` or `owner` on an assistant's waiting line (§5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<String>,
     /// The card made from it (`talk.card`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub card: Option<String>,
@@ -546,6 +681,157 @@ struct State {
     drafts: BTreeMap<String, [Member; 2]>,
     /// Each huddle's marks and lines, by call id (card #656).
     calls: HashMap<String, CallIdx>,
+    /// Each huddle's titles (card #1043), kept apart from `calls` so a
+    /// title that names the wrong conversation can't bind a huddle to it,
+    /// and so the fold doesn't depend on which row came first.
+    titles: HashMap<String, Vec<TitleRec>>,
+    /// Each huddle's `call.assist` rows (card #1049), kept apart from
+    /// `calls` as `titles` are.
+    assists: HashMap<String, Vec<AssistRec>>,
+    /// Each huddle's canvas rows (card #1051), kept apart from `calls` as
+    /// `titles` are: a row naming the wrong conversation can't bind a
+    /// huddle to it, and the view checks every row against the huddle's.
+    items: HashMap<String, Vec<ItemRec>>,
+    item_sets: HashMap<String, Vec<ItemSetRec>>,
+}
+
+/// One `call.item` row as folded.
+#[derive(Debug, Clone)]
+struct ItemRec {
+    conv: String,
+    row: ItemRow,
+    ord: Ord3,
+}
+
+/// One `call.item.set` row as folded.
+#[derive(Debug, Clone)]
+struct ItemSetRec {
+    conv: String,
+    row: ItemSetRow,
+    ord: Ord3,
+}
+
+/// A canvas item as the huddle shows it: its row, and what the sets that
+/// count did to it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CanvasItem {
+    pub item_id: String,
+    pub kind: String,
+    pub text: String,
+    /// "" for a `summary` or `note`.
+    pub status: String,
+    pub reply: Option<String>,
+    pub refs: Vec<String>,
+    pub asker: Option<String>,
+    pub why: Option<String>,
+    /// Written by a person's assistant.
+    pub assistant: bool,
+    /// The writer, as the log names them.
+    pub by: String,
+    pub at: GoTime,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    /// The ref of the card it became, once a person divided it.
+    pub card: String,
+    /// Where it sits in the fold, for a stable order.
+    pub ord: Ord3,
+}
+
+/// What a person (or their assistant) adds to a canvas.
+#[derive(Debug, Clone, Default)]
+pub struct NewItem {
+    /// The item's id; empty makes one.
+    pub item_id: String,
+    pub kind: String,
+    pub text: String,
+    /// "" is `open`; kept only on a person's own, unflagged row.
+    pub status: String,
+    pub reply: Option<String>,
+    pub refs: Vec<String>,
+    pub asker: Option<String>,
+    pub why: Option<String>,
+    pub assistant: bool,
+}
+
+/// A change to a canvas item.
+#[derive(Debug, Clone, Default)]
+pub struct NewItemSet {
+    pub item_id: String,
+    pub text: Option<String>,
+    pub status: Option<String>,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub card: Option<String>,
+    pub assistant: bool,
+}
+
+/// `call.assist` (card #1049, call-agents.md §7, §8): a person's assistant is
+/// hosted (`on`) or not (`off`) on `device` for a huddle. Written by the
+/// hosting person's own device; the newest per device wins.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AssistRow {
+    pub call_id: String,
+    pub conv_id: String,
+    /// The device that hosts (or stopped hosting) the assistant.
+    pub device: String,
+    /// `on` or `off`.
+    pub state: String,
+    /// Whether this assistant is the huddle's chair (card #1053): written
+    /// by its host from the rows, `false` when it stands down.
+    pub chair: bool,
+    /// "Let my assistant chair huddles I start" is off for this person
+    /// (card #1053): the chair passes to the next assistant when they
+    /// started the huddle.
+    pub declines_chair: bool,
+    pub by: String,
+    pub at: GoTime,
+}
+
+/// What `call.assist`'s `state` says when the assistant is hosted.
+pub const ASSIST_ON: &str = "on";
+/// What `call.assist`'s `state` says when it stopped.
+pub const ASSIST_OFF: &str = "off";
+
+/// One `call.assist` row as folded: the newest per conversation, person and
+/// device.
+#[derive(Debug, Clone)]
+struct AssistRec {
+    conv: String,
+    device: String,
+    /// The writing person, as the log names them.
+    by: String,
+    on: bool,
+    chair: bool,
+    declines_chair: bool,
+    /// The time (Unix ms) of this device's first `on` row, kept across
+    /// newer rows; 0 while it has none.
+    first_on: i64,
+    at: Ord3,
+}
+
+/// A device's newest word on hosting a person's assistant in a huddle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssistInfo {
+    pub device: String,
+    /// The person, as the log names them (`user:<device>` for this one).
+    pub by: String,
+    pub on: bool,
+    pub chair: bool,
+    /// The person's chair switch is off (see [`AssistRow::declines_chair`]).
+    pub declines_chair: bool,
+    /// When this device first said `on` (Unix ms), 0 if it never has: the
+    /// order the chair passes in (card #1053).
+    pub first_on: i64,
+}
+
+/// One `call.title` row as folded: the newest per conversation and kind.
+#[derive(Debug, Clone)]
+struct TitleRec {
+    conv: String,
+    title: String,
+    assistant: bool,
+    at: Ord3,
 }
 
 /// One huddle as Talk has it (card #656).
@@ -582,6 +868,20 @@ pub struct CallInfo {
     pub last: GoTime,
     /// How many lines its transcript has.
     pub lines: usize,
+    /// Its title (card #1043): a person's newest, else an assistant's
+    /// newest, else empty.
+    pub title: String,
+    /// Whether [`CallInfo::title`] was proposed by an assistant.
+    pub title_by_assistant: bool,
+    /// Who took part: the end mark's people once it ended; before that (and
+    /// after a crash, which leaves no end mark) the start mark's author and
+    /// everyone who spoke, by key in this device's form, each once.
+    pub people: Vec<String>,
+    /// Who started it: its start mark's author, by key in this device's
+    /// form, "" when the start mark isn't here (card #1053: the chair).
+    pub starter: String,
+    /// The newest of its transcript lines, when it has any.
+    pub last_line: Option<GoTime>,
 }
 
 /// What to post.
@@ -870,6 +1170,34 @@ impl Talk {
             .ok_or_else(|| Error::raw(ErrorKind::Store, "talk: the channel didn't fold"))
     }
 
+    /// Makes space `space`'s assistants channel as `irori` unless Talk has
+    /// folded it already (archived or not, so an archived one stays so).
+    /// True when it wrote the row. Nobody joins it: it isn't
+    /// [`Self::create_channel_in`].
+    pub fn ensure_assistants_channel(&self, space: &str) -> Result<bool> {
+        let space = space.trim();
+        if space.is_empty() {
+            return Ok(false);
+        }
+        let id = assistants_channel_id(space);
+        if self.channel(&id).is_some() {
+            return Ok(false);
+        }
+        self.write(
+            space,
+            "irori",
+            kinds::TALK_CHANNEL_CREATED,
+            &ChannelCreatedRow {
+                channel_id: id,
+                space_id: space.into(),
+                name: ASSISTANTS_NAME.into(),
+                topic: Some(ASSISTANTS_TOPIC.into()),
+                by: "irori".into(),
+            },
+        )?;
+        Ok(true)
+    }
+
     /// Adds `m` to conversation `conv` (a channel or a DM). Joining twice
     /// is a no-op (false).
     pub fn join(&self, conv: &str, m: &Member, by: &str) -> Result<bool> {
@@ -1133,6 +1461,8 @@ impl Talk {
                 mentions,
                 agents_now: p.agents_now,
                 thread_from,
+                reply_to: None,
+                waiting: None,
                 attach: files,
                 call,
                 transcript,
@@ -1172,6 +1502,24 @@ impl Talk {
         text: &str,
         by: &str,
     ) -> Result<Post> {
+        self.write_segment_marked(conv, call_id, seg, start_ms, end_ms, text, by, false)
+    }
+
+    /// [`Talk::write_segment`] with the `agents` mark (card #1047): `true`
+    /// when the speaker's notice said agents hear the huddle, so a person
+    /// DM's agents may read the line (call-agents.md section 10).
+    #[allow(clippy::too_many_arguments)]
+    pub fn write_segment_marked(
+        &self,
+        conv: &str,
+        call_id: &str,
+        seg: i64,
+        start_ms: i64,
+        end_ms: i64,
+        text: &str,
+        by: &str,
+        agents: bool,
+    ) -> Result<Post> {
         let by = need_by(by)?.to_string();
         let (conv, call_id) = (conv.trim().to_string(), call_id.trim().to_string());
         if call_id.is_empty() {
@@ -1185,23 +1533,7 @@ impl Talk {
         if !is_person_key(&by) {
             return Err(not_allowed("only a person speaks in a huddle"));
         }
-        let space = if is_channel(&conv) {
-            match self.channel(&conv) {
-                None => return Err(not_found(format!("no channel {conv}"))),
-                Some(c) if c.archived => {
-                    return Err(invalid(format!("#{} is archived", c.name)));
-                }
-                Some(c) => c.space_id,
-            }
-        } else if let Some(other) = self.pair_other(&conv) {
-            let space = self.dm_space(&other)?;
-            self.join_log(&conv, &space, &by, &other)?;
-            space
-        } else {
-            return Err(invalid(format!(
-                "{conv} isn't a channel or a DM with a person: no huddle is there"
-            )));
-        };
+        let space = self.call_log(&conv, &by)?;
         let ev = self.write(
             &space,
             &by,
@@ -1213,6 +1545,7 @@ impl Talk {
                 start_ms,
                 end_ms: end_ms.max(start_ms),
                 text,
+                agents,
                 by: by.clone(),
                 at: (self.now)(),
             },
@@ -1223,6 +1556,356 @@ impl Talk {
             .get(&call_id)
             .and_then(|c| c.lines.iter().find(|x| x.post_id == id).cloned())
             .ok_or_else(|| Error::raw(ErrorKind::Store, "talk: the line didn't fold"))
+    }
+
+    /// The log a huddle's rows in `conv` go to, as `by` (card #656, #1043):
+    /// a channel's space (Personal: the private log, ""), or a person DM's,
+    /// whose log is joined first.
+    fn call_log(&self, conv: &str, by: &str) -> Result<String> {
+        if is_channel(conv) {
+            match self.channel(conv) {
+                None => Err(not_found(format!("no channel {conv}"))),
+                Some(c) if c.archived => Err(invalid(format!("#{} is archived", c.name))),
+                Some(c) => Ok(c.space_id),
+            }
+        } else if let Some(other) = self.pair_other(conv) {
+            let space = self.dm_space(&other)?;
+            self.join_log(conv, &space, by, &other)?;
+            Ok(space)
+        } else {
+            Err(invalid(format!(
+                "{conv} isn't a channel or a DM with a person: no huddle is there"
+            )))
+        }
+    }
+
+    /// Writes huddle `call_id`'s title (card #1043) as a `call.title` row,
+    /// by the person `by`, into the log `conv`'s posts go to. Anyone in the
+    /// conversation may. `assistant` marks a title an assistant proposed:
+    /// it shows only while no person has set one. Returns the title the
+    /// huddle now shows.
+    pub fn write_title(
+        &self,
+        conv: &str,
+        call_id: &str,
+        title: &str,
+        assistant: bool,
+        by: &str,
+    ) -> Result<String> {
+        let by = need_by(by)?.to_string();
+        let (conv, call_id) = (conv.trim().to_string(), call_id.trim().to_string());
+        if call_id.is_empty() {
+            return Err(invalid("a huddle title needs its call's id"));
+        }
+        let title = title.trim().to_string();
+        if title.is_empty() {
+            return Err(invalid("a huddle's title can't be empty"));
+        }
+        if title.len() > MAX_TITLE {
+            return Err(invalid(format!(
+                "a huddle's title is at most {MAX_TITLE} bytes"
+            )));
+        }
+        if !is_person_key(&by) {
+            return Err(not_allowed("only a person titles a huddle"));
+        }
+        // The huddle must be this conversation's, or the row would fold to
+        // nothing.
+        if let Some(c) = self.call_conv(&call_id)
+            && c != conv
+        {
+            return Err(invalid(format!("huddle {call_id} isn't in {conv}")));
+        }
+        let space = self.call_log(&conv, &by)?;
+        self.write(
+            &space,
+            &by,
+            kinds::CALL_TITLE,
+            &TitleRow {
+                call_id: call_id.clone(),
+                conv_id: conv.clone(),
+                title,
+                assistant,
+                by: by.clone(),
+                at: (self.now)(),
+            },
+        )?;
+        Ok(self.call_title(&call_id).unwrap_or_default())
+    }
+
+    /// Huddle `call_id`'s title, when it has one (card #1043).
+    pub fn call_title(&self, call_id: &str) -> Option<String> {
+        let s = self.lock();
+        let id = call_id.trim();
+        let conv = s.calls.get(id).map(|c| c.conv.as_str())?;
+        let (t, _) = title_of(&s, id, conv);
+        (!t.is_empty()).then_some(t)
+    }
+
+    /// Writes huddle `call_id`'s `call.assist` row (card #1049) as the
+    /// person `by`: the assistant is hosted on `device` (`on`) or stopped
+    /// (`off`). Anyone in the conversation may write their own; the fold
+    /// keeps the newest per device.
+    pub fn write_assist(
+        &self,
+        conv: &str,
+        call_id: &str,
+        device: &str,
+        on: bool,
+        by: &str,
+    ) -> Result<()> {
+        self.write_assist_as(conv, call_id, device, on, false, false, by)
+    }
+
+    /// [`Talk::write_assist`] with the chair flag and the chair switch
+    /// (card #1053): `chair` says this assistant holds the chair,
+    /// `declines_chair` that its person won't chair what they start.
+    #[allow(clippy::too_many_arguments)]
+    pub fn write_assist_as(
+        &self,
+        conv: &str,
+        call_id: &str,
+        device: &str,
+        on: bool,
+        chair: bool,
+        declines_chair: bool,
+        by: &str,
+    ) -> Result<()> {
+        let by = need_by(by)?.to_string();
+        let (conv, call_id) = (conv.trim().to_string(), call_id.trim().to_string());
+        if call_id.is_empty() || device.trim().is_empty() {
+            return Err(invalid("an assistant row needs its call and its device"));
+        }
+        if !is_person_key(&by) {
+            return Err(not_allowed("only a person's device hosts an assistant"));
+        }
+        if let Some(c) = self.call_conv(&call_id)
+            && c != conv
+        {
+            return Err(invalid(format!("huddle {call_id} isn't in {conv}")));
+        }
+        let space = self.call_log(&conv, &by)?;
+        self.write(
+            &space,
+            &by,
+            kinds::CALL_ASSIST,
+            &AssistRow {
+                call_id,
+                conv_id: conv,
+                device: device.trim().to_string(),
+                state: if on { ASSIST_ON } else { ASSIST_OFF }.into(),
+                chair: chair && on,
+                declines_chair,
+                by: by.clone(),
+                at: (self.now)(),
+            },
+        )?;
+        Ok(())
+    }
+
+    /// Huddle `call_id`'s hosting rows (card #1049): each device's newest
+    /// per person, on or off, in no particular order. Rows naming another
+    /// conversation than the huddle's don't count; a huddle this device has
+    /// no mark or line of yet has none.
+    pub fn call_assists(&self, call_id: &str) -> Vec<AssistInfo> {
+        let s = self.lock();
+        let id = call_id.trim();
+        let Some(conv) = s.calls.get(id).map(|c| c.conv.as_str()) else {
+            return Vec::new();
+        };
+        s.assists
+            .get(id)
+            .into_iter()
+            .flatten()
+            .filter(|a| a.conv == conv)
+            .map(|a| AssistInfo {
+                device: a.device.clone(),
+                by: a.by.clone(),
+                on: a.on,
+                chair: a.chair,
+                declines_chair: a.declines_chair,
+                first_on: a.first_on,
+            })
+            .collect()
+    }
+
+    /// Huddle `call_id`'s canvas (card #1051), oldest first, as the fold
+    /// stands: empty for a huddle this device has no mark or line of yet.
+    pub fn call_items(&self, call_id: &str) -> Vec<CanvasItem> {
+        let s = self.lock();
+        let id = call_id.trim();
+        let Some(conv) = s.calls.get(id).map(|c| c.conv.as_str()) else {
+            return Vec::new();
+        };
+        canvas_of(&s, id, conv)
+    }
+
+    /// Adds an item to huddle `call_id`'s canvas (card #1051) as `by`, into
+    /// the log `conv`'s posts go to. A person, or outside a DM an agent,
+    /// writes; only a person's row with no `assistant` flag keeps a status
+    /// of its own. Returns the item as the fold has it. Whether the call is
+    /// still live is the caller's check.
+    pub fn write_item(
+        &self,
+        conv: &str,
+        call_id: &str,
+        n: NewItem,
+        by: &str,
+    ) -> Result<CanvasItem> {
+        let by = need_by(by)?.to_string();
+        let (conv, call_id) = (conv.trim().to_string(), call_id.trim().to_string());
+        if call_id.is_empty() {
+            return Err(invalid("a canvas item needs its call's id"));
+        }
+        if !ITEM_KINDS.contains(&n.kind.as_str()) {
+            return Err(invalid(format!(
+                "an item is one of {}",
+                ITEM_KINDS.join(", ")
+            )));
+        }
+        let text = n.text.trim().to_string();
+        if text.is_empty() {
+            return Err(invalid("a canvas item can't be empty"));
+        }
+        if text.chars().count() > MAX_ITEM {
+            return Err(invalid(format!(
+                "a canvas item is at most {MAX_ITEM} characters"
+            )));
+        }
+        let status = n.status.trim().to_string();
+        if !status.is_empty() && !ITEM_STATUSES.contains(&status.as_str()) {
+            return Err(invalid(format!(
+                "a status is one of {}",
+                ITEM_STATUSES.join(", ")
+            )));
+        }
+        if let Some(c) = self.call_conv(&call_id)
+            && c != conv
+        {
+            return Err(invalid(format!("huddle {call_id} isn't in {conv}")));
+        }
+        let person = is_person_key(&by);
+        let item_id = if n.item_id.trim().is_empty() {
+            format!("item_{}", new_id(&(self.now)()))
+        } else {
+            n.item_id.trim().to_string()
+        };
+        // The id is the item's own: one id, one item.
+        if self
+            .call_items(&call_id)
+            .iter()
+            .any(|i| i.item_id == item_id)
+        {
+            return Err(invalid(format!("item {item_id} is already on this canvas")));
+        }
+        let space = self.call_log(&conv, &by)?;
+        let assistant = n.assistant && person;
+        let has_status = item_has_status(&n.kind);
+        self.write(
+            &space,
+            &by,
+            kinds::CALL_ITEM,
+            &ItemRow {
+                item_id: item_id.clone(),
+                call_id: call_id.clone(),
+                conv_id: conv.clone(),
+                kind: n.kind,
+                text,
+                status: if !has_status {
+                    String::new()
+                } else if person && !assistant && !status.is_empty() {
+                    status
+                } else {
+                    "open".into()
+                },
+                reply: n.reply.filter(|r| !r.trim().is_empty()),
+                refs: n.refs,
+                asker: n.asker.filter(|a| !a.trim().is_empty()),
+                why: n.why.filter(|w| ITEM_WHYS.contains(&w.as_str())),
+                assistant,
+                by: by.clone(),
+                at: (self.now)(),
+            },
+        )?;
+        self.call_items(&call_id)
+            .into_iter()
+            .find(|i| i.item_id == item_id)
+            .ok_or_else(|| Error::raw(ErrorKind::Store, "talk: the item didn't fold"))
+    }
+
+    /// Changes an item on huddle `call_id`'s canvas (card #1051) as the
+    /// person `by`. Only a person sets (an agent's sets don't exist); the
+    /// item must be on this canvas. What counts is the fold's: see
+    /// [`canvas_of`]. Whether the call is live (for `carded` and `card`) is
+    /// the caller's check.
+    pub fn write_item_set(
+        &self,
+        conv: &str,
+        call_id: &str,
+        n: NewItemSet,
+        by: &str,
+    ) -> Result<CanvasItem> {
+        let by = need_by(by)?.to_string();
+        let (conv, call_id) = (conv.trim().to_string(), call_id.trim().to_string());
+        if !is_person_key(&by) {
+            return Err(not_allowed("only a person changes a canvas item"));
+        }
+        if let Some(c) = self.call_conv(&call_id)
+            && c != conv
+        {
+            return Err(invalid(format!("huddle {call_id} isn't in {conv}")));
+        }
+        let item_id = n.item_id.trim().to_string();
+        let Some(cur) = self
+            .call_items(&call_id)
+            .into_iter()
+            .find(|i| i.item_id == item_id)
+        else {
+            return Err(not_found(format!("no item {item_id} on huddle {call_id}")));
+        };
+        if let Some(t) = &n.text {
+            let t = t.trim();
+            if t.is_empty() || t.chars().count() > MAX_ITEM {
+                return Err(invalid(format!("an item is 1 to {MAX_ITEM} characters")));
+            }
+        }
+        if let Some(st) = &n.status {
+            if !ITEM_STATUSES.contains(&st.as_str()) {
+                return Err(invalid(format!(
+                    "a status is one of {}",
+                    ITEM_STATUSES.join(", ")
+                )));
+            }
+            if !item_has_status(&cur.kind) {
+                return Err(invalid(format!("a {} has no status", cur.kind)));
+            }
+        }
+        if n.x.is_some_and(|v| !v.is_finite()) || n.y.is_some_and(|v| !v.is_finite()) {
+            return Err(invalid("a position is a number"));
+        }
+        let space = self.call_log(&conv, &by)?;
+        self.write(
+            &space,
+            &by,
+            kinds::CALL_ITEM_SET,
+            &ItemSetRow {
+                item_id: item_id.clone(),
+                call_id: call_id.clone(),
+                conv_id: conv,
+                text: n.text.map(|t| t.trim().to_string()),
+                status: n.status,
+                x: n.x,
+                y: n.y,
+                card: n.card.map(|c| c.trim().to_string()),
+                assistant: n.assistant,
+                by: by.clone(),
+                at: (self.now)(),
+            },
+        )?;
+        self.call_items(&call_id)
+            .into_iter()
+            .find(|i| i.item_id == item_id)
+            .ok_or_else(|| Error::raw(ErrorKind::Store, "talk: the item vanished"))
     }
 
     /// Writes both people's joins into `space`, the first time this person
@@ -1527,6 +2210,25 @@ impl Talk {
                     .map(|p| p.at)
                     .max_by(crate::gotime::cmp)
                     .unwrap_or_default();
+                let (title, title_by_assistant) = title_of(&s, id, &c.conv);
+                let people = match &end {
+                    Some(e) => e.people.clone(),
+                    None => {
+                        let mut out: Vec<String> = Vec::new();
+                        let starter = c
+                            .marks
+                            .iter()
+                            .find(|p| p.call.as_ref().is_some_and(|m| m.op == CALL_START))
+                            .map(|p| p.by.as_str());
+                        let speakers = c.lines.iter().map(|p| p.by.as_str());
+                        for k in starter.into_iter().chain(speakers) {
+                            if !out.iter().any(|x| canon(x) == canon(k)) {
+                                out.push(k.to_string());
+                            }
+                        }
+                        out
+                    }
+                };
                 CallInfo {
                     call_id: id.clone(),
                     conv_id: c.conv.clone(),
@@ -1534,6 +2236,16 @@ impl Talk {
                     end,
                     last,
                     lines: c.lines.len(),
+                    title,
+                    title_by_assistant,
+                    people,
+                    starter: c
+                        .marks
+                        .iter()
+                        .find(|p| p.call.as_ref().is_some_and(|m| m.op == CALL_START))
+                        .map(|p| p.by.clone())
+                        .unwrap_or_default(),
+                    last_line: c.lines.iter().map(|p| p.at).max_by(crate::gotime::cmp),
                 }
             })
             .collect();
@@ -1552,6 +2264,141 @@ impl Talk {
             .filter(|c| c.conv == conv)
             .find_map(|c| c.fallback.iter().find(|p| p.post_id == post_id))
             .cloned()
+    }
+}
+
+/// Whether `by` is a person (any person, in either key form).
+fn is_person_by(by: &str) -> bool {
+    is_person_key(by) || is_other_person_key(by)
+}
+
+/// Whether two log keys name the same person.
+fn same_person(a: &str, b: &str) -> bool {
+    canon(a) == canon(b)
+}
+
+/// Huddle `call_id`'s canvas in conversation `conv` (card #1051): each
+/// item as its row and the sets that count made it. Rows naming another
+/// conversation than the huddle's are not its. The first row of an id
+/// (by place in the log) is the item; later ones are ignored.
+///
+/// What counts: an item's status is `open` unless the row is a person's
+/// with no `assistant` flag; `summary` and `note` have none. A set's
+/// `status`, `card`, `x` and `y` count only from a person's row with no
+/// `assistant` flag, and `text` only from the item's own writer's person
+/// (an assistant's set edits only an `assistant: true` item's text). Per
+/// field, the newest set wins. The fold never asks whether the call is
+/// live: that is the write path's check.
+fn canvas_of(s: &State, call_id: &str, conv: &str) -> Vec<CanvasItem> {
+    let mut rows: Vec<&ItemRec> = s
+        .items
+        .get(call_id)
+        .into_iter()
+        .flatten()
+        .filter(|r| r.conv == conv)
+        .collect();
+    rows.sort_by(|a, b| a.ord.cmp(&b.ord));
+    let mut seen = HashSet::new();
+    let sets: Vec<&ItemSetRec> = {
+        let mut v: Vec<&ItemSetRec> = s
+            .item_sets
+            .get(call_id)
+            .into_iter()
+            .flatten()
+            .filter(|r| r.conv == conv)
+            .collect();
+        v.sort_by(|a, b| a.ord.cmp(&b.ord));
+        v
+    };
+    let mut out = Vec::new();
+    for rec in rows {
+        let r = &rec.row;
+        if !seen.insert(r.item_id.clone()) {
+            continue;
+        }
+        let person_row = is_person_by(&r.by) && !r.assistant;
+        let has_status = item_has_status(&r.kind);
+        let mut status = String::new();
+        if has_status {
+            status = if person_row && ITEM_STATUSES.contains(&r.status.as_str()) {
+                r.status.clone()
+            } else {
+                "open".into()
+            };
+        }
+        let mut item = CanvasItem {
+            item_id: r.item_id.clone(),
+            kind: r.kind.clone(),
+            text: r.text.clone(),
+            status,
+            reply: r.reply.clone().filter(|x| !x.is_empty()),
+            refs: r.refs.clone(),
+            asker: r.asker.clone().filter(|x| !x.is_empty()),
+            why: r.why.clone().filter(|x| ITEM_WHYS.contains(&x.as_str())),
+            assistant: r.assistant && is_person_by(&r.by),
+            by: r.by.clone(),
+            at: r.at,
+            x: None,
+            y: None,
+            card: String::new(),
+            ord: rec.ord.clone(),
+        };
+        // Sets apply in log order, so the newest of each field wins.
+        for set in sets.iter().filter(|x| x.row.item_id == r.item_id) {
+            let w = &set.row;
+            // A set is no older than its item.
+            if set.ord < rec.ord {
+                continue;
+            }
+            if let Some(t) = &w.text {
+                let t = t.trim();
+                let own = same_person(&w.by, &r.by) && (!w.assistant || item.assistant);
+                if own && !t.is_empty() && t.chars().count() <= MAX_ITEM {
+                    item.text = t.to_string();
+                }
+            }
+            if w.assistant {
+                continue;
+            }
+            if has_status
+                && let Some(st) = &w.status
+                && ITEM_STATUSES.contains(&st.as_str())
+            {
+                item.status = st.clone();
+            }
+            if let Some(x) = w.x.filter(|v| v.is_finite()) {
+                item.x = Some(x);
+            }
+            if let Some(y) = w.y.filter(|v| v.is_finite()) {
+                item.y = Some(y);
+            }
+            if let Some(c) = &w.card {
+                let c = c.trim();
+                if !c.is_empty() && c.len() <= 200 {
+                    item.card = c.to_string();
+                }
+            }
+        }
+        out.push(item);
+    }
+    out
+}
+
+/// Huddle `call_id`'s title in conversation `conv` (card #1043): a person's
+/// newest, else an assistant's newest. Rows naming another conversation
+/// than the huddle's don't count. The flag says an assistant proposed it.
+fn title_of(s: &State, call_id: &str, conv: &str) -> (String, bool) {
+    let newest = |assistant: bool| {
+        s.titles
+            .get(call_id)?
+            .iter()
+            .filter(|t| t.conv == conv && t.assistant == assistant)
+            .max_by(|a, b| a.at.cmp(&b.at))
+    };
+    match (newest(false), newest(true)) {
+        (Some(t), _) => (t.title.clone(), false),
+        (None, Some(t)) => (t.title.clone(), true),
+        (None, None) => (String::new(), false),
     }
 }
 
@@ -1636,6 +2483,14 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 return false;
             };
             if r.channel_id.is_empty() {
+                return false;
+            }
+            // The fold keeps the first copy, so a member of two spaces
+            // could make S1's assistants channel inside S2. `space_id` is
+            // the log that carried the row, not the row's say-so.
+            if in_assistants_range(&r.channel_id)
+                && !is_assistants_channel(&r.channel_id, &r.space_id)
+            {
                 return false;
             }
             let c = s.channels.entry(r.channel_id.clone()).or_default();
@@ -1750,7 +2605,10 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 text: r.text,
                 mentions: r.mentions,
                 agents_now: r.agents_now,
+                agents: false,
                 thread_from: r.thread_from,
+                reply_to: r.reply_to.filter(|x| !x.is_empty()),
+                waiting: r.waiting.filter(|w| matches!(w.as_str(), "ask" | "owner")),
                 files: r
                     .attach
                     .into_iter()
@@ -1824,6 +2682,7 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                     conv_id: format!("{CALL_PREFIX}{}", r.call_id),
                     by: r.by,
                     text: text.to_string(),
+                    agents: r.agents,
                     at: at_ms(r.start_ms),
                     ord: (r.start_ms.max(0) as u64, ev.device_id.clone(), r.seg),
                     space: row_space(ev).unwrap_or_default(),
@@ -1831,6 +2690,149 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                     ..Post::default()
                 },
             );
+            true
+        }
+        kinds::CALL_TITLE => {
+            let Ok(r) = serde_json::from_slice::<TitleRow>(&ev.payload) else {
+                return false;
+            };
+            let title = r.title.trim();
+            // Only a person sets or proposes a title (an assistant's is the
+            // person's row, flagged); never an agent.
+            if r.call_id.is_empty()
+                || !(is_channel(&r.conv_id) || is_dm(&r.conv_id))
+                || title.is_empty()
+                || title.len() > MAX_TITLE
+                || !(is_person_key(&r.by) || is_other_person_key(&r.by))
+            {
+                return false;
+            }
+            let recs = s.titles.entry(r.call_id).or_default();
+            let rec = TitleRec {
+                conv: r.conv_id,
+                title: title.to_string(),
+                assistant: r.assistant,
+                at,
+            };
+            match recs
+                .iter_mut()
+                .find(|x| x.conv == rec.conv && x.assistant == rec.assistant)
+            {
+                Some(x) => {
+                    if x.at >= rec.at {
+                        return false;
+                    }
+                    *x = rec;
+                }
+                None => recs.push(rec),
+            }
+            true
+        }
+        kinds::CALL_ASSIST => {
+            let Ok(r) = serde_json::from_slice::<AssistRow>(&ev.payload) else {
+                return false;
+            };
+            let device = r.device.trim();
+            let on = r.state == ASSIST_ON;
+            // A person's device only; never an agent. The device is the
+            // row's own writer: a device speaks for no other.
+            if r.call_id.is_empty()
+                || !(is_channel(&r.conv_id) || is_dm(&r.conv_id))
+                || device.is_empty()
+                || !(on || r.state == ASSIST_OFF)
+                || !(is_person_key(&r.by) || is_other_person_key(&r.by))
+                || ev.device_id != device
+            {
+                return false;
+            }
+            let recs = s.assists.entry(r.call_id).or_default();
+            let first = if on {
+                r.at.unix_milli_value().max(1)
+            } else {
+                0
+            };
+            let mut rec = AssistRec {
+                conv: r.conv_id,
+                device: device.to_string(),
+                by: r.by,
+                on,
+                chair: r.chair && on,
+                declines_chair: r.declines_chair,
+                first_on: first,
+                at,
+            };
+            match recs
+                .iter_mut()
+                .find(|x| x.conv == rec.conv && x.device == rec.device)
+            {
+                Some(x) => {
+                    // The first `on` is the earliest one seen, whatever
+                    // order the rows fold in.
+                    rec.first_on = match (x.first_on, rec.first_on) {
+                        (0, f) | (f, 0) => f,
+                        (a, b) => a.min(b),
+                    };
+                    if x.at >= rec.at {
+                        x.first_on = rec.first_on;
+                        return false;
+                    }
+                    *x = rec;
+                }
+                None => recs.push(rec),
+            }
+            true
+        }
+        kinds::CALL_ITEM => {
+            let Ok(mut r) = serde_json::from_slice::<ItemRow>(&ev.payload) else {
+                return false;
+            };
+            r.text = r.text.trim().to_string();
+            if r.item_id.is_empty()
+                || r.item_id.len() > 128
+                || r.call_id.is_empty()
+                || !(is_channel(&r.conv_id) || is_dm(&r.conv_id))
+                || !ITEM_KINDS.contains(&r.kind.as_str())
+                || r.text.is_empty()
+                || r.text.chars().count() > MAX_ITEM
+                || r.by.is_empty()
+            {
+                return false;
+            }
+            let recs = s.items.entry(r.call_id.clone()).or_default();
+            if recs
+                .iter()
+                .any(|x| x.conv == r.conv_id && x.row.item_id == r.item_id && x.ord == at)
+            {
+                return false;
+            }
+            recs.push(ItemRec {
+                conv: r.conv_id.clone(),
+                row: r,
+                ord: at,
+            });
+            true
+        }
+        kinds::CALL_ITEM_SET => {
+            let Ok(r) = serde_json::from_slice::<ItemSetRow>(&ev.payload) else {
+                return false;
+            };
+            // Only a person sets: an agent's sets don't exist.
+            if r.item_id.is_empty()
+                || r.call_id.is_empty()
+                || !(is_channel(&r.conv_id) || is_dm(&r.conv_id))
+                || !(is_person_key(&r.by) || is_other_person_key(&r.by))
+            {
+                return false;
+            }
+            let recs = s.item_sets.entry(r.call_id.clone()).or_default();
+            if recs.iter().any(|x| x.ord == at) {
+                return false;
+            }
+            recs.push(ItemSetRec {
+                conv: r.conv_id.clone(),
+                row: r,
+                ord: at,
+            });
             true
         }
         kinds::TALK_READ => {

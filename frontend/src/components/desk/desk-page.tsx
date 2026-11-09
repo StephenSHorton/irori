@@ -33,6 +33,7 @@ import {
   type QueueLine,
 } from "@/lib/desk"
 import { cards } from "@/lib/cards"
+import { Tick } from "@/components/common/ago"
 import { parseTime, relativeTime } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
@@ -172,12 +173,10 @@ function QueueHead({ count, right }: { count: ReactNode; right?: ReactNode }) {
 // asked; when GitHub can't be asked it keeps the last list.
 export function DeskPanel({
   desk,
-  now,
   nameOf,
   onOpenCard,
 }: {
   desk: Desk
-  now: Date
   nameOf: (key: string) => string
   onOpenCard: (id: string) => void
 }) {
@@ -197,11 +196,19 @@ export function DeskPanel({
     >
       <QueueHead
         count={
-          snap
-            ? down
-              ? `${snap.prs.length} open at ${clock(snap.at)}`
-              : `${queueCount(snap)} · polled ${timeOf(lastPoll, now)} (every 3 min)`
-            : queueCount(snap)
+          snap ? (
+            down ? (
+              `${snap.prs.length} open at ${clock(snap.at)}`
+            ) : (
+              <Tick
+                of={(now) =>
+                  `${queueCount(snap)} · polled ${timeOf(lastPoll, now)} (every 3 min)`
+                }
+              />
+            )
+          ) : (
+            queueCount(snap)
+          )
         }
       />
       {down && (
@@ -297,7 +304,6 @@ export function DeskPage({
   onOpenCard,
   onSettings,
   nameOf,
-  now,
 }: {
   desks: Desk[]
   // The desk open, by repo key ("" the first).
@@ -306,7 +312,6 @@ export function DeskPage({
   onOpenCard: (id: string) => void
   onSettings: () => void
   nameOf: (key: string) => string
-  now: Date
 }) {
   // Only desks with an open PR of ours are listed (card #625). A link to
   // one that has none left opens it anyway, with its calm empty queue.
@@ -363,11 +368,11 @@ export function DeskPage({
           })}
         </nav>
       )}
-      <div className="grid min-w-0 flex-1 content-start gap-3 overflow-y-auto pb-6 mac:overscroll-none">
+      <div className="grid min-w-0 flex-1 content-start gap-3 overflow-y-auto pb-20 mac:overscroll-none">
         <DeskHeader desk={desk} onSettings={onSettings} />
         <DeskPanel
           desk={desk}
-          now={now}
+
           nameOf={nameOf}
           onOpenCard={onOpenCard}
         />

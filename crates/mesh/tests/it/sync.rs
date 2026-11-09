@@ -549,6 +549,45 @@ fn mac_row(pc: &Dev, mac: &str) -> DeviceRow {
         .unwrap_or_default()
 }
 
+/// The PC's Devices row for the Mac says how it is reached (card #1119)
+/// and which version it is behind, from the devices' `device.started` rows.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_device_row_names_its_reach_and_what_it_is_behind_on() {
+    let net = FakeNet::new();
+    let (pc, mut mac, nd) = trio(&net).await;
+    mac.append(
+        store::kinds::DEVICE_STARTED,
+        json!({"name": "mac", "os": "darwin", "version": "0.11.0"}),
+    );
+    pc.append(
+        store::kinds::DEVICE_STARTED,
+        json!({"name": "pc", "os": "windows", "version": "0.12.1"}),
+    );
+    eventually("the PC reads the Mac's version", || {
+        mac_row(&pc, &mac.id()).version == "0.11.0"
+    })
+    .await;
+    let r = mac_row(&pc, &mac.id());
+    assert_eq!((r.reach.as_str(), r.behind.as_str()), ("direct", "0.12.1"));
+    let n = pc
+        .node()
+        .devices(false)
+        .into_iter()
+        .find(|r| r.device_id == nd.id())
+        .unwrap();
+    assert_eq!(n.behind, "", "no version known, so not called behind");
+    assert_eq!(
+        pc.node().devices(false)[0].reach,
+        "",
+        "this device has none"
+    );
+    mac.stop().await;
+    eventually("the Mac is unreachable once its session ends", || {
+        mac_row(&pc, &mac.id()).reach == "unreachable"
+    })
+    .await;
+}
+
 /// The node is off when the PC revokes the Mac. The PC keeps the epoch-1
 /// topic open until the node has the new key, which it gets there.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -976,4 +1015,21 @@ fn scrub_urls_cuts_queries() {
         mesh::scrub_urls("fetch https://relay.example/cred?key=abc failed"),
         "fetch https://relay.example/cred?… failed"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn syncing_is_true_while_rows_move_and_falls_after_a_second() {
+    let net = FakeNet::new();
+    let (mut a, mut b) = (Dev::new(&net, "pc"), Dev::new(&net, "mac"));
+    b.join(&a).await;
+    a.start();
+    b.start();
+    eventually("connected", || a.peer(&b.id()).state == "connected").await;
+    // Let the hello exchange settle, then wait the flag out: idle is false.
+    eventually("quiet", || !a.node().syncing() && !b.node().syncing()).await;
+    // b writes a row; a receives it, so a is syncing (and so is b, sending).
+    let e = b.append(store::kinds::AGENT_SEEN, seen(&b, "badge"));
+    eventually("a took the row", || a.has(&e)).await;
+    assert!(a.node().syncing(), "a took rows and must show syncing");
+    eventually("falls once quiet", || !a.node().syncing()).await;
 }

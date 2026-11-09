@@ -36,6 +36,20 @@ pub fn no_agent_id(id: &str) -> String {
     format!("{}{id}", notify::NO_AGENT_PREFIX)
 }
 
+/// The Office Assistant's computer (assistants talk, card 2): the first of
+/// `homes` whose `spawn.host` says it runs the answering turn. A device with
+/// no row, an older row or `assistantTurn` off is never it. Filter `homes`,
+/// not `agent_home`'s one pick: that one may be a computer that can't answer.
+pub(crate) fn assistant_home_of(
+    homes: &[String],
+    hosts: &std::collections::HashMap<String, super::spawn_remote::SpawnHost>,
+) -> Option<String> {
+    homes
+        .iter()
+        .find(|d| hosts.get(*d).is_some_and(|h| h.assistant_turn))
+        .cloned()
+}
+
 /// A device's name for the person.
 fn device_name(labels: &std::collections::BTreeMap<String, String>, id: &str) -> String {
     labels
@@ -246,6 +260,18 @@ impl Services {
         }
     }
 
+    /// Whether this device is the person's assistant computer now.
+    pub(crate) fn is_assistant_home(&self) -> bool {
+        let homes = self
+            .spawn
+            .agents
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .homes
+            .clone();
+        assistant_home_of(&homes, &self.hosts()).as_deref() == Some(self.device.id.as_str())
+    }
+
     /// Whether this device had no free agent slot at the last sweep (card
     /// #686).
     pub(crate) fn full_here(&self) -> bool {
@@ -394,7 +420,7 @@ impl Services {
     }
 
     /// The private board's coord and each shown board's, by board id.
-    fn agent_coords(&self) -> Vec<(String, std::sync::Arc<coord::Coord>)> {
+    pub(crate) fn agent_coords(&self) -> Vec<(String, std::sync::Arc<coord::Coord>)> {
         let mut v = vec![(String::new(), self.coord.clone())];
         v.extend(
             self.shown_boards()
@@ -560,6 +586,43 @@ fn waited(now: &GoTime, since: &GoTime) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::spawn_remote::SpawnHost;
+
+    fn host(assistant_turn: bool) -> SpawnHost {
+        SpawnHost {
+            assistant_turn,
+            ..SpawnHost::default()
+        }
+    }
+
+    /// Assistants talk, card 2: the first home that says `assistantTurn`, never
+    /// one with no row, an older row or the field off.
+    #[test]
+    fn the_assistants_computer_is_the_first_home_that_runs_the_turn() {
+        let homes = s(&["mac", "pc", "old"]);
+        let hosts = |rows: &[(&str, bool)]| {
+            rows.iter()
+                .map(|(d, t)| (d.to_string(), host(*t)))
+                .collect::<std::collections::HashMap<_, _>>()
+        };
+        let both = hosts(&[("mac", false), ("pc", true), ("old", true)]);
+        assert_eq!(assistant_home_of(&homes, &both).as_deref(), Some("pc"));
+        assert_eq!(
+            assistant_home_of(&homes, &hosts(&[("mac", true), ("pc", true)])).as_deref(),
+            Some("mac")
+        );
+        // No row at all, or none saying it: nobody is home.
+        assert_eq!(assistant_home_of(&homes, &hosts(&[])), None);
+        assert_eq!(
+            assistant_home_of(&homes, &hosts(&[("mac", false), ("pc", false)])),
+            None
+        );
+        // A device missing from `homes` (a phone) never counts.
+        assert_eq!(
+            assistant_home_of(&s(&["mac"]), &hosts(&[("phone", true)])),
+            None
+        );
+    }
 
     fn s(v: &[&str]) -> Vec<String> {
         v.iter().map(|x| x.to_string()).collect()

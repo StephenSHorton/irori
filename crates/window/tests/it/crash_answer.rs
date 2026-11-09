@@ -348,12 +348,34 @@ fn a_card_with_subtasks_promises_no_agent() {
     assert!(!res.irori_acts);
 }
 
-/// A card someone took while it waited is theirs: Irori won't start one.
+/// A card an agent took while it waited is theirs: Irori won't start one,
+/// and its crash question closes by itself, saying who took it (card
+/// #717), so it leaves Needs you.
 #[test]
 fn a_card_with_a_holder_does_not_promise_an_agent() {
     let t = rig();
     let (c, q) = t.crashed_card();
+    let before = t.started();
     t.w().core.coord().claim_task(&t.r.key_a, &c.id).unwrap();
-    let res = t.w().answer(&c.id, &q.id, 0, "", true, &[]).unwrap();
-    assert!(!res.irori_acts);
+    wait("the question closes", || {
+        t.w().core.set_spawn_cap(t.w().core.spawn_cap()).ok();
+        t.get(&c.id)
+            .blockers
+            .iter()
+            .any(|b| b.id == q.id && !b.open())
+    });
+    let done = t
+        .get(&c.id)
+        .blockers
+        .into_iter()
+        .find(|b| b.id == q.id)
+        .and_then(|b| b.resolved)
+        .unwrap();
+    assert!(
+        done.answer
+            .ends_with("took the card, so no agent needs to start for it."),
+        "{done:?}"
+    );
+    assert!(t.w().answer(&c.id, &q.id, 0, "", true, &[]).is_err());
+    assert_eq!(t.started(), before, "no agent started");
 }

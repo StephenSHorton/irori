@@ -5,6 +5,7 @@
 
 mod api;
 mod api_golden;
+mod assistant;
 mod bare;
 mod board;
 mod board_settings;

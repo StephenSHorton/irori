@@ -38,7 +38,8 @@ const plural = (n: number) => `${n} done ${n === 1 ? "card" : "cards"}`
 // ClearDone clears done cards by age (card #138): pick an age, see how
 // many it takes, confirm. Cleared cards leave the app's lists, on your
 // boards too; agents still find them with search and show. Used on the
-// Closed view and in Settings > Maintenance.
+// Closed view and on Storage's log page (card #728; it was Settings >
+// Maintenance).
 export function ClearDone({
   onCleared,
   compact,

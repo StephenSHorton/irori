@@ -15,6 +15,8 @@ pub const SESS_B: &str = "bbbbbbbb-2222-4222-8222-000000000002";
 
 pub struct Rig {
     pub w: Arc<Window>,
+    /// The Core under the Window.
+    pub core: Arc<Core>,
     pub key_a: String,
     pub key_b: String,
     pub data: std::path::PathBuf,
@@ -101,6 +103,7 @@ impl Rig {
         ));
         Rig {
             w,
+            core,
             key_a,
             key_b,
             data: d.path().to_path_buf(),

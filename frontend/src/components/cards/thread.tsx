@@ -1,5 +1,6 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react"
 
+import { Ago } from "@/components/common/ago"
 import { Badge } from "@/components/ui/badge"
 import { AttachmentList } from "@/components/attachments"
 import { Button } from "@/components/ui/button"
@@ -11,7 +12,7 @@ import {
   type CardMessage,
   type CardThreadItem,
 } from "@/lib/cards"
-import { parseTime, plainBlock, plainLine, relativeTime } from "@/lib/irori"
+import { parseTime, plainBlock, plainLine } from "@/lib/irori"
 import { errorText, talk } from "@/lib/talk"
 import {
   FocusComment,
@@ -19,8 +20,6 @@ import {
   opensInFull,
   threadEntryId,
   LiveRoster,
-  PonderEvery,
-  ponderWord,
   StoppedGrace,
   threadLabel,
   ThreadKind,
@@ -31,11 +30,10 @@ import {
   BlockersHere,
   blockerItemId,
 } from "@/lib/thread"
-import { useReducedMotion } from "@/lib/motion"
 import { cn } from "@/lib/utils"
-import { Spinner } from "./bits"
 import { Face } from "./faces"
 import { RichLine, RichText } from "@/components/common/rich-text"
+import { ReplyingRow } from "@/components/talk/replying-row"
 
 // Thread is a card's thread, oldest first: comments, messages about the
 // card ("A -> B") and one muted line per thing that happened, each with
@@ -47,7 +45,6 @@ import { RichLine, RichText } from "@/components/common/rich-text"
 export function Thread({
   cardId,
   items,
-  now,
   earlier = 0,
   historyTrimmed,
   empty = "Nothing yet.",
@@ -56,10 +53,10 @@ export function Thread({
   composer,
   scroll,
   on,
+  starting,
 }: {
   cardId?: string
   items: CardThreadItem[]
-  now: Date
   // earlier counts entries older than the ones sent (BoardService.Card
   // sends the newest MaxThreadView).
   earlier?: number
@@ -76,15 +73,14 @@ export function Thread({
   // that bounds the height: only the entries shrink.
   scroll?: boolean
   // on: the agents on this thread (a card's holders, an ask's takers) and
-  // whether it is over, for the live "working…" line (card #299).
-  // working, when given, is who the card's rule says works on it now
-  // (card #317): the line names them, so it agrees with the page.
+  // whether it is over, for the live "replying…" line (cards #299, #980).
   on?: {
     agents: readonly AgentRef[]
     over?: boolean
-    working?: readonly AgentRef[]
-    jobs?: readonly AgentRef[]
   }
+  // starting: Irori is starting the card's agent (card #739): a comment
+  // nobody heard yet is about to be.
+  starting?: boolean
 }) {
   const [showAll, setShowAll] = useState(false)
   const live = useContext(LiveRoster)
@@ -101,15 +97,7 @@ export function Thread({
     return () => window.clearTimeout(id)
   }, [watching, live])
   const status = on
-    ? workingLine(
-        on.agents,
-        items,
-        live,
-        new Date(),
-        on.over,
-        on.working,
-        on.jobs
-      )
+    ? workingLine(on.agents, items, live, new Date(), on.over)
     : null
   // A comment a notification opened the card at: shown even when it is
   // older than the first page, scrolled into view once (card #177).
@@ -186,9 +174,10 @@ export function Thread({
               <ThreadRow
                 cardId={cardId}
                 item={it}
-                now={now}
+
                 inBlocker={inBlocker}
                 startable={it.id === startId}
+                starting={starting}
               />
             </div>
           ))
@@ -200,26 +189,21 @@ export function Thread({
           ) : (
             empty
           ))}
-      {status &&
-        (status.tone === "working" ? (
-          // Where the next comment will appear (card #317): who is on it,
-          // with a word that changes while no running tool says more.
-          <p
-            role="status"
-            aria-label={status.text}
-            className="flex items-center gap-2 py-0.5 text-[12.5px] text-ink-2"
-          >
-            <Spinner className="size-3.5" />
-            <span className="min-w-0 truncate">
-              <span className="font-medium">{status.who}</span> {status.verb}{" "}
-              {status.doing || <PonderWord />}…
-            </span>
-          </p>
-        ) : (
+      {status?.tone === "replying" ? (
+        <ReplyingRow
+          line={{
+            who: status.who ?? "",
+            verb: status.verb ?? "is",
+            text: status.text,
+          }}
+        />
+      ) : (
+        status && (
           <p role="status" className="text-[11.5px] text-warning">
             {status.text}
           </p>
-        ))}
+        )
+      )}
     </>
   )
   if (scroll) {
@@ -261,31 +245,73 @@ export function Thread({
   )
 }
 
-// PonderWord is the working line's changing word (card #317): a new one
-// every PonderEvery while it shows; Reduce Motion keeps the first, still.
-// Its own component, so only the word re-renders on each change.
-function PonderWord() {
-  const still = useReducedMotion()
-  const [tick, setTick] = useState(0)
-  useEffect(() => {
-    if (still) return
-    const id = window.setInterval(() => setTick((n) => n + 1), PonderEvery)
-    return () => window.clearInterval(id)
-  }, [still])
-  return <span aria-hidden>{ponderWord(still ? 0 : tick)}</span>
+// UndoTitle is the Undo on Irori's name for the person's thread (card
+// #782): one click gives the title it had back, as the person's own.
+function UndoTitle({ cardId, title }: { cardId: string; title: string }) {
+  return (
+    <UndoLink
+      hint={`Give it back its name: “${title}”`}
+      undo={() => cards.undoTitle(cardId)}
+    />
+  )
+}
+
+// UndoWeight is the Undo on Irori's weighing of a card (card #965): what
+// it replaced comes back as the person's own.
+function UndoWeight({ cardId, was }: { cardId: string; was: string }) {
+  return (
+    <UndoLink
+      hint={
+        was === "no weight"
+          ? "Take Irori's weight off"
+          : `Put it back to ${was}`
+      }
+      undo={() => cards.undoWeight(cardId)}
+    />
+  )
+}
+
+function UndoLink({ hint, undo }: { hint: string; undo: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <>
+      {" "}
+      <button
+        type="button"
+        className="cursor-pointer rounded-sm font-medium text-ink-2 underline decoration-muted-foreground/40 underline-offset-2 outline-none hover:text-ink focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60"
+        title={hint}
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true)
+          setError(null)
+          try {
+            await undo()
+          } catch (e) {
+            setError(errorText(e))
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        Undo
+      </button>
+      {error && <span className="ml-1.5 text-destructive">{error}</span>}
+    </>
+  )
 }
 
 function ThreadRow({
   cardId,
   item,
-  now,
   inBlocker,
   startable,
+  starting,
 }: {
   cardId?: string
   item: CardThreadItem
-  now: Date
   inBlocker?: boolean
+  starting?: boolean
   // "Start an agent with this" (card #452): the person's latest comment
   // on a card with nobody on it.
   startable?: boolean
@@ -315,7 +341,7 @@ function ThreadRow({
       dateTime={at?.toISOString()}
       title={at?.toLocaleString()}
     >
-      {relativeTime(at, now)}
+      <Ago at={at} />
     </time>
   )
   // A revision of its blocker: what the item asks now, under the reply it
@@ -366,11 +392,17 @@ function ThreadRow({
               <RichLine text={item.text} />
             )}
             {item.device && <DeviceTag device={item.device} />}
+            {cardId && item.undoTitle && (
+              <UndoTitle cardId={cardId} title={item.undoTitle} />
+            )}
+            {cardId && item.undoWeight && (
+              <UndoWeight cardId={cardId} was={item.undoWeight} />
+            )}
           </span>
         </span>
       </div>
     )
-  const l = threadLabel(item, inBlocker)
+  const l = threadLabel(item, inBlocker, starting)
   const body = plainBlock(item.text)
   const open = async () => {
     if (!cardId || busy) return

@@ -42,7 +42,6 @@ fn tray_texts_match_go() {
         let counts = tray_text::Counts {
             unread: c["unread"].as_u64().unwrap() as usize,
             held: c["held"].as_u64().unwrap() as usize,
-            paused: c["paused"].as_bool().unwrap(),
         };
         let got = tray_text::status_line(
             s(&r["status"]),
@@ -55,9 +54,7 @@ fn tray_texts_match_go() {
         let n = r["in"].as_u64().unwrap() as usize;
         assert_eq!(tray_text::held_line(n), s(&r["out"]));
     }
-    for r in g["pauseLabels"].as_array().unwrap() {
-        assert_eq!(tray_text::pause_label(s(&r["in"])), s(&r["out"]));
-    }
+    // pauseLabels: the tray's "Pause wakes" checkbox is gone (card #787).
     for r in g["versionLines"].as_array().unwrap() {
         assert_eq!(tray_text::version_line(s(&r["in"])), s(&r["out"]));
     }

@@ -132,8 +132,60 @@ pub struct DeviceRow {
     /// The device id its rows come through (`PeerState::via`).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub via: String,
+    /// How this device reaches it now (card #1119): "direct" or "relay"
+    /// while a session is up, "unreachable" while none is. "" for this
+    /// device and a removed one.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub reach: String,
+    /// The app version its newest `device.started` row names; "" unknown.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub version: String,
+    /// The newest app version among the person's devices, when this
+    /// device's is older; "" when it is not behind (or either is unknown).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub behind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<PeerState>,
+}
+
+/// How a device is reached from here: its session's path while one is up
+/// ("direct", or "relay" when the path is a relay or not yet chosen), else
+/// "unreachable".
+pub fn reach_of(state: &str, path: &str) -> &'static str {
+    if state != "connected" && path.is_empty() {
+        return "unreachable";
+    }
+    if path == "direct" { "direct" } else { "relay" }
+}
+
+fn version_nums(v: &str) -> Option<[u64; 3]> {
+    let v = v.strip_prefix('v').unwrap_or(v);
+    let num = v.split(['-', '+']).next()?;
+    let mut out = [0u64; 3];
+    let mut n = 0;
+    for p in num.split('.') {
+        *out.get_mut(n)? = p.parse().ok()?;
+        n += 1;
+    }
+    (n == 3).then_some(out)
+}
+
+/// The newest of `versions` that reads as `X.Y.Z`, if any.
+pub fn newest_version<'a>(versions: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    versions
+        .into_iter()
+        .filter_map(|v| version_nums(v).map(|n| (n, v)))
+        .max_by_key(|(n, _)| *n)
+        .map(|(_, v)| v)
+}
+
+/// `newest` when `have` is an older release of it; "" otherwise (a dev
+/// build or an unknown version is not called behind).
+pub fn behind_of(have: &str, newest: &str) -> String {
+    match (version_nums(have), version_nums(newest)) {
+        (Some(h), Some(n)) if h < n => newest.to_string(),
+        _ => String::new(),
+    }
 }
 
 /// One device the private log syncs with, and when this device was last in
@@ -148,7 +200,9 @@ pub struct Fresh {
 /// `status`, `liveness` and `last_seen`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeviceRead {
-    /// connected, recent or offline.
+    /// connected, recent or offline. Recent is not a session: fetching an
+    /// attachment still needs a connected holder. Read this, not
+    /// `last_ping` or `last_sync` alone.
     pub state: &'static str,
     /// When it was last heard: a session with it, or the newest row of its
     /// that reached this device. `None`: never.
@@ -383,8 +437,25 @@ impl Node {
         } else if st.state == STATE_ERROR && !st.detail.is_empty() {
             me.warning = st.detail.clone();
         }
+        me.version = self.device_version(&me_dev.id);
+        let peers = st.peer_list();
+        let versions: Vec<String> = peers
+            .iter()
+            .map(|p| self.device_version(&p.device_id))
+            .collect();
+        let newest = newest_version(
+            std::iter::once(me.version.as_str()).chain(
+                peers
+                    .iter()
+                    .zip(&versions)
+                    .filter(|(p, _)| !p.revoked)
+                    .map(|(_, v)| v.as_str()),
+            ),
+        )
+        .unwrap_or_default()
+        .to_string();
         let mut out = vec![me];
-        for p in st.peer_list() {
+        for (p, version) in peers.iter().zip(versions) {
             let mut r = DeviceRow {
                 device_id: p.device_id.clone(),
                 name: p.label.clone(),
@@ -394,6 +465,17 @@ impl Node {
                 revoked: p.revoked,
                 last_seen: p.last_ping,
                 via: p.via.clone(),
+                reach: if p.revoked {
+                    String::new()
+                } else {
+                    reach_of(&p.state, &p.path).into()
+                },
+                behind: if p.revoked {
+                    String::new()
+                } else {
+                    behind_of(&version, &newest)
+                },
+                version,
                 ..DeviceRow::default()
             };
             for s in [p.last_sync, p.last_rows].into_iter().flatten() {
@@ -516,6 +598,30 @@ impl Node {
         String::new()
     }
 
+    /// The app version its newest device.started row names ("" unknown).
+    fn device_version(&self, dev: &str) -> String {
+        let evs = self
+            .o
+            .store
+            .list(&Filter {
+                kinds: vec![store::kinds::DEVICE_STARTED.into()],
+                device_id: dev.into(),
+                desc: true,
+                limit: 1,
+                ..Filter::default()
+            })
+            .unwrap_or_default();
+        evs.first()
+            .and_then(|ev| serde_json::from_slice::<serde_json::Value>(&ev.payload).ok())
+            .and_then(|v| {
+                v.get("version")
+                    .and_then(|x| x.as_str())
+                    .map(str::to_string)
+            })
+            .filter(|v| v.len() <= 40)
+            .unwrap_or_default()
+    }
+
     /// Go `deviceOS`: the os its newest device.started row names.
     fn device_os(&self, dev: &str) -> String {
         let evs = self
@@ -537,6 +643,31 @@ impl Node {
             Ok(o) if o.get_str("os").len() <= 20 => o.get_str("os").to_string(),
             _ => String::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod reach_tests {
+    use super::*;
+
+    #[test]
+    fn reach_follows_the_session_path() {
+        assert_eq!(reach_of("connected", "direct"), "direct");
+        assert_eq!(reach_of("connected", "relay"), "relay");
+        assert_eq!(reach_of("connected", "none"), "relay");
+        assert_eq!(reach_of("recent", ""), "unreachable");
+        assert_eq!(reach_of("offline", ""), "unreachable");
+    }
+
+    #[test]
+    fn behind_is_the_newest_version_when_older() {
+        let n = newest_version(["0.11.0", "0.12.1", "dev", ""]).unwrap();
+        assert_eq!(n, "0.12.1");
+        assert_eq!(behind_of("0.11.0", n), "0.12.1");
+        assert_eq!(behind_of("0.12.1", n), "");
+        assert_eq!(behind_of("dev", n), "");
+        assert_eq!(behind_of("", n), "");
+        assert_eq!(behind_of("0.9.0", "0.10.0"), "0.10.0");
     }
 }
 
