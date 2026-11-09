@@ -162,7 +162,8 @@ fn two() -> (Dev, Dev) {
     (a, b)
 }
 
-/// A card B made is B's to start; once B is removed, the line says so.
+/// A card B made is B's to start; once B is removed, the line says so
+/// without naming B (card #1240).
 #[test]
 fn a_card_from_a_removed_device_says_it_was_removed() {
     let (a, b) = two();
@@ -176,18 +177,16 @@ fn a_card_from_a_removed_device_says_it_was_removed() {
         Some(Why::Elsewhere { .. }) => {}
         other => panic!("before the removal: {other:?}"),
     }
+    let b_name = a.core.device_label(&b_id);
+    assert!(!b_name.is_empty(), "A names B before the removal");
     let rt = a.core.pairing_runtime().clone();
     rt.block_on(a.core.remove_device(&b_id)).unwrap();
     wait_for(WAIT, "A reads B as removed", || {
-        matches!(
-            a.core.why_no_agent(&t.id, true),
-            Some(Why::DeviceRemoved { .. })
-        )
+        matches!(a.core.why_no_agent(&t.id, true), Some(Why::DeviceRemoved))
     });
-    let Some(Why::DeviceRemoved { device }) = a.core.why_no_agent(&t.id, true) else {
-        unreachable!()
-    };
-    assert_ne!(device, b_id, "the device by name, never its id");
+    let line = Why::DeviceRemoved.to_string();
+    assert!(!line.contains(&b_id[..8]), "no id: {line}");
+    assert!(!line.contains(&b_name), "no name: {line}");
 }
 
 /// A card handed out by a device that can't run agents (a headless node

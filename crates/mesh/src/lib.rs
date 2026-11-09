@@ -53,7 +53,7 @@ pub use node::{
     AssistantTurnsFn, ERR_NOT_PEER, Intervals, MSG_LEAVE, MSG_PRESENCE, Node, Options, Presence,
     STATE_ERROR, STATE_OFF, STATE_ON, STATE_REMOVED, check_device,
 };
-pub use peers::PEERS_FILE;
+pub use peers::{PEERS_FILE, REMOVED_FILE};
 pub use relay::{Relay, RelaySetter, RelayStatus, load_relay, save_relay, scrub_urls};
 pub use secret::{MESH_APP, Secret, mesh_info, mesh_secret, open_secret, seal_secret};
 pub use servers::{LAN_PORT, NodeAddr, PublicAddr, Server, Servers};

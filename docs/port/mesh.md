@@ -135,7 +135,7 @@ All of these are written as `MarshalIndent(v, "", "  ")` (two spaces; Go sorts m
 
 **Reconnect** (node.go:591-636): after a session ends, retry 1 s, doubling to 60 s, until connected, connecting in every room that allows the peer. Presence on a topic is also a `Connect` (546-556). `leave` zeroes lastPresence.
 
-**Devices warnings** (devices.go:46-84): precedence and exact strings live in that function. Port the text verbatim. "Removal pending: seen by %d of %d devices." uses `removalSeen` (105-144).
+**Devices warnings** (devices.go:46-84): precedence and exact strings live in that function. Port the text verbatim. "Removal pending: seen by %d of %d devices." uses `removalSeen` (105-144). **Rust diverges (card #1240):** a removal that has settled has no row at all (Go keeps one saying "Removed."), and stays settled through `mesh-removed.json`, a Rust-only file beside `mesh-peers.json`; its device's `mesh-peers.json` entry is dropped.
 
 **Servers.Addrs order** (servers.go:269-308): the heard LAN IP with the row's port (or the first hint's port), then the row's `Dial()` (LAN, then v6, then public tcp if reach ok), then `last`, then the hints only while there is no row. Deduplicate. A row with reach `off` gives none. `Heard` is kept only for ids that have a row or a hint (313-325). A revoked writer's rows are ignored (220-236). `Follow` reloads after subscribing (189-205, test `TestServersFollowKeepsARowWrittenBeforeItSubscribed`).
 

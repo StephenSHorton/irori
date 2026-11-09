@@ -196,10 +196,12 @@ function DeviceRow({
 }) {
   const [renaming, setRenaming] = useState(false)
   const seen = parseTime(d.lastSeen)
+  // The only removed device listed is one still being removed: a settled
+  // removal has no row (card #1240).
   const state = d.this
     ? "this device"
     : d.revoked
-      ? "removed"
+      ? "removal pending"
       : d.state === "connected"
         ? "online"
         : d.state === "recent" && seen
@@ -228,9 +230,7 @@ function DeviceRow({
         // Wraps rather than ending in "…": on a phone the buttons beside it
         // left no room for "seen 3h ago" (card #479).
         <span className="min-w-0 [overflow-wrap:anywhere]">
-          <span className={cn("text-ink", d.revoked && "line-through")}>
-            {plainLine(d.name) || d.deviceId}
-          </span>{" "}
+          <span className="text-ink">{plainLine(d.name) || d.deviceId}</span>{" "}
           <small className="text-xs text-muted-foreground">
             {d.role === "node" ? "often-on · " : ""}
             {state}

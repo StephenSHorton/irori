@@ -541,7 +541,14 @@ pub fn with_inbox_lock_held<R>(f: impl FnOnce() -> R) -> R {
 }
 
 /// The lock on the fold; changes go out when it drops (Go's `unlock`).
-struct Locked<'a>(MutexGuard<'a, Fold>);
+///
+/// The guard drops before the timer, so the hold the timer records covers
+/// the flush and the unlock hook (card #1234).
+struct Locked<'a>(
+    MutexGuard<'a, Fold>,
+    #[allow(dead_code)] // held for its drop
+    gocompat::lockwatch::Taken,
+);
 
 impl std::ops::Deref for Locked<'_> {
     type Target = Fold;
@@ -669,12 +676,40 @@ impl Coord {
         }
     }
 
+    #[track_caller]
     fn lock(&self) -> Locked<'_> {
         debug_assert!(
             !self.board || !under_inbox_lock(),
             "waiting on a board coord under the inbox lock: a board write holds its coord and takes the inbox's (hop_of)"
         );
-        Locked(self.f.lock().unwrap_or_else(|e| e.into_inner()))
+        let at = std::panic::Location::caller();
+        let asked = std::time::Instant::now();
+        let g = self.f.lock().unwrap_or_else(|e| e.into_inner());
+        Locked(g, gocompat::lockwatch::Taken::new(at, asked))
+    }
+
+    /// The fold under the raw guard (no flush, no unlock hook), timed as
+    /// [`Coord::lock`] is.
+    #[track_caller]
+    fn raw(&self) -> (MutexGuard<'_, Fold>, gocompat::lockwatch::Taken) {
+        let at = std::panic::Location::caller();
+        let asked = std::time::Instant::now();
+        let g = self.f.lock().unwrap_or_else(|e| e.into_inner());
+        (g, gocompat::lockwatch::Taken::new(at, asked))
+    }
+
+    /// The one-catch-up-at-a-time lock, timed (card #1234).
+    #[track_caller]
+    fn catching(
+        &self,
+    ) -> (
+        MutexGuard<'_, std::collections::HashMap<String, Event>>,
+        gocompat::lockwatch::Taken,
+    ) {
+        let at = std::panic::Location::caller();
+        let asked = std::time::Instant::now();
+        let g = self.catching.lock().unwrap_or_else(|e| e.into_inner());
+        (g, gocompat::lockwatch::Taken::new(at, asked))
     }
 
     /// The working card agent `key` has in hand in this log, as
@@ -683,7 +718,7 @@ impl Coord {
     pub fn busy_card(&self, key: &str) -> Option<String> {
         // A read under the raw guard: nothing to flush, and no unlock hook
         // runs inside the caller's lock.
-        let f = self.f.lock().unwrap_or_else(|e| e.into_inner());
+        let (f, _t) = self.raw();
         f.busy_with(key, "").map(Fold::busy_text)
     }
 
@@ -771,9 +806,10 @@ impl Coord {
         f.sides.home(&f.dev)
     }
 
-    /// Every pinned device's sides, by device id.
+    /// Every pinned device's sides, by device id; a removed device's pin
+    /// is left out (card #1240).
     pub fn device_sides(&self) -> std::collections::BTreeMap<String, Vec<String>> {
-        self.lock().sides.all()
+        self.lock().side_pins()
     }
 
     /// Every side named anywhere: on a device's pin or on a card.
@@ -2426,7 +2462,7 @@ impl Coord {
     /// Rebuilds the fold when the log holds fewer of some device's rows
     /// than were folded (a revoke's cut moved them to refused_events).
     pub fn refold_if_cut(&self, vec: &store::Vector) -> Result<()> {
-        let _one = self.catching.lock().unwrap_or_else(|e| e.into_inner());
+        let _one = self.catching();
         self.lock().refold_if_cut(vec)
     }
 
@@ -2434,7 +2470,7 @@ impl Coord {
     /// device wrote straight to the store (card #640's move), which the
     /// fold otherwise never sees until a restart.
     pub fn refold(&self) -> Result<()> {
-        let _one = self.catching.lock().unwrap_or_else(|e| e.into_inner());
+        let _one = self.catching();
         self.lock().refold()
     }
 
@@ -2463,7 +2499,7 @@ impl Coord {
         } else {
             limit.min(store::MAX_LIST_LIMIT)
         };
-        let mut read = self.catching.lock().unwrap_or_else(|e| e.into_inner());
+        let (mut read, _t) = self.catching();
         // In one hold: a vector read apart from `last` could sit below a row
         // folded since, which reads as a cut.
         let (st, vec, me, on_board) = {
@@ -2575,10 +2611,8 @@ impl Coord {
         // A read: no unlock signal. The core's expiry timer calls this right
         // after taking the rearm generation; firing on_unlock here kicked
         // that generation and spun the timer on a whole core (#70).
-        self.f
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .next_expiry()
+        let (f, _t) = self.raw();
+        f.next_expiry()
     }
 
     /// Runs `f` after every unlock (Go's `unlock` re-arming its timer): the

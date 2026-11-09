@@ -564,11 +564,14 @@ impl Fold {
         owner::device_of(&t.created_by).to_string()
     }
 
-    /// Whether device `dev` can run agents (card #541).
+    /// Whether device `dev` can run agents (card #541). A removed device
+    /// never can, whatever the Core's list says (card #1240).
     pub(crate) fn can_run(&self, dev: &str) -> bool {
-        self.agent_devices
-            .as_ref()
-            .is_none_or(|f| !f().cant.contains(dev))
+        !self.revoked_fn()(dev)
+            && self
+                .agent_devices
+                .as_ref()
+                .is_none_or(|f| !f().cant.contains(dev))
     }
 
     /// Whether device `dev` has been away for at least `d` (card #541).

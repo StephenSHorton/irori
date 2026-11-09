@@ -42,6 +42,13 @@ impl Services {
             };
         }
         let node = &self.mesh.node;
+        // A removed device reads offline, never seen (card #1240).
+        if self.chain.cut(dev).is_some() {
+            return DevicePresence {
+                state: coord::roster::OFFLINE.into(),
+                ..Default::default()
+            };
+        }
         if self.chain.cert(dev).is_some() {
             let r = node.device_read(dev);
             return DevicePresence {

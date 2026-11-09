@@ -310,9 +310,10 @@ impl Window {
         use irori_core::spawn_pause::{EVERYWHERE, by_wind_down};
         let mut pauses = self.core.agents_pauses();
         let all = pauses.remove(EVERYWHERE).filter(|p| p.on);
+        // A removed device's pause neither counts nor is named (card #1240).
         let mut on: Vec<(String, irori_core::spawn_pause::AgentsPause)> = pauses
             .into_iter()
-            .filter(|(_, p)| p.on && by_wind_down(&p.by))
+            .filter(|(d, p)| p.on && by_wind_down(&p.by) && !self.core.device_removed(d))
             .collect();
         on.sort_by(|a, b| a.0.cmp(&b.0));
         // Its own pause is the switch; a device's alone is from an Irori

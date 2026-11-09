@@ -340,6 +340,8 @@ impl Services {
     }
 
     /// The newest `spawn.host` of each of the person's devices, by device.
+    /// A removed device's rows are left out (card #1240): it starts
+    /// nothing, and nothing waits on it or names it.
     pub(crate) fn hosts(&self) -> HashMap<String, SpawnHost> {
         let evs = self
             .store
@@ -360,7 +362,10 @@ impl Services {
             };
             // Only a device's own row about itself, from one of the
             // person's devices.
-            if h.device != ev.device_id || !self.chain.is_owner(&format!("user:{}", h.device)) {
+            if h.device != ev.device_id
+                || !self.chain.is_owner(&format!("user:{}", h.device))
+                || self.chain.cut(&h.device).is_some()
+            {
                 continue;
             }
             out.insert(ev.device_id.clone(), h);

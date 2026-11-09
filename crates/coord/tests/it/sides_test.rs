@@ -245,6 +245,40 @@ fn side_names_gather_every_devices_pins_and_cards() {
     );
 }
 
+/// Card #1240: a removed device's pin is forgotten. A side only its pin
+/// named goes; a side a card carries stays.
+#[test]
+fn a_removed_devices_pin_names_no_side() {
+    let mut e = Env::new();
+    e.c.set_device_sides(&sides(&["Work"])).unwrap();
+    let base = hlc_at(fixed_now());
+    e.remote(
+        "dev-b",
+        1,
+        base + 1,
+        "user",
+        KIND,
+        &pin_row("dev-b", &["Personal", "Lab"]),
+    );
+    e.c.create_task(
+        ALICE,
+        NewTask {
+            side: "Lab".into(),
+            ..nt("Rack the switch")
+        },
+    )
+    .unwrap();
+    assert_eq!(e.c.side_names(), sides(&["Work", "Personal", "Lab"]));
+    let revoked: KeyFn = std::sync::Arc::new(|d: &str| d == "dev-b");
+    e.c = e.reopen_with(Options {
+        revoked: Some(revoked),
+        ..e.opts()
+    });
+    assert_eq!(e.c.side_names(), sides(&["Work", "Lab"]));
+    let pins = e.c.device_sides();
+    assert_eq!(pins.keys().collect::<Vec<_>>(), ["dev-a"]);
+}
+
 #[test]
 fn a_shared_board_carries_no_sides() {
     let e = Env::new();

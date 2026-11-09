@@ -496,10 +496,46 @@ impl Inbox {
     /// deferrals, front-desk succession, ended agents' work to its card or
     /// the person, and passed messages' text onto their cards.
     pub fn sweep(&self) -> Result<()> {
-        let hs = self.mutate(|b| b.sweep())?;
+        let t = std::time::Instant::now();
+        let (hs, open, agents) = self.mutate(|b| {
+            let hs = b.sweep();
+            (hs, b.open.len(), b.touched.len())
+        });
+        if t.elapsed() >= gocompat::lockwatch::SLOW {
+            gocompat::lockwatch::log(&format!(
+                "inbox sweep: {} ms under the inbox lock ({open} open deliveries, {agents} agents rechecked)",
+                t.elapsed().as_millis()
+            ));
+        }
+        let hs = hs?;
         let r = self.hand_off(&hs);
         self.fill_cards();
         r
+    }
+
+    /// Card #1234's check, for tests: for every agent with an open
+    /// delivery, the batched wake-ready recheck the lock's release runs
+    /// gives what asking over every open delivery gives (the scan it
+    /// replaced). Returns how many agents it compared, and how many of them
+    /// could take a wake and an append now.
+    #[doc(hidden)]
+    pub fn ready_flags_agree(&self) -> std::result::Result<(usize, usize, usize), String> {
+        self.read(|b| {
+            let agents = b.agents_with_open();
+            let all: Vec<&crate::state::Drec> = b.open_recs().collect();
+            let (mut subs, mut apps) = (0, 0);
+            for (a, s, ap) in b.ready_flags(&agents) {
+                let want = (b.has_submit_in(&a, &all), b.has_append_in(&a, &all));
+                if (s, ap) != want {
+                    return Err(format!(
+                        "{a}: batched submit {s} append {ap}, full scan {want:?}"
+                    ));
+                }
+                subs += usize::from(s);
+                apps += usize::from(ap);
+            }
+            Ok((agents.len(), subs, apps))
+        })
     }
 
     /// Puts the handoffs on their cards without the lock, then closes each.

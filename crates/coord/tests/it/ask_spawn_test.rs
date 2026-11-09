@@ -815,6 +815,30 @@ fn an_ask_stays_with_an_owner_that_does_not_read_moves() {
     );
 }
 
+/// Card #1240: a removed device can't run agents even when the Core's
+/// list leaves it out: a computer takes its waiting ask.
+#[test]
+fn a_removed_owner_cant_run_agents_whatever_the_list_says() {
+    let devs = Arc::new(RwLock::new(AgentDevices {
+        homes: vec!["dev-b".into()],
+        moves: HashSet::from(["dev-a".to_string(), "dev-b".to_string()]),
+        ..AgentDevices::default()
+    }));
+    let (mut mac, t) = phone_thread_on_mac(devs.clone());
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-a", "the phone runs it");
+    let revoked: KeyFn = Arc::new(|d: &str| d == "dev-a");
+    let d = devs.clone();
+    mac.c = mac.reopen_with(Options {
+        spawning: Some(Arc::new(|| true)),
+        agent_devices: Some(Arc::new(move || d.read().unwrap().clone())),
+        revoked: Some(revoked),
+        ..mac.opts()
+    });
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-b");
+}
+
 /// Card #686: dev-a and dev-b are computers, `full` the ones with no free
 /// slot; dev-a comes first, so it is the ask home the old rule pulls to.
 fn computers(full: &[&str]) -> Arc<RwLock<AgentDevices>> {

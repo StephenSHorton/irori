@@ -390,13 +390,18 @@ fn same_devices(rust: &Lock, go_lockfile: &Path) -> bool {
         }
     };
     let got = Lock::read(go_lockfile).and_then(|go| Ok((rows(rust, "Rust")?, rows(&go, "Go")?)));
-    let (r, g) = match got {
+    let (r, mut g) = match got {
         Ok(x) => x,
         Err(e) => {
             println!("FAIL devices: {e}");
             return false;
         }
     };
+    // Rust lists no settled removal (card #1240); Go keeps it as "Removed.".
+    g.retain(|v| {
+        !(v.get("revoked") == Some(&serde_json::Value::Bool(true))
+            && v.get("warning").and_then(|w| w.as_str()) == Some("Removed."))
+    });
     let mut ok = r.len() == g.len();
     println!("devices: Rust {} rows, Go {} rows", r.len(), g.len());
     let field = |v: &serde_json::Value, k: &str| v.get(k).cloned().unwrap_or_default();

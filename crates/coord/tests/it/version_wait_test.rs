@@ -199,6 +199,40 @@ fn a_version_wait_already_met_or_malformed_is_refused() {
     assert_eq!(got.state, BLOCKED);
 }
 
+/// Card #1240: a removed device is never waited on. A new wait naming it
+/// is refused, and a wait only it holds up closes.
+#[test]
+fn a_removed_device_is_never_waited_on() {
+    let mut e = Env::new();
+    started(&e, "mac", 1, "0.10.2");
+    started(&e, "pc", 1, "0.10.2");
+    let t = held_card(&e);
+    e.c.block(ALICE, &t.id, "Update both", on_version("0.11.0 mac pc"))
+        .unwrap();
+    started(&e, "mac", 2, "0.11.0");
+    assert!(e.c.sweep_notices().unwrap().is_empty(), "the PC is behind");
+    let gone = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let g = gone.clone();
+    let revoked: KeyFn = std::sync::Arc::new(move |d: &str| {
+        d == "pc" && g.load(std::sync::atomic::Ordering::SeqCst)
+    });
+    e.c = e.reopen_with(Options {
+        revoked: Some(revoked),
+        ..e.opts()
+    });
+    assert!(e.c.sweep_notices().unwrap().is_empty());
+    gone.store(true, std::sync::atomic::Ordering::SeqCst);
+    let ns = e.c.sweep_notices().unwrap();
+    assert!(ns.iter().any(|n| n.task_id == t.id), "{ns:?}");
+    assert_eq!(e.c.get_task(&t.id).unwrap().state, WORKING);
+
+    let err =
+        e.c.block(ALICE, &t.id, "Update the PC", on_version("0.12.0 pc"))
+            .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Invalid);
+    assert!(err.to_string().contains("that device was removed"), "{err}");
+}
+
 #[test]
 fn the_device_version_hook_answers_on_a_board() {
     let e = Env::new();

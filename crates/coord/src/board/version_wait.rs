@@ -112,10 +112,13 @@ impl Fold {
     }
 
     /// The devices of a version wait `r` still behind, with what each runs
-    /// ("" for none known).
+    /// ("" for none known). A removed device is never waited on (card
+    /// #1240): a wait only it held up clears.
     pub(crate) fn version_behind(&self, r: &str) -> Vec<(String, String)> {
         let (min, devs) = parse_version_wait(r);
+        let revoked = self.revoked_fn();
         devs.into_iter()
+            .filter(|d| !revoked(d))
             .map(|d| {
                 let v = self.device_version(&d);
                 (d, v)
@@ -154,6 +157,9 @@ impl Fold {
                     "blocked on a version: {} is not a device id",
                     quote(d)
                 )));
+            }
+            if self.revoked_fn()(d) {
+                return Err(invalid("blocked on a version: that device was removed"));
             }
         }
         let out = format!("{min} {}", devs.join(" "));

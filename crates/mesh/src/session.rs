@@ -908,6 +908,8 @@ impl Node {
     pub(crate) fn note_vector(&self, peer: &str, v: &Vector) {
         self.lock().info(peer).vec = v.clone();
         self.check_step(peer);
+        // A removal may now be seen by every remaining device (card #1240).
+        self.settle_removals();
     }
 }
 

@@ -466,8 +466,7 @@ impl Services {
             .cloned()
             .collect();
         let rows: Vec<AssistInfo> = self
-            .talk
-            .call_assists(call)
+            .call_assists_now(call)
             .into_iter()
             .filter(|a| is_person_key(&a.by))
             .collect();
@@ -593,7 +592,7 @@ impl Services {
                 format!("{}{p}", store::kinds::PERSON_ACTOR_PREFIX)
             });
         }
-        let rows = self.talk.call_assists(call);
+        let rows = self.call_assists_now(call);
         for r in &rows {
             add(norm(&r.by));
         }
@@ -654,6 +653,14 @@ impl Services {
             .collect()
     }
 
+    /// `call`'s `call.assist` rows, one from a device this person removed
+    /// read as off (card #1240).
+    pub(super) fn call_assists_now(&self, call: &str) -> Vec<AssistInfo> {
+        off_if_removed(self.talk.call_assists(call), |r| {
+            self.chain.cut(&r.device).is_some()
+        })
+    }
+
     /// Adds to `away` how long devices that aren't this person's have been
     /// unreachable in `space`, for the `on` rows of other people (the
     /// first sighting starts the clock).
@@ -679,9 +686,42 @@ impl Services {
     }
 }
 
+/// `rows` with each row from a `removed` device off, so no one reads as
+/// connected through it (card #1240). The rows stay: who has a row, and
+/// when each first said `on`, don't change.
+fn off_if_removed(
+    mut rows: Vec<AssistInfo>,
+    removed: impl Fn(&AssistInfo) -> bool,
+) -> Vec<AssistInfo> {
+    for r in &mut rows {
+        if r.on && removed(r) {
+            r.on = false;
+            r.chair = false;
+        }
+    }
+    rows
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_removed_devices_assist_row_reads_off() {
+        let row = |device: &str| AssistInfo {
+            device: device.into(),
+            by: "user:pc".into(),
+            on: true,
+            chair: true,
+            declines_chair: false,
+            first_on: 5,
+        };
+        let rows = off_if_removed(vec![row("pc"), row("old")], |r| r.device == "old");
+        assert!(rows[0].on && rows[0].chair);
+        assert!(!rows[1].on && !rows[1].chair);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1].first_on, 5);
+    }
 
     fn s(v: &[&str]) -> Vec<String> {
         v.iter().map(|d| d.to_string()).collect()

@@ -70,6 +70,7 @@ pub mod meters;
 pub mod new_card;
 pub mod notes;
 pub mod notifications;
+pub mod readwatch;
 pub mod ready;
 pub mod rewrite;
 pub mod roster;
