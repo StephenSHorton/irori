@@ -471,11 +471,33 @@ fn run_cards(s: &super::Services, keys: &BTreeSet<String>) -> BTreeMap<String, V
 }
 
 impl Core {
-    /// The open cards each of `keys` holds, read only (design §3): the
-    /// private log and every ready board's, its `agent:<cardId>` holders as
-    /// this device's keys. Never writes an `agent.card`.
-    pub fn run_cards(&self, keys: &BTreeSet<String>) -> BTreeMap<String, Vec<RunCard>> {
+    /// The cards each of `keys`' runs show on (design §3): of the open
+    /// cards it holds, the Working ones, else all. Read only: the private
+    /// log and every ready board's, its `agent:<cardId>` holders as this
+    /// device's keys; never writes an `agent.card`.
+    pub fn run_cards(&self, keys: &BTreeSet<String>) -> BTreeMap<String, Vec<String>> {
         run_cards(&self.s, keys)
+            .into_iter()
+            .map(|(k, cards)| (k, show_on(&cards)))
+            .collect()
+    }
+
+    /// Shells still running on this device's terminals, for Keep this
+    /// device up to date's "no terminal in use" (card #578). A run's
+    /// read-only tail never counts: a long run tailed on its card must not
+    /// hold an update back.
+    pub fn open_shells(&self) -> usize {
+        let mut scopes: Vec<term::Scope> = Vec::new();
+        for (_, scope, running) in self.terms.list() {
+            if running && !scopes.contains(&scope) {
+                scopes.push(scope);
+            }
+        }
+        scopes
+            .iter()
+            .flat_map(|s| self.terms.in_scope(s))
+            .filter(|t| t.running && t.tail.is_none())
+            .count()
     }
 
     /// This device's runs the sampler holds heavy now (design §6).

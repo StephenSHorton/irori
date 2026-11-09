@@ -73,6 +73,7 @@ pub mod notifications;
 pub mod ready;
 pub mod rewrite;
 pub mod roster;
+pub mod runs;
 pub mod seams;
 pub mod settings;
 pub mod signals;

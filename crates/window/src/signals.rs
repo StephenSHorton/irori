@@ -317,6 +317,13 @@ pub fn fold_board(batch: &[CoreEvent]) -> Folded {
                 f.gone |= ch.kind == presence::ChangeKind::Removed || ch.card.status == "gone";
             }
             CoreEvent::Roster => f.roster = true,
+            // An agent's runs changed (card #1249): the cards it holds
+            // read again, as for a presence change.
+            CoreEvent::Runs { keys } => {
+                for k in keys {
+                    add_id(&mut f.agents, k);
+                }
+            }
             CoreEvent::Resync => {
                 f.board_or_inbox = true;
                 f.all = true;

@@ -21,6 +21,7 @@
 //! | `voice:event` | `VoiceEvent` | a voice input session's words and end (#240, voice.rs) |
 //! | `voice:download` | `VoiceDownload` | the speech model's one-time download, about every 1% (#240) |
 //! | `meters:changed` | `MetersSample` | this computer's hardware meters, every 2 s, desktop only (#599, meters.rs) |
+//! | `runs:changed` | `RunLoad[]` | every 2 s while a run of this device goes, the full set each time; once `[]` after the last (#1249, runs.rs) |
 //! | `usage:changed` | `UsageLimits` | coalesced, 250 ms: a session reported Claude usage (#599, usage.rs) |
 //! | `sync:changed` | `bool` | on change: this device is exchanging rows or blobs with a peer, held 1 s (#1089, sync_badge.rs) |
 //! | `call:state` | `CallView` | coalesced, 100 ms: every huddle change, and its health and speaking during one (#654, call.rs) |
@@ -59,6 +60,7 @@ pub use crate::assistant_home::EVENT_ASSISTANT_HOME;
 pub use crate::boards::EVENT_BOARDS_CHANGED;
 pub use crate::call::EVENT_CALL_STATE;
 pub use crate::meters::EVENT_METERS_CHANGED;
+pub use crate::runs::EVENT_RUNS_CHANGED;
 pub use crate::notifications::EVENT_NOTIFICATIONS_CHANGED;
 pub use crate::settings::EVENT_LAUNCH_AT_LOGIN;
 pub use crate::sync_badge::EVENT_SYNC_CHANGED;
@@ -259,7 +261,13 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
         // on its card as waiting): list-signals.md §3.3.
         let feed = feed_of(
             &w,
-            &[Topic::Board, Topic::Presence, Topic::Roster, Topic::Inbox],
+            &[
+                Topic::Board,
+                Topic::Presence,
+                Topic::Roster,
+                Topic::Inbox,
+                Topic::Runs,
+            ],
         );
         // From here every change reaches this pump, which keeps the grid's
         // summary cache (card #1147): reads may use it until it stops.
@@ -502,6 +510,7 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
     }
     // The hardware meters (card #599): desktop only.
     out.extend(crate::meters::start(w.clone(), stop.clone()));
+    out.extend(crate::runs::start(w.clone(), stop.clone()));
     // The header's sync badge (card #1089).
     out.extend(crate::sync_badge::start(w.clone(), stop.clone()));
     out

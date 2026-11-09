@@ -2499,6 +2499,14 @@ pub async fn meters_history(w: W<'_>) -> R<Vec<MetersSample>> {
     Ok(w.meters_history())
 }
 
+/// The person's Stop on one of this device's runs (card #1249,
+/// live-tasks.md §5.3): it reads Stopped and its process tree ends.
+#[tauri::command]
+#[specta::specta]
+pub async fn runs_stop(w: W<'_>, key: String, task_id: String) -> R<()> {
+    blocking(&w, move |w| w.runs_stop(&key, &task_id)).await
+}
+
 /// Claude usage left (card #599): the plan's rate-limit windows as this
 /// device's Claude Code sessions last measured them, any past its reset
 /// left out.
@@ -2804,6 +2812,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             desk_list,
             desk_set,
             meters_history,
+            runs_stop,
             usage_limits,
             assistant_attach,
             assistant_chat_list,
@@ -2840,6 +2849,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
         .typ::<VoiceEvent>()
         .typ::<VoiceDownload>()
         .typ::<MetersSample>()
+        .typ::<crate::runs::RunLoad>()
         .typ::<UsageLimits>()
         .typ::<CallView>()
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)

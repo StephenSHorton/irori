@@ -728,7 +728,8 @@ fn keep_hooks(
             }
             c.presence().rescan();
             let cards = c.presence().snapshot();
-            let open = c.terms().list().iter().filter(|t| t.2).count();
+            // A run's read-only tail never counts (card #1249).
+            let open = c.open_shells();
             keep::idle_now(&cards, open, keep::unix_now(), keep::SETTLE)
         }),
         visible: Box::new(move || {

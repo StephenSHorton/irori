@@ -473,6 +473,75 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub weight: Option<CardWeight>,
+    /// Its agents' runs (card #1249, live-tasks.md §6): on a summary the
+    /// background runs still going that are heavy (or on another device);
+    /// on a card page ([`CardDetail`]) every run, ended and foreground ones
+    /// too. Joined on read from the holders' keys.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[specta(optional)]
+    pub runs: Vec<CardRun>,
+}
+
+/// What kind of run (live-tasks.md §3): `bash` (any background shell,
+/// PowerShell included), `agent`, `workflow`, or `fg` (a foreground call).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum RunKind {
+    #[default]
+    Bash,
+    Agent,
+    Workflow,
+    Fg,
+}
+
+impl From<irori_core::runs::RunKind> for RunKind {
+    fn from(k: irori_core::runs::RunKind) -> RunKind {
+        use irori_core::runs::RunKind as K;
+        match k {
+            K::Bash => RunKind::Bash,
+            K::Agent => RunKind::Agent,
+            K::Workflow => RunKind::Workflow,
+            K::Fg => RunKind::Fg,
+        }
+    }
+}
+
+/// One run as a card shows it (card #1249, live-tasks.md §6). Times are
+/// Unix ms. The live CPU and memory every 2 s ride `runs:changed`
+/// ([`crate::runs::RunLoad`]); these are as of the read.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CardRun {
+    pub who: AgentRef,
+    /// The claude task id (a foreground call's tool use id).
+    pub run: String,
+    pub kind: RunKind,
+    /// The command, scrubbed and cut by the Core.
+    pub cmd: String,
+    pub started: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub ended: Option<i64>,
+    /// The exit code, when its end said one.
+    pub exit: Option<i32>,
+    /// The person pressed Stop: whatever end follows reads "Stopped".
+    pub stopped: bool,
+    /// CPU in cores over the run's tree at the last reading; none before
+    /// the second sample.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub cpu_cores: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub mem_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub peak_cores: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub peak_mem_bytes: Option<u64>,
+    /// The device it runs on, by name.
+    pub device: String,
 }
 
 /// A card's weight as the card shows it (card #963): "heavy · Opus high:
@@ -1250,6 +1319,13 @@ pub(crate) struct People {
     /// While set, every key [`Self::ref_`] resolves (card #1147): the
     /// agents a grid row shows, so a change to one re-reads the row.
     seen: std::cell::RefCell<Option<Vec<String>>>,
+    /// Every run this device knows, by agent key (card #1249).
+    runs: HashMap<String, Vec<irori_core::runs::LiveRun>>,
+    /// The cards each key with runs shows them on: its Working card, else
+    /// every card it holds (read only, never an `agent.card` write).
+    run_on: HashMap<String, Vec<String>>,
+    /// The runs the sampler holds heavy now.
+    heavy: std::collections::BTreeSet<irori_core::runs::RunId>,
 }
 
 type SpawnOfFn = Box<dyn Fn(&str) -> irori_core::spawn::SpawnSetting>;
@@ -1277,6 +1353,11 @@ fn place_others(
     let people: Vec<(String, String)> = picks.into_iter().collect();
     let taken: Vec<String> = devices.values().cloned().collect();
     coord::devcolor::place_people(&people, &taken)
+}
+
+/// The device an agent key (`<device>/<session>`) runs on.
+fn identity_device(key: &str) -> &str {
+    key.split_once('/').map_or("", |(d, _)| d)
 }
 
 fn unsent_key(agent: &str, r: &str) -> String {
@@ -1427,11 +1508,94 @@ impl Window {
             }
         }
         p.paired = live > 1;
+        p.load_runs(c);
         p
     }
 }
 
 impl People {
+    /// Loads this device's runs and, for the keys that have any, the cards
+    /// they show on (card #1249). Read only: the join goes through
+    /// [`Core::run_cards`](irori_core::Core::run_cards), never `board_key`.
+    fn load_runs(&mut self, c: &irori_core::Core) {
+        let rows = c.runs();
+        if rows.is_empty() {
+            return;
+        }
+        for r in rows {
+            self.runs.entry(r.key.clone()).or_default().push(r);
+        }
+        let keys: std::collections::BTreeSet<String> = self.runs.keys().cloned().collect();
+        self.run_on = c.run_cards(&keys).into_iter().collect();
+        self.heavy = c.heavy_runs();
+    }
+
+    /// Card `t`'s runs (`t` with its keys as this device knows them): on a
+    /// summary (`all` false) the background runs still going that are heavy
+    /// or on another device, heaviest first; on a page every run, newest
+    /// start first.
+    pub(crate) fn card_runs(&self, t: &Task, all: bool) -> Vec<CardRun> {
+        if self.runs.is_empty() {
+            return Vec::new();
+        }
+        let mut keys: Vec<&str> = Vec::new();
+        let who = t.where_.as_ref().map(|w| w.who.as_str());
+        for k in who
+            .into_iter()
+            .chain(t.holders.iter().chain(&t.co_holders).map(String::as_str))
+        {
+            if !keys.contains(&k) {
+                keys.push(k);
+            }
+        }
+        let mut out = Vec::new();
+        for k in keys {
+            if !self.run_on.get(k).is_some_and(|ids| ids.contains(&t.id)) {
+                continue;
+            }
+            for r in self.runs.get(k).into_iter().flatten() {
+                let dev = identity_device(&r.key);
+                let here = self.is_here(dev);
+                if !all
+                    && (!r.running()
+                        || r.kind == irori_core::runs::RunKind::Fg
+                        || (here && !self.heavy.contains(&r.id())))
+                {
+                    continue;
+                }
+                out.push(self.card_run(r, dev, here));
+            }
+        }
+        if all {
+            out.sort_by(|a, b| b.started.cmp(&a.started).then_with(|| a.run.cmp(&b.run)));
+        } else {
+            let w = |r: &CardRun| {
+                r.cpu_cores.unwrap_or(0.0) + r.mem_bytes.unwrap_or(0) as f32 / (1u64 << 30) as f32
+            };
+            out.sort_by(|a, b| w(b).total_cmp(&w(a)).then_with(|| a.started.cmp(&b.started)));
+        }
+        out
+    }
+
+    fn card_run(&self, r: &irori_core::runs::LiveRun, dev: &str, here: bool) -> CardRun {
+        let sampled = r.sampled_ms > 0;
+        CardRun {
+            who: self.ref_(&r.key),
+            run: r.task_id.clone(),
+            kind: r.kind.into(),
+            cmd: r.cmd.clone(),
+            started: r.started_ms,
+            ended: r.ended_ms,
+            exit: r.exit,
+            stopped: r.stopped_by_person,
+            cpu_cores: (here && sampled && r.running()).then_some(r.cpu_cores),
+            mem_bytes: (here && r.running() && r.mem_bytes > 0).then_some(r.mem_bytes),
+            peak_cores: (r.peak_cores > 0.0).then_some(r.peak_cores),
+            peak_mem_bytes: (r.peak_mem > 0).then_some(r.peak_mem),
+            device: self.where_(dev),
+        }
+    }
+
     /// Why no agent can start for card `id`; empty when one can or it
     /// doesn't wait for one.
     pub(crate) fn no_agent_for(&self, id: &str) -> String {
@@ -2028,6 +2192,7 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         ..CardSummary::default()
     };
     queue_line(&mut s, t, p);
+    s.runs = p.card_runs(t, false);
     // The private board's mapping; a shared board's card is weighed again
     // once its board is known (see [`weigh`]).
     s.weight = card_weight(t, "", p);
@@ -2867,6 +3032,8 @@ impl Window {
         };
         self.board_detail(&t, &mut d);
         weigh(&mut d.summary, &t, p);
+        // A page lists every run, ended and foreground ones too (card #1249).
+        d.summary.runs = p.card_runs(&t, true);
         d.summary.given_no = raw
             .as_ref()
             .is_some_and(|r| co.mine_to_serve(r) && r.given_said.as_ref().is_some_and(|y| !y.yes));
