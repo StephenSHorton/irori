@@ -473,6 +473,7 @@ fn lister() -> Spawner {
         trusted: Arc::new(|_| true),
         list: Some(Arc::new(|| Ok(Vec::<ClaudeAgent>::new()))),
         ready: None,
+        stop: None,
     }
 }
 

@@ -102,6 +102,7 @@ fn spawner(sessions: std::path::PathBuf) -> Spawner {
         end: Arc::new(|_| Ok(String::new())),
         trusted: Arc::new(|_| true),
         list: None,
+        stop: None,
     }
 }
 

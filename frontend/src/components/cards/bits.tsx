@@ -292,11 +292,14 @@ export function holderText(
 export function HolderLine({
   holder,
   returned,
+  rested,
   className,
 }: {
   holder: CardHolder
   // returned: the agent that went away when Irori took it off (card #16).
   returned?: AgentRef | null
+  // rested: the agent Irori started let it go as it rested (card #1215).
+  rested?: AgentRef | null
   className?: string
 }) {
   const finished =
@@ -339,7 +342,9 @@ export function HolderLine({
           ? returned.spawned
             ? `Nobody on it: ${displayName(returned)} finished`
             : `Nobody on it: ${displayName(returned)} went away`
-          : holderText(holder, since, status)}
+          : rested && holder.state === Holding.HoldNobody
+            ? `Nobody on it: ${displayName(rested)} is resting`
+            : holderText(holder, since, status)}
       </span>
     </span>
   )

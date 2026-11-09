@@ -95,6 +95,7 @@ pub mod name_themes;
 pub mod notes;
 mod notifications;
 mod prcard;
+pub mod resting;
 mod review_choice;
 mod review_claim;
 mod review_pick;
@@ -1243,13 +1244,49 @@ impl Core {
         } else {
             Members::with_clock(&me, opts.member_grace, presence::now_local)
         });
-        let local: LocalFn = {
+        // This device's resting agents (card #1215), folded from its own
+        // rows before anything reads the roster, so a restart keeps them.
+        let resting: resting::RestingMap = Arc::new(std::sync::RwLock::new(
+            coord::roster::resting_of(&st, &me).unwrap_or_else(|e| {
+                logf(format_args!("resting agents: {e}"));
+                Default::default()
+            }),
+        ));
+        // The sessions alone: capture and the window's process views.
+        let live_local: LocalFn = {
             let p = presence.clone();
             let mb = members.clone();
             Arc::new(move || {
                 let mut cs = p.snapshot();
                 cs.extend(mb.cards());
                 cs.into_iter().map(roster_card).collect()
+            })
+        };
+        // The roster's: the sessions, plus each resting agent, shown
+        // resting even while its process is still exiting.
+        let local: LocalFn = {
+            let live = live_local.clone();
+            let rs = resting.clone();
+            Arc::new(move || {
+                let mut cs = live();
+                let rs = rs.read().unwrap_or_else(|e| e.into_inner());
+                if rs.is_empty() {
+                    return cs;
+                }
+                for c in cs.iter_mut() {
+                    if let Some(r) = rs.get(&c.key) {
+                        c.status = coord::roster::RESTING.into();
+                        c.status_since = r.status_since;
+                    }
+                }
+                let mut extra: Vec<AgentCard> = rs
+                    .values()
+                    .filter(|r| !cs.iter().any(|c| c.key == r.key))
+                    .cloned()
+                    .collect();
+                extra.sort_by(|a, b| a.key.cmp(&b.key));
+                cs.extend(extra);
+                cs
             })
         };
 
@@ -1417,7 +1454,10 @@ impl Core {
         // through (card #422), set once they exist; until then only the
         // private board counts.
         let svc_cell: Arc<OnceLock<Weak<Services>>> = Arc::new(OnceLock::new());
-        let spawn_state = spawn::SpawnState::default();
+        let spawn_state = spawn::SpawnState {
+            resting: resting.clone(),
+            ..Default::default()
+        };
         let _ = spawn::load_spawn(&st, &spawn_state);
         ib.set_reviews_unasked(
             !spawn_state
@@ -1476,6 +1516,16 @@ impl Core {
                                 .get(key)
                                 .copied()
                                 .unwrap_or(false)
+                        })
+                    }),
+                    // When each local spawned agent rested (card #1215).
+                    resting: Some({
+                        let rs = resting.clone();
+                        Arc::new(move |key: &str| {
+                            rs.read()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .get(key)
+                                .map(|c| c.status_since)
                         })
                     }),
                     // Context and budget per local agent (card #1213).
@@ -1547,7 +1597,7 @@ impl Core {
         }
         let cap = capture::Capture::new(
             st.clone(),
-            Some(Arc::new(LocalAgents(local.clone()))),
+            Some(Arc::new(LocalAgents(live_local.clone()))),
             copts,
         )
         .map_err(|e| fail(&st, other("capture", e)))?;
@@ -3550,10 +3600,22 @@ impl Core {
         self.s.spawned_today()
     }
 
-    /// The person's End on an agent Irori started: its hand-off, then
-    /// stop and rm.
+    /// The person's End on an agent Irori started: it retires (card
+    /// #1215), with its hand-off asked first unless it rests.
     pub fn end_spawned(&self, key: &str) -> Result<(), String> {
         self.s.end_spawned(key)
+    }
+
+    /// Whether spawned agent `key` of this device rests (card #1215).
+    pub fn resting(&self, key: &str) -> bool {
+        self.s.resting(key)
+    }
+
+    /// The `<card>-<generation>` stems of the brief and settings files of
+    /// this device's spawned agents that run or rest (card #1215): a plain
+    /// wake reads the settings file again, so Storage keeps them.
+    pub fn kept_brief_stems(&self) -> std::collections::HashSet<String> {
+        self.s.kept_brief_stems()
     }
 
     /// The person asks for an agent on card `id` now, with `note` (their
@@ -5715,6 +5777,12 @@ impl Services {
                 presence::ChangeKind::Added => {
                     last.insert(key.clone(), card.clone());
                     self.names_kick.kick();
+                    // A resting agent's session is back (Revive, a resume by
+                    // hand): it no longer rests. Its own old process, still
+                    // exiting, writes nothing and stays resting (card #1215).
+                    if self.resting(&key) && !self.rest_ended_by_session(&card, true) {
+                        continue;
+                    }
                     let r = self
                         .store
                         .append("irori", kinds::AGENT_SEEN, &self.row_card(card));
@@ -5725,6 +5793,15 @@ impl Services {
                 }
                 presence::ChangeKind::Updated => {
                     let prev = last.insert(key.clone(), card.clone());
+                    // A resting agent's process, still exiting: nothing it
+                    // says now wakes it on another device (card #1215). A
+                    // session started after the rest (a Revive) ends it.
+                    if self.resting(&key) {
+                        if !self.rest_ended_by_session(&card, false) {
+                            continue;
+                        }
+                        written.remove(&key);
+                    }
                     if let Some(p) = &prev
                         && (p.name != card.name || p.name_source != card.name_source)
                     {
@@ -5766,8 +5843,14 @@ impl Services {
                     }
                 }
                 presence::ChangeKind::Removed => {
-                    last.remove(&key);
+                    let was = last.remove(&key);
                     written.remove(&key);
+                    // A rest's own stop, or Claude Code dropping an idle
+                    // agent nothing waited on, is a rest: no `agent.gone`,
+                    // so no crash (card #1215).
+                    if self.removed_rests(&key, was.as_ref()) {
+                        continue;
+                    }
                     self.store
                         .append(
                             "irori",

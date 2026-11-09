@@ -92,6 +92,7 @@ pub use crate::service::huddle_session::{
     self as huddle_session, HuddleRunner, HuddleSeed, Look, LookError,
 };
 pub use crate::service::invites::{InviteStatus, InviteWatchFn};
+pub use crate::service::resting;
 pub use crate::service::space_move::{MOVED_FIELD, MoveOpts, SpaceMove};
 pub use crate::service::spaces::{
     BOARD_ROWS_TOLERANT, BoardClosedRow, BoardDescribedRow, CALLS_TOLERANT, CLOSED_BOARD_NOTE,

@@ -29,6 +29,7 @@ fn idle_spawner() -> Spawner {
         trusted: Arc::new(|_: &Path| true),
         list: None,
         ready: None,
+        stop: None,
     }
 }
 

@@ -181,6 +181,8 @@ fn cut_off(s: &Inner, c: &presence::AgentCard) -> bool {
     c.agent == "claude"
         && c.device_state.is_empty()
         && c.status != "gone"
+        // A resting agent has no process to attach (card #1215).
+        && c.status != coord::roster::RESTING
         && s.b.attached(&c.key) == Some(false)
 }
 
@@ -345,7 +347,7 @@ fn write_agent(
 pub(crate) fn last_activity(c: &presence::AgentCard, now: &GoTime) -> String {
     let in_turn = !matches!(
         c.status.as_str(),
-        "" | "idle" | "gone" | coord::roster::NOT_ANSWERING
+        "" | "idle" | "gone" | coord::roster::NOT_ANSWERING | coord::roster::RESTING
     );
     if in_turn {
         let mut s = "in a turn now".to_string();

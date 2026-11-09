@@ -1325,8 +1325,10 @@ impl Fold {
         };
         let dev = cmp_or_dev(&card.device_id, owner::device_of(&card.key));
         // Not answering (#110): its wakes go unread, so a card or ask
-        // handed to it moves on as if it went away.
+        // handed to it moves on as if it went away. A resting agent is never
+        // handed anything (card #1215), so one holding a turn moves on too.
         if !crate::roster::answers(&card.status)
+            || card.status == crate::roster::RESTING
             || card.device_state == "offline"
             || self
                 .revoked
@@ -1670,10 +1672,13 @@ impl Fold {
         {
             for m in &ask.mentions {
                 // The Office Assistant answers in its channel, never an ask.
+                // A resting agent can't take it until it can be woken
+                // (card #1215, agent-continuity Â§7's fallback).
                 let here = roster.iter().any(|a| {
                     a.key == m.key
                         && a.agent != crate::roster::ASSISTANT_KIND
                         && crate::roster::answers(&a.status)
+                        && self.here_now(&a.key)
                 });
                 if m.gone || !here || skip.contains(&m.key) || out.contains(&m.key) {
                     continue;

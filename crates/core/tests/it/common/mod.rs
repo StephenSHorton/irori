@@ -130,6 +130,32 @@ impl Rig {
         Rig::with(|_| {})
     }
 
+    /// The rig with its Core stopped and started again on the same data
+    /// and sessions, `edit` applied to the new Core's options: an app
+    /// restart (card #1215).
+    pub fn restarted(self, edit: impl FnOnce(&mut Options)) -> Rig {
+        let Rig {
+            core,
+            data,
+            claude,
+            key_a,
+            key_b,
+            _dirs,
+        } = self;
+        core.close().unwrap();
+        let mut o = options(&data, &claude);
+        edit(&mut o);
+        let core = Core::start(o).unwrap();
+        Rig {
+            core,
+            data,
+            claude,
+            key_a,
+            key_b,
+            _dirs,
+        }
+    }
+
     /// The rig with `edit` applied to the Core's options first.
     pub fn with(edit: impl FnOnce(&mut Options)) -> Rig {
         let (d, c, w) = (

@@ -582,7 +582,9 @@ impl Window {
         let mut out = Vec::new();
         let mut cards: std::collections::HashSet<String> = Default::default();
         for a in self.core.mesh_agents() {
-            if a.status == "gone" || !co.is_spawned(&a.key) {
+            // Resting agents aren't running; the roster shows them (card
+            // #1215, #1218).
+            if a.status == "gone" || a.status == coord::roster::RESTING || !co.is_spawned(&a.key) {
                 continue;
             }
             let Some(sp) = co.spawned(&a.key) else {
@@ -764,7 +766,8 @@ impl Window {
         // Running and starting, per device.
         let mut running: std::collections::HashMap<String, u32> = Default::default();
         for a in self.core.mesh_agents() {
-            if a.status != "gone" && co.is_spawned(&a.key) {
+            // A resting agent runs nothing (card #1215).
+            if a.status != "gone" && a.status != coord::roster::RESTING && co.is_spawned(&a.key) {
                 *running.entry(a.device_id.clone()).or_default() += 1;
             }
         }

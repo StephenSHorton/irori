@@ -330,6 +330,11 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub returned: Option<AgentRef>,
+    /// The agent Irori started for it let it go as it rested (card #1215):
+    /// nobody holds it, and nothing went wrong.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub rested: Option<AgentRef>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[specta(optional)]
     pub stale: bool,
@@ -2179,6 +2184,17 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
     {
         s.returned = Some(p.ref_(&ret.was));
     }
+    if let Some(r) = &t.rested
+        && t.holders.is_empty()
+    {
+        // Resting while it still rests; once it retired, it finished.
+        let who = p.ref_(&r.was);
+        if who.status == coord::roster::RESTING {
+            s.rested = Some(who);
+        } else if s.returned.is_none() {
+            s.returned = Some(who);
+        }
+    }
     s
 }
 
@@ -2312,7 +2328,9 @@ pub(crate) fn holder_line(working: &[AgentRef]) -> CardHolder {
         Holding::Waiting
     } else if w.assigned {
         Holding::Assigned
-    } else if w.status == "idle" {
+    } else if w.status == "idle" || w.status == coord::roster::RESTING {
+        // Resting holds nothing (card #1215): only for the moment between
+        // its leave and the roster's next read.
         Holding::Idle
     } else {
         Holding::Active
@@ -3423,7 +3441,12 @@ fn edit_on_thread(
 fn in_turn(status: &str) -> bool {
     !matches!(
         status,
-        "" | "idle" | "gone" | "person" | "irori" | coord::roster::NOT_ANSWERING
+        "" | "idle"
+            | "gone"
+            | "person"
+            | "irori"
+            | coord::roster::NOT_ANSWERING
+            | coord::roster::RESTING
     )
 }
 

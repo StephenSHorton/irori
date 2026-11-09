@@ -60,6 +60,7 @@ pub use spawn::{
     Spawned, USAGE_LIMIT, crash_question, is_crash_question, retry_after, usage_limited,
 };
 mod resource;
+mod rest;
 mod review;
 mod review_pick;
 pub mod rows;
@@ -99,8 +100,8 @@ pub use error::{Error, ErrorKind, Result};
 pub use fold::blocker_gist;
 pub use fold::card_refs;
 pub use fold::{
-    FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_PARKED, LEFT_REMOVED, MADE_KIND,
-    REASON_CONFLICT, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN,
+    FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_PARKED, LEFT_REMOVED, LEFT_RESTED,
+    MADE_KIND, REASON_CONFLICT, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN,
     SUB_BUFFER, followed, offer_files_in,
 };
 pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
@@ -277,6 +278,18 @@ pub const WARM_FOR_SECS: i64 = 55 * 60;
 /// [`Options::reusable`]: an agent's [`Reuse`], `None` when unknown.
 pub type ReusableFn = Arc<dyn Fn(&str) -> Option<Reuse> + Send + Sync>;
 
+/// [`Options::resting`]: when a local spawned agent rested, `None` while it
+/// is awake, retired or not one (agent-continuity Â§6, card #1215).
+pub type RestingFn = Arc<dyn Fn(&str) -> Option<gocompat::time::GoTime> + Send + Sync>;
+
+/// Whether a resting agent can be woken (agent-continuity Â§7). Until card
+/// #1216 builds the wake it can't, so Â§7's fallback holds: whatever would
+/// wake a resting agent retires it, and the work goes to a fresh agent.
+/// Coord then counts a resting agent as not there to act now
+/// ([`Fold::here_now`]); core retires it on what is already queued for it.
+/// The wake card turns this on and removes the fallback in one place.
+pub const RESTING_WAKES: bool = false;
+
 /// The tag of another board in a space, by id (card #392); None for an id
 /// the space doesn't hold.
 pub type BoardTagFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -446,6 +459,11 @@ pub struct Options {
     /// keeps filled, never a file read under the lock. `None`: every agent
     /// is reusable, as before.
     pub reusable: Option<ReusableFn>,
+    /// When each local spawned agent rested (card #1215): a map core keeps,
+    /// rebuilt from its own `agent.rest` rows at start. A resting agent
+    /// holds nothing, is never gone, and while [`RESTING_WAKES`] is off is
+    /// not there to act now. `None`: no agent rests.
+    pub resting: Option<RestingFn>,
     /// How many of a card's agents may crash in a row before Irori stops
     /// and asks the person (card #576). Read when it's needed. `None` or
     /// below 1: [`MAX_SPAWN_CRASHES`].
@@ -1867,6 +1885,12 @@ impl Coord {
     }
     /// Whether agent `key` may take another item (agent-continuity §5):
     /// under the person's context budget, never compacted, and warm.
+    /// Spawned agent `key` of this device rested at `at` (card #1215): the
+    /// moment it let its asks go, kept after it retires.
+    pub fn mark_rested(&self, key: &str, at: gocompat::time::GoTime) {
+        self.lock().rest_times.insert(key.to_string(), at);
+    }
+
     pub fn reusable(&self, key: &str) -> bool {
         self.lock().reusable(key)
     }

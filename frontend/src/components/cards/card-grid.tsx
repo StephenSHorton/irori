@@ -646,7 +646,11 @@ function CardTile({
       {card.ask && (openAsk(card) || closed) ? (
         <AskLine ask={card.ask} spawn={card} />
       ) : quiet || (closed && p === null) ? null : p === null ? (
-        <HolderLine holder={card.holder} returned={card.returned} />
+        <HolderLine
+          holder={card.holder}
+          returned={card.returned}
+          rested={card.rested}
+        />
       ) : (
         <>
           <ProgressBar
@@ -659,7 +663,11 @@ function CardTile({
             tone={cardTone(card)}
           />
           {!closed && holderLineShows(card) && (
-            <HolderLine holder={card.holder} returned={card.returned} />
+            <HolderLine
+              holder={card.holder}
+              returned={card.returned}
+              rested={card.rested}
+            />
           )}
         </>
       )}

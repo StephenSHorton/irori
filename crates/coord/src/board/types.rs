@@ -780,6 +780,11 @@ pub struct Task {
     pub left_off: Option<LeftOff>,
     #[serde(skip_serializing_if = "omit")]
     pub returned: Option<Returned>,
+    /// The agent Irori started for it let it go as it rested (card #1215):
+    /// nobody holds it, and the card says "agent resting" rather than
+    /// "went away". Cleared once anyone holds it again.
+    #[serde(skip_serializing_if = "omit")]
+    pub rested: Option<Returned>,
     /// Who let it go last and when: its last holder left or went away
     /// (card #338). A hand-out from before then is stale, so the card
     /// goes out again as if just posted.

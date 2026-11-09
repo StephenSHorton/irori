@@ -55,6 +55,9 @@ pub const IN_USE: &str = "Irori is writing to it now";
 pub const WAITING_FOR_DONE: &str = "waiting for Done";
 /// Why a brief stays.
 pub const CARD_OPEN: &str = "its card is still open";
+/// Why a settled card's brief stays (card #1215): its agent runs or rests,
+/// and a wake reads its settings file again.
+pub const AGENT_RESTING: &str = "its agent may wake and reads it again";
 /// Why an installer stays.
 pub const STAGED: &str = "it's the update waiting to install";
 
@@ -694,11 +697,16 @@ impl Window {
     /// time Irori started an agent for it.
     fn brief_items(&self) -> Vec<StorageItem> {
         let cards = self.storage_cards();
+        let kept = self.core.kept_brief_stems();
         let mut by_card: HashMap<String, (u64, GoTime, usize)> = HashMap::new();
+        let mut agent_kept: HashSet<String> = HashSet::new();
         for (name, p) in files_in(&self.data().join("briefs")) {
             let Some(id) = brief_card(&name) else {
                 continue;
             };
+            if brief_stem(&name).is_some_and(|s| kept.contains(s)) {
+                agent_kept.insert(id.to_string());
+            }
             let e = by_card.entry(id.to_string()).or_default();
             e.0 += file_len(&p);
             let at = mtime(&p);
@@ -714,6 +722,7 @@ impl Window {
             .map(|(id, (bytes, at, starts))| {
                 let card = cards.get(&id).map(|(t, _)| t);
                 let open = card.is_some_and(|t| !irori_core::buildclean::settled(t));
+                let resting = !open && agent_kept.contains(&id);
                 StorageItem {
                     name: card
                         .map(|t| format!("{} {}", t.short_ref(), t.title))
@@ -730,9 +739,11 @@ impl Window {
                     cards: card.map(|t| vec![t.id.clone()]).unwrap_or_default(),
                     bytes: bytes as i64,
                     at,
-                    cleanable: !open,
+                    cleanable: !open && !resting,
                     keep: if open {
                         CARD_OPEN.into()
+                    } else if resting {
+                        AGENT_RESTING.into()
                     } else {
                         String::new()
                     },
@@ -939,12 +950,21 @@ impl Window {
                 rm_file(data.join(&it.id)).map(|_| None)
             }
             BRIEFS if plain(&it.id) => {
+                // An agent that runs or rests keeps its files (card #1215),
+                // even one that started resting after the list was read.
+                let kept = self.core.kept_brief_stems();
+                let mut stayed = false;
                 for (name, p) in files_in(&data.join("briefs")) {
-                    if brief_card(&name) == Some(it.id.as_str()) {
-                        rm_file(p)?;
+                    if brief_card(&name) != Some(it.id.as_str()) {
+                        continue;
                     }
+                    if brief_stem(&name).is_some_and(|s| kept.contains(s)) {
+                        stayed = true;
+                        continue;
+                    }
+                    rm_file(p)?;
                 }
-                Ok(None)
+                Ok(stayed.then(|| AGENT_RESTING.to_string()))
             }
             BACKUPS if plain(&it.id) => {
                 let p = data.join(&it.id);
@@ -1055,6 +1075,13 @@ impl Window {
 
 /// The card id a brief file is for: `<id>-<generation>.md` or
 /// `<id>-<generation>.settings.json`.
+/// The `<card>-<generation>` stem of a brief or settings file name.
+pub fn brief_stem(name: &str) -> Option<&str> {
+    brief_card(name)?;
+    name.strip_suffix(".settings.json")
+        .or_else(|| name.strip_suffix(".md"))
+}
+
 pub fn brief_card(name: &str) -> Option<&str> {
     let stem = name
         .strip_suffix(".settings.json")

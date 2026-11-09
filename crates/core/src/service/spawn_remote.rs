@@ -405,7 +405,12 @@ impl Services {
                 } else {
                     a.device_id.as_str()
                 };
-                d == dev && a.status != "gone" && self.coord.is_spawned(&a.key)
+                // A resting agent has no process: it takes no slot (card
+                // #1215).
+                d == dev
+                    && a.status != "gone"
+                    && a.status != coord::roster::RESTING
+                    && self.coord.is_spawned(&a.key)
             })
             .count() as i64;
         let starting = self

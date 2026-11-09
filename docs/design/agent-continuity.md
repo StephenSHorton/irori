@@ -363,6 +363,49 @@ The quiet and crowded checks run in the spawn sweep over the device's resting ag
 
 **A message or mention for a retired agent** lands on its last item as today ("for sorrel, who has finished"), and adds "quill took over" when there is a successor.
 
+### As built (#1215, 2026-11-09)
+
+Rest and retire are on main, with §7's fallback, so nothing that would wake a resting agent strands it. The code is `core/src/service/resting.rs`, `coord/src/board/rest.rs`, and the `agent.rest` / `agent.retire` arms in `coord/src/roster.rs`.
+
+- **One resting map.** `SpawnState::resting` holds each resting agent's last card, keyed by agent. Core folds it from its own rows at open, with the roster's own `apply` (`roster::resting_of`), so a restart keeps resting agents. The local roster closure lists them with status `resting`, and coord reads their rest times through `Options::resting`. Every change to the map happens under `SpawnState::rest_lock`, whichever thread makes it: the sweep, the presence recorder or the person's End. The map is written before `agent.rest`, and the rows before `claude stop`.
+- **Rest.** `begin_rest` always asks for the hand-off (notice kind `spawn.rest`, with the §12 shape). The hand-off counts only if written since the rest began. The rest itself (`rest_now`) runs in this order:
+  1. the "rested without a hand-off" line, if the hand-off never came;
+  2. `Coord::rest_leave`: `task.left` reason `rested` (no crash, nobody told; the card shows "Nobody on it: X is resting"), the ask or thread take given back, offers passed, leases released;
+  3. `agent.rest`;
+  4. `Spawner.stop` (`claude stop` alone).
+  
+  `claude stop` is confirmed on later sweeps: an agent Claude Code still lists live is stopped again after `END_RETRY`. With a spawner that has no `stop`, an agent ends as before.
+- **Which settles rest and which retire.** Every private-board end in `end_finished` goes through `settle_agent`:
+  - Stop here, Stop everywhere or an open wind-down: retire `ended`;
+  - past the budget, compacted, or "Always start a fresh agent": retire `budget` or `compacted`;
+  - otherwise: rest `idle`.
+  
+  A "Not done" lift retires `lifted`. End and `agent_end` retire `ended`, at once for a resting agent and with no notice. A shared board's agent keeps today's one-item end (§11).
+- **Drop-off.** In `record()`, a Removed key that rests, or is mid-rest, writes nothing. A spawned agent of this device's own log that was idle and that nothing waits on rests `dropped`. "Nothing waits on" means it holds no card that is submitted or working (assigned counts) and has no ask or thread take. The sweep writes its let-go and the line. Anything else is still `agent.gone`, a crash. An agent whose prompt never got in (card #677) still holds its card assigned and submitted, so it stays a crash.
+- **The fallback** is the one switch `coord::RESTING_WAKES` (off):
+  - Coord's `here_now` counts a resting agent as not there wherever a delivery is chosen at send time: a thread's follow-up, a comment's hearers, watch digests, the named-ask filter, the "tell the poster" checks. `turn_state` reads resting as gone.
+  - `ask_waits_for_person` (was `ask_resting`) holds a thread or ask whose agent rests until the person writes after it let the ask go.
+  - Core's `sweep_resting` retires a resting agent with the new reason **`woken`** when an open wake-mode delivery is waiting for it. Only these senders count: the person, Irori, or the person's own agent while "My agents may start agents" is on. Its leftover notices are closed, and plain messages take the "who has finished" path.
+  - A fresh agent started for an item a resting agent served retires that agent `woken` too (`retire_for_start`).
+  - #1216 turns the switch on and builds the wake in place of these retires.
+- **Retire** writes `agent.retire`, then today's `end_now` (`agent.gone` "finished", stop and `rm`). The quiet (24 h), crowded (more than 20) and Stop retires run in `sweep_resting`, because presence never lists a stopped session.
+- **Elsewhere:**
+  - `clean_after_start` and `reap_ended` skip resting agents, and `spawned_here` and `spawned_on` don't count them.
+  - Storage › Briefs keeps the files of agents that run or rest (`Core::kept_brief_stems`).
+  - Stop's wind-down skips resting agents; the sweep retires them.
+  - Shared boards' `agent.card` shows resting as gone.
+  - Review picks and Talk's "replying" pass resting agents by.
+- **From the review and the scratch run:**
+  - **The let-go time.** An agent let go when its rest was *asked* (`agent.rest`'s `at`). Coord keeps that time per agent after it retires (`rest_times`, from `Coord::mark_rested` and replay), and `ask_waits_for_person` measures from it. A word the person wrote during the hand-off wait, or while it rested, still starts the next agent after a woken or quiet retire.
+  - **Races.** The person's End or a lift during a rest's hand-off wait turns it into a retire. `sweep_ending` carries the kind it read and skips a key another sweep (End runs one off the sweep thread) has already finished. A retire writes its row and its end under `rest_lock`.
+  - **Restarts.** Once per run, Core reconciles every resting agent's let-go, because a drop-off's let-go is queued in memory. A presence Added or Updated for a resting key ends the rest only if that session started after the rest, as a Revive or a resume by hand does. The rested life's own process, still exiting across a restart, is stopped again and stays resting. #1216: check what `startedAt` a resumed `--bg` session's file carries.
+  - **`came_for`.** It passes by Irori's own notices from before the rest: they are about what the agent handed off. Anything from the person still counts. A usage-limit end clears a pending rest or retire.
+- **Not built here:**
+  - s6's slot rest covers threads and asks only. On a board that starts agents, a card's offer row is written without a hand-out (`OFFER_WAITING`, empty `to`), so "the hand-out found nobody" can't be told apart until #1217 removes those skips.
+  - `life` is always 1 (`FIRST_LIFE`) until #1216 writes `agent.wake`. #1214's origin item still says `life: 0`.
+  - The successor brief's "You take over from…" line, and the roster's Free and Resting groups, are #1217 and #1218.
+  - On older devices a resting agent shows its last status, usually idle, until it retires.
+
 ## 10. Terminal agents and "Offer it cards"
 
 - **Unchanged for terminal agents.** "Offer it cards" still decides whether an idle terminal agent is handed unheld cards. On a board that starts agents, today's code never offers one a card. This plan's no-double-start fix (§8) brings back that offer, which spawned-agents.md §6.3 always intended. Both kinds of agent are then candidates in one offer, ordered by decision 40.
@@ -532,9 +575,9 @@ grep -rn '\.spawned\.get(\|\.spawned\.iter\|\.spawned\.contains_key' crates --in
 ### A.4 Rest, wake and retire in the code (cards 5 and 6)
 
 - **Rows.**
-  - `agent.rest {key, life, at, reason: idle | slot | dropped | wake_failed, ctx, ctx_at, compacted, by}`
+  - `agent.rest {key, life, at, reason: idle | slot | dropped | wake_failed, ctx, ctx_at, compacted, name, by}` (`name` added by #1215, so a device that lost the card can still show it)
   - `agent.wake {key, life, at, why, counted, by}`
-  - `agent.retire {key, life, at, reason: budget | compacted | quiet | crowded | ended | lifted, by}`
+  - `agent.retire {key, life, at, reason: budget | compacted | quiet | crowded | ended | lifted | woken, by}` (`woken`: §7's fallback until #1216)
   - Each is written only on the agent's device.
   - A Wake from another device is `wake.requested {key, life}`, served like `EndRequest` (`spawn_remote.rs` about 992-1017).
 - **This device's roster.** It is presence plus members, not the mesh fold (`coord/src/roster.rs` 149-152, 267-274; the `local` closure at `core/src/service.rs` about 1203-1211). Presence drops a stopped session, so Core keeps the set of resting keys (current life has `agent.rest` and no `agent.retire`). The `local` closure adds a card with status `resting` for each one. That puts the agent in front of the inbox (`roster_cards`, `inbox/src/state.rs:1601`; `still_gone`, `inbox/src/sweep.rs:348`), mentions (`tools/src/mention.rs`), the namer and `key_gone_in` (`coord/src/board/stranded.rs` about 57-65).
@@ -553,7 +596,7 @@ grep -rn '\.spawned\.get(\|\.spawned\.iter\|\.spawned\.contains_key' crates --in
 - **The inbox.** A wake-mode delivery to a resting key whose sender may wake it (§7) starts a wake instead of `hand_off` → `on_recipient_gone` → `record_for_finished` (`core/src/service.rs` about 1291-1330). A next-turn delivery stays queued.
 - **Thread follow-ups.** The `around` closure that `thread_follow_up` (`coord/src/board/threads.rs:331`) uses counts a resting replier on a device that can wake it as reachable.
   - Today's `ask_resting` (`coord/src/board/spawn.rs:901`) reads `ended_by_irori`. Make it also true while the request's last agent rests, so no second agent starts for that thread.
-  - Rename it (for example `ask_waits_for_person`) so it doesn't clash with the new "resting".
+  - Rename it (for example `ask_waits_for_person`) so it doesn't clash with the new "resting". (#1215 did both.)
 - **Presence `Removed`.** `record()` (`core/src/service.rs` about 5664-5676) writes `agent.gone` unconditionally. Change it:
   - For a spawned key of this device that has `agent.rest` for its current life, write nothing.
   - For one that isn't in `spawn.ending`, was idle and held nothing WORKING, write `agent.rest {reason: dropped}` and the "rested without a hand-off" line.

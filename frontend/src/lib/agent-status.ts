@@ -42,6 +42,8 @@ export function agentStatus(
     return { text: `running a job${jobFor(since, now)}`, tone: "job" }
   if (s === "unresponsive") return { text: "not answering", tone: "warn" }
   if (s === "idle") return { text: "idle", tone: "idle" }
+  // A spawned agent whose process stopped; it keeps its name (card #1215).
+  if (s === "resting") return { text: "resting", tone: "muted" }
   // A permission prompt (card #445).
   if (s === "waiting")
     return { text: "waiting on a permission prompt", tone: "warn" }

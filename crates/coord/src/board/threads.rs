@@ -367,7 +367,9 @@ impl Fold {
         // On a board another member's agents run on their devices: this one
         // can't tell if they're live, and they hear it through the bridge.
         let around = if self.on_board { None } else { around };
-        let live = |k: &String| k != by && around.is_none_or(|f| f(k));
+        // A resting replier can't answer until it can be woken (card #1215,
+        // Â§7's fallback): the thread opens again for a fresh agent instead.
+        let live = |k: &String| k != by && around.is_none_or(|f| f(k)) && self.here_now(k);
         let mut to: Vec<String> = self
             .thread_repliers(&t.id)
             .into_iter()

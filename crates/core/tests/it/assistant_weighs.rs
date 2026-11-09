@@ -86,6 +86,7 @@ impl Setup {
             trusted: Arc::new(|_| true),
             list: None,
             ready: None,
+            stop: None,
         }));
     }
 

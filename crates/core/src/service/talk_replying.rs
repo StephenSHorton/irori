@@ -112,6 +112,10 @@ fn done_by_status(w: &inbox::TalkWake, card: &coord::roster::AgentCard) -> bool 
     if w.waiting {
         return false;
     }
+    // A resting agent's turn is over: its process stopped (card #1215).
+    if card.status == coord::roster::RESTING {
+        return true;
+    }
     if w.no_turn_rows {
         return card.session_kind != "member"
             && !matches!(card.status.as_str(), "busy" | "waiting");

@@ -51,6 +51,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
         }),
         trusted: Arc::new(|_| true),
         list: None,
+        stop: None,
     }
 }
 
@@ -694,6 +695,7 @@ fn spawner_each_new(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
         }),
         trusted: Arc::new(|_| true),
         list: None,
+        stop: None,
     }
 }
 

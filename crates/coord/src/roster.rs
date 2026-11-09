@@ -65,17 +65,49 @@ pub fn device_phrase(state: &str, seen: &GoTime, via: &str, now: &GoTime) -> Str
     }
 }
 
+/// The status of a spawned agent that rests (agent-continuity §6, card
+/// #1215): its process stopped, its name and session stay. It is neither
+/// idle (hand-out passes it by) nor gone ([`answers`] holds: mentions and
+/// thread follow-ups count it reachable). `agent.rest` sets it,
+/// `agent.retire` (and the `agent.gone` after it) removes the card.
+pub const RESTING: &str = "resting";
+
+/// Why an agent rests (`agent.rest` `reason`, A.4): idle past the limit or
+/// its items settled; a queued start needed its slot; Claude Code dropped
+/// the session while it was idle and nothing waited on it; a wake failed.
+pub const REST_IDLE: &str = "idle";
+pub const REST_SLOT: &str = "slot";
+pub const REST_DROPPED: &str = "dropped";
+pub const REST_WAKE_FAILED: &str = "wake_failed";
+
+/// Why an agent retires (`agent.retire` `reason`, §9): past the context
+/// budget; compacted; a quiet day resting; more than 20 resting on its
+/// device; the person's End, an agent's `agent_end`, Stop here or Stop
+/// everywhere; a "Not done" raised its card's level; and, until agents
+/// can be woken (card #1216), something came for it while it rested
+/// (§7's fallback: whatever would wake it retires it instead).
+pub const RETIRE_BUDGET: &str = "budget";
+pub const RETIRE_COMPACTED: &str = "compacted";
+pub const RETIRE_QUIET: &str = "quiet";
+pub const RETIRE_CROWDED: &str = "crowded";
+pub const RETIRE_ENDED: &str = "ended";
+pub const RETIRE_LIFTED: &str = "lifted";
+pub const RETIRE_WOKEN: &str = "woken";
+
 /// Whether an agent with roster status `s` is there to answer: not gone
-/// and not [`NOT_ANSWERING`].
+/// and not [`NOT_ANSWERING`]. A [`RESTING`] agent answers: it is reachable,
+/// only asleep.
 pub fn answers(s: &str) -> bool {
     s != "gone" && s != NOT_ANSWERING
 }
 
-const KINDS: [&str; 4] = [
+const KINDS: [&str; 6] = [
     kinds::DEVICE_STARTED,
     kinds::AGENT_SEEN,
     kinds::AGENT_STATUS,
     kinds::AGENT_GONE,
+    kinds::AGENT_REST,
+    kinds::AGENT_RETIRE,
 ];
 
 crate::go_struct! {
@@ -387,6 +419,65 @@ crate::go_struct! {
     }
 }
 
+crate::go_struct! {
+    /// `agent.rest` (A.4): a spawned agent rests. `life` counts its
+    /// processes, 1 at spawn. The context figures are its last ones, since
+    /// a resting agent has no presence card to carry them; `name` lets a
+    /// device that lost its card (a restart, a dropped `agent.seen`) still
+    /// show it and hold its word.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct RestRow {
+        pub key: String = "key",
+        pub life: i64 = "life",
+        pub at: GoTime = "at",
+        pub reason: String = "reason",
+        pub ctx: i64 = "ctx" "omit",
+        pub ctx_at: GoTime = "ctxAt" "omit_zero_time",
+        pub compacted: bool = "compacted" "omit",
+        pub name: String = "name" "omit",
+        pub by: String = "by",
+    }
+}
+
+crate::go_struct! {
+    /// `agent.retire` (A.4): a spawned agent retires for good.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct RetireRow {
+        pub key: String = "key",
+        pub life: i64 = "life",
+        pub at: GoTime = "at",
+        pub reason: String = "reason",
+        pub by: String = "by",
+    }
+}
+
+/// The resting cards of device `dev`, folded from its own rows with the
+/// same rules every other device's roster uses (card #1215): a Core
+/// rebuilds its resting set from this at start, so a restart keeps its
+/// resting agents. Each card's status is [`RESTING`].
+pub fn resting_of(store: &Store, dev: &str) -> store::Result<HashMap<String, AgentCard>> {
+    let mut st = State::default();
+    let mut f = Filter {
+        kinds: KINDS.iter().map(|k| k.to_string()).collect(),
+        limit: store::MAX_LIST_LIMIT,
+        ..Filter::default()
+    };
+    loop {
+        let evs = store.list(&f)?;
+        for ev in &evs {
+            if ev.device_id == dev {
+                apply(&mut st, ev);
+            }
+        }
+        if (evs.len() as i64) < f.limit {
+            break;
+        }
+        f.after = evs[evs.len() - 1].cursor();
+    }
+    st.cards.retain(|_, c| c.status == RESTING);
+    Ok(st.cards)
+}
+
 /// Folds one row of another device. Each device's rows arrive in seq
 /// order, so a row at or below the last folded is a repeat.
 fn apply(st: &mut State, ev: &Event) -> bool {
@@ -397,9 +488,53 @@ fn apply(st: &mut State, ev: &Event) -> bool {
     st.last.insert(dev.to_string(), ev.seq);
     match ev.kind.as_str() {
         kinds::DEVICE_STARTED => {
+            // A restart ends every live session of that device, but not its
+            // resting agents: they had no process to lose (card #1215).
             let before = st.cards.len();
-            st.cards.retain(|_, c| c.device_id != dev);
+            st.cards
+                .retain(|_, c| c.device_id != dev || c.status == RESTING);
             st.cards.len() != before
+        }
+        kinds::AGENT_REST => {
+            let Some(p) = decode::<RestRow>(&ev.payload) else {
+                return false;
+            };
+            if p.key.is_empty() || device_of(&p.key) != dev {
+                return false;
+            }
+            // A card this roster never saw (its `agent.seen` was lost, or
+            // folded before a restart dropped it) comes back from the row.
+            let c = st.cards.entry(p.key.clone()).or_insert_with(|| AgentCard {
+                key: p.key.clone(),
+                device_id: dev.to_string(),
+                agent: "claude".into(),
+                session_id: p.key.rsplit('/').next().unwrap_or_default().to_string(),
+                name: p.name.clone(),
+                name_source: "user".into(),
+                ..AgentCard::default()
+            });
+            c.status = RESTING.into();
+            c.status_since = p.at;
+            c.updated_at = p.at;
+            c.pid = 0;
+            if c.name.is_empty() {
+                c.name = p.name;
+            }
+            if p.ctx > 0 {
+                c.ctx = p.ctx;
+                c.ctx_at = p.ctx_at;
+            }
+            c.compacted |= p.compacted;
+            true
+        }
+        kinds::AGENT_RETIRE => {
+            let Some(p) = decode::<RetireRow>(&ev.payload) else {
+                return false;
+            };
+            if device_of(&p.key) != dev {
+                return false;
+            }
+            st.cards.remove(&p.key).is_some()
         }
         kinds::AGENT_SEEN => {
             let Some(mut c) = decode::<AgentCard>(&ev.payload) else {
@@ -435,6 +570,11 @@ fn apply(st: &mut State, ev: &Event) -> bool {
                 return true;
             }
             let c = st.cards.get_mut(&p.key).expect("checked above");
+            // A status from the process that was ending as it rested never
+            // wakes it: only an `agent.seen` (a new process) does.
+            if c.status == RESTING {
+                return false;
+            }
             c.status = p.status;
             c.name = p.name;
             c.name_source = p.name_source;

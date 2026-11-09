@@ -63,7 +63,8 @@ export function agentCounts(
     blocked: 0,
   }
   for (const a of agents) {
-    if (a.status === "gone") continue
+    // A resting agent runs nothing (card #1215); the roster lists it apart.
+    if (a.status === "gone" || a.status === "resting") continue
     c.total++
     if (a.deviceState === "offline") c.offline++
     else if (a.key !== undefined && blocked.has(a.key)) c.blocked++

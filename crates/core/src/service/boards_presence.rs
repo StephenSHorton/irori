@@ -89,7 +89,8 @@ pub fn member_presence(i: &PresenceInput) -> Vec<MemberPresence> {
             };
             let (mut working, mut free) = (0, 0);
             for (q, status) in &i.agents {
-                if q != p || status == "gone" {
+                // A resting agent runs nothing (card #1215).
+                if q != p || status == "gone" || status == coord::roster::RESTING {
                     continue;
                 }
                 if status == "idle" {

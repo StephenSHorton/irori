@@ -1261,6 +1261,7 @@ function summary(c: CardDetail): CardSummary {
     holder: c.holder,
     updatedAt: c.updatedAt,
     returned: c.returned,
+    rested: c.rested,
     stale: c.stale,
     devices: c.devices,
     accent: c.accent,

@@ -323,7 +323,10 @@ pub(crate) fn live_cands(
 ) -> Vec<Cand> {
     roster
         .iter()
-        .filter(|a| a.status != "gone" && a.device_state != OFFLINE)
+        // A resting agent can't review until it can be woken (card #1215).
+        .filter(|a| {
+            a.status != "gone" && a.status != coord::roster::RESTING && a.device_state != OFFLINE
+        })
         .filter_map(|a| {
             let person = person_of(&a.key);
             (!person.is_empty() && person != me && person != author).then(|| Cand {
@@ -340,9 +343,12 @@ pub(crate) fn live_cands(
 /// OFFLINE device. A card not folded here yet holds it: absence is lag,
 /// not a trigger.
 pub(crate) fn asked_live(roster: &[AgentCard], key: &str) -> bool {
-    !roster
-        .iter()
-        .any(|a| a.key == key && (a.status == "gone" || a.device_state == OFFLINE))
+    !roster.iter().any(|a| {
+        a.key == key
+            && (a.status == "gone"
+                || a.status == coord::roster::RESTING
+                || a.device_state == OFFLINE)
+    })
 }
 
 /// Whether a lease or scope in `repo` bears on `want`, the PR card's repo:

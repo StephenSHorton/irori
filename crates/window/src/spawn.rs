@@ -186,6 +186,47 @@ pub fn end(id: &str) -> Result<String, String> {
     )
 }
 
+/// `claude stop` alone, for an agent that rests (agent-continuity Â§6, card
+/// #1215): never `rm`, so the job record (`~/.claude/jobs/<job>`, with the
+/// flags a plain wake applies again) and the session stay. The job is
+/// looked up as [`end`] does. `claude stop` can return before the process
+/// exits: the caller reads `claude agents --json --all` later to tell.
+pub fn stop(id: &str) -> Result<String, String> {
+    let bin = find_claude()?;
+    let listed = list_agents_with(&bin);
+    stop_in(&bin, id, listed)
+}
+
+/// [`stop`] with `bin` and the agent list as it came (tests pass fakes).
+pub(crate) fn stop_in(
+    bin: &Path,
+    id: &str,
+    listed: Result<Vec<ListedAgent>, String>,
+) -> Result<String, String> {
+    session_arg(id)?;
+    let job = match listed {
+        Ok(list) => match list.iter().find(|a| a.session_id == id.trim()) {
+            Some(a) if !a.job_id.is_empty() => a.job_id.clone(),
+            Some(_) => job_id(id),
+            None => return Ok(format!("{GONE_JOB} {}", id.trim())),
+        },
+        Err(_) => job_id(id),
+    };
+    let job = session_arg(&job)?.to_string();
+    let mut cmd = std::process::Command::new(bin);
+    cmd.args(["stop", &job])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    hide_console(&mut cmd);
+    no_autoupdate(&mut cmd);
+    let (_, said) = run(cmd)?;
+    if no_job(&said) {
+        return Ok(format!("{GONE_JOB} {job}"));
+    }
+    Ok(format!("stopped {job}: {}", said.trim()))
+}
+
 /// Claude Code's job records: `<CLAUDE_CONFIG_DIR or ~/.claude>/jobs`.
 fn jobs_dir() -> Option<PathBuf> {
     match std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()) {
@@ -1460,6 +1501,37 @@ mod tests {
         let out = text.lines().map(|l| l.trim().to_string()).collect();
         std::fs::write(log, "").unwrap();
         out
+    }
+
+    /// A rest stops the job and never removes it (card #1215): the job
+    /// record keeps the flags a wake applies again. A session Claude Code
+    /// no longer lists has nothing to stop.
+    #[test]
+    fn stop_never_runs_rm() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = plain(std::fs::canonicalize(tmp.path()).unwrap());
+        let (bin, log) = verb_logger(&base);
+        let sid = "0a1b2c3d-1111-4111-8111-000000000001";
+        let listed = || {
+            Ok(vec![ListedAgent {
+                session_id: sid.into(),
+                job_id: "0a1b2c3d".into(),
+                live: true,
+                cwd: base.to_string_lossy().into_owned(),
+            }])
+        };
+        let out = stop_in(&bin, sid, listed()).unwrap();
+        assert!(out.starts_with("stopped 0a1b2c3d"), "{out}");
+        assert_eq!(calls(&log), ["stop 0a1b2c3d"]);
+        // The list couldn't be read: the job id comes from the session's.
+        stop_in(&bin, sid, Err("hung".into())).unwrap();
+        assert_eq!(calls(&log), ["stop 0a1b2c3d"]);
+        // Not listed: nothing runs.
+        let out = stop_in(&bin, sid, Ok(Vec::new())).unwrap();
+        assert!(out.starts_with(GONE_JOB), "{out}");
+        assert!(calls(&log).is_empty());
+        // Never a flag.
+        assert!(stop_in(&bin, "--all", Ok(Vec::new())).is_err());
     }
 
     /// Card #565 finding A: `claude rm` deletes a job's worktree without

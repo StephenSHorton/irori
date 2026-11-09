@@ -80,6 +80,11 @@ pub const LEFT_REMOVED: &str = "member_removed";
 /// #446). Nobody is told the card is open again; the next agent starts
 /// from what is on it.
 pub const LEFT_FINISHED: &str = "finished";
+/// A task.left reason: the agent Irori started let the card go as it
+/// rested (agent-continuity Â§6, card #1215). Like [`LEFT_FINISHED`] it
+/// counts no crash and tells nobody; the card shows "agent resting" and
+/// names it as the card's last agent.
+pub const LEFT_RESTED: &str = "rested";
 
 /// Which leases found lapsed at replay still get their expiry row.
 const LAPSED_WITHIN: Duration = Duration::from_secs(24 * 3600);
@@ -276,6 +281,8 @@ pub struct Fold {
     pub(crate) offers: Option<super::OffersFn>,
     /// See [`super::Options::reusable`].
     pub(crate) reusable: Option<super::ReusableFn>,
+    /// See [`super::Options::resting`].
+    pub(crate) resting: Option<super::RestingFn>,
     /// See [`super::Options::crash_limit`].
     pub(crate) crash_limit: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
     /// See [`super::Options::outside_leases`].
@@ -323,6 +330,9 @@ pub struct Fold {
     /// went before the Core restarted counts as absent since then, not
     /// since the restart (card #110; #81 stayed held across restarts).
     pub(crate) gone_rows: HashMap<String, GoTime>,
+    /// When each of this device's spawned agents last rested (card #1215),
+    /// kept after it retires: what it let go of, it let go of then.
+    pub(crate) rest_times: HashMap<String, GoTime>,
     /// The spawned_for mark (card #446): the card each spawned agent was
     /// started for, kept after it goes.
     pub(crate) spawned: HashMap<String, super::spawn::Spawned>,
@@ -523,6 +533,7 @@ impl Fold {
             agent_devices: o.agent_devices,
             offers: o.offers,
             reusable: o.reusable,
+            resting: o.resting,
             crash_limit: o.crash_limit,
             outside_leases: o.outside_leases,
             device_version: o.device_version,
@@ -552,6 +563,7 @@ impl Fold {
             held: BTreeMap::new(),
             first_absent: HashMap::new(),
             gone_rows: HashMap::new(),
+            rest_times: HashMap::new(),
             spawned: HashMap::new(),
             spawned_keys: Arc::new(RwLock::new(HashSet::new())),
             ended_by_irori: HashSet::new(),
@@ -663,8 +675,13 @@ impl Fold {
     /// later `agent.seen`) into [`Fold::gone_rows`].
     fn replay_gone(&mut self, st: &Store) -> Result<()> {
         self.gone_rows.clear();
+        self.rest_times.clear();
         let mut f = store::Filter {
-            kinds: vec![kinds::AGENT_GONE.to_string(), kinds::AGENT_SEEN.to_string()],
+            kinds: vec![
+                kinds::AGENT_GONE.to_string(),
+                kinds::AGENT_SEEN.to_string(),
+                kinds::AGENT_REST.to_string(),
+            ],
             limit: store::MAX_LIST_LIMIT,
             ..store::Filter::default()
         };
@@ -690,9 +707,18 @@ impl Fold {
                     self.ended_by_irori.insert(k.clone());
                     self.usage_limited.insert(k.clone());
                 }
-                if ev.kind == kinds::AGENT_GONE {
+                if ev.kind == kinds::AGENT_REST {
+                    // When the rest was asked (its row's `at`), else the row's.
+                    let at = row::<crate::roster::RestRow>(&ev.payload)
+                        .map(|r| r.at)
+                        .filter(|a| !a.is_zero())
+                        .unwrap_or_else(|| gotime::hlc_wall(ev.hlc));
+                    self.rest_times.insert(k, at);
+                } else if ev.kind == kinds::AGENT_GONE {
                     self.gone_rows.insert(k, gotime::hlc_wall(ev.hlc));
                 } else {
+                    // A new process: its earlier rest is no let-go of now.
+                    self.rest_times.remove(&k);
                     self.gone_rows.remove(&k);
                 }
             }
@@ -1007,6 +1033,17 @@ impl Fold {
                     }
                     if p.reason == LEFT_FINISHED {
                         what = "finished: the agent Irori started for it ended".into();
+                    }
+                    if p.reason == LEFT_RESTED {
+                        what = "let it go: the agent Irori started for it is resting".into();
+                        if t.holders.is_empty() {
+                            t.rested = Some(Returned {
+                                was: p.who.clone(),
+                                at: at(p.at),
+                                person: false,
+                                row: format!("{}:{}", ev.device_id, ev.seq),
+                            });
+                        }
                     }
                     if p.reason == LEFT_GONE {
                         what = "went away".into();
@@ -2703,6 +2740,7 @@ pub(crate) fn sync_holder(t: &mut Task) {
     }
     t.holder = t.holders[0].clone();
     t.returned = None;
+    t.rested = None;
 }
 
 /// Derives co_holders: owners of open steps who don't hold the card,

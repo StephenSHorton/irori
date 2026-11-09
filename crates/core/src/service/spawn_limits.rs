@@ -403,6 +403,7 @@ impl Services {
                 || a.status == "busy"
                 || !self.coord.is_spawned(&a.key)
                 || self.coord.ended_by_irori(&a.key)
+                || self.resting(&a.key)
             {
                 continue;
             }
@@ -490,6 +491,13 @@ impl Services {
             )
             .map_err(|e| e.to_string())?;
         self.coord.mark_usage_limited(key, (self.now)());
+        // The usage-limit end replaces a rest or retire it was waiting on
+        // (card #1215): any retry of its stop and rm is an end's.
+        self.spawn
+            .end_kind
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(key);
         match self.remove_job(key) {
             Ok(()) => {
                 self.spawn

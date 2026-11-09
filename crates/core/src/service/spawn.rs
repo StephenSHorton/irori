@@ -33,7 +33,7 @@ use crate::logf;
 /// Irori's own key on the Board.
 pub(crate) const SWEEPER: &str = "irori";
 
-fn before(a: &GoTime, b: &GoTime) -> bool {
+pub(crate) fn before(a: &GoTime, b: &GoTime) -> bool {
     a.unix_nano() < b.unix_nano()
 }
 
@@ -99,7 +99,7 @@ fn parked_on_work(
             })
 }
 
-fn at_least(now: &GoTime, at: &GoTime, d: Duration) -> bool {
+pub(crate) fn at_least(now: &GoTime, at: &GoTime, d: Duration) -> bool {
     i128::from(now.unix_nano()) - i128::from(at.unix_nano()) >= d.as_nanos() as i128
 }
 
@@ -212,6 +212,11 @@ pub struct Spawner {
     pub list: Option<ListFn>,
     /// Whether the `claude` command is here now (card #541); `None`: it is.
     pub ready: Option<ReadyFn>,
+    /// `claude stop` alone, for an agent that rests (card #1215): its job
+    /// record and session stay, so it keeps its name and can be woken.
+    /// `Ok` once asked; whether it stopped is read later from `list`.
+    /// `None`: agents can't rest here, and end as before.
+    pub stop: Option<EndFn>,
 }
 
 impl Spawner {
@@ -1606,6 +1611,23 @@ pub(crate) struct SpawnState {
     pub reuse: Arc<RwLock<HashMap<String, coord::Reuse>>>,
     /// Spawned agents being ended: when they were asked for the hand-off.
     pub ending: Mutex<HashMap<String, GoTime>>,
+    /// What each agent in `ending` stops for: a rest or a retire (card
+    /// #1215). None: an end as before.
+    pub end_kind: Mutex<HashMap<String, super::resting::Ending>>,
+    /// This device's resting agents (card #1215), by key: the one map the
+    /// local roster, coord and the sweep read. Changed under `rest_lock`.
+    pub resting: super::resting::RestingMap,
+    /// Resting agents whose `claude stop` isn't confirmed yet: when it was
+    /// last asked.
+    pub stopping: Mutex<HashMap<String, GoTime>>,
+    /// Agents Claude Code dropped while idle that rested on the presence
+    /// thread: the sweep writes their let-go.
+    pub dropped: Mutex<Vec<String>>,
+    /// Held around every rest and retire, whichever thread writes it.
+    pub rest_lock: Mutex<()>,
+    /// The let-go of every resting agent was made sure of once in this run
+    /// (a drop-off's is queued in memory, and Irori may quit before it).
+    pub rest_reconciled: std::sync::atomic::AtomicBool,
     /// Ends whose `claude stop`/`rm` failed (card #474): how many times,
     /// and when last. Tried again after [`END_RETRY`], at most
     /// [`END_TRIES`] times; `agent.gone` is never written again.
@@ -1872,7 +1894,7 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) -> bool {
     changed
 }
 
-fn session_of(key: &str) -> &str {
+pub(crate) fn session_of(key: &str) -> &str {
     key.rsplit_once('/').map_or(key, |(_, s)| s)
 }
 
@@ -2087,6 +2109,9 @@ impl Services {
         self.expire_usage_hold();
         self.sweep_usage_limits();
         self.end_finished();
+        // Resting agents have no session for end_finished to walk (card
+        // #1215).
+        self.sweep_resting();
         self.sweep_ending();
         self.reap_ended();
         self.sweep_permission_waits();
@@ -2160,6 +2185,7 @@ impl Services {
         let me = self.device.id.clone();
         let cap = self.spawn_cap(&me);
         let mut running = self.spawned_here();
+        let mut waiting = 0usize;
         // In queue order (§6): what the person asked for, helpers, the rest.
         // A usage limit holds every start here until it resets (card #450).
         for t in self.coord.cards_to_spawn() {
@@ -2191,10 +2217,21 @@ impl Services {
                 continue;
             }
             if paused || running >= cap {
+                // A thread or ask waiting for a slot: an idle agent that
+                // holds nothing rests to make room (card #1215).
+                if !paused && t.open_ask().is_some() {
+                    waiting += 1;
+                    self.slot_rest(&t, waiting);
+                }
                 continue;
             }
             match self.spawn_for(&sp, &t) {
-                Ok(true) => running += 1,
+                Ok(true) => {
+                    running += 1;
+                    // Its successor has it now (agent-continuity 7's
+                    // fallback, card #1215).
+                    self.retire_for_start(&t);
+                }
                 Ok(false) => {}
                 Err(e) => logf(format_args!("spawn {}: {e}", t.short_ref())),
             }
@@ -2237,6 +2274,7 @@ impl Services {
                 a.status != "gone"
                     && keys.contains(&a.key)
                     && irori_identity::owner::device_of(&a.key) == me
+                    && !self.resting(&a.key)
                     && !self
                         .spawn
                         .removed
@@ -2366,7 +2404,11 @@ impl Services {
             .presence
             .snapshot()
             .into_iter()
-            .filter(|a| a.status != "gone" && self.coord.is_spawned(&a.key))
+            // A resting agent frees its slot as soon as it rests, though its
+            // process may take a moment to exit (card #1215).
+            .filter(|a| {
+                a.status != "gone" && self.coord.is_spawned(&a.key) && !self.resting(&a.key)
+            })
             .count() as i64;
         let starting = self
             .open_cards()
@@ -3310,6 +3352,15 @@ impl Services {
                 continue;
             };
             let sess = session_of(&k);
+            // A resting agent (card #1215) is meant to be stopped and still
+            // listed: it rests on. One still running (Irori stopped before
+            // its stop took) is stopped again.
+            if self.resting(&k) {
+                if agents.iter().any(|a| a.session_id == sess && a.live) {
+                    self.stop_job(&k);
+                }
+                continue;
+            }
             if agents.iter().any(|a| a.session_id == sess && a.live) {
                 continue;
             }
@@ -3403,6 +3454,7 @@ impl Services {
         for a in self.presence.snapshot() {
             if !began_a_turn(&a.status)
                 || irori_identity::owner::device_of(&a.key) != self.device.id
+                || self.resting(&a.key)
             {
                 continue;
             }
@@ -3419,7 +3471,9 @@ impl Services {
     /// raised, or closed) are ended.
     fn end_finished(&self) {
         for a in self.presence.snapshot() {
-            if a.status == "gone" {
+            // A resting agent's session may still be listed while it exits
+            // (card #1215): it already let go.
+            if a.status == "gone" || self.resting(&a.key) {
                 continue;
             }
             let Some(m) = self.coord.spawned(&a.key) else {
@@ -3543,7 +3597,7 @@ impl Services {
                     && !self.coord.thread_wanted(&t.id)
                     && at_least(&now, &quiet_since, limit);
                 if lost || quiet {
-                    self.begin_end(&a.key);
+                    self.settle_agent(&a);
                 }
                 continue;
             }
@@ -3553,7 +3607,8 @@ impl Services {
             if t.spawn_request().is_some_and(|s| {
                 s.generation == m.generation && !s.key.is_empty() && t.sent_back_lifts(s)
             }) {
-                self.begin_end(&a.key);
+                // It needs a stronger model: this agent retires (card #1215).
+                self.begin_retire(&a.key, coord::roster::RETIRE_LIFTED);
                 continue;
             }
             let waiting = t.state == BLOCKED
@@ -3598,7 +3653,9 @@ impl Services {
                 || coord::is_terminal(&t.state)
                 || !t.holders.contains(&a.key)
             {
-                self.begin_end(&a.key);
+                // Its item settled: it rests, or retires past its budget or
+                // under the person's Stop (agent-continuity 6, card #1215).
+                self.settle_agent(&a);
             }
         }
     }
@@ -3702,7 +3759,8 @@ impl Services {
     /// wait ran out.
     fn sweep_ending(&self) {
         let now = (self.now)();
-        let due: Vec<(String, bool)> = {
+        type Due = (String, bool, Option<super::resting::Ending>);
+        let due: Vec<Due> = {
             let m = self.spawn.ending.lock().unwrap_or_else(|e| e.into_inner());
             let tries = self
                 .spawn
@@ -3716,17 +3774,41 @@ impl Services {
                         .is_none_or(|(_, last)| at_least(&now, last, END_RETRY))
                 })
                 .filter_map(|(k, at)| {
-                    let given = self.handed_off(k, &now);
+                    // A rest asks for a hand-off since it began (card #1215).
+                    let kind = self.ending_kind(k);
+                    let given = match kind {
+                        Some(super::resting::Ending::Rest(_)) => self.rested_handoff(k, at),
+                        _ => self.handed_off(k, &now),
+                    };
                     // Left its card while winding down (card #787): it
                     // still owes the person its "wound down", so it is
                     // ended once it replied, or after the wait.
                     let ready = given && !self.winding_down(k);
-                    (ready || at_least(&now, at, HANDOFF_WAIT)).then(|| (k.clone(), given))
+                    (ready || at_least(&now, at, HANDOFF_WAIT)).then(|| (k.clone(), given, kind))
                 })
                 .collect()
         };
-        for (k, given) in due {
-            if let Err(e) = self.end_now(&k, given) {
+        for (k, given, seen) in due {
+            // Another sweep (the person's End runs one off the sweep thread)
+            // may have finished it since: never end what it rested.
+            if !self
+                .spawn
+                .ending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(&k)
+            {
+                continue;
+            }
+            // A rest turned into a retire since (End, a lift) is read again;
+            // a kind cleared under us keeps the one seen.
+            let kind = self.ending_kind(&k).or(seen);
+            let res = match kind {
+                Some(super::resting::Ending::Rest(r)) => self.rest_now(&k, given, r),
+                Some(super::resting::Ending::Retire(r)) => self.retire_now(&k, given, r),
+                None => self.end_now(&k, given),
+            };
+            if let Err(e) = res {
                 // Its agent.gone is written already; only stop and rm are
                 // tried again, a few times, not every sweep (card #474).
                 let n = {
@@ -3758,16 +3840,25 @@ impl Services {
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&k);
             self.spawn
-                .removed
+                .end_kind
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .insert(k);
+                .remove(&k);
+            // A rested agent isn't removed: its next life is judged again
+            // (card #1216).
+            if !matches!(kind, Some(super::resting::Ending::Rest(_))) {
+                self.spawn
+                    .removed
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(k);
+            }
         }
     }
 
     /// Agent `key` has the person's wind-down open (card #787): it was
     /// asked to wind down and hasn't answered yet.
-    fn winding_down(&self, key: &str) -> bool {
+    pub(crate) fn winding_down(&self, key: &str) -> bool {
         self.inbox
             .for_agent(key, false, usize::MAX)
             .iter()
@@ -3791,7 +3882,7 @@ impl Services {
     /// lets it go as finished after ENDED_GRACE. The line and the
     /// `agent.gone` are written once per agent, however often stop and rm
     /// are tried (card #474).
-    fn end_now(&self, key: &str, given: bool) -> Result<(), String> {
+    pub(crate) fn end_now(&self, key: &str, given: bool) -> Result<(), String> {
         if !self.coord.ended_by_irori(key) {
             let card = self.spawn_card_of(key);
             if let Some((co, t, _)) = &card
@@ -3925,7 +4016,11 @@ impl Services {
                 continue;
             }
             let k = format!("{me}/{}", a.session_id);
-            if self.coord.spawned(&k).is_none() || !self.coord.ended_by_irori(&k) {
+            // A resting agent's job is kept for its wake (card #1215).
+            if self.coord.spawned(&k).is_none()
+                || !self.coord.ended_by_irori(&k)
+                || self.resting(&k)
+            {
                 continue;
             }
             if self
@@ -3943,12 +4038,17 @@ impl Services {
         }
     }
 
-    /// The person's End on a spawned agent: the same end, asked now.
+    /// The person's End on a spawned agent (or an agent's `agent_end`): it
+    /// retires, asked now (card #1215). A resting one retires at once: its
+    /// hand-off was written when it rested.
     pub(crate) fn end_spawned(&self, key: &str) -> Result<(), String> {
         if self.coord.spawned(key).is_none() {
             return Err(format!("{key} wasn't started by Irori"));
         }
-        self.begin_end(key);
+        if self.resting(key) {
+            return self.retire_resting(key, coord::roster::RETIRE_ENDED);
+        }
+        self.begin_retire(key, coord::roster::RETIRE_ENDED);
         self.sweep_ending();
         Ok(())
     }

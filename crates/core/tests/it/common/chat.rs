@@ -30,6 +30,7 @@ pub fn spawner(ready: &Arc<AtomicBool>) -> Spawner {
         end: Arc::new(|_| Ok(String::new())),
         trusted: Arc::new(|_| true),
         list: None,
+        stop: None,
     }
 }
 
