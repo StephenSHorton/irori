@@ -218,20 +218,20 @@ Snapshot {
 - **What a verb acts on.**
   - `#12` and `ops#12` refs;
   - "all", "all of Spencer's", "Spencer's";
-  - "the first N", "the last N", "the rest", "the others";
+  - "the rest", "the others" (as built, #1226: not "the first N" or "the last N", see below);
   - "it", "them" and "those" for what was named last.
   
   Each is resolved against the snapshot, and only against items given to the person. A ref that matches zero items, or more than one, grants nothing. An item in state "starting" gets no GiveBack: the assistant replies "stop it first".
-- **Reasons.** Words after "because", ":", a dash, or "tell <giver>" are the reason, taken verbatim. As built, a reason that takes the request back or names a given card voids the message (S6, as built). "tell <name>", where the name is a giver in the snapshot, only ever marks a reason, never a Send.
+- **Reasons.** Words after "because", or in a "tell <giver>" clause, are the reason, taken verbatim (as built: S6's note). "tell <name>", where the name is a giver in the snapshot, only ever marks a reason, never a Send.
 - **Give.** The person is resolved among `people`. Two or more matches grant nothing, and the assistant asks which one.
 - **A message it can't read grants nothing.** The assistant then offers **Do it** (§5.4). It never guesses.
-- **Echo the refs.** When the assistant acts on positional words ("the first three"), its reply names the exact refs it acted on.
+- **Echo the refs.** When the assistant acts on set words ("all", "the rest"), its reply names the exact refs it acted on.
 
 **Examples** (S6 unit tests):
 
 | The person types | Grants |
 |---|---|
-| "accept the first three, reject the rest, tell Spencer it's too big" | Start ×3, and GiveBack ×1 with "it's too big" |
+| "accept #12, #13 and #14, reject the rest, tell Spencer it's too big" | Start ×3, and GiveBack ×1 with "it's too big" |
 | "tell Spencer it's too big, give back #15" | GiveBack(#15, "it's too big"), and no Send |
 | "not now #12" and "#12 not now" | NotNow |
 | "give back #15 because it's not mine" | GiveBack, with that reason |
@@ -574,13 +574,19 @@ Each slice is one card, and the order follows the dependencies.
 
 **Done when:** the tests pass, and one scratch home (CLAUDE.md, scratch builds) shows the assistant answering "what's waiting on me?" from `needs_you`, with the sender's text fenced. The live `irori.log` gains nothing.
 
-**As built (#1226).**
-- `needs_you` and the four writes live in `crates/tools/src/needs.rs`; the reader is `crates/tools/src/assistant_needs.rs`. `given_rows` is the one list: the tool numbers it and `needs_snapshot` (Core's `chat_take`) is taken from it, so "the first three" means the same cards in both.
-- `grants_for` reads "tell <name> …" as a message first, as before, unless the name is a giver in the snapshot; then the Needs you reader takes the whole message ("tell Spencer it's too big, give back #15" is a reason, never a Send). A message that is about Needs you but not plain grants nothing and never falls through to the other readers.
-- A "because", colon or dash reason runs to the end of its sentence, so nothing after it acts; "tell <giver> …" ends only at a comma or semicolon before the next verb. "since" is not a reason mark ("reject everything since Monday" is about when). A hold-back word anywhere outside a reason voids the whole message, and so does a reason that names a card given to them, takes the request back or makes it conditional (wait, actually, unless, until, if, maybe, instead), or runs past 4,000 characters. "It" and "them" mean the cards the person's last message named, and all of those must be given to them.
-- An adversarial pass on the reader (four lenses, #1226) found over-grants that are now closed and pinned by `nothing_grants_more_than_the_person_plainly_said`: a set word (all, Spencer's, the first N, the rest) stands alone in its clause and "of them" counts over the cards named last; a contraction ("let's", "that's") is never a possessive, and a member's name that holds a word the reader gives a meaning to (please, the, me, someone, a verb) never matches, so other members can't name themselves into a target or a recipient; a give never passes on a card given to the person, never names a card for two people, and its "it" never reaches back past a card this message named; a tell to a giver is never a Send, and with it only give-backs of that giver's cards are granted; any un-asked question, "?!", a curly-quoted hold-back and every line separator (CR, U+2028, U+0085 …) void the message; the snapshot leaves out cards given after the person typed (`Given.at`, `needs_snapshot_before`).
+**As built (#1226).** What the reader reads, and why it reads less than §5.2 lists:
+- **Where.** `needs_you` and the four writes are in `crates/tools/src/needs.rs`; the reader is `crates/tools/src/assistant_needs.rs`. `given_rows` is the one list: the tool prints it and Core's `chat_take` takes the snapshot from it (`needs_snapshot_before`, with only the cards given before the person typed; when that leaves a card out, set words grant nothing and refs still do).
+- **No positions.** "The first N" and "the last N" are not read. The window lists given cards space by space in its own order (S2's `given_rank` is per space), so a position could name a card the person didn't see there. Refs, "all", "all of Spencer's", "Spencer's", "the rest" and "the others" are read; "the rest" is the cards given to them that the message didn't name. Bringing positions back needs one order shared by the window and Core (a follow-up card).
+- **Reasons.** Only after "because" (it runs to the end of the message: nothing may follow it) or in a "tell <giver> …" clause (ends at a comma before the next verb). A dash or a colon starts no reason. A reason is read word by word and voids the whole message when it asks something, names a card given to them, takes the request back or carves something out of it ("but", "except", "keep", "wait", "never mind", a verb …), or runs past the 1,000 characters the card keeps. "not" stays the person's own ("it's not mine").
+- **Messages and tells.** `grants_for` reads "tell <name> …" as a message first, as before, unless the name is a giver in the snapshot; then it is only ever a reason, and only give-backs of that giver's cards are granted with it. A message that opens as a close, tick or comment goes to those readers. A message that is about Needs you but not plain grants nothing and never falls through.
+- **Names** are other members' own choice: a contraction is never a possessive; a name holding a word the reader gives a meaning to never matches, and a member with such a name still makes a shared first word ambiguous; a name never runs across a comma; a longer name beats only a first-name-only match, never another member's whole name; a recipient without "to" must follow the verb. In `needs_you` a name outside a fence is quoted and escaped.
+- **Gives** never pass on a card given to the person and never name one card for two people: the reader checks refs, and `take_give` checks again by card id (the grant carries the snapshot's ids), whatever the model spells.
+- **Pronouns** ("it", "them", "of those") mean the cards named just before in this message, or in the person's previous message only; never past a give in this message.
+- **Questions and line breaks.** An un-asked question anywhere, "?!", any line separator (CR, U+2028, U+0085 …) and a hold-back word outside a reason void the message.
+- **Known limits.** A giver whose clock runs behind can slip a card into "all" given while the question waited (normally seconds, at most 5 minutes); the card still asks nothing of the person's agents beyond its fenced request. A give-back goes to the card's owner, who may not be the giver (#432); the tool's reply names the owner.
+- **How it was checked.** Three adversarial rounds (four lenses each) traced over-grants through the code; every one is pinned by the reader's unit tests (`nothing_grants_more_than_the_person_plainly_said`, `round_two_cases_grant_nothing`, and the others).
 - "Say it needs that plain form" stays as it is in `SYSTEM` until S7 builds Do it.
-- Test 15 (the yes) is part of the two-Core test: the assistant's Start is one yes and starts one agent. The two-Core tests also cover Not now, a hostile title in `needs_you`, and a Personal card shared and given in one step.
+- Test 15 (the yes) is part of the two-Core test: the assistant's Start is one yes and starts one agent. The two-Core tests also cover Not now, a hostile title in `needs_you`, the snapshot cutoff, and a Personal card shared and given in one step.
 
 ### S7. Do it, and the thread-post guard (normal). After S6.
 

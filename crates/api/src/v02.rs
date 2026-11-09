@@ -186,7 +186,7 @@ fn tool(h: &Handler, name: &str) -> Resp {
             None => {
                 return http::error(
                     403,
-                    "the person's message didn't ask for that: say it plainly, naming the card or agent (close #12, tick s2 on #12, tell ringo ..., comment on #12: ...; for cards given to them: start #12, not now #12, give back #12 because ..., accept the first three, reject the rest, start all of Spencer's; give #12 and #13 to Spencer; tag#12 for a space's card, and a bare #12 that is on two boards needs its tag)",
+                    "the person's message didn't ask for that: say it plainly, naming the card or agent (close #12, tick s2 on #12, tell ringo ..., comment on #12: ...; for cards given to them: start #12, not now #12, give back #12 because ..., accept #12 and #13, reject the rest, start all of Spencer's; give #12 and #13 to Spencer; tag#12 for a space's card, and a bare #12 that is on two boards needs its tag)",
                 );
             }
         }

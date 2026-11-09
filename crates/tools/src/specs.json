@@ -2602,7 +2602,7 @@
   },
   {
     "name": "assistant_start",
-    "description": "Start an agent on a card given to the person: their yes for that card. Only when the person's own newest message plainly tells you to (start #12, accept the first three), and only the cards it names; anything else is refused. One call per card.",
+    "description": "Start an agent on a card given to the person: their yes for that card. Only when the person's own newest message plainly tells you to (start #12, accept #12 and #13), and only the cards it names; anything else is refused. One call per card.",
     "inputSchema": {
       "type": "object",
       "properties": {
