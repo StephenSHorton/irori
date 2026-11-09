@@ -60,6 +60,7 @@ mod personal_boards;
 mod pr_cards;
 mod prefetch;
 mod prwatch;
+mod review_choice;
 mod review_pick;
 mod reviews_setting;
 mod search;

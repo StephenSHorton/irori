@@ -324,7 +324,7 @@ fn bobs_third(t: &Two) -> String {
 
 /// Puts Bob's sessions `keys` on the board; their board keys, once Alice's
 /// side reads them idle.
-fn bobs_on(t: &Two, keys: &[&str]) -> Vec<String> {
+pub(crate) fn bobs_on(t: &Two, keys: &[&str]) -> Vec<String> {
     let out: Vec<String> = keys
         .iter()
         .map(|k| t.b().board_key(&t.board, k).unwrap())
@@ -358,6 +358,10 @@ fn comment_on(t: &Two, card: &Task, keys: &[String]) {
 }
 
 /// The asks (pings left out) and the pings in `st`.
+pub(crate) fn asks_and_pings_pub(st: &Store) -> (Vec<serde_json::Value>, Vec<serde_json::Value>) {
+    asks_and_pings(st)
+}
+
 fn asks_and_pings(st: &Store) -> (Vec<serde_json::Value>, Vec<serde_json::Value>) {
     review_rows(st)
         .into_iter()

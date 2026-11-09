@@ -998,6 +998,17 @@ impl Job {
         Ok(job)
     }
 
+    /// The turn that names related agents and a reviewer for a PR (merge
+    /// desk §12.5, card #1081): a naming turn in its own folder. Its
+    /// words come from other people's cards: no CLAUDE.md from above.
+    pub fn chooser(core: &irori_core::Core, ask: &NameAsk) -> Result<Job, String> {
+        let mut job = Job::namer(core, ask)?;
+        job.dir = job.dir.with_file_name(CHOOSES_DIR);
+        job.timeout = CHOOSES_TIMEOUT;
+        job.no_settings = true;
+        Ok(job)
+    }
+
     /// The turn that answers another person's question (assistants talk
     /// §5, cards 4 and 5): no tools, no MCP server and no secret (D5), in
     /// its own folder, on the chat's model and effort (Settings › Agents).
@@ -1077,6 +1088,10 @@ pub const REWRITES_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// The weighing turns' folder under the assistant's (card #965).
 pub const WEIGHS_DIR: &str = "weighs";
+/// The folder of the turn that names a PR's related agents (card #1081).
+pub const CHOOSES_DIR: &str = "chooses";
+/// How long that turn may take.
+pub const CHOOSES_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a weighing turn may take: a held card starts by then anyway.
 pub const WEIGHS_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -2249,6 +2264,13 @@ impl crate::Window {
     pub fn weigh_card(&self, ask: &NameAsk) -> Result<String, String> {
         self.weighs
             .run_once(find_claude(), Job::weigher(&self.core, ask))
+    }
+
+    /// One turn that names a PR's related agents and reviewer (card
+    /// #1081), on its own runner; the Core's review chooser.
+    pub fn choose_reviewer(&self, ask: &NameAsk) -> Result<String, String> {
+        self.chooses
+            .run_once(find_claude(), Job::chooser(&self.core, ask))
     }
 
     /// One turn that answers another person's question to the person's
