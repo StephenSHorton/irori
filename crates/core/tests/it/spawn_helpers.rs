@@ -246,3 +246,99 @@ fn a_cards_helpers_are_bound_by_the_devices_cap() {
         started() == 5
     });
 }
+
+/// Card #1129: a helper's part that needs the other machine (`needs:pc` on
+/// a Mac, `needs:mac` on a PC) waits instead of starting an agent here that
+/// can only hand it back, over and over; a part with no such need starts.
+#[test]
+fn a_helper_part_that_needs_the_other_machine_waits() {
+    let r = Rig::new();
+    let d = tempfile::tempdir().unwrap();
+    let repo = d.path().join("game-repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("a.txt"), "a").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    git(&repo, &["checkout", "-q", "-b", "lead/1129-card"]);
+
+    let fake = Arc::new(Fake::default());
+    let person = format!("user:{}", r.core.device_id());
+    let co = r.core.coord();
+    let p = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "big card".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.claim_task(&r.key_a, &p.id).unwrap();
+    co.set_where(
+        &p.id,
+        Where {
+            who: r.key_a.clone(),
+            cwd: repo.to_string_lossy().into(),
+            branch: "lead/1129-card".into(),
+            ..Where::default()
+        },
+    )
+    .unwrap();
+    // The machine this test is not running on.
+    let other = if cfg!(windows) {
+        "needs:mac"
+    } else {
+        "needs:pc"
+    };
+    let (_, made) = co
+        .split(
+            &r.key_a,
+            &p.id,
+            vec![
+                NewSubtask {
+                    title: format!("elsewhere {other}"),
+                    spawn: true,
+                    ..NewSubtask::default()
+                },
+                NewSubtask {
+                    title: "anywhere".into(),
+                    spawn: true,
+                    ..NewSubtask::default()
+                },
+            ],
+            vec![],
+        )
+        .unwrap();
+    let (elsewhere, anywhere) = (&made[0], &made[1]);
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            board_id: String::new(),
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    wait_for(60, "the part with no need started", || {
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+        fake.started
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|q| q.task_id == anywhere.id)
+    });
+    for _ in 0..5 {
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+    let reqs = fake.started.lock().unwrap().clone();
+    assert!(
+        reqs.iter().all(|q| q.task_id != elsewhere.id),
+        "nothing started for the part that needs the other machine: {reqs:?}"
+    );
+    assert!(
+        r.core.why_no_agent(&elsewhere.id, true).is_some(),
+        "it says why it waits"
+    );
+}
