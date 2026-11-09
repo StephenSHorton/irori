@@ -136,10 +136,15 @@ pub struct CheckSlot {
     pub until: String,
 }
 
-/// This device's check slots held now, by `scripts/check.sh` runs.
+/// This device's check slots held now, by `scripts/check.sh` runs. check.sh
+/// is a tool for building Irori, not part of the product: a release build
+/// answers none, so the sidebar line never shows there (card #1161).
 #[tauri::command]
 #[specta::specta]
 pub async fn roster_check_slots(w: W<'_>) -> R<Vec<CheckSlot>> {
+    if !cfg!(debug_assertions) {
+        return Ok(Vec::new());
+    }
     let dev = w.core.device_id().to_string();
     let mut out = Vec::new();
     for l in w.core.coord().leases() {
