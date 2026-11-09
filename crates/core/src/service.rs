@@ -59,6 +59,7 @@ pub mod assistant_answers;
 pub mod assistant_chat;
 pub mod assistant_home;
 mod assistant_name;
+pub mod assistant_packet;
 mod assistant_turns;
 pub mod boards;
 mod boards_members;

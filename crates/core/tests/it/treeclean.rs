@@ -1007,7 +1007,7 @@ fn a_folder_list_finds_a_process_in_the_tree() {
 fn a_process_sitting_in_the_tree_keeps_it_on_unix() {
     let (_d, _main, w) = setup("in-use-unix");
     let mut child = std::process::Command::new("sleep")
-        .arg("30")
+        .arg("300")
         .current_dir(w.join("."))
         .spawn()
         .unwrap();
@@ -1031,7 +1031,7 @@ fn a_process_sitting_in_the_tree_keeps_it_on_unix() {
 fn a_holder_is_named_and_can_be_ended_on_unix() {
     let (_d, _main, w) = setup("holder-unix");
     let mut child = std::process::Command::new("sleep")
-        .arg("30")
+        .arg("300")
         .current_dir(&w)
         .spawn()
         .unwrap();
@@ -1449,7 +1449,7 @@ fn a_git_bash_shell_sitting_in_the_tree_keeps_it() {
     }
     let (_d, _main, w) = setup("bash-in-it");
     let mut child = std::process::Command::new(&sh)
-        .args(["-c", "exec sleep 30"])
+        .args(["-c", "exec sleep 300"])
         .current_dir(&w)
         .spawn()
         .unwrap();
@@ -1483,7 +1483,7 @@ fn a_git_bash_holder_is_named_and_can_be_ended() {
     }
     let (_d, _main, w) = setup("bash-holder");
     let mut child = std::process::Command::new(&sh)
-        .args(["-c", "exec sleep 30"])
+        .args(["-c", "exec sleep 300"])
         .current_dir(&w)
         .spawn()
         .unwrap();
@@ -1672,7 +1672,7 @@ fn fake_holder(w: &Path) -> Option<std::process::Child> {
             return None;
         }
         let child = std::process::Command::new(&sh)
-            .args(["-c", "exec sleep 30"])
+            .args(["-c", "exec sleep 300"])
             .current_dir(w)
             .spawn()
             .unwrap();
@@ -1682,7 +1682,7 @@ fn fake_holder(w: &Path) -> Option<std::process::Child> {
     #[cfg(unix)]
     {
         let child = std::process::Command::new("sleep")
-            .arg("30")
+            .arg("300")
             .current_dir(w)
             .spawn()
             .unwrap();
