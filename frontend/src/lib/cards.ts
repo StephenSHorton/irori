@@ -2825,6 +2825,9 @@ export function useCards(): CardsState {
     // The Done tab reads when a card leaves this list (card #1152).
     liveCards.note(value.map((c) => c.id))
   }, [value, loading, error])
+  // With no grid watching, the Done tab can't tell what closed: any card a
+  // change names reads it, as before.
+  useEffect(() => () => liveCards.reset(), [])
   const v = useSyncExternalStore(pending.subscribe, pending.version)
   const cards = useMemo(
     () => pending.summaries(value),

@@ -281,6 +281,19 @@ describe("the Done tab (card #1152)", () => {
     live.note(["a", "c", "n"]) // a new card isn't a leaver
     expect(left).toEqual([["b"]])
   })
+  test("with the grid gone, any named card reads again", () => {
+    const live = createLiveCards()
+    live.note(["a", "b"])
+    expect(doneWakes(notice(["x"]), new Set(), live)).toBe(false)
+    live.reset() // useCards unmounted
+    expect(doneWakes(notice(["x"]), new Set(), live)).toBe(true)
+    // And the grid mounting again doesn't report what closed meanwhile as
+    // a leaver of its own.
+    const left: string[][] = []
+    live.onLeft((ids) => left.push(ids))
+    live.note(["a"])
+    expect(left).toEqual([])
+  })
   test("before the grid has answered, any named card reads", () => {
     const live = createLiveCards()
     expect(doneWakes(notice(["x"]), new Set(), live)).toBe(true)
