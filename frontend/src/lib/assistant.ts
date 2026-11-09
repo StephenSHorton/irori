@@ -40,6 +40,12 @@ import {
   type SettleDraft,
 } from "./huddle-divide"
 import { screenLabel, screenSnapshot, StatusHead } from "./assistant-screen"
+import {
+  FromKinds,
+  clipFrom,
+  startTalkFollow,
+  type From,
+} from "./assistant-talk-follow"
 import { AssistantService, Events } from "./host"
 import { EventDevicesChanged, inWails } from "./irori"
 import { previewFlag } from "./preview"
@@ -86,6 +92,17 @@ export type ChatEntry = {
   device?: string
   again?: string
   retry?: boolean
+  // Assistants talk (card #1062): a labelled line, what another person's
+  // assistant said to this person or what theirs was asked or said. It is
+  // never a row: each device rebuilds it from the #office-assistants
+  // channel (assistant-talk-follow.ts), and it is never sent to the model
+  // (the prompt is built in Rust from rows). It is someone else's words:
+  // plain text, never parsed for drafts or go lines.
+  from?: From
+  // When it happened (ms), to merge the labelled lines in by time.
+  at?: number
+  // A quiet line: a held line or a tap's record. No dot.
+  quiet?: boolean
 }
 
 export type Posted = { id: string; short: string; tag?: string }
@@ -167,6 +184,47 @@ export function capHistory<T>(entries: readonly T[], n = HistoryCap): T[] {
   return entries.length > n ? entries.slice(entries.length - n) : [...entries]
 }
 
+// capKeeping caps like capHistory but keeps the lines that still wait on
+// the person: an unanswered needs line is never pushed out by quiet ones.
+export function capKeeping(
+  entries: readonly ChatEntry[],
+  n = HistoryCap
+): ChatEntry[] {
+  if (entries.length <= n) return [...entries]
+  const cut = entries.length - n
+  return entries.filter((e, i) => i >= cut || e.from?.kind === "needs")
+}
+
+// parseFrom reads a labelled line's origin back, or null when it isn't one
+// (a from it can't validate drops the whole entry).
+function parseFrom(v: unknown): From | null {
+  if (!v || typeof v !== "object") return null
+  const o = v as Record<string, unknown>
+  const str = (k: string) =>
+    typeof o[k] === "string" ? (o[k] as string) : null
+  const kind = FromKinds.find((k) => k === o.kind)
+  const name = str("name")
+  const space = str("space")
+  const conv = str("conv")
+  const postId = str("postId")
+  const question = str("question")
+  const spaceName = str("spaceName")
+  if (
+    !kind ||
+    name === null ||
+    !space ||
+    !conv ||
+    !postId ||
+    question === null ||
+    spaceName === null
+  )
+    return null
+  const f: From = { kind, name, space, conv, postId, question, spaceName }
+  if (o.waiting === "ask" || o.waiting === "owner") f.waiting = o.waiting
+  if (o.mine === true) f.mine = true
+  return f
+}
+
 // parseHistory reads saved history back, keeping only well-formed entries
 // (the store is this device's, but it may be from an older build).
 export function parseHistory(raw: string | null): ChatEntry[] {
@@ -192,9 +250,25 @@ export function parseHistory(raw: string | null): ChatEntry[] {
       to,
       files,
       looked,
+      from,
+      at,
     } = x as Record<string, unknown>
     if ((role !== "person" && role !== "assistant") || typeof text !== "string")
       continue
+    // A labelled line (card #1062) is someone else's words: it comes back
+    // as itself, with no draft, go, update or looked, or not at all.
+    if (from !== undefined) {
+      const f = role === "assistant" ? parseFrom(from) : null
+      if (!f || !text.trim()) continue
+      const line: ChatEntry = {
+        role: "assistant",
+        text: clipFrom(text),
+        from: f,
+      }
+      if (typeof at === "number" && Number.isFinite(at)) line.at = at
+      out.push(line)
+      continue
+    }
     const refs = role === "person" ? parseFiles(files) : []
     if (!text.trim() && !refs.length) continue
     const e: ChatEntry =
@@ -225,7 +299,7 @@ export function parseHistory(raw: string | null): ChatEntry[] {
       e.looked = looked
     out.push(e)
   }
-  return capHistory(out)
+  return capKeeping(out)
 }
 
 // parseFiles keeps the well-formed file references of a saved message,
@@ -398,6 +472,8 @@ function initial(): AssistantState {
       ],
     }
   if (flag === "new") return { ...base, open: true }
+  // ?assistant=talk: the labelled lines (card #1062).
+  if (flag === "talk") return { ...base, open: true, entries: sampleTalk }
   // ?assistant=waiting: a question another device asked, no reply yet.
   if (flag === "waiting")
     return {
@@ -453,6 +529,77 @@ function initial(): AssistantState {
     }
   return base
 }
+
+// sampleTalk is the preview's ?assistant=talk: the chat with each labelled
+// line (docs/design/assistants-talk.md §15, mockup 3).
+const sampleFrom = (f: Partial<From> & Pick<From, "kind" | "name">): From => ({
+  space: "mlg",
+  conv: "ch_oa_sample",
+  postId: "post_sample",
+  question: "",
+  spaceName: "mlg",
+  ...f,
+})
+const sampleTalk: ChatEntry[] = [
+  { role: "person", text: "Is Eve still on the netcode card?" },
+  {
+    role: "assistant",
+    text: "I'll ask Eve's assistant in #office-assistants on mlg.",
+  },
+  {
+    id: "f:answer:1",
+    role: "assistant",
+    text: "Yes: Eve holds #9 Netcode rollback (working, 2 of 4). Nothing on mlg says when it lands.",
+    from: sampleFrom({
+      kind: "answer",
+      name: "Juno · Eve's assistant",
+      postId: "p1",
+      question: "Is Eve still on the netcode card?",
+    }),
+  },
+  {
+    id: "f:needs:2",
+    role: "assistant",
+    text: "Your assistant can't say yes for you, so it told them it asked you.",
+    from: sampleFrom({
+      kind: "needs",
+      name: "sample-otter, Eve's agent",
+      postId: "p2",
+      question: "Can Sam review PR #12 today?",
+      waiting: "owner",
+    }),
+  },
+  {
+    id: "f:needs:3",
+    role: "assistant",
+    text: "This space is set to Ask me, so your assistant waited.",
+    from: sampleFrom({
+      kind: "needs",
+      name: "Eve",
+      postId: "p3",
+      question: "What's Sam's next card after #14?",
+      waiting: "ask",
+    }),
+  },
+  {
+    id: "f:asked:4",
+    role: "assistant",
+    text: "On mlg, Sam holds #14 Lobby list from the relay (working, step 3 of 5) and #18 Release notes…",
+    from: sampleFrom({
+      kind: "asked",
+      name: "Eve",
+      postId: "p4",
+      question: "Which cards is Sam on?",
+    }),
+  },
+  {
+    id: "u:held:p5",
+    role: "assistant",
+    text: "Questions from Eve were not answered",
+    update: "held:p5",
+    quiet: true,
+  },
+]
 
 export function assistantState(): AssistantState {
   state ??= initial()
@@ -525,7 +672,9 @@ export function entriesFrom(page: readonly AssistantChatItem[]): ChatEntry[] {
         role: "assistant",
         text: u.text,
         update: u.thread || u.key,
+        at: u.at,
       }
+      if (quietKey(u.key)) e.quiet = true
       if (u.act && u.act.kind === "answer" && u.act.card && u.act.blocker)
         e.act = { kind: "answer", card: u.act.card, blocker: u.act.blocker }
       out.push(e)
@@ -539,6 +688,7 @@ export function entriesFrom(page: readonly AssistantChatItem[]): ChatEntry[] {
       text: t.text,
       turn: t.turn,
       device: t.device,
+      at: t.at,
     }
     if (t.files?.length) q.files = t.files
     if (t.again) q.again = t.again
@@ -552,6 +702,7 @@ export function entriesFrom(page: readonly AssistantChatItem[]): ChatEntry[] {
         role: "assistant",
         text: r.text,
         turn: t.turn,
+        at: r.at,
       }
       if (t.posted)
         a.posted = {
@@ -591,6 +742,33 @@ export function entriesFrom(page: readonly AssistantChatItem[]): ChatEntry[] {
   return out
 }
 
+// quietKey: a held line (held:<post>) or a tap's record (req:<request>)
+// shows in the chat but waits on nobody: no dot.
+export function quietKey(key: string): boolean {
+  return key.startsWith("held:") || key.startsWith("req:")
+}
+
+// mergeLines puts the labelled lines among the conversation's entries by
+// time. An entry with no time sits with the one before it.
+export function mergeLines(
+  rows: readonly ChatEntry[],
+  lines: readonly ChatEntry[]
+): ChatEntry[] {
+  if (!lines.length) return [...rows]
+  const sorted = [...lines].sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
+  const out: ChatEntry[] = []
+  let last = 0
+  let i = 0
+  for (const e of rows) {
+    const t = e.at ?? last
+    while (i < sorted.length && (sorted[i].at ?? 0) < t) out.push(sorted[i++])
+    out.push(e)
+    last = t
+  }
+  while (i < sorted.length) out.push(sorted[i++])
+  return out
+}
+
 // postedIds is the threads the chat's messages posted, oldest first.
 export function postedIds(entries: readonly ChatEntry[]): string[] {
   const out: string[] = []
@@ -611,10 +789,20 @@ const GoWithinMs = 10 * 60 * 1000
 
 let loaded = false
 
+// The labelled lines the channel says (assistant-talk-follow.ts): never
+// rows, rebuilt from the channel and merged in by time.
+let talkLines: ChatEntry[] = []
+
+// setTalkLines takes a read of the channel's lines.
+export function setTalkLines(lines: ChatEntry[]) {
+  talkLines = lines
+  derive()
+}
+
 // derive rebuilds the shown entries from the loaded items and opens a
 // watch for each question still waiting.
 function derive() {
-  const entries = entriesFrom(items)
+  const entries = mergeLines(entriesFrom(items), talkLines)
   const s = assistantState()
   const pending = entries.filter((e) => e.pending && e.turn)
   watchTurns(pending.map((e) => e.turn as string))
@@ -623,7 +811,7 @@ function derive() {
     entries,
     more,
     busy,
-    unread: s.open ? false : replyDot || updatesUnread(),
+    unread: s.open ? false : replyDot || updatesUnread() || talkUnread(),
   })
   follower?.poke()
 }
@@ -717,6 +905,7 @@ function newestUpdate(): string {
   let best = ""
   for (const it of items) {
     if (it.kind !== "update" || it.update?.imported) continue
+    if (quietKey(it.update?.key ?? "")) continue
     if (!best || cursorAfter(it.cursor, best)) best = it.cursor
   }
   return best
@@ -736,7 +925,48 @@ function updatesUnread(): boolean {
   return cursorAfter(newest, seen)
 }
 
+// The labelled lines' "seen up to" (ms): only an answer or a needs line
+// newer than it lights the dot; asked and held never do. With nothing seen
+// yet, what is there counts as seen.
+const talkSeenKey = "irori.assistant.talk.seen"
+
+function newestTalk(): number {
+  let best = 0
+  for (const e of talkLines)
+    if (e.from && (e.from.kind === "answer" || e.from.kind === "needs"))
+      best = Math.max(best, e.at ?? 0)
+  return best
+}
+
+export function talkUnread(): boolean {
+  const newest = newestTalk()
+  if (!newest) return false
+  let seen: number | null
+  try {
+    const v = localStorage.getItem(talkSeenKey)
+    seen = v === null ? null : Number(v) || 0
+  } catch {
+    seen = null
+  }
+  if (seen === null) {
+    markTalkSeen()
+    return false
+  }
+  return newest > seen
+}
+
+function markTalkSeen() {
+  const newest = newestTalk()
+  if (!newest) return
+  try {
+    localStorage.setItem(talkSeenKey, String(newest))
+  } catch {
+    // Blocked storage: the dot may light again after a restart.
+  }
+}
+
 function markSeen() {
+  markTalkSeen()
   const newest = newestUpdate()
   if (!newest) return
   try {
@@ -1154,6 +1384,7 @@ export function startFollowing(): () => void {
       if (assistantState().open) void refreshHome()
     }, HomeRefreshMs)
     offs.push(() => clearInterval(timer))
+    offs.push(startTalkFollow(setTalkLines))
     void refresh()
     void refreshHome()
   }
