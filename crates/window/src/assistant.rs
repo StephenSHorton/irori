@@ -966,6 +966,8 @@ impl Job {
         let mut job = Job::namer(core, ask)?;
         job.dir = job.dir.with_file_name(WEIGHS_DIR);
         job.timeout = WEIGHS_TIMEOUT;
+        // Its reason shows on shared cards: no CLAUDE.md from above (#1139).
+        job.no_settings = true;
         Ok(job)
     }
 
@@ -1015,7 +1017,8 @@ impl Job {
             timeout: LOOK_TIMEOUT,
             tools: false,
             look: String::new(),
-            no_settings: false,
+            // The canvas others read: no CLAUDE.md from above (#1139).
+            no_settings: true,
         })
     }
 }
