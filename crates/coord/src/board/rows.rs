@@ -318,6 +318,7 @@ impl GoDecode for Lease {
             ("stolenFrom", String::schema()),
             ("acquiredAt", GoTime::schema()),
             ("conflict", String::schema()),
+            ("slots", i64::schema()),
         ])
     }
     fn from_out(o: &gocompat::json::Out) -> Self {
@@ -328,6 +329,7 @@ impl GoDecode for Lease {
             stolen_from: field(o, "stolenFrom"),
             acquired_at: field(o, "acquiredAt"),
             conflict: field(o, "conflict"),
+            slots: field(o, "slots"),
         }
     }
 }

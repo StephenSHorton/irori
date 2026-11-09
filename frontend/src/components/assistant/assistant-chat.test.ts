@@ -31,6 +31,7 @@ function render(p: {
       narrow: false,
       onAsk: () => {},
       onAskAgain: () => {},
+      onUsePc: () => Promise.resolve(""),
       onStop: () => {},
       onNew: () => {},
       onGo: () => Promise.resolve(""),
@@ -119,6 +120,7 @@ describe("Ask Irori's panel (card #783)", () => {
     claude: true,
     chat: true,
     none: "",
+    candidates: [],
   })
   test("while answering: the status line and the words so far under the question, with Stop, and the composer stays on", () => {
     const html = render({
@@ -149,6 +151,123 @@ describe("Ask Irori's panel (card #783)", () => {
     const html = render({ entries: waiting, home: mac(false, "offline") })
     expect(html).not.toContain("is answering")
     expect((html.match(/Waiting for Mac/g) ?? []).length).toBe(2)
+  })
+  describe("when the computer is away (card 5, design §6)", () => {
+    const pc = {
+      device: "pc",
+      name: "PC",
+      here: false,
+      state: "connected",
+      lastSeenMs: 0,
+    }
+    const away = (over: Partial<AssistantHomeStatus>): AssistantHomeStatus => ({
+      ...mac(false, "offline"),
+      lastSeenMs: Date.now() - 2 * 3600_000,
+      candidates: [pc],
+      ...over,
+    })
+    const none = (n: string): AssistantHomeStatus => ({
+      device: "",
+      name: "",
+      here: false,
+      state: "",
+      lastSeenMs: 0,
+      claude: false,
+      chat: false,
+      none: n,
+      candidates: [],
+    })
+    const composerOn = (html: string) =>
+      !html.includes("readOnly") && !/aria-label="Send"[^>]*disabled/.test(html)
+    test("connected: the header says where, and nothing extra", () => {
+      const html = render({ home: mac(false) })
+      expect(html).toContain("on Mac")
+      expect(html).toContain('data-dot="connected"')
+      expect(html).not.toContain("data-assistant-away")
+    })
+    test("offline: the away line, Use PC instead, and the box takes a question", () => {
+      const html = render({ home: away({}) })
+      expect(html).toContain('data-dot="offline"')
+      expect(html).toContain(
+        "Your assistant runs on Mac, which isn&#x27;t connected (seen 2h ago). Questions wait for it."
+      )
+      expect(html).toContain("Use PC instead")
+      expect(html).toContain("Ask anything…")
+      expect(html).not.toContain("readOnly")
+    })
+    test("no other computer can answer: no Use PC instead", () => {
+      const html = render({ home: away({ candidates: [] }) })
+      expect(html).toContain("which isn&#x27;t connected")
+      expect(html).not.toContain("Use ")
+    })
+    test("an offline PC is not offered", () => {
+      const html = render({
+        home: away({ candidates: [{ ...pc, state: "offline" }] }),
+      })
+      expect(html).not.toContain("instead")
+    })
+    test("connected without Claude Code", () => {
+      const html = render({
+        home: away({ state: "connected", claude: false }),
+      })
+      expect(html).toContain(
+        "which can&#x27;t find Claude Code. Install it there."
+      )
+      expect(html).toContain("Use PC instead")
+      expect(html).toContain("Ask anything…")
+    })
+    test("connected, an older Irori", () => {
+      const html = render({ home: away({ state: "connected", chat: false }) })
+      expect(html).toContain(
+        "Mac needs the latest Irori to answer from your other devices."
+      )
+      expect(html).toContain("Use PC instead")
+      expect(html).toContain("Ask anything…")
+    })
+    test("none, setting up: the box takes a question", () => {
+      const html = render({
+        home: {
+          ...none("setting_up"),
+          candidates: [{ ...pc, name: "Mac" }],
+        },
+      })
+      expect(html).toContain("Setting up on Mac…")
+      expect(html).toContain("Ask anything…")
+    })
+    test("none, needs the latest Irori: the box is off", () => {
+      const html = render({ home: none("needs_update") })
+      expect(html).toContain("Update Irori on the one that has Claude Code")
+      expect(html).toContain("readOnly")
+      expect(html).toMatch(/aria-label="Send"[^>]*disabled/)
+      expect(composerOn(html)).toBe(false)
+    })
+    test("none, no Claude Code anywhere: the box is off", () => {
+      const html = render({ home: none("no_claude") })
+      expect(html).toContain(
+        "Your assistant needs a computer with Claude Code. None of your devices has it yet."
+      )
+      expect(composerOn(html)).toBe(false)
+    })
+    test("on the assistant's computer itself: nothing extra", () => {
+      const html = render({ home: mac(true) })
+      expect(html).not.toContain("data-assistant-away")
+    })
+    test("an error turn offers Ask again", () => {
+      const html = render({
+        entries: [
+          { id: "q:t1", role: "person", text: "Close #5", turn: "t1" },
+          {
+            id: "e:t1",
+            role: "assistant",
+            text: "Claude hit a usage limit.",
+            note: true,
+            turn: "t1",
+            retry: true,
+          },
+        ],
+      })
+      expect(html).toContain("Ask again")
+    })
   })
   test("a skipped or stopped turn offers Ask again", () => {
     const html = render({
