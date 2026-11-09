@@ -79,7 +79,7 @@ describe("Ask Irori's reply (card #783)", () => {
     )
     expect(r.end).toBe("error")
     expect(settled(r)).toEqual([
-      { role: "assistant", text: "Partly" },
+      { role: "assistant", text: "Partly", cutOff: true },
       {
         role: "assistant",
         text: "The assistant needs Claude Code signed in on this computer.",
@@ -296,6 +296,10 @@ describe("Ask Irori's drafted thread (card #783)", () => {
     expect(
       splitDraft(`${DraftOpen}\nFix the lobby.\n<thread/>`, true).draft
     ).toBe("Fix the lobby.")
+    // A last line that only looks like one stays.
+    expect(
+      splitDraft(`${DraftOpen}\nFix the lobby by\n<date>`, true).draft
+    ).toBe("Fix the lobby by\n<date>")
     // Half a closing line never shows while it is written.
     for (const tail of ["<", "<</", "</</thr", "</thread"])
       expect(splitDraft(`${DraftOpen}\nFix the lobby.\n${tail}`).draft).toBe(
@@ -647,6 +651,13 @@ describe("the chat built from rows (one-assistant card 4)", () => {
       ["t1", false],
       ["t2", true],
     ])
+    expect(
+      settled({ ...freshReply, text: "Posting.", end: "error", error: "x" })[0]
+        .cutOff
+    ).toBe(true)
+    expect(
+      settled({ ...freshReply, text: "Posting.", end: "done" })[0].cutOff
+    ).toBeUndefined()
   })
   test("a posted thread sits on the reply, a follow-up line is its own entry", () => {
     const es = entriesFrom([

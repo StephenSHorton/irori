@@ -85,11 +85,13 @@ pub fn find_close(s: &str, from: usize) -> Option<(usize, usize)> {
 }
 
 /// `s` without a last line that can only be a closing line's start or a
-/// mangled one ("<</thr", "</thread"), so it never shows in the draft.
+/// mangled one ("</</thr", "</thread", "<thread/>"), so it never shows in
+/// the draft. A line like "<date>" stays: it has no `/`.
 fn cut_close_line(s: &str) -> &str {
     let start = s.rfind('\n').map_or(0, |i| i + 1);
     let line = s[start..].trim_start_matches([' ', '\t']);
     let marker_only = line.starts_with('<')
+        && line.contains('/')
         && line.chars().all(|c| {
             matches!(
                 c.to_ascii_lowercase(),
@@ -265,6 +267,11 @@ mod tests {
         assert_eq!(
             split_draft_done(&format!("{DRAFT_OPEN}\nFix the lobby.\n<thread/>")).draft,
             "Fix the lobby."
+        );
+        // A last line that only looks like one stays.
+        assert_eq!(
+            split_draft_done(&format!("{DRAFT_OPEN}\nFix the lobby by\n<date>")).draft,
+            "Fix the lobby by\n<date>"
         );
         // It shows with Post thread; it doesn't post by itself.
         assert!(!posts_by_itself(&raw));

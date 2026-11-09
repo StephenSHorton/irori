@@ -150,12 +150,12 @@ export function foldEvent(r: Reply, ev: AssistantEvent): Reply {
 export function settled(r: Reply): ChatEntry[] {
   const out: ChatEntry[] = []
   const text = r.text.trim()
-  if (text)
-    out.push(
-      r.looked
-        ? { role: "assistant", text, looked: r.looked }
-        : { role: "assistant", text }
-    )
+  if (text) {
+    const e: ChatEntry = { role: "assistant", text }
+    if (r.looked) e.looked = r.looked
+    if (r.end === "error") e.cutOff = true
+    out.push(e)
+  }
   for (const line of r.changes ?? [])
     out.push({ role: "assistant", text: line, note: true, changed: true })
   if (r.end === "error")
@@ -1046,10 +1046,12 @@ function cutMarkerTail(s: string, marker: string): string {
 const draftClose = /<{1,2}\s*\/?\s*<?\s*\/\s*thread\s*>{1,2}/i
 
 // cutCloseLine drops a last line that can only be a closing line's start
-// or a mangled one ("<</thr", "</thread"), so it never shows in the draft.
+// or a mangled one ("</</thr", "</thread", "<thread/>"), so it never shows
+// in the draft. A line like "<date>" stays: it has no "/".
 function cutCloseLine(s: string): string {
   const start = s.lastIndexOf("\n") + 1
-  return /^[ \t]*<[<>/ \tthread]*$/i.test(s.slice(start))
+  const line = s.slice(start)
+  return /^[ \t]*<[<>/ \tthread]*$/i.test(line) && line.includes("/")
     ? s.slice(0, start)
     : s
 }
