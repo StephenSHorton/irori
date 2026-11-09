@@ -428,6 +428,15 @@ Done when tests show:
 
 A real run on the chat's model (Settings › Agents) is shown answering a question from the packet.
 
+> **As built** (card #1061, `crates/core/src/service/assistant_packet.rs`). Later cards build on these:
+> - "The owner's cards" are the cards the owner owns, or that the owner or one of their agents holds, co-holds or is assigned. Other members' cards are theirs to answer about. Cards past the 30 are counted in the packet, so the turn knows the list isn't all of them, and one card is held to 4 KB so a card in a wide script can't crowd out the rest. When the posts don't fit, the oldest go.
+> - Talk holds the owner's own posts with this device's keys (`user:<device>`, a session key). The packet turns them back into the space's keys without minting a card, so they are named, not "an agent".
+> - The parse: the first verdict line decides. Measured on Haiku: a good answer is often followed by `NEEDS_OWNER: none`. A trailing verdict that says nothing is dropped. Any other one, or an answer that reads `NEEDS_OWNER`, goes to the owner.
+> - `strip_hidden` strips every Default_Ignorable_Code_Point, not only Cf: all of plane 14, U+034F, U+17B4–17B5 and the rest. Markers are dropped after it, so a hidden character can't keep one. Cards 7 and 8 reuse `normalise`.
+> - The turn runs with `--setting-sources ""`. Measured on Claude Code 2.1.319: with `project`, a CLAUDE.md in a folder above the run dir (`~/CLAUDE.md`) reaches the turn. Claude Code still tells every turn the working folder and the signed-in account, which can't be turned off. The scrub holds absolute paths, and an answer holding an email address is held too.
+> - The asker's words are clipped to the inbox's 8,000 characters. Card 4 had used the namer's 4,000.
+> - `a_real_turn_answers_from_the_packet` in `crates/core/tests/it/assistant_answers.rs` is the real run. It is ignored by default because it needs Claude Code signed in; its doc says how to run it.
+
 **6. The labelled lines, notification and Let it answer.**
 Files: `frontend/src/lib/assistant.ts` (`from`, `parseHistory`, `historyFor`, `capKeeping`, `capHistory`), new `frontend/src/lib/assistant-talk-follow.ts`, `frontend/src/components/assistant/assistant-chat.tsx` (the `from` branch, the buttons), `crates/window/src/commands.rs` (a host call for the person's `assistantCard` per space; Let it answer), `crates/core/src/service.rs` (`answer_now`, the `needs` toast, the `held` event), `frontend/src/App.tsx` (the `assistant` target).
 Done when:

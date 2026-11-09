@@ -267,6 +267,7 @@ fn live_held_session_numbers() {
             timeout: LOOK_TIMEOUT,
             tools: false,
             look: String::new(),
+            no_settings: false,
         };
         let bin = which_claude();
         let pool = HeldPool::new();
@@ -313,4 +314,31 @@ fn which_claude() -> Result<PathBuf, String> {
     } else {
         Ok(PathBuf::from(p))
     }
+}
+
+/// Card #1139: the turns whose text other people see load no setting
+/// sources, so no CLAUDE.md from a folder above the run dir reaches them;
+/// the namer and rewriter, whose output stays with the person, keep
+/// project settings.
+#[test]
+fn turns_whose_text_others_see_load_no_settings() {
+    use irori_core::thread_names::NameAsk;
+    use irori_window::assistant::{held_args, job_args};
+    let sources = |a: &[String]| {
+        let i = a.iter().position(|x| x == "--setting-sources").unwrap();
+        a[i + 1].clone()
+    };
+    let r = Rig::new();
+    let ask = NameAsk {
+        system: "s".into(),
+        prompt: "p".into(),
+    };
+    let weigh = Job::weigher(&r.core, &ask).unwrap();
+    assert_eq!(sources(&job_args(&weigh)), "");
+    let huddle = Job::huddle(&r.core, CALL, "sys").unwrap();
+    assert_eq!(sources(&held_args(&huddle)), "");
+    let namer = Job::namer(&r.core, &ask).unwrap();
+    assert_eq!(sources(&job_args(&namer)), "project");
+    let rewriter = Job::rewriter(&r.core, &ask).unwrap();
+    assert_eq!(sources(&job_args(&rewriter)), "project");
 }

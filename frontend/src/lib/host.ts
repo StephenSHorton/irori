@@ -760,9 +760,31 @@ export const AssistantService = {
   // newest); limit 0 is 50. "assistant:changed" says to read it again.
   ChatList: (before: string, limit: number) =>
     call(commands.assistantChatList(before, limit)),
+  // Asks the one assistant (one-assistant card 3): writes the question's
+  // row and returns its turn; the assistant's computer answers it, wherever
+  // it is. again is the turn Ask again repeats.
+  ChatAsk: (text: string, screen: string, again?: string) =>
+    call(commands.assistantChatAsk(text, screen, again ?? null)),
+  // Stops a question, from any device.
+  ChatStop: (turn: string) => done(commands.assistantChatStop(turn)),
+  // The reply of a turn this computer runs, as it streams: what it has said
+  // so far, then each event until it ends.
+  ChatWatch(
+    turn: string,
+    onEvent: (ev: B.AssistantEvent) => void
+  ): Promise<void> {
+    const on = new Channel<B.AssistantEvent>()
+    on.onmessage = onEvent
+    return done(commands.assistantChatWatch(turn, on))
+  },
   // Rewrite in the Start a thread box (card #981): the checked wording.
   Rewrite: (text: string, mentions: string[]) =>
     call(commands.assistantRewrite(text, mentions)),
+  // Where the one assistant runs and whether it can be reached (one-assistant
+  // card 1); the host sends assistant:home with the same shape when it moves.
+  HomeStatus: () => call(commands.assistantHomeStatus()),
+  // The person picks the computer that runs the assistant, from any device.
+  HomeSet: (device: string) => done(commands.assistantHomeSet(device)),
   // "Name new threads" (card #782): on unless the person turned it off.
   Names: () => call(commands.assistantNames()),
   NamesSet: (on: boolean) => done(commands.assistantNamesSet(on)),
