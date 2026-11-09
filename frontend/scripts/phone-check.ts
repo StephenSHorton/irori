@@ -117,6 +117,16 @@ const PAGES: Array<[name: string, query: string]> = [
   // that ended, and Talk's Huddles list with one on.
   ["huddle-live", "?call=start#huddle/preview-call-sample-ch-netcode"],
   ["huddle-ended", "#huddle/sample-call-2"],
+  // The canvas page's other tabs (card #1052).
+  [
+    "huddle-people",
+    "?call=live&huddletab=people#huddle/preview-call-sample-ch-suzuri",
+  ],
+  [
+    "huddle-transcript",
+    "?call=live&huddletab=transcript#huddle/preview-call-sample-ch-suzuri",
+  ],
+  ["huddle-canvas-live", "?call=live#huddle/preview-call-sample-ch-suzuri"],
   ["huddle-list", "?call=live#talk"],
   ["later-home", "?later=only"],
   ["later-open", "?later=only&notyet"],

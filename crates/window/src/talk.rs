@@ -289,8 +289,12 @@ impl From<irori_core::CanvasEntry> for TalkCanvasItem {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TalkAssistant {
-    /// The person, as a key (`names` in the transcript read it).
+    /// The person, as a key.
     pub person: String,
+    /// The person's name ("you" for this person), never a key (card #1052).
+    pub name: String,
+    /// The person is this one.
+    pub mine: bool,
     /// `connected`, `reconnecting` or `not connected`.
     pub state: String,
     /// Why it isn't connected, when this device knows; else empty.
@@ -305,6 +309,9 @@ pub struct TalkTranscriptLine {
     pub name: String,
     /// The person said it.
     pub mine: bool,
+    /// Said under the notice that lets agents read it (card #1047); the
+    /// roster says when a person's lines aren't (card #1052).
+    pub agents: bool,
     /// When the phrase began, Unix ms.
     pub at_ms: i64,
     pub text: String,
@@ -648,6 +655,12 @@ impl Window {
                 keys.push(p.by.clone());
             }
         }
+        let assistants = self.core.call_assistants(id);
+        for a in &assistants {
+            if !keys.contains(&a.person) {
+                keys.push(a.person.clone());
+            }
+        }
         let names: std::collections::HashMap<String, String> = keys
             .iter()
             .cloned()
@@ -695,14 +708,17 @@ impl Window {
             title,
             title_by_assistant,
             over: self.core.call_over(id),
-            assistants: self
-                .core
-                .call_assistants(id)
+            assistants: assistants
                 .into_iter()
-                .map(|a| TalkAssistant {
-                    person: a.person,
-                    state: a.state,
-                    why: a.why,
+                .map(|a| {
+                    let mine = coord::talk::is_person_key(&a.person) || a.person == me_board;
+                    TalkAssistant {
+                        name: if mine { "you".into() } else { name(&a.person) },
+                        mine,
+                        person: a.person,
+                        state: a.state,
+                        why: a.why,
+                    }
                 })
                 .collect(),
             canvas: self
@@ -718,6 +734,7 @@ impl Window {
                     TalkTranscriptLine {
                         name: if mine { "you".into() } else { name(&p.by) },
                         mine,
+                        agents: p.agents,
                         at_ms: p.at.unix_milli_value(),
                         text: p.text,
                     }
