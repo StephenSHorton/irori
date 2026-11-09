@@ -231,6 +231,7 @@ fn live_held_session_numbers() {
                     vec![agent.clone()]
                 },
                 agents: if i % 3 == 2 { vec![] } else { vec![agent] },
+                people: vec![],
                 updated: i as i64,
             }
         })

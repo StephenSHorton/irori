@@ -82,6 +82,9 @@ pub struct PacketCard {
     pub holders: Vec<String>,
     /// The agents among them, by display name.
     pub agents: Vec<String>,
+    /// The people who hold it, or whose agents do, by person id (card
+    /// #1053: who a routed question goes to).
+    pub people: Vec<String>,
     /// Its newest activity, Unix nanoseconds: the order.
     pub updated: i64,
 }
@@ -366,6 +369,8 @@ impl Services {
             .map(|t| {
                 let mut holders = Vec::new();
                 let mut agents = Vec::new();
+                // Every holder on the person's own boards is theirs.
+                let people = vec![me.clone()];
                 for k in holder_keys(&t) {
                     if k == me_key || k == self.user_sender().key {
                         holders.push("you".to_string());
@@ -386,6 +391,7 @@ impl Services {
                     state: coord::effective_state(&t).to_string(),
                     holders,
                     agents,
+                    people,
                     updated: t.updated_at.unix_nano(),
                 }
             })
@@ -419,8 +425,15 @@ fn space_cards(b: &Arc<BoardLog>) -> Vec<PacketCard> {
         .map(|t| {
             let mut holders = Vec::new();
             let mut agents = Vec::new();
+            let mut people: Vec<String> = Vec::new();
             for k in holder_keys(&t) {
                 if let Some(id) = k.strip_prefix(AGENT_ACTOR_PREFIX) {
+                    if let Some(c) = cards.get(id)
+                        && !c.person_id.is_empty()
+                        && !people.contains(&c.person_id)
+                    {
+                        people.push(c.person_id.clone());
+                    }
                     let name = match cards.get(id) {
                         Some(c) if !c.name.trim().is_empty() => match person(&c.person_id) {
                             Some(p) => format!("{} ({p}'s agent)", clip(&c.name, 60)),
@@ -431,6 +444,9 @@ fn space_cards(b: &Arc<BoardLog>) -> Vec<PacketCard> {
                     holders.push(name.clone());
                     agents.push(name);
                 } else if let Some(pid) = k.strip_prefix(PERSON_ACTOR_PREFIX) {
+                    if !people.contains(&pid.to_string()) {
+                        people.push(pid.to_string());
+                    }
                     holders.push(person(pid).map_or("a person".into(), |n| clip(&n, 60)));
                 } else {
                     holders.push("an agent".to_string());
@@ -443,6 +459,7 @@ fn space_cards(b: &Arc<BoardLog>) -> Vec<PacketCard> {
                 state: coord::effective_state(&t).to_string(),
                 holders,
                 agents,
+                people,
                 updated: t.updated_at.unix_nano(),
             }
         })

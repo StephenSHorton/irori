@@ -226,6 +226,15 @@ kinds! {
     /// card. `{on, by, at}`, actor `user`, newest wins, none means on. Set
     /// in the app only.
     ASSISTANT_WEIGHS_SET = "assistant.weighs.set" => Replicated, Refuses;
+    /// "Let my assistant add notes from what I say" (card #1053,
+    /// docs/design/call-agents.md §12): off stops the assistant's own digest
+    /// in huddles. `{on, by, at}`, actor `user`, newest wins, none means on.
+    /// Set in the app only.
+    ASSISTANT_HUDDLE_NOTES_SET = "assistant.huddle.notes.set" => Replicated, Refuses;
+    /// "Let my assistant chair huddles I start" (card #1053, §12): off
+    /// passes the chair to the next person's assistant. `{on, by, at}`,
+    /// actor `user`, newest wins, none means on. Set in the app only.
+    ASSISTANT_HUDDLE_CHAIR_SET = "assistant.huddle.chair.set" => Replicated, Refuses;
     /// The Office Assistant's one conversation (card #1102,
     /// docs/design/one-assistant.md §4): private rows every one of the
     /// person's devices folds the same (`core::service::assistant_chat`).
