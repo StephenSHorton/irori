@@ -292,6 +292,10 @@ pub struct SummaryMember {
     /// Their avatar on their member.profile (card #393), "" for none; for
     /// this person, their own.
     pub avatar: String,
+    /// Their assistant as others see it (card #1045): "Juno · Addam's
+    /// assistant" or "Addam's assistant", the person from this row's own
+    /// name, never from the chosen name's text.
+    pub assistant: String,
 }
 
 /// Where a private card was shared to, when it was: the board and the
@@ -415,8 +419,7 @@ impl Services {
                 self.fold_card_key(&ev);
             } else if ev.kind == kinds::PERSON_PROFILE {
                 self.follow_person_name();
-            } else if ev.kind == kinds::SPACE_BOARD_CREATED || ev.kind == kinds::SPACE_BOARD_RENAMED
-            {
+            } else if ev.kind.starts_with("space.board.") {
                 // Personal's boards, from another of the person's devices.
                 self.boards.moved();
             }
@@ -660,7 +663,9 @@ impl Services {
         // Its channels leave Talk now (card #461); after the threads
         // stop, so no late row folds them back.
         if self.talk.drop_space(id) {
-            self.hub.publish(crate::events::CoreEvent::Talk);
+            self.hub.publish(crate::events::CoreEvent::Talk(
+                crate::events::TalkChange::all(),
+            ));
         }
     }
 
@@ -799,6 +804,10 @@ impl Services {
                 me: true,
                 color: self.person_color.chosen(),
                 avatar: self.person_avatar.chosen(),
+                assistant: coord::assistant_name::label(
+                    &name_of(&me),
+                    &self.assistant_name.chosen(),
+                ),
                 ..Default::default()
             });
         }
@@ -810,6 +819,10 @@ impl Services {
                     me: false,
                     color: b.verifier.profile_color(&p.person_id),
                     avatar: b.verifier.profile_avatar(&p.person_id),
+                    assistant: coord::assistant_name::label(
+                        &name_of(&p.person_id),
+                        &b.verifier.profile_assistant_name(&p.person_id),
+                    ),
                     ..Default::default()
                 });
             }
@@ -1285,6 +1298,8 @@ impl Services {
             &actor,
             coord::NewTask {
                 board: space_board.into(),
+                // A name the person gave stays theirs there (card #779).
+                title_by_person: priv_t.title_by_person && top.title == priv_t.title,
                 ..new_card(&top, &priv_t, "")
             },
         )?;
@@ -1300,10 +1315,12 @@ impl Services {
         let mut made: Vec<(String, Task)> = Vec::new();
         for f in &p.subtasks {
             let from = self.coord.get_task(&f.task_id).unwrap_or_default();
-            match b
-                .coord()
-                .create_task(&actor, new_card(f, &from, &shared.id))
-            {
+            let card = coord::NewTask {
+                // A subtask the person named keeps that too (card #779).
+                title_by_person: from.title_by_person && f.title == from.title,
+                ..new_card(f, &from, &shared.id)
+            };
+            match b.coord().create_task(&actor, card) {
                 Ok(k) => {
                     self.boards
                         .inner
@@ -1478,6 +1495,7 @@ impl Services {
             &user,
             coord::NewTask {
                 title: t.title.clone(),
+                title_by_person: t.title_by_person,
                 objective: t.objective.clone(),
                 done_criteria: t.done_criteria.clone(),
                 repo_key: t.repo_key.clone(),
@@ -1546,6 +1564,10 @@ impl Services {
                 on.reference = k(&on.reference);
             }
         }
+        // Who weighed it (card #963), so the card names them.
+        if let Some(w) = t.weight.as_mut() {
+            w.by = k(&w.by);
+        }
         t
     }
 
@@ -1569,6 +1591,43 @@ impl Services {
     /// knows it and every key in the result as this device knows it. A
     /// viewer on no card of a board gets that board's view with nothing for
     /// it.
+    /// Every shared space's cards and comments as search docs (card
+    /// #1198), from the same boards [`Self::board_views`] shows: a card
+    /// taken back to Personal is left out (Personal's log has it), and
+    /// each doc's agent is its key on this device, as search's agent
+    /// filter and names read it.
+    pub(crate) fn space_search_docs(&self) -> Vec<search::Doc> {
+        let mut out = Vec::new();
+        for b in self.visible_boards() {
+            if !b.verifier.membership().created {
+                continue;
+            }
+            let co = b.coord();
+            let docs =
+                search::Source::search_docs(&**co, GoTime::ZERO, usize::MAX).unwrap_or_default();
+            for mut d in docs {
+                let task = match d.kind {
+                    search::Kind::Task => search::parse_ref(&d.r#ref)
+                        .ok()
+                        .and_then(|(_, id)| co.get_task(&id)),
+                    search::Kind::Comment => search::parse_ref(&d.r#ref)
+                        .ok()
+                        .and_then(|(_, id)| co.get_comment(&id))
+                        .and_then(|c| co.get_task(&c.task_id)),
+                    _ => None,
+                };
+                if task.is_some_and(|t| t.withdrawn) {
+                    continue;
+                }
+                if !d.agent.is_empty() {
+                    d.agent = self.private_key(&d.agent);
+                }
+                out.push(d);
+            }
+        }
+        out
+    }
+
     pub(crate) fn board_views(&self, f: &BoardFilter) -> Vec<BoardView> {
         let mut out = Vec::new();
         for b in self.visible_boards() {
@@ -1614,7 +1673,7 @@ impl Services {
     }
 
     /// Routes a coord notice from the person at its next turn.
-    fn tell_notices(&self, n: &Notice) {
+    pub(crate) fn tell_notices(&self, n: &Notice) {
         if let Some(e) = crate::notice::notice_err(&self.route_notice(&self.user_sender(), n)) {
             logf(format_args!("boards: notice: {e}"));
         }

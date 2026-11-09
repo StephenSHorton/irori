@@ -100,6 +100,9 @@ pub enum PermissionDecision {
 #[derive(Debug, Clone)]
 struct Pending {
     agent: String,
+    /// The shared board whose log holds the card; empty for the person's
+    /// own log (card #1082: a review card is on a board).
+    board: String,
     task_id: String,
     blocker_id: String,
     rule: String,
@@ -379,11 +382,17 @@ impl Services {
 
     /// The pick on p's item, once there is one; gone or closed is Nothing.
     fn permission_answer(&self, p: &Pending) -> Option<PermissionDecision> {
-        let Some(t) = self.coord.get_task(&p.task_id) else {
+        let Some(co) = self.log_coord(&p.board) else {
+            return Some(PermissionDecision::Nothing);
+        };
+        let Some(t) = co.get_task(&p.task_id) else {
             return Some(PermissionDecision::Nothing);
         };
         match t.blockers.iter().find(|b| b.id == p.blocker_id) {
-            Some(b) => decision_of(b, &p.rule, |k| self.coord.is_person(k)),
+            // Only this person's own pick counts, on a board as on their
+            // own log: another member's answer on a shared card allows
+            // nothing.
+            Some(b) => decision_of(b, &p.rule, |k| co.is_person(k)),
             None => Some(PermissionDecision::Nothing),
         }
     }
@@ -391,18 +400,15 @@ impl Services {
     /// Raises the typed item for a hook's prompt on the card its agent was
     /// started for; `None` when the session isn't a spawned agent here.
     fn raise_permission_wait(&self, key: &str, ask: &PermissionAsk) -> Option<Pending> {
-        let Some(task_id) = self.permission_card(key) else {
-            // Neither started for a card nor holding one: the prompt stays
-            // for its terminal.
+        let Some((board, co, t)) = self.perm_card_of(key) else {
+            // Only agents Irori starts have the hook: worth a line.
             logf(format_args!(
                 "permission hook from {key}: no card to raise it on"
             ));
             return None;
         };
-        let t = self
-            .coord
-            .get_task(&task_id)
-            .filter(|t| !coord::is_terminal(&t.state))?;
+        let task_id = t.id.clone();
+        let t = Some(t).filter(|t| !coord::is_terminal(&t.state))?;
         // Presence's item for this prompt, or one whose hook is gone,
         // gives way to this one. An item whose hook still waits stays: a
         // second prompt can open while the first is up (parallel tool
@@ -424,7 +430,13 @@ impl Services {
         {
             let theirs = b.permission.as_ref().is_none_or(|w| w.agent == key);
             if theirs && !live.contains(&b.id) {
-                self.close_permission_wait(&t, b, "Superseded by the prompt Irori can answer.");
+                self.close_permission_wait(
+                    &co,
+                    &board,
+                    &t,
+                    b,
+                    "Superseded by the prompt Irori can answer.",
+                );
             }
         }
         // Reserved before the item is written, so a sweep in between
@@ -433,6 +445,7 @@ impl Services {
             ask.id.clone(),
             Pending {
                 agent: key.to_string(),
+                board: board.clone(),
                 task_id: task_id.clone(),
                 blocker_id: String::new(),
                 rule: String::new(),
@@ -441,7 +454,7 @@ impl Services {
                 prompted: false,
             },
         );
-        let got = self.write_permission_wait(key, ask, &t);
+        let got = self.write_permission_wait(&co, &board, key, ask, &t);
         let mut pending = self.spawn.perm.pending.lock().unwrap();
         match got {
             Some((blocker_id, rule)) => {
@@ -460,6 +473,8 @@ impl Services {
     /// Writes the hook's item; its id and Always allow's rule.
     fn write_permission_wait(
         &self,
+        co: &coord::Coord,
+        board: &str,
         key: &str,
         ask: &PermissionAsk,
         t: &coord::Task,
@@ -549,10 +564,7 @@ impl Services {
                 }
             ),
             options,
-            blocked_by: Some(BlockedBy {
-                kind: coord::BLOCKED_ON_PERSON.into(),
-                ..BlockedBy::default()
-            }),
+            blocked_by: Some(self.perm_decider(board)),
             permission: Some(PermissionWait {
                 agent: key.to_string(),
                 tool,
@@ -563,7 +575,7 @@ impl Services {
             }),
             ..NewBlocker::default()
         };
-        match self.coord.raise(SWEEPER, &task_id, nb) {
+        match co.raise(&self.perm_raiser(board), &task_id, nb) {
             Ok((_, b)) => Some((b.id, rule)),
             Err(e) => {
                 logf(format_args!("permission wait on {}: {e}", t.short_ref()));
@@ -572,13 +584,32 @@ impl Services {
         }
     }
 
-    /// The card a prompt from agent `key` goes on: the one Irori started it
-    /// for, else (GitHub #322: a session the person started, tracked by the
-    /// mod) the open card it holds, the one it is working on first.
-    fn permission_card(&self, key: &str) -> Option<String> {
-        if let Some(t) = self.coord.spawned_card(key) {
-            return Some(t);
+    /// The log with board id `board`'s cards: the person's own for "".
+    fn log_coord(&self, board: &str) -> Option<std::sync::Arc<coord::Coord>> {
+        if board.is_empty() {
+            return Some(self.coord.clone());
         }
+        self.board(board).ok().map(|b| b.coord().clone())
+    }
+
+    /// The card a spawned agent was started for, wherever its log is: the
+    /// log's board id ("" for the person's own), the log and the card.
+    fn perm_card_of(
+        &self,
+        key: &str,
+    ) -> Option<(String, std::sync::Arc<coord::Coord>, coord::Task)> {
+        if let Some(id) = self.coord.spawned_card(key)
+            && let Some(t) = self.coord.get_task(&id)
+        {
+            return Some((String::new(), self.coord.clone(), t));
+        }
+        if let Some(m) = self.coord.spawned(key) {
+            let (co, t, _) = self.spawn_card_of(key)?;
+            return Some((m.board, co, t));
+        }
+        // A session the person started, which the mod tracks (GitHub #322):
+        // the open card it holds on the person's own log, the one it is
+        // working on first.
         let mut held = self.coord.list_tasks(&TaskFilter {
             holder: key.to_string(),
             open: true,
@@ -586,15 +617,41 @@ impl Services {
         });
         held.retain(|t| !coord::is_terminal(&t.state));
         held.sort_by_key(|t| t.state != coord::WORKING);
-        held.into_iter().next().map(|t| t.id)
+        let t = held.into_iter().next()?;
+        Some((String::new(), self.coord.clone(), t))
     }
 
     /// How the item's text names the agent's tie to its card.
     fn agent_role(&self, key: &str) -> &'static str {
-        if self.coord.spawned_card(key).is_some() {
+        if self.coord.spawned(key).is_some() {
             "Irori started for"
         } else {
             "working on"
+        }
+    }
+
+    /// Who writes a permission item on `co`: Irori on the person's own
+    /// log, the person on a shared board (Irori's own rows there count for
+    /// nothing, and the item is theirs to answer).
+    /// Who an item waits on: the person whose agent is on the prompt. On a
+    /// shared board that is named, because the card's owner is whoever
+    /// made it (a review card's author), not who runs its agent.
+    fn perm_decider(&self, board: &str) -> BlockedBy {
+        BlockedBy {
+            kind: coord::BLOCKED_ON_PERSON.into(),
+            reference: if board.is_empty() {
+                String::new()
+            } else {
+                self.person_actor()
+            },
+        }
+    }
+
+    fn perm_raiser(&self, board: &str) -> String {
+        if board.is_empty() {
+            SWEEPER.into()
+        } else {
+            self.person_actor()
         }
     }
 
@@ -607,13 +664,20 @@ impl Services {
         }
     }
 
-    fn close_permission_wait(&self, t: &coord::Task, b: &Blocker, why: &str) {
+    fn close_permission_wait(
+        &self,
+        co: &coord::Coord,
+        board: &str,
+        t: &coord::Task,
+        b: &Blocker,
+        why: &str,
+    ) {
         let a = BlockerAnswer {
             text: why.into(),
             resolve: true,
             ..BlockerAnswer::default()
         };
-        if let Err(e) = self.coord.answer(SWEEPER, &t.id, &b.id, a) {
+        if let Err(e) = co.answer(&self.perm_raiser(board), &t.id, &b.id, a) {
             logf(format_args!("permission wait on {}: {e}", t.short_ref()));
         }
     }
@@ -638,16 +702,19 @@ impl Services {
             seen.clone()
         };
         // Card → its agents on a prompt.
-        let mut waiting: HashMap<String, Vec<&presence::AgentCard>> = HashMap::new();
+        let mut waiting: HashMap<(String, String), Vec<&presence::AgentCard>> = HashMap::new();
         for a in &on_prompt {
-            if let Some(t) = self.permission_card(&a.key) {
-                waiting.entry(t).or_default().push(*a);
+            if let Some((board, _, t)) = self.perm_card_of(&a.key) {
+                waiting.entry((board, t.id)).or_default().push(*a);
             }
         }
-        let open = self.coord.list_tasks(&TaskFilter {
-            open: true,
-            ..TaskFilter::default()
-        });
+        // The person's own log, then each shared board's: a card given to
+        // them there (a review card, #1082) has its agent here too.
+        let mut logs: Vec<(String, std::sync::Arc<coord::Coord>)> =
+            vec![(String::new(), self.coord.clone())];
+        for b in self.visible_boards() {
+            logs.push((b.id.clone(), b.coord().clone()));
+        }
         // Read after the cards: a hook that raised its item since is in
         // here (it reserves before it writes).
         let (hooked, young): (Vec<String>, Vec<String>) = {
@@ -669,54 +736,72 @@ impl Services {
             (hooked, young)
         };
         let none = Vec::new();
-        for t in open {
-            let here = waiting.get(&t.id).unwrap_or(&none);
-            let items: Vec<&Blocker> = t
-                .blockers
-                .iter()
-                .filter(|b| b.open() && is_permission_wait(b))
-                .collect();
-            for b in &items {
-                let agent = b.permission.as_ref().map_or("", |w| w.agent.as_str());
-                let still = if agent.is_empty() {
-                    // An older Irori's item names no agent: any of the card's.
-                    !here.is_empty()
-                } else {
-                    here.iter().any(|a| a.key == agent)
-                };
-                if still || young.iter().any(|k| k == agent) {
-                    continue;
+        for (board, co) in &logs {
+            let open = co.list_tasks(&TaskFilter {
+                open: true,
+                ..TaskFilter::default()
+            });
+            for t in open {
+                let here = waiting.get(&(board.clone(), t.id.clone())).unwrap_or(&none);
+                let items: Vec<&Blocker> = t
+                    .blockers
+                    .iter()
+                    .filter(|b| b.open() && is_permission_wait(b))
+                    .collect();
+                for b in &items {
+                    let agent = b.permission.as_ref().map_or("", |w| w.agent.as_str());
+                    let still = if agent.is_empty() {
+                        // An older Irori's item names no agent: any of the card's.
+                        !here.is_empty()
+                    } else {
+                        here.iter().any(|a| a.key == agent)
+                    };
+                    if still || young.iter().any(|k| k == agent) {
+                        continue;
+                    }
+                    let decides = if agent.is_empty() {
+                        self.decides_permission_wait(&t, me)
+                    } else {
+                        runs_here(agent, "", me)
+                    };
+                    if decides {
+                        self.close_permission_wait(
+                            co,
+                            board,
+                            &t,
+                            b,
+                            "The agent is past the prompt.",
+                        );
+                    }
                 }
-                let decides = if agent.is_empty() {
-                    self.decides_permission_wait(&t, me)
-                } else {
-                    runs_here(agent, "", me)
-                };
-                if decides {
-                    self.close_permission_wait(&t, b, "The agent is past the prompt.");
+                for a in here {
+                    let has = items.iter().any(|b| {
+                        b.permission
+                            .as_ref()
+                            .is_none_or(|w| w.agent.is_empty() || w.agent == a.key)
+                    });
+                    // The hook raises its own item with more on it.
+                    let grace = since
+                        .get(&a.key)
+                        .is_some_and(|s| now.duration_since(*s) < HOOK_GRACE);
+                    if has || grace || hooked.contains(&a.key) {
+                        continue;
+                    }
+                    self.raise_presence_wait(co, board, &t, a);
                 }
-            }
-            for a in here {
-                let has = items.iter().any(|b| {
-                    b.permission
-                        .as_ref()
-                        .is_none_or(|w| w.agent.is_empty() || w.agent == a.key)
-                });
-                // The hook raises its own item with more on it.
-                let grace = since
-                    .get(&a.key)
-                    .is_some_and(|s| now.duration_since(*s) < HOOK_GRACE);
-                if has || grace || hooked.contains(&a.key) {
-                    continue;
-                }
-                self.raise_presence_wait(&t, a);
             }
         }
     }
 
     /// The item for a prompt only presence saw: no request, so no answer
     /// from the card; the tool when the transcript names it, and Attach.
-    fn raise_presence_wait(&self, t: &coord::Task, a: &presence::AgentCard) {
+    fn raise_presence_wait(
+        &self,
+        co: &coord::Coord,
+        board: &str,
+        t: &coord::Task,
+        a: &presence::AgentCard,
+    ) {
         let name = self.agent_label(&a.key);
         let tool = a.last_tool.trim().to_string();
         let nb = NewBlocker {
@@ -729,10 +814,7 @@ impl Services {
                 self.agent_role(&a.key),
                 t.short_ref()
             ),
-            blocked_by: Some(BlockedBy {
-                kind: coord::BLOCKED_ON_PERSON.into(),
-                ..BlockedBy::default()
-            }),
+            blocked_by: Some(self.perm_decider(board)),
             permission: Some(PermissionWait {
                 agent: a.key.clone(),
                 tool,
@@ -740,7 +822,7 @@ impl Services {
             }),
             ..NewBlocker::default()
         };
-        if let Err(e) = self.coord.raise(SWEEPER, &t.id, nb) {
+        if let Err(e) = co.raise(&self.perm_raiser(board), &t.id, nb) {
             logf(format_args!("permission wait on {}: {e}", t.short_ref()));
         }
     }

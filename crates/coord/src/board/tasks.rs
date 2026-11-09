@@ -53,6 +53,32 @@ pub(crate) struct CleanTask {
     pub after: Vec<String>,
     /// Held as Not yet from the start (card #570).
     pub later: Option<super::later::Back>,
+    /// The person named it by hand (card #779).
+    pub title_by_person: bool,
+    /// Makes it a PR card (merge desk §12.2).
+    pub pr_card: Option<PrCard>,
+    /// The PR card it reviews (merge desk §12.10).
+    pub review_of: String,
+    /// Its weight from the start and why (card #964); "" is none.
+    pub weight: String,
+    pub weight_reason: String,
+}
+
+/// The PR card fields of a new task, checked (merge desk §12.2): a GitHub
+/// PR URL, a repo and the author's login.
+fn pr_card_of(nt: &NewTask, repo_key: &str) -> Result<Option<PrCard>> {
+    let Some(c) = &nt.pr_card else {
+        return Ok(None);
+    };
+    let pr = trim_space(&c.pr).to_string();
+    let author = trim_space(&c.author).to_string();
+    let parsed = parse_link(&pr).ok().and_then(|l| super::links::pr_link(&l));
+    if parsed.is_none() || author.is_empty() || repo_key.is_empty() {
+        return Err(invalid(
+            "a PR card needs a GitHub pull request URL, a repo and the author's login",
+        ));
+    }
+    Ok(Some(PrCard { pr, author }))
 }
 
 /// CreateTask's checks.
@@ -110,7 +136,11 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
     check_reason(&reason, false)?;
     let mut steps = nt.steps.clone();
     check_steps(&mut steps)?;
+    let pr_card = pr_card_of(nt, &repo_key)?;
+    let (weight, weight_reason) = super::weight::clean_new_weight(&nt.weight, &nt.weight_reason)?;
     Ok(CleanTask {
+        weight,
+        weight_reason,
         by: by.into(),
         title,
         obj,
@@ -124,6 +154,9 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
         steps: new_steps(&steps),
         after: nt.after.clone(),
         later: nt.later.clone(),
+        title_by_person: nt.title_by_person,
+        pr_card,
+        review_of: nt.review_of.trim().to_string(),
         parent: String::new(),
         spawn: false,
         from: String::new(),
@@ -203,8 +236,30 @@ impl Fold {
                 "this space holds no boards, so it takes no card",
             ));
         }
+        // Only a person's row makes a PR card, written from their own
+        // device (merge desk §12.2): an agent's would fold as a plain card.
+        if ct.pr_card.is_some() && !self.is_owner(by) {
+            return Err(not_allowed("only a person makes a PR card"));
+        }
+        // A review card is the PR card's creator's, made by their person
+        // on the PR card's board (merge desk §12.10).
+        if !ct.review_of.is_empty() {
+            let ok = self.is_owner(by)
+                && self
+                    .tasks
+                    .get(&ct.review_of)
+                    .is_some_and(|c| c.pr_card.is_some() && c.created_by == by);
+            if !ok {
+                return Err(not_allowed(
+                    "only a PR card's creator makes a review card for it",
+                ));
+            }
+        }
         if let Some(p) = self.tasks.get(&ct.parent) {
             ct.board = p.board.clone();
+        }
+        if self.board_closed(&ct.board) {
+            return Err(self.closed_refusal(&ct.board));
         }
         let mut bb = None;
         if !ct.reason.is_empty() {
@@ -212,6 +267,7 @@ impl Fold {
         }
         // All of it before the first row (card #570).
         let waits = self.new_waits(&ct, bb.as_ref())?;
+        self.check_new_weight(by, &ct.weight, &ct.weight_reason)?;
         let at = self.stamp();
         let id = new_id(&at);
         let num = self.next_short(&ct.board);
@@ -233,6 +289,18 @@ impl Fold {
                 from: ct.from.clone(),
                 board: ct.board.clone(),
                 side: ct.side.clone(),
+                title_by_person: ct.title_by_person,
+                pr: ct
+                    .pr_card
+                    .as_ref()
+                    .map(|c| c.pr.clone())
+                    .unwrap_or_default(),
+                pr_author: ct
+                    .pr_card
+                    .as_ref()
+                    .map(|c| c.author.clone())
+                    .unwrap_or_default(),
+                review_of: ct.review_of.clone(),
                 by: by.into(),
                 at,
                 ask: None,
@@ -277,6 +345,8 @@ impl Fold {
             )?;
         }
         if self.tasks.contains_key(&id) {
+            // Weighed with the card (card #964): before anyone is handed it.
+            self.write_new_weight(by, &id, &ct.weight, &ct.weight_reason)?;
             self.write_new_waits(by, &id, waits)?;
         }
         // The fold can set the row aside (a writer the board doesn't count).
@@ -356,37 +426,65 @@ impl Fold {
         note: &str,
     ) -> Result<(Task, bool)> {
         let (by, to) = (trim_space(by).to_string(), trim_space(to).to_string());
+        if let Some(t) = self.check_assign(&by, id, &to)? {
+            return Ok((t, false));
+        }
+        let t = self.write_assign(&by, id, &to, note, "", false)?;
+        Ok((t, true))
+    }
+
+    /// The checks of [`Self::assign`], writing nothing: `Ok(Some(card))`
+    /// when the give is already so (no row to write), `Ok(None)` when it
+    /// goes ahead.
+    pub(crate) fn check_assign(&self, by: &str, id: &str, to: &str) -> Result<Option<Task>> {
+        let (by, to) = (trim_space(by), trim_space(to));
         if by.is_empty() || to.is_empty() {
             return Err(invalid("assign needs a caller and an assignee"));
         }
-        check_key(&to)?;
+        check_key(to)?;
         let t = self.open_task(id)?.clone();
         if t.open_ask().is_some() {
             return Err(super::asks::ask_refusal(&t, "nobody is assigned one"));
         }
-        self.parked_take_refusal(&by, &t)?;
+        self.parked_take_refusal(by, &t)?;
         // After their Not now, a give from someone else asks them again.
-        if is_holder(&t, &to) && !self.gives_again(&t, &by, &to) {
-            return Ok((t, false));
+        if is_holder(&t, to) && !self.gives_again(&t, by, to) {
+            return Ok(Some(t));
         }
-        self.check_give(&t, &by, &to)?;
+        self.check_give(&t, by, to)?;
         // An agent hands a card only to a device that runs its side, unless
         // the person asked (card #496).
-        self.check_side_assign(&by, &t, &to)?;
-        self.end_park(&by, id, "the person handed it on")?;
+        self.check_side_assign(by, &t, to)?;
+        Ok(None)
+    }
+
+    /// The write half of [`Self::assign`], after [`Self::check_assign`]:
+    /// ends a hold, then writes the give with its batch and note.
+    pub(crate) fn write_assign(
+        &mut self,
+        by: &str,
+        id: &str,
+        to: &str,
+        note: &str,
+        batch: &str,
+        assistant: bool,
+    ) -> Result<Task> {
+        self.end_park(by, id, "the person handed it on")?;
         let at = self.stamp();
         self.write(
-            &by,
+            by,
             kinds::TASK_ASSIGNED,
             &TaskAssignedRow {
                 task_id: id.into(),
-                to,
-                by: by.clone(),
+                to: to.into(),
+                by: by.into(),
                 at,
                 note: note.into(),
+                batch: batch.into(),
+                assistant,
             },
         )?;
-        Ok((self.tasks[id].clone(), true))
+        Ok(self.tasks[id].clone())
     }
 
     pub(crate) fn set_task_state(
@@ -476,7 +574,9 @@ impl Fold {
             self.unreviewed_refusal(&t)?;
         }
         // Card #208: nor while a PR it links is open on GitHub.
-        if s == COMPLETED && self.is_agent_key(&by) {
+        // A review card links an open PR by design, and its agent never
+        // lands it (merge desk §12.10).
+        if s == COMPLETED && self.is_agent_key(&by) && t.review_of.is_empty() {
             self.open_pr_refusal(&t)?;
         }
         let cascade = self.parent_state_refusal(&t, s)?;
@@ -503,7 +603,15 @@ impl Fold {
         if s == COMPLETED && self.is_agent_key(&by) && lead.is_empty() && self.lead_coming(&t) {
             return self.ask_lead(&by, &t, "", &note, files);
         }
-        if s == COMPLETED && self.done_check && self.is_agent_key(&by) && lead.is_empty() {
+        // A review card's Done goes to nobody (merge desk §12.10): the
+        // author is not asked whether a reviewer's review is done; the card
+        // closes with its agent's completed.
+        if s == COMPLETED
+            && self.done_check
+            && self.is_agent_key(&by)
+            && lead.is_empty()
+            && t.review_of.is_empty()
+        {
             return self.ask_done(&by, &t, &note, files, need_proof);
         }
         if t.state == s && t.note == note {
@@ -584,6 +692,9 @@ impl Fold {
     pub(crate) fn reopen_locked(&mut self, by: &str, id: &str, note: &str) -> Result<()> {
         let t = self.tasks[id].clone();
         self.reopen_refusal(&t)?;
+        if self.board_closed(&t.board) {
+            return Err(self.closed_refusal(&t.board));
+        }
         if let Some(p) = self.tasks.get(&t.parent).cloned()
             && is_terminal(&p.state)
         {
@@ -652,6 +763,18 @@ impl Fold {
         resource: &str,
         ttl: Duration,
         steal: bool,
+    ) -> Result<Lease> {
+        self.acquire_pooled(holder, resource, ttl, steal, 0)
+    }
+
+    /// [`Self::acquire`] for one slot of a pool limited to `pool` (0: no pool).
+    fn acquire_pooled(
+        &mut self,
+        holder: &str,
+        resource: &str,
+        ttl: Duration,
+        steal: bool,
+        pool: i64,
     ) -> Result<Lease> {
         let holder = trim_space(holder).to_string();
         if holder.is_empty() {
@@ -728,6 +851,7 @@ impl Fold {
             acquired_at: now,
             stolen_from: from.join(","),
             conflict: String::new(),
+            slots: pool,
         };
         if let Some(old) = self.held.get(&res.name)
             && old.lease.holder == holder
@@ -795,7 +919,33 @@ impl Fold {
                 who.join(", ")
             )));
         };
-        self.acquire(&holder, &name, ttl, false)
+        self.acquire_pooled(&holder, &name, ttl, false, slots as i64)
+    }
+
+    /// Renews every slot lease `holder` holds whose time left is under
+    /// half of `ttl`, to `ttl` from now; returns how many it renewed. An
+    /// agent's slot (the slot_take tool) lives while the agent does: the
+    /// tools call this on each of its calls, and the gone sweep frees the
+    /// slot when the agent is gone.
+    pub(crate) fn renew_slots(&mut self, holder: &str, ttl: Duration) -> Result<usize> {
+        let holder = caller(holder)?;
+        let now = self.stamp();
+        let soon = gotime::add(&now, ttl / 2);
+        let due: Vec<String> = self
+            .held
+            .values()
+            .filter(|l| {
+                l.lease.holder == holder
+                    && self.live(l, &now)
+                    && super::is_slot_resource(&l.lease.resource)
+                    && gotime::before(&l.lease.until, &soon)
+            })
+            .map(|l| l.lease.resource.clone())
+            .collect();
+        for r in &due {
+            self.acquire(&holder, r, ttl, false)?;
+        }
+        Ok(due.len())
     }
 
     pub(crate) fn release_slot(&mut self, by: &str, base: &str) -> Result<bool> {
@@ -1053,6 +1203,11 @@ impl Fold {
         self.pr_states.clear();
         self.pr_ahead.clear();
         self.pr_vouchers.clear();
+        // Review asks keep their row's place, and a replay folds them again.
+        self.reviews.clear();
+        self.reviewers.clear();
+        self.pr_claims.clear();
+        self.created_pos.clear();
         self.pins.clear();
         self.archived.clear();
         // Pins from rows the cut moved out go too (card #494).

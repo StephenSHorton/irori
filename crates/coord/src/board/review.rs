@@ -22,10 +22,12 @@ use super::error::{Result, invalid, not_allowed, not_found};
 use super::fold::Fold;
 use super::fold::is_holder;
 use super::links::pr_link;
+use super::resource::pr_claim_resource;
 use super::rows::{ReviewRequestedRow, ReviewReviewerRow, TaskCommentRow, TaskStateRow, row};
 use super::types::*;
 use super::util::{caller, deeper, new_id};
 use crate::names::trim_space;
+use gocompat::fnv::fnv32a;
 use gocompat::quote::quote;
 
 /// A review request's notice kind.
@@ -70,6 +72,15 @@ pub struct ReviewRequest {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub to: String,
     pub at: GoTime,
+    /// A ping (merge desk §12.7): look at the PR; no review is asked.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub look: bool,
+    /// Whether the row wakes an idle recipient.
+    #[serde(skip)]
+    pub wake: bool,
+    /// The row's place in the log: the bridge's key is its device and seq.
+    #[serde(skip)]
+    pub pos: RowPos,
 }
 
 /// The reviewers people dedicated: `(person, repoKey or "")` to the
@@ -87,7 +98,10 @@ impl Fold {
                 let Some(p) = row::<ReviewRequestedRow>(&ev.payload) else {
                     return;
                 };
-                if !self.tasks.contains_key(&p.task_id) || self.on_board && p.pr.is_empty() {
+                let Some(t) = self.tasks.get(&p.task_id) else {
+                    return;
+                };
+                if self.on_board && p.pr.is_empty() {
                     return;
                 }
                 // An agent asks from a device of its person. On a shared
@@ -101,8 +115,31 @@ impl Fold {
                 } else {
                     self.is_agent_key(&p.to) && p.to != p.from
                 };
-                if !self.is_agent_key(&p.from) || !self.may_write(&p.from, &ev.device_id) || !theirs
-                {
+                // Merge desk §12.7: on a board the PR card's creator asks
+                // as their person, from a device of theirs.
+                let from_ok = if self.on_board && p.from.starts_with(kinds::PERSON_ACTOR_PREFIX) {
+                    self.person_row(ev, &p.from) && pr_card(t) && t.created_by == p.from
+                } else {
+                    self.is_agent_key(&p.from) && self.may_write(&p.from, &ev.device_id)
+                };
+                // §12.3: never the PR author's own agents, on every device.
+                // The author is whoever made a PR card for the row's PR,
+                // standing or not (card #1155): which card stands turns on
+                // profiles, and a row's fold must turn on rows alone.
+                let author_ok = !self.on_board
+                    || p.to.is_empty()
+                    || pr_claim_resource(&p.pr).is_none_or(|res| {
+                        !self.pr_card_makers(&res).contains(&self.person_of(&p.to))
+                    });
+                // On a PR card, an ask is for that card's PR; a ping
+                // (§12.7) only ever from its creator as their person.
+                let pr_ok = !self.on_board
+                    || t.pr_card
+                        .as_ref()
+                        .is_none_or(|c| pr_claim_resource(&c.pr) == pr_claim_resource(&p.pr));
+                let look_ok =
+                    !p.look || pr_card(t) && p.from.starts_with(kinds::PERSON_ACTOR_PREFIX);
+                if !from_ok || !theirs || !author_ok || !pr_ok || !look_ok {
                     self.ignore(&ev.device_id);
                     return;
                 }
@@ -112,9 +149,12 @@ impl Fold {
                     from: p.from,
                     to: p.to,
                     at: at(p.at),
+                    look: p.look,
+                    wake: p.wake,
+                    pos: RowPos::of(ev),
                 };
                 let rs = self.reviews.entry(p.task_id.clone()).or_default();
-                if !rs.contains(&r) {
+                if !rs.iter().any(|x| x.pos == r.pos) {
                     rs.push(r);
                 }
                 self.note(Change {
@@ -187,12 +227,39 @@ impl Fold {
         out
     }
 
+    /// A card's review asks, oldest folded first, without pings: a ping
+    /// never counts as an ask (merge desk §12.7).
+    pub(crate) fn review_asks<'a>(&'a self, id: &str) -> impl Iterator<Item = &'a ReviewRequest> {
+        self.reviews
+            .get(id)
+            .into_iter()
+            .flatten()
+            .filter(|r| !r.look)
+    }
+
+    /// The request this device just wrote, as folded: the newest of its
+    /// own rows that says the same.
+    pub(crate) fn read_back(&self, id: &str, want: &ReviewRequest) -> Option<ReviewRequest> {
+        self.reviews
+            .get(id)?
+            .iter()
+            .filter(|r| {
+                r.pos.dev == self.dev
+                    && (&r.from, &r.to, &r.pr, r.at, r.look)
+                        == (&want.from, &want.to, &want.pr, want.at, want.look)
+            })
+            .max_by(|a, b| a.pos.cmp(&b.pos))
+            .cloned()
+    }
+
     /// With nobody named and no dedicated reviewer, a shared board's
     /// review goes to one free agent of another person (card #191,
     /// Stephen): live, idle, in the card's repo when both have one, holding
-    /// no working card; the one idle longest. Never one of the asker's own
-    /// person's agents, so never across one person's own devices.
-    pub(crate) fn open_reviewer(&self, t: &Task, from: &str) -> Option<String> {
+    /// no working card. Never one of the asker's own person's agents, so
+    /// never across one person's own devices. The person with the fewest
+    /// open claims, then the fewest in 14 days, goes first; then a hash of
+    /// the PR and the agent's key (merge desk §12.6).
+    pub(crate) fn open_reviewer(&self, t: &Task, from: &str, pr: &str) -> Option<String> {
         let roster = self.roster.as_ref()?.agents();
         let mine = self.person_of(from);
         if mine.is_empty() {
@@ -205,7 +272,13 @@ impl Fold {
                 !p.is_empty() && p != mine
             })
             .collect();
-        self.free_for(t, &others, &[]).into_iter().next()
+        let counts = self.claim_counts(&self.stamp());
+        let mut free = self.free_for(t, &others, &[]);
+        free.sort_by_cached_key(|k| {
+            let c = counts.get(&self.person_of(k)).copied().unwrap_or_default();
+            (c, fnv32a(format!("{pr}{k}").as_bytes()), k.clone())
+        });
+        free.into_iter().next()
     }
 
     /// An agent asking another person's agents to review a PR its card
@@ -243,6 +316,17 @@ impl Fold {
         if !self.on_board {
             return self.request_own_review(&by, &t, &pr, &to);
         }
+        // Merge desk §12.5: a PR with a PR card here gets its reviewer
+        // from the author's poll device, so with no to nothing is asked.
+        let pc = if pr_card(&t) {
+            Some(t.clone())
+        } else {
+            self.pr_card_for(&pr).cloned()
+        };
+        if to.is_empty() && pc.is_some() {
+            self.enter_review(&by, id)?;
+            return Ok((Vec::new(), Notice::default()));
+        }
         if !to.is_empty() && self.person_of(&to) == self.person_of(&by) {
             return Err(not_allowed(format!(
                 "{to} is one of your own person's agents: they can comment, but a review comes from another person's agent"
@@ -255,9 +339,18 @@ impl Fold {
                 "{to} isn't a member's agent in this space: a review comes from another person's agent"
             )));
         }
+        // §12.3, advisory: never the PR author's own agents.
+        if let Some(pc) = &pc
+            && !to.is_empty()
+            && self.person_of(&to) == self.person_of(&pc.created_by)
+        {
+            return Err(not_allowed(format!(
+                "{to} is the PR author's own agent: a review comes from another person's agent"
+            )));
+        }
         let mut rcpt = self.review_recipients(&by, &to, &t.repo_key);
         if rcpt.is_empty() {
-            rcpt = self.open_reviewer(&t, &by).into_iter().collect();
+            rcpt = self.open_reviewer(&t, &by, &pr).into_iter().collect();
         }
         if rcpt.is_empty() {
             return Err(not_found(
@@ -279,15 +372,20 @@ impl Fold {
                     from: by.clone(),
                     to: to.clone(),
                     at,
+                    wake: true,
+                    look: false,
                 },
             )?;
-            out.push(ReviewRequest {
+            let want = ReviewRequest {
                 task_id: id.into(),
                 pr: pr.clone(),
                 from: by.clone(),
                 to: to.clone(),
                 at,
-            });
+                wake: true,
+                ..ReviewRequest::default()
+            };
+            out.push(self.read_back(id, &want).unwrap_or(want));
         }
         self.enter_review(&by, id)?;
         let n = Notice {
@@ -344,6 +442,9 @@ impl Fold {
             from: by.into(),
             to: to.into(),
             at,
+            // Private: the notice wakes the reviewer once.
+            wake: false,
+            look: false,
         };
         self.write(by, kinds::REVIEW_REQUESTED, &row)?;
         self.enter_review(by, &t.id)?;
@@ -369,13 +470,15 @@ impl Fold {
             ),
             ..Notice::default()
         };
-        let r = ReviewRequest {
+        let want = ReviewRequest {
             task_id: t.id.clone(),
             pr: pr.into(),
             from: by.into(),
             to: to.into(),
             at,
+            ..ReviewRequest::default()
         };
+        let r = self.read_back(&t.id, &want).unwrap_or(want);
         Ok((vec![r], n))
     }
 
@@ -390,7 +493,7 @@ impl Fold {
             )));
         }
         let has_pr = t.links.iter().any(|l| pr_link(l).is_some());
-        let asked = self.reviews.get(&t.id).is_some_and(|rs| !rs.is_empty());
+        let asked = self.review_asks(&t.id).next().is_some();
         if !has_pr && !asked {
             return Err(invalid(format!(
                 "{} has nothing to review yet: board_link its pull request, or ask for a review with board_review",
@@ -466,10 +569,7 @@ impl Fold {
             && (p.verdict == VERDICT_APPROVED || p.verdict == VERDICT_CHANGES)
             && p.msg_id.is_empty()
             && p.blocker_id.is_empty()
-            && self
-                .reviews
-                .get(&p.task_id)
-                .is_some_and(|rs| rs.iter().any(|r| r.to == p.by))
+            && self.review_asks(&p.task_id).any(|r| r.to == p.by)
     }
 
     /// A reviewer's verdict (#88): a comment on the card, approved or
@@ -499,15 +599,10 @@ impl Fold {
             check_comment(by, &input.text, &input.files, self.is_owner(trim_space(by)))?;
         let t = self.any_task(id)?.clone();
         let askers: Vec<String> = self
-            .reviews
-            .get(id)
-            .map(|rs| {
-                rs.iter()
-                    .filter(|r| r.to == by)
-                    .map(|r| r.from.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
+            .review_asks(id)
+            .filter(|r| r.to == by)
+            .map(|r| r.from.clone())
+            .collect();
         if askers.is_empty() {
             return Err(not_allowed(format!(
                 "nobody asked you to review {}; give your view as a plain comment",
@@ -594,11 +689,8 @@ impl Fold {
     /// A card's reviews, one per reviewer in the order first asked: the
     /// newest request, answered by a verdict at or after it.
     pub(crate) fn reviews_of(&self, id: &str) -> Vec<Review> {
-        let Some(rs) = self.reviews.get(id) else {
-            return Vec::new();
-        };
         let mut out: Vec<Review> = Vec::new();
-        for r in rs {
+        for r in self.review_asks(id) {
             if r.to.is_empty() {
                 continue;
             }

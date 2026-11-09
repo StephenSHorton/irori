@@ -261,6 +261,13 @@ impl Session {
         let _ = read.await;
         let _ = accept.await;
         self.lock().ended = true;
+        // A session that ended on its own (a write or read failed) must take
+        // its connection with it. Left open, the transport still counts the
+        // pair as connected (iroh's keep-alives hold it up), so every redial
+        // is a no-op and no session ever forms again.
+        if !parent.is_cancelled() && self.conn.err().is_none() {
+            self.conn.close("session ended");
+        }
         let serving = std::mem::take(&mut *self.serving.lock().unwrap_or_else(|e| e.into_inner()));
         for h in serving {
             let _ = h.await;
@@ -377,6 +384,7 @@ impl Session {
             Ok(evs) if !evs.is_empty() => evs,
             _ => return Vec::new(),
         };
+        self.n.activity().pulse();
         let mut f = batches(&evs, false).swap_remove(0);
         let mut ext: BTreeMap<String, (i64, i64)> = BTreeMap::new();
         for r in &f.events {
@@ -434,10 +442,34 @@ impl Session {
         .await
     }
 
+    /// How long the connection may say nothing before it is closed: the
+    /// peer pings every `ping`, so four missed in a row means its side of
+    /// the session is gone (or its hello never came) even though the
+    /// connection itself is still up.
+    pub(crate) fn quiet_limit(&self) -> std::time::Duration {
+        4 * self.n.iv.ping
+    }
+
     async fn read(self: &Arc<Self>) {
+        let quiet = self.quiet_limit();
         loop {
-            let Ok(b) = self.conn.recv().await else {
-                return;
+            let b = match tokio::time::timeout(quiet, self.conn.recv()).await {
+                Ok(Ok(b)) => b,
+                Ok(Err(_)) => return,
+                Err(_) => {
+                    let why = if self.hello_done() {
+                        "silent"
+                    } else {
+                        "no hello"
+                    };
+                    self.n.log(&format!(
+                        "mesh: {}: nothing heard for {} s ({why}); closing to dial again",
+                        self.conn.id(),
+                        quiet.as_secs()
+                    ));
+                    self.conn.close(why);
+                    return;
+                }
             };
             let f = match decode_frame(&b) {
                 Ok(f) => f,
@@ -600,6 +632,11 @@ impl Session {
             g.peer_vec = f.vector.clone();
         }
         n.note_vector(&peer, &f.vector);
+        n.log(&format!(
+            "mesh: {peer}: session up (epoch {}, {})",
+            self.epoch,
+            self.conn.path()
+        ));
         n.connected(&peer);
         n.send_secret(self); // if it is behind, or rotated apart
         n.send_board_secrets(self);
@@ -642,6 +679,9 @@ impl Session {
 
     /// Go `onRows`: applies a rows frame, then acks with this vector.
     async fn on_rows(self: &Arc<Self>, f: Frame) {
+        if !f.events.is_empty() {
+            self.n.activity().pulse();
+        }
         if f.loose {
             // Not an ack: the sender's batch in flight is another frame.
             self.on_loose(f.events).await;
@@ -675,6 +715,9 @@ impl Session {
             if let Err(e) = r {
                 self.refusal(&dev, &evs[applied..], &e).await;
             }
+        }
+        if !f.events.is_empty() {
+            self.n.activity().pulse();
         }
         self.n.synced(&self.conn.id());
         self.vector(true, f.batch);

@@ -238,7 +238,8 @@ impl Services {
             Some(o) if o.secs > until.secs => o,
             _ => until,
         };
-        if h.is_none_or(|o| o.secs != until.secs) {
+        let changed = h.is_none_or(|o| o.secs != until.secs);
+        if changed {
             logf(format_args!(
                 "spawn: Claude usage limit, holding new spawns until {}",
                 until.format_rfc3339()
@@ -247,7 +248,36 @@ impl Services {
             self.republish_host();
         }
         *h = Some(until);
+        drop(h);
+        // Every card's queue words read the hold (list-signals.md §3.2).
+        if changed {
+            self.tell_agents_changed();
+        }
         until
+    }
+
+    /// The stored hold has passed: clear it and tell the window once. The
+    /// spawn sweep calls it; nothing ticks for a hold, and
+    /// [`Self::usage_held`] already reads a passed one as none.
+    pub(crate) fn expire_usage_hold(&self) {
+        let now = (self.now)();
+        let ended = {
+            let mut h = self
+                .spawn
+                .usage_hold
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let ended = h.is_some_and(|h| h.secs <= now.secs);
+            if ended {
+                *h = None;
+            }
+            ended
+        };
+        if ended {
+            logf(format_args!("spawn: the usage hold ended"));
+            self.republish_host();
+            self.tell_agents_changed();
+        }
     }
 
     /// Ends the usage hold now, for the person (card #576): they asked for
@@ -264,6 +294,7 @@ impl Services {
             logf(format_args!("spawn: the person ended the usage hold"));
             self.republish_host();
             self.asks_kick.kick();
+            self.tell_agents_changed();
         }
     }
 

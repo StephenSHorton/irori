@@ -53,6 +53,16 @@ On the phone: Settings → About phone → tap Build number 7 times, then Develo
 - Updates (card #270): the release's APK, checked against `SHA256SUMS`, goes to Android's install screen through `ApkInstallPlugin.kt` (app/gen/android) and the FileProvider's `irori/updates/` path; the manifest asks for `REQUEST_INSTALL_PACKAGES`. The updater checks TLS against bundled Mozilla roots on Android (the platform verifier would need JNI set up). See docs/releasing.md, Android.
 - Notifications (card #395): only Talk's mentions of you and DMs to you (and agents' messages to you, which Talk shows as DMs); a plain channel post only bumps the unread count, and asks, held messages and cards waiting on you stay off the phone. The one exception (card #541): word that no agent can start for something you posted, because no computer can take it. `app/src/shell/notify_android.rs` is the notifier's toaster there, over `NotifyPlugin.kt` (app/gen/android), which posts to the "Mentions and direct messages" channel; Android 13+ asks for the permission at the first start. A tap opens that conversation: the plugin keeps the note's id and Rust takes it when the app resumes, or once the page listens for `app:open` (`app:open-ready`) after a cold start. An agent mentions you with `talk_post mention=["person"]`.
 
+## Checking a release on the phone
+
+For a "check it on the real phone after the release" step:
+
+- First run `git merge-base --is-ancestor <merge-commit> v<latest>`. A merge can land minutes after a release is cut and miss it.
+- The phone's app is release-signed, so there is no `run-as`. Read the installed version with `adb shell dumpsys package com.stephenshorton.irori | grep versionName`.
+- A foldable has two displays, and `adb exec-out screencap -p` shoots only one. Pass `-d <id>`, with the ids from `adb shell dumpsys SurfaceFlinger --display-id`.
+- A release build has no WebView devtools, so there is no DOM to read: check by screenshots.
+- The phone may be in the person's hand. Before sending input, read `dumpsys power` for `lastUserActivityTime`; if they used it a moment ago, wait or ask. Put the screen back as you found it (off, locked) when you are done.
+
 ## Calls
 
 A call or huddle (card #654) keeps running with the screen off or Irori in the background, through a foreground service.

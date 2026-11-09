@@ -38,6 +38,11 @@ pub struct BoardInfo {
     /// The space's own name, which its first board's `name` may not be.
     /// Empty: the same as `name`.
     pub space_name: String,
+    /// The board's description (card #690); may be empty.
+    pub description: String,
+    /// Closed: read-only and out of the lists, still found by its tag so
+    /// a ref to its cards works (card #690).
+    pub closed: bool,
 }
 
 impl BoardInfo {
@@ -72,6 +77,19 @@ pub struct PersonalBoard {
     pub name: String,
     /// Its short handle; empty for the default, which has none.
     pub tag: String,
+    /// Its description (card #690); empty with none.
+    pub description: String,
+    /// Closed: it takes no cards and isn't listed (card #690).
+    pub closed: bool,
+}
+
+/// One space the board tool lists by itself (card #1198), by the log its
+/// cards are on: a shared space's id, or `None` for Personal. A tag alone
+/// can't say, as a space joined later may share a tag with Personal's.
+#[derive(Debug, Clone)]
+pub(crate) struct SpaceFilter {
+    pub(crate) label: String,
+    space: Option<String>,
 }
 
 /// The id of Personal's default board, as Core names it
@@ -192,6 +210,7 @@ const CARD_WRITES: &[&str] = &[
     "board_steps",
     "board_join",
     "board_leave",
+    "board_move",
     "board_assign",
     "board_link",
     "board_edit",
@@ -267,6 +286,9 @@ fn arg_texts(v: &serde_json::Value, key: &str, out: &mut Vec<String>) {
     }
 }
 
+/// How much of a board's description the board tool's list shows.
+const DESCRIPTION_CHARS: usize = 120;
+
 /// The refusal for a write scrub or the stricter pass blocks (§7.3).
 fn refusal(b: &BoardInfo, reasons: &[String]) -> String {
     err_text(&format!(
@@ -323,7 +345,7 @@ impl Inner {
             .unwrap_or_else(|| PersonalBoard {
                 board_id: PERSONAL_DEFAULT.into(),
                 name: "Personal".into(),
-                tag: String::new(),
+                ..Default::default()
             })
     }
 
@@ -370,7 +392,7 @@ impl Inner {
             .b
             .personal_boards()
             .into_iter()
-            .filter(|b| !b.is_default())
+            .filter(|b| !b.is_default() && !b.closed)
             .map(|b| b.tag)
             .collect();
         if tags.is_empty() {
@@ -393,7 +415,11 @@ impl Inner {
         match hits.as_slice() {
             [one] => Ok((*one).clone()),
             [] => {
-                let list: Vec<String> = all.iter().map(|b| b.tag.clone()).collect();
+                let list: Vec<String> = all
+                    .iter()
+                    .filter(|b| !b.closed)
+                    .map(|b| b.tag.clone())
+                    .collect();
                 Err(err_text(&format!(
                     "no board {} in a shared space. {}",
                     crate::format::q(v),
@@ -429,13 +455,14 @@ impl Inner {
     /// board tool also lists the boards the agent may post on.
     pub(crate) fn around_board(
         &self,
+        c: &Caller,
         name: &str,
         args: &[u8],
         run: impl FnOnce() -> String,
     ) -> String {
         if name == "board" {
             let out = run();
-            return match self.boards_section() {
+            return match self.boards_section(c) {
                 Some(s) => format!("{out}\n{s}"),
                 None => out,
             };
@@ -464,22 +491,38 @@ impl Inner {
     }
 
     /// The board tool's list of boards to post on: Personal's, when it has
-    /// more than its default (card #698), then the spaces.
-    fn boards_section(&self) -> Option<String> {
-        let parts: Vec<String> = [self.personal_section(), self.spaces_section()]
-            .into_iter()
-            .flatten()
-            .collect();
+    /// more than its default (card #698), then the spaces. The window's
+    /// assistant posts nothing, so its list says how to open each space
+    /// instead (card #1198).
+    pub(crate) fn boards_section(&self, c: &Caller) -> Option<String> {
+        let assistant = c.sender.kind == crate::CLIENT_ASSISTANT;
+        let parts: Vec<String> = [
+            self.personal_section(assistant),
+            self.spaces_section(assistant),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         (!parts.is_empty()).then(|| parts.join("\n"))
     }
 
     /// Personal's boards past its default, private like every Personal card.
-    fn personal_section(&self) -> Option<String> {
+    fn personal_section(&self, assistant: bool) -> Option<String> {
         let all = self.b.personal_boards();
         let boards: Vec<String> = all
             .iter()
-            .filter(|b| !b.is_default())
-            .map(|b| format!("{} {}", b.tag, crate::format::q(&one_line(&b.name, 80))))
+            // A closed board takes no cards, so it isn't listed (card #690).
+            .filter(|b| !b.is_default() && !b.closed)
+            .map(|b| {
+                let mut line = format!("{} {}", b.tag, crate::format::q(&one_line(&b.name, 80)));
+                if !b.description.trim().is_empty() {
+                    line.push_str(&format!(
+                        ": {}",
+                        crate::format::q(&one_line(&b.description, DESCRIPTION_CHARS))
+                    ));
+                }
+                line
+            })
             .collect();
         if boards.is_empty() {
             return None;
@@ -488,6 +531,13 @@ impl Inner {
             .iter()
             .find(|b| b.is_default())
             .map_or("Personal", |b| b.name.as_str());
+        if assistant {
+            return Some(format!(
+                "Personal's boards (private: only the person sees them; board space=personal lists Personal's cards): {}; and its default, {}.",
+                boards.join(", "),
+                crate::format::q(&one_line(default, 80))
+            ));
+        }
         Some(format!(
             "Personal's boards (board_create board=<board tag>, or board_share one of your person's private cards onto one; private: only your person sees them): {}; leave board out for its default, {}.",
             boards.join(", "),
@@ -497,23 +547,27 @@ impl Inner {
 
     /// The spaces, each with who sees it, the agents' autonomy there and
     /// its boards (card #558).
-    fn spaces_section(&self) -> Option<String> {
+    fn spaces_section(&self, assistant: bool) -> Option<String> {
         let all = self.shared()?.boards();
         if all.is_empty() {
             return None;
         }
-        let mut s = String::from(
-            "Spaces you may post on (board_create board=<board tag>; anything there is seen by everyone in the space):",
-        );
+        let mut s = String::from(if assistant {
+            "Shared spaces (board space=<name or board tag> lists one space's cards; a card there is <board tag>#<n>; anything there is seen by everyone in the space):"
+        } else {
+            "Spaces you may post on (board_create board=<board tag>; anything there is seen by everyone in the space):"
+        });
+        // A closed board takes no cards, so it isn't listed (card #690).
+        let live: Vec<&BoardInfo> = all.iter().filter(|b| !b.closed).collect();
         let mut seen: Vec<&str> = Vec::new();
-        for b in &all {
+        for b in &live {
             if seen.contains(&b.board_id.as_str()) {
                 continue;
             }
             seen.push(&b.board_id);
-            let boards: Vec<String> = all
+            let here: Vec<&&BoardInfo> = live.iter().filter(|x| x.board_id == b.board_id).collect();
+            let boards: Vec<String> = here
                 .iter()
-                .filter(|x| x.board_id == b.board_id)
                 .map(|x| format!("{} {}", x.tag, crate::format::q(&one_line(&x.name, 80))))
                 .collect();
             s += &format!(
@@ -523,8 +577,108 @@ impl Inner {
                 self.b.inbox().autonomy(&b.board_id),
                 boards.join(", ")
             );
+            // Each board's description, so a card goes where it fits.
+            for x in here.iter().filter(|x| !x.description.trim().is_empty()) {
+                s += &format!(
+                    "\n  {}: {}",
+                    x.tag,
+                    crate::format::q(&one_line(&x.description, DESCRIPTION_CHARS))
+                );
+            }
         }
         Some(s)
+    }
+
+    /// Keeps only space `sp`'s cards in `v` (card #1198).
+    pub(crate) fn keep_space(&self, sp: &SpaceFilter, v: &mut coord::BoardView) {
+        let sb = self.shared();
+        let on = |t: &Task| sb.and_then(|sb| sb.board_of(&t.id)).map(|b| b.board_id);
+        for g in [
+            &mut v.needs_you,
+            &mut v.blocked,
+            &mut v.working,
+            &mut v.open,
+            &mut v.later,
+            &mut v.done,
+        ] {
+            g.retain(|cd| on(&cd.task) == sp.space);
+        }
+        v.leases.clear();
+    }
+
+    /// The space `named` names for the board tool's `space` (card #1198):
+    /// "personal", a space's name, or the tag of any board in it. `None`
+    /// for an empty name; an unknown one is refused with the spaces there
+    /// are.
+    pub(crate) fn space_named(&self, named: &str) -> Result<Option<SpaceFilter>, String> {
+        let want = named.trim().trim_end_matches('#').to_lowercase();
+        if want.is_empty() {
+            return Ok(None);
+        }
+        let shared: Vec<BoardInfo> = self.shared().map(|sb| sb.boards()).unwrap_or_default();
+        let personal = PERSONAL_DEFAULT == want
+            || self
+                .b
+                .personal_boards()
+                .iter()
+                .any(|b| b.tag.to_lowercase() == want || b.name.to_lowercase() == want);
+        let mut hits: Vec<&BoardInfo> = Vec::new();
+        for b in &shared {
+            let named = b.tag.to_lowercase() == want
+                || b.space().to_lowercase() == want
+                || b.name.to_lowercase() == want;
+            if named && !hits.iter().any(|h| h.board_id == b.board_id) {
+                hits.push(b);
+            }
+        }
+        let spaces = |only: &[&BoardInfo]| -> Vec<String> {
+            let mut names: Vec<String> = Vec::new();
+            for b in only {
+                let n = format!("{} ({})", q(&one_line(b.space(), 80)), b.tag);
+                if !b.closed && !names.contains(&n) {
+                    names.push(n);
+                }
+            }
+            names
+        };
+        // "personal" is always Personal; another name for two spaces is
+        // asked again by a tag, never picked.
+        match (personal, hits.as_slice()) {
+            (true, []) => {}
+            (true, _) if want == PERSONAL_DEFAULT => {}
+            (false, [hit]) => {
+                return Ok(Some(SpaceFilter {
+                    label: format!("space {}", q(&one_line(hit.space(), 80))),
+                    space: Some(hit.board_id.clone()),
+                }));
+            }
+            (false, []) => {
+                let mut names = vec!["personal".to_string()];
+                names.extend(spaces(&shared.iter().collect::<Vec<_>>()));
+                return Err(err_text(&format!(
+                    "no space here is called {}: give personal, a space's name or one of its board tags: {}.",
+                    q(&one_line(named, 80)),
+                    names.join(", ")
+                )));
+            }
+            (p, many) => {
+                let mut names = if p {
+                    vec!["personal".to_string()]
+                } else {
+                    vec![]
+                };
+                names.extend(spaces(many));
+                return Err(err_text(&format!(
+                    "{} names more than one space: {}; give the board tag of the one you mean.",
+                    q(&one_line(named, 80)),
+                    names.join(", ")
+                )));
+            }
+        }
+        Ok(Some(SpaceFilter {
+            label: "Personal".into(),
+            space: None,
+        }))
     }
 
     /// Creates the card on the board as `agent` and assigns it.
@@ -660,6 +814,12 @@ pub(crate) fn create_on_board(
         Ok(b) => b,
         Err(e) => return e,
     };
+    if b.closed {
+        return err_text(&format!(
+            "{} is closed, so it takes no new cards. Reopen it in Irori first, or pick another board (the board tool lists them).",
+            b.label()
+        ));
+    }
     if !trim(a.str("parent")).is_empty() {
         return err_text("a subtask goes on its parent's board: give parent and leave out board.");
     }
@@ -680,6 +840,8 @@ pub(crate) fn create_on_board(
         board_named: true,
         after,
         later: later.map(|l| l.0),
+        weight: crate::board::new_weight(a).0,
+        weight_reason: crate::board::new_weight(a).1,
         ..NewTask::default()
     };
     let mut texts: Vec<&str> = vec![
@@ -687,6 +849,7 @@ pub(crate) fn create_on_board(
         &task.objective,
         &task.done_criteria,
         &task.block_reason,
+        &task.weight_reason,
     ];
     texts.extend(task.links.iter().map(String::as_str));
     texts.extend(task.steps.iter().map(|st| st.text.as_str()));
@@ -1311,9 +1474,17 @@ pub(crate) fn board_review(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Ok(v) => v,
         Err(e) => return map_err(e),
     };
+    // Merge desk §12.5: a PR with a PR card gets its reviewer from the
+    // author's device, so nothing was asked.
+    if rs.is_empty() {
+        return format!(
+            "Irori picks this PR's reviewer from the PR author's device; to review it yourself, run review_claim pr={}",
+            one_line(pr, 200)
+        );
+    }
     let asked: Vec<String> = rs.iter().map(|r| r.to.clone()).collect();
     format!(
-        "Asked {} to review {} for {}: they hear at their next turn and review with their own gh (Irori never posts reviews or merges). Their review shows in prs once they post it.\n{}",
+        "Asked {} to review {} for {}: an idle agent is woken now, a busy one hears at its next turn, and if their person has Ask me on, their person is asked first. They review with their own gh (Irori never posts reviews or merges). Their review shows in prs once they post it.\n{}",
         asked.join(", "),
         one_line(pr, 200),
         s.short_of(&id),

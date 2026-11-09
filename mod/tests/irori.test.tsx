@@ -192,7 +192,7 @@ describe('attach', () => {
       await band.unmount()
     }
     const ran = await $.command.run(irori(''))
-    expect(ran.text).toContain('irori mod 0.7.0')
+    expect(ran.text).toContain('irori mod 0.7.2')
     expect(ran.text).toContain('set iroriPath')
   })
 
@@ -200,7 +200,7 @@ describe('attach', () => {
     const w = world(on)
     await $.session.start({ cwd: 'C:/work/api', surface: 'terminal', isInteractive: true })
     await until(() => w.children.length === 1, 'spawn')
-    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.7.0'])
+    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.7.2'])
 
     // hello split across two pieces, a blank keepalive, and a stray log line.
     const h = line(hello)
@@ -845,7 +845,7 @@ describe('/irori', () => {
     }
     expect(w.calls.filter(c => c.url.endsWith('/v1/policy'))).toEqual([])
     const status = await $.command.run(irori(''))
-    expect(status.text).toContain('irori mod 0.7.0')
+    expect(status.text).toContain('irori mod 0.7.2')
     expect(status.text).toContain('Attached as api work')
   })
 
@@ -1061,6 +1061,8 @@ describe('Claude usage (card #599)', () => {
 
   test('hello posts what the session has; a measurement posts only when the windows moved', OPTIONS, async ($, on) => {
     const w = world(on)
+    // No login record to read: the reading names no account.
+    on('env.get', () => ({ value: undefined }) as never)
     on('session.usage', () => ({ value: { startedAt: 0, context: CONTEXT, rateLimits: [FIVE] } }) as never)
     await $.session.start({ cwd: 'C:/work/api', surface: 'terminal', isInteractive: true })
     await until(() => w.children.length === 1, 'spawn')
@@ -1081,6 +1083,38 @@ describe('Claude usage (card #599)', () => {
     await $.session.measure({ context: CONTEXT, rateLimits: [], changed: ['rateLimits'] } as never)
     await pause(50)
     expect(posts(w.calls, '/v1/usage/limits').length).toBe(2)
+  })
+
+  test('a reading names the account the login record signs in as, and follows a switch (card #1040)', OPTIONS, async ($, on) => {
+    const w = world(on)
+    let record = JSON.stringify({ oauthAccount: { accountUuid: 'acct-a', organizationUuid: 'org-1', emailAddress: 'a@example.com' } })
+    const reads: string[] = []
+    on('env.get', (_, e) => ({ value: e.name === 'CLAUDE_CONFIG_DIR' ? 'C:/cfg/' : undefined }) as never)
+    on('fs.read', (_, e) => {
+      reads.push(e.path)
+      return { value: record } as never
+    })
+    on('session.usage', () => ({ value: { startedAt: 0, context: CONTEXT, rateLimits: [FIVE] } }) as never)
+    await $.session.start({ cwd: 'C:/work/api', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line(hello))
+    await until(() => posts(w.calls, '/v1/usage/limits').length === 1, 'usage at hello')
+    expect(reads[0]).toMatch(/cfg[\\/]\.claude\.json$/)
+    const first = posts(w.calls, '/v1/usage/limits')[0]!.body
+    expect(first).toBe(JSON.stringify({ rateLimits: [FIVE], account: 'acct-a/org-1' }))
+    expect(String(first)).not.toContain('example.com')
+
+    // /login as another account: the next reading names it.
+    record = JSON.stringify({ oauthAccount: { accountUuid: 'acct-b' } })
+    await $.session.measure({ context: CONTEXT, rateLimits: [WEEK], changed: ['rateLimits'] } as never)
+    await until(() => posts(w.calls, '/v1/usage/limits').length === 2, 'usage after the switch')
+    expect(posts(w.calls, '/v1/usage/limits')[1]!.body).toBe(JSON.stringify({ rateLimits: [WEEK], account: 'acct-b' }))
+
+    // A record that can't be read or names no account: posted without one.
+    record = 'not json'
+    await $.session.measure({ context: CONTEXT, rateLimits: [FIVE], changed: ['rateLimits'] } as never)
+    await until(() => posts(w.calls, '/v1/usage/limits').length === 3, 'usage with no account')
+    expect(posts(w.calls, '/v1/usage/limits')[2]!.body).toBe(JSON.stringify({ rateLimits: [FIVE] }))
   })
 
   test('a measurement before the attach posts nothing and never fails', OPTIONS, async ($, on) => {

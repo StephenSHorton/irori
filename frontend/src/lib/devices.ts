@@ -4,20 +4,21 @@
 // plain browser it runs on a small sample so the dialog can be tried: a
 // pairing there moves on by itself, and the sample's words are "sample".
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 
 import { DevicesService, Events } from "./host"
+import { onChange } from "./changes"
 import {
   DeviceView,
   HomeServerView,
   PairJoiner as Joiner,
   PairStatus,
-  RelayView,
 } from "./models"
 import { EventDevicesChanged, EventRosterChanged, inWails } from "./irori"
-import { useLatest } from "./talk"
+import { createStore, rosterWatch } from "./small-lists"
+import { appPage } from "./visibility"
 
-export { DeviceView, HomeServerView, PairStatus, RelayView }
+export { DeviceView, HomeServerView, PairStatus }
 
 // EventPairingChanged mirrors the Go constant in devices_service.go.
 export const EventPairingChanged = "devices:pairing"
@@ -58,7 +59,6 @@ const SampleKey = "3f9a 0c21 77de 41b0"
 let sampleDevices: DeviceView[] | null = null
 let samplePair = PairStatus({ mode: "", state: "" })
 let sampleTimer: number | undefined
-let sampleRelay = RelayView({ state: "none" })
 let sampleHome = HomeServerView({
   can: true,
   publicRelays: true,
@@ -87,6 +87,8 @@ function sampleList(): DeviceView[] {
       color: "orange",
       state: "connected",
       lastSeen: new Date().toISOString(),
+      reach: "direct",
+      version: "0.12.1",
       sides: ["Work"],
     }),
     // Reached only through another device (card #544).
@@ -98,6 +100,8 @@ function sampleList(): DeviceView[] {
       state: "recent",
       lastSeen: new Date(Date.now() - 2 * 60_000).toISOString(),
       via: "Phone",
+      reach: "unreachable",
+      version: "0.12.1",
     }),
     DeviceView({
       deviceId: "sample-node",
@@ -106,7 +110,20 @@ function sampleList(): DeviceView[] {
       color: "pink",
       state: "offline",
       lastSeen: new Date(Date.now() - 3 * 3600_000).toISOString(),
+      reach: "unreachable",
+      version: "0.11.0",
+      behind: "0.12.1",
       warning: "It runs an older Irori. Update it.",
+    }),
+    // A removal waiting on a device that may be gone for good.
+    DeviceView({
+      deviceId: "sample-old",
+      name: "Old phone",
+      role: "desktop",
+      state: "offline",
+      revoked: true,
+      warning: "Removal pending: seen by 2 of 3 devices. Waiting on Node.",
+      holdouts: [{ deviceId: "sample-node", name: "Node" }],
     }),
   ]
   return sampleDevices
@@ -344,21 +361,6 @@ export const devices = {
     sampleHome = HomeServerView({ ...sampleHome, publicRelays: on })
     return sampleHome
   },
-  // relay is the advanced TURN relay setting: state "none" is none set.
-  async relay(): Promise<RelayView> {
-    if (inWails()) return DevicesService.Relay()
-    return sampleRelay
-  },
-  // setRelay sets the advanced relay's TURN REST credential URL ("" removes
-  // it).
-  async setRelay(url: string): Promise<RelayView> {
-    if (inWails()) return DevicesService.SetRelay(url)
-    sampleRelay = RelayView({
-      credentialUrl: url.replace(/[?#].*$/, "?…") || undefined,
-      state: url ? "pending" : "none",
-    })
-    return sampleRelay
-  },
   // remove revokes a device: its later rows are refused everywhere and the
   // person key rotates on the devices that remain (decision D8).
   async remove(deviceId: string): Promise<void> {
@@ -392,6 +394,23 @@ export const devices = {
     if (inWails()) return DevicesService.SetPersonAvatar(avatar)
     samplePersonAvatar = avatar
   },
+  // assistantName is the name the person gave their Office Assistant (card
+  // #1045), "" for the default.
+  async assistantName(): Promise<string> {
+    if (inWails()) return DevicesService.AssistantName()
+    return sampleAssistantName
+  },
+  // assistantLabel is the name as shown for their own assistant: the chosen
+  // name, else "<name>'s assistant".
+  async assistantLabel(): Promise<string> {
+    if (inWails()) return DevicesService.AssistantLabel()
+    return sampleAssistantName || "Sam's assistant"
+  },
+  // setAssistantName sets it; "" goes back to the default.
+  async setAssistantName(name: string): Promise<void> {
+    if (inWails()) return DevicesService.SetAssistantName(name)
+    sampleAssistantName = name.trim()
+  },
   // sideNames is every work/personal side named on a device or a card
   // (card #494), for this device's pin to choose from.
   async sideNames(): Promise<string[]> {
@@ -414,6 +433,7 @@ export const devices = {
 
 let samplePersonColor = ""
 let samplePersonAvatar = ""
+let sampleAssistantName = ""
 
 // MaxDeviceName mirrors coord::devname::MAX_LEN.
 export const MaxDeviceName = 40
@@ -496,39 +516,86 @@ export type DevicesState = {
   reload: () => Promise<void>
 }
 
-// useDevices reads the person's devices while active (the dialog is open):
-// at once, on every pairing or roster change, and every few seconds, since
-// a device going quiet sends no event.
-export function useDevices(active: boolean): DevicesState {
-  const load = useCallback(
-    async (): Promise<DeviceView[]> =>
-      inWails()
-        ? ((await DevicesService.Devices()) ?? [])
-        : sampleList().map((d) => DeviceView(d)),
-    []
-  )
-  const { value, error, loading, reload } = useLatest<DeviceView[]>(load, [])
+// The devices are one list for the whole window (card #1152): Settings,
+// the agent strip, the desks pane and the profile page share one read, made
+// when the first of them mounts and again on a pairing change, a
+// devices:changed, and a roster:changed that moved a device's state. A
+// reader that mounts later reads nothing.
+//
+// A device going quiet sends no event, nor does a revoke. The 5 s poll
+// covers both, but only while the devices panel is open (`poll`).
+function watchRoster(reload: () => void): () => void {
+  const changed = rosterWatch()
+  let owed = false
+  const page = appPage()
+  const onVisible = () => {
+    if (page?.hidden || !owed) return
+    owed = false
+    reload()
+  }
+  page?.addEventListener("visibilitychange", onVisible)
+  const off = Events.On(EventRosterChanged, (ev) => {
+    if (!changed(ev.data)) return
+    if (appPage()?.hidden) owed = true
+    else reload()
+  })
+  return () => {
+    off()
+    page?.removeEventListener("visibilitychange", onVisible)
+  }
+}
 
-  useEffect(() => {
-    if (!active) return
-    void reload()
-    const id = window.setInterval(() => void reload(), RefreshMs)
-    const offPair = onPairing(() => void reload())
-    const offRoster = inWails()
-      ? Events.On(EventRosterChanged, () => void reload())
-      : () => {}
+const deviceStore = createStore<DeviceView[]>({
+  name: "devices",
+  initial: [],
+  read: async () =>
+    inWails()
+      ? ((await DevicesService.Devices()) ?? [])
+      : sampleList().map((d) => DeviceView(d)),
+  start(reload) {
+    const offPair = onPairing(() => reload())
+    const offRoster = inWails() ? watchRoster(reload) : () => {}
     const offDevices = inWails()
-      ? Events.On(EventDevicesChanged, () => void reload())
+      ? onChange(EventDevicesChanged, () => reload())
       : () => {}
     return () => {
-      window.clearInterval(id)
       offPair()
       offRoster()
       offDevices()
     }
-  }, [active, reload])
+  },
+})
 
-  return { devices: value, error, loading, reload }
+// Polling readers: one timer for all of them.
+let pollers = 0
+let pollTimer: number | undefined
+function pollDevices(): () => void {
+  if (pollers++ === 0)
+    pollTimer = window.setInterval(() => void deviceStore.reload(), RefreshMs)
+  return () => {
+    if (--pollers === 0) {
+      window.clearInterval(pollTimer)
+      pollTimer = undefined
+    }
+  }
+}
+
+const noSubscribe = () => () => {}
+
+// useDevices reads the person's devices while active (the dialog is open).
+// With `poll` (the devices panel itself) it also re-reads every few seconds.
+export function useDevices(active: boolean, poll = false): DevicesState {
+  const { value, error, loading } = useSyncExternalStore(
+    active ? deviceStore.subscribe : noSubscribe,
+    deviceStore.snapshot
+  )
+  useEffect(() => {
+    if (!active || !poll) return
+    // The panel opens on a fresh list, whatever else shares the store.
+    void deviceStore.reload()
+    return pollDevices()
+  }, [active, poll])
+  return { devices: value, error, loading, reload: deviceStore.reload }
 }
 
 // usePairing follows the open (or last) pairing while active. A pairing
@@ -556,6 +623,26 @@ export function usePairing(active: boolean): {
   }, [active])
 
   return { status, setStatus }
+}
+
+// reachLine is how this device reaches another and what it is behind on
+// (card #1119): "direct", "relay" or "unreachable", then "runs 0.11.0,
+// behind 0.12.1" when its version is older than the newest. "" for this
+// device and a removed one.
+export function reachLine(d: DeviceView): string {
+  if (d.this || d.revoked || !d.reach) return ""
+  // Its rows still reach this device through another (card #544): no
+  // session of its own, not out of reach.
+  const parts: string[] = [
+    d.reach === "relay"
+      ? "via relay"
+      : d.reach === "unreachable" && d.via
+        ? "no direct link"
+        : d.reach,
+  ]
+  if (d.behind)
+    parts.push(`${d.version ? `runs ${d.version}, ` : ""}behind ${d.behind}`)
+  return parts.join(" · ")
 }
 
 // stateDot is a device's one status dot.

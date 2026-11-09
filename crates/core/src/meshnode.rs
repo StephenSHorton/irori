@@ -101,6 +101,8 @@ pub(crate) struct Parts {
     pub now: Option<mesh::node::NowFn>,
     /// Per writing device, the rows the folds ignored (Go `ignoredBy`).
     pub ignored: Option<mesh::node::IgnoredFn>,
+    /// The assistant's running turns, for `assistant/<turn>` streams.
+    pub assistant_turns: Option<mesh::AssistantTurnsFn>,
 }
 
 impl Mesh {
@@ -123,6 +125,7 @@ impl Mesh {
             intervals: mesh::Intervals::default(),
             trust_any_peer: false,
             ignored: p.ignored,
+            assistant_turns: p.assistant_turns,
             logf: Some(Arc::new(|l: &str| crate::log(l))),
             now: p.now,
         });
@@ -470,7 +473,12 @@ impl Mesh {
         {
             // Rows from a member may move the membership: refeed.
             let r = self.refeed.clone();
-            m.on_rows(Arc::new(move || r.notify_one()));
+            let node = self.node.clone();
+            m.on_rows(Arc::new(move || {
+                // Rows landed from a member's device: the sync badge (#1089).
+                node.activity().pulse();
+                r.notify_one()
+            }));
         }
         {
             // One check and insert, so two openers can't both start it.

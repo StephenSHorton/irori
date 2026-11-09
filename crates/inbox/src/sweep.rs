@@ -35,6 +35,8 @@ pub(crate) struct SweepItem {
     pub notice: bool,
     pub system: bool,
     pub from_person: bool,
+    /// The person's wind-down (card #787).
+    pub wind_down: bool,
 }
 
 /// The world the planner plans against. Durations in nanoseconds.
@@ -61,6 +63,9 @@ pub(crate) enum Act {
     Remind,
     GoneCard,
     GonePerson,
+    /// The person's wind-down to a session that ended without answering
+    /// (card #787): it closes, so the run's row reads "no answer".
+    GoneWindDown,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +108,9 @@ pub(crate) fn plan_one(it: &SweepItem, env: &SweepEnv<'_>) -> Option<SweepAction
     };
     if !gr.is_empty() && !it.to.is_empty() && (env.gone_for)(&it.to) > env.gone {
         return act(Act::Move, (env.desk)(gr, &[&it.to, &it.from]));
+    }
+    if it.wind_down && !it.to.is_empty() && (env.ended_for)(&it.to) > env.gone {
+        return act(Act::GoneWindDown, String::new());
     }
     if gr.is_empty()
         && !it.to.is_empty()
@@ -237,6 +245,7 @@ impl Inner {
                 it.system = m.from.is_system();
                 it.from_person = self.is_owner(&m.from.key);
             }
+            it.wind_down = self.wind_down(d);
             it.gone_repo = pr_fallback_repo(m, &d.d.repo_key);
             if d.d.state == st::QUEUED
                 && !d.d.wake_id.is_empty()
@@ -306,6 +315,13 @@ impl Inner {
                     }
                 }
                 Act::GonePerson => self.move_gone(&a.delivery_id, &a.to, &cards)?,
+                Act::GoneWindDown => {
+                    r.state = st::SKIPPED.into();
+                    r.note = NOTE_RECIPIENT_GONE.into();
+                    r.until = GoTime::ZERO;
+                    r.wake_id.clear();
+                    self.put_delivery(r, "irori")?;
+                }
                 Act::Remind => {
                     let list = self.reminders.entry(a.to.clone()).or_default();
                     if !list.contains(&a.delivery_id) {

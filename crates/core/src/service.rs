@@ -55,6 +55,15 @@ use crate::notice;
 use crate::timers::{self, Kick, Ticker};
 use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
+pub mod assistant_answers;
+pub mod assistant_ask;
+pub mod assistant_chat;
+pub mod assistant_home;
+mod assistant_name;
+mod assistant_ok;
+pub mod assistant_packet;
+mod assistant_requests;
+mod assistant_turns;
 pub mod boards;
 mod boards_members;
 mod boards_own;
@@ -63,14 +72,32 @@ pub mod boards_status;
 mod bridge;
 pub mod call_settings;
 pub(crate) mod calls;
+mod calls_over;
 pub(crate) mod calls_share;
+pub mod card_weights;
+mod desk_review;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
+pub mod huddle_canvas;
+mod huddle_divide;
+mod huddle_end;
+pub mod huddle_feed;
+pub mod huddle_host;
+pub mod huddle_packet;
+mod huddle_rules;
+pub mod huddle_session;
+mod huddle_settings;
 mod liveness;
 mod mirror;
+pub mod name_themes;
 pub mod notes;
 mod notifications;
+mod prcard;
+mod review_choice;
+mod review_claim;
+mod review_pick;
+mod review_start;
 pub mod space_move;
 pub mod spaces;
 pub mod spawn;
@@ -84,7 +111,9 @@ pub mod spawn_remote;
 pub mod spawn_stop;
 pub mod spawn_waiting;
 pub mod spawn_why;
+pub mod storage;
 pub mod sync_out;
+pub mod thread_names;
 pub use mirror::BoardReviewer;
 pub mod invites;
 mod talk;
@@ -280,6 +309,9 @@ struct Services {
     /// Card #421: merged PRs the desk already settled, and the newest
     /// `gh pr merge` heard.
     desk_merges: crate::deskmerge::MergeHeard,
+    /// A `gh pr merge` was heard: the desks thread polls every desk this
+    /// device polls at its next turn (one thread polls desks, card #970).
+    desks_due: std::sync::atomic::AtomicBool,
     /// Card #427: whether to clear settled cards' builds, when it last
     /// looked, and whether a pass is deleting now.
     clear_builds: Option<Duration>,
@@ -302,16 +334,29 @@ struct Services {
     faces: coord::avatar::Faces,
     /// The person's own avatar on shared spaces (card #393).
     person_avatar: coord::person_avatar::PersonAvatar,
+    assistant_name: coord::assistant_name::AssistantName,
     /// The person's names for their devices (card #184).
     device_names: Arc<coord::devname::Names>,
     /// Talk's channels, DMs and read cursors (card #389).
     talk: Arc<coord::talk::Talk>,
     /// The person's notification history (card #377).
     notifications: Arc<coord::notifications::History>,
+    /// The Office Assistant's one conversation (card #1102).
+    assistant_chat: Arc<assistant_chat::Fold>,
     files: blob::Files,
     scrubber: Arc<scrub::Scrubber>,
     secrets: Mutex<Vec<String>>,
     token: String,
+    /// The window assistant's per-run secret (card #783): the API reads a
+    /// call carrying it as the person, through its read tools, and its
+    /// two writes only per grant (card #987).
+    /// Only in memory and in the assistant's own 0600 MCP config.
+    assistant: String,
+    /// What the window last said it shows (card #1009), for the
+    /// assistant's `screen` tool. In memory only; the newest ask wins.
+    assistant_screen: Mutex<String>,
+    /// What the person's message lets the assistant change (card #987).
+    assistant_grants: tools::Grants,
     reviver: Arc<Mutex<Option<ReviveFn>>>,
     /// Spawned agents (card #446): the window's spawner, the boards'
     /// switches and the devices' caps.
@@ -335,6 +380,30 @@ struct Services {
     calls: calls::Calls,
     /// "Transcribe what I say in calls" (card #656).
     call_settings: call_settings::CallSettings,
+    /// Irori's assistant naming the person's new threads (card #782).
+    naming: thread_names::Naming,
+    /// The Office Assistant's computer, folded from `assistant.home` rows
+    /// (one-assistant card 1).
+    assistant_home: assistant_home::HomeState,
+    /// The queue of questions this computer answers (one-assistant card 3).
+    chat: assistant_turns::ChatQueue,
+    /// Irori's assistant weighing new cards (card #965).
+    weighing: card_weights::Weighing,
+    /// The assistant's turn on a PR's reviewer (card #1081).
+    choosing: review_choice::Choosing,
+    /// The two huddle switches (card #1053).
+    huddle_switches: huddle_settings::HuddleSwitches,
+    /// Office Assistants answering other people (assistants-talk card 4).
+    asst: assistant_answers::Answering,
+    /// The assistant's held session per huddle (card #1046).
+    held: huddle_session::HeldSessions,
+    /// Which device hosts each person's assistant per huddle (card #1049).
+    hosting: huddle_host::Hosting,
+    /// The live lines of the huddles this device serves (card #1050).
+    feed: huddle_feed::Feed,
+    /// The themes new agents' names come from (card #702), shared with
+    /// `names`.
+    name_themes: Arc<name_themes::NameThemes>,
     /// The open board invite (card #44).
     invites: invites::Invites,
 }
@@ -400,6 +469,33 @@ impl tools::Attacher for ToolsView {
 }
 
 impl tools::Backend for ToolsView {
+    fn assistant_screen(&self) -> String {
+        self.0
+            .assistant_screen
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn device_id(&self) -> String {
+        self.0.device.id.clone()
+    }
+    fn device_free(&self, path: &str) -> Option<tools::DeviceFree> {
+        let dir = if path.is_empty() {
+            self.0.data_dir.clone()
+        } else {
+            PathBuf::from(path)
+        };
+        let q = sys::meters::quick(&dir);
+        Some(tools::DeviceFree {
+            dir: dir.to_string_lossy().into_owned(),
+            disk: q.disk.map(|d| (d.free_bytes, d.total_bytes)),
+            mem: q
+                .mem
+                .map(|m| (m.total_bytes.saturating_sub(m.used_bytes), m.total_bytes)),
+            cpu: q.cpu.and_then(|c| c.pct.map(|p| (p, c.cores))),
+        })
+    }
     fn agents(&self) -> Vec<presence::AgentCard> {
         self.0
             .roster
@@ -422,6 +518,7 @@ impl tools::Backend for ToolsView {
                 board: a.board,
                 person: a.person,
                 card: presence_card(a.card),
+                assistant: a.assistant,
             })
             .collect()
     }
@@ -452,6 +549,12 @@ impl tools::Backend for ToolsView {
     fn agent_end(&self, caller: &str, key: &str) -> Result<String, String> {
         self.0.agent_end(caller, key)
     }
+    fn thread_agent_check(&self, caller: &str) -> Result<(), String> {
+        self.0.thread_agent_check(caller)
+    }
+    fn thread_new_agent(&self, caller: &str, task_id: &str, watch: bool) -> Result<String, String> {
+        self.0.thread_new_agent(caller, task_id, watch)
+    }
     fn agents_pause(&self, caller: &str, on: bool) -> Result<String, String> {
         self.0.agent_set_paused(caller, on)
     }
@@ -468,6 +571,38 @@ impl tools::Backend for ToolsView {
             by: self.0.pause_by_name(&p.by),
         })
     }
+    fn own_devices(&self) -> Vec<tools::OwnDevice> {
+        let s = &self.0;
+        let names = s.device_labels();
+        s.mesh
+            .node
+            .devices(false)
+            .into_iter()
+            .filter(|d| !d.revoked)
+            .map(|d| {
+                let p = s.device_presence(&d.device_id);
+                let own = s.agents_pause_on(&d.device_id);
+                let hold = s.pause_holding(&d.device_id);
+                let name = names
+                    .get(&d.device_id)
+                    .filter(|n| !n.is_empty())
+                    .cloned()
+                    .unwrap_or(d.name);
+                tools::OwnDevice {
+                    this: d.this,
+                    name,
+                    state: p.state,
+                    seen: p.seen,
+                    via: p.via,
+                    stopped: hold.on,
+                    everywhere: hold.on && !own.on,
+                    since: hold.since,
+                    by: s.pause_by_name(&hold.by),
+                    id: d.device_id,
+                }
+            })
+            .collect()
+    }
     fn agent_limit(&self) -> Option<tools::AgentLimit> {
         let u = self.0.agent_starts_use();
         Some(tools::AgentLimit {
@@ -478,6 +613,9 @@ impl tools::Backend for ToolsView {
     }
     fn spawn_wait(&self, task_id: &str, asked: bool) -> String {
         self.0.spawn_wait(task_id, asked)
+    }
+    fn recheck_prs(&self, co: &Arc<Coord>, caller: &str, task_id: &str) {
+        self.0.recheck_prs(co, caller, task_id)
     }
     fn avatar(&self, name: &str) -> String {
         self.0.faces.get(name)
@@ -516,11 +654,16 @@ impl tools::Backend for ToolsView {
                 board_id: b.board_id,
                 name: b.name,
                 tag: b.tag,
+                description: b.description,
+                closed: b.closed,
             })
             .collect()
     }
     fn talk(&self) -> Option<&Arc<coord::talk::Talk>> {
         Some(&self.0.talk)
+    }
+    fn huddle_now(&self, call: &str) -> Option<tools::HuddleNow> {
+        self.0.huddle_now(call)
     }
     fn notes(&self) -> Option<&dyn tools::NotesBackend> {
         Some(self)
@@ -566,6 +709,18 @@ impl tools::TaskRouter for ToolsView {
     ) -> Result<(String, coord::Comment, Notice), coord::Error> {
         self.0.request_release(by, resource, why)
     }
+    fn review_claim(
+        &self,
+        key: &str,
+        pr: &str,
+        action: &str,
+        reason: &str,
+    ) -> Result<tools::ClaimAnswer, String> {
+        self.0.review_claim(key, pr, action, reason)
+    }
+    fn pr_reviews(&self, repo: &str) -> Vec<tools::PrReviewLine> {
+        self.0.pr_review_lines(repo)
+    }
     fn comment_coord(&self, id: &str) -> Option<Arc<Coord>> {
         // Not a hidden DM space's (card #538): no agent works there.
         self.0
@@ -581,6 +736,9 @@ impl tools::TaskRouter for ToolsView {
 impl tools::BoardViewer for ToolsView {
     fn board_views(&self, f: &coord::BoardFilter) -> Vec<coord::BoardView> {
         self.0.board_views(f)
+    }
+    fn space_docs(&self) -> Vec<search::Doc> {
+        self.0.space_search_docs()
     }
 }
 
@@ -754,6 +912,34 @@ impl capture::Blobs for Blobs {
 }
 
 /// sys::fswatch as presence's file events (Go passes `fswatch.Watch`).
+/// The window assistant's run dir under data dir `dir` (card #783).
+pub fn assistant_dir(dir: &Path) -> PathBuf {
+    dir.join(ASSISTANT_DIR)
+}
+
+/// The folders presence leaves off the roster for the assistant: its run
+/// dir as named and, off Windows, as resolved (Claude Code records the
+/// real path: `/var` is `/private/var` on the Mac).
+fn assistant_skip(dir: &Path) -> Vec<String> {
+    let d = assistant_dir(dir);
+    let mut v = vec![d.to_string_lossy().into_owned()];
+    if !cfg!(windows)
+        && let Ok(real) = std::fs::canonicalize(dir)
+    {
+        let r = real.join(ASSISTANT_DIR).to_string_lossy().into_owned();
+        if r != v[0] {
+            v.push(r);
+        }
+    }
+    v
+}
+
+/// The most characters of the window's snapshot the Core keeps (card #1009).
+pub const ASSISTANT_SCREEN_MAX: usize = 4000;
+
+/// The window assistant's run dir's name in the data dir (card #783).
+pub const ASSISTANT_DIR: &str = "assistant";
+
 fn fs_watch(root: &Path, recursive: bool) -> Result<presence::FsSource, presence::WatchError> {
     let cancel = Cancel::new();
     let w = sys::fswatch::watch(&cancel, &root.to_string_lossy(), recursive, Duration::ZERO)
@@ -862,6 +1048,14 @@ struct PersonColor<'a> {
     color: &'a str,
 }
 
+/// The `assistant.name` payload (card #1045).
+#[derive(Serialize)]
+struct AssistantNameRow<'a> {
+    name: &'a str,
+    by: &'a str,
+    at: i64,
+}
+
 /// The `person.avatar` payload (card #393).
 #[derive(Serialize)]
 struct PersonAvatarRow<'a> {
@@ -954,6 +1148,11 @@ impl Core {
             Arc::new(move |d: &str| r.key(d))
         };
         let names = Arc::new(Namer::new(&dir, &me));
+        let name_themes = Arc::new(name_themes::NameThemes::load(&st));
+        {
+            let t = name_themes.clone();
+            names.set_themes_off(move || t.off());
+        }
         let agent_names = Arc::new(crate::agentnames::AgentNames::new(&dir));
         let usage = crate::usage::Usage::new(&dir);
         // Idle sessions whose wakes go unread show as not answering (#110).
@@ -968,6 +1167,9 @@ impl Core {
                 Arc::new(move |c: &presence::AgentCard| a.status(c))
             }),
             watch: Some(Arc::new(fs_watch)),
+            // Card #783: the window assistant's headless `claude -p` writes
+            // a session file too; it is no agent.
+            skip_cwd: assistant_skip(&dir),
             ..Default::default()
         };
         if let Some(edit) = &opts.presence {
@@ -1177,8 +1379,16 @@ impl Core {
         // private board counts.
         let svc_cell: Arc<OnceLock<Weak<Services>>> = Arc::new(OnceLock::new());
         let spawn_state = spawn::SpawnState::default();
-        spawn::load_spawn(&st, &spawn_state);
+        let _ = spawn::load_spawn(&st, &spawn_state);
+        ib.set_reviews_unasked(
+            !spawn_state
+                .reviews_off
+                .load(std::sync::atomic::Ordering::SeqCst),
+        );
         let call_settings = call_settings::CallSettings::load(&st);
+        let naming = thread_names::Naming::load(&st);
+        let weighing = card_weights::Weighing::load(&st);
+        let huddle_switches = huddle_settings::HuddleSwitches::load(&st);
         let co = Arc::new(
             Coord::new(
                 st.clone(),
@@ -1192,6 +1402,17 @@ impl Core {
                     is_owner: Some(is_owner.clone()),
                     revoked: Some(revoked.clone()),
                     done_check: true,
+                    // Whether an agent read another person's text (card
+                    // #1075): the inbox keeps the flag beside its lock, so
+                    // this write-time check never waits on it.
+                    others_of: Some({
+                        let sawn = ib.saw_others_handle();
+                        Arc::new(move |actor: &str| {
+                            actor
+                                .strip_prefix(store::kinds::AGENT_ACTOR_PREFIX)
+                                .is_some_and(|k| sawn.has(k))
+                        })
+                    }),
                     // The private board's spawned-agent switch (card #446).
                     spawning: Some({
                         let on = spawn_state.on.clone();
@@ -1246,7 +1467,9 @@ impl Core {
                         let st = Arc::downgrade(&st);
                         Arc::new(move || {
                             let st = st.upgrade()?;
-                            spaces::board_list_in(&st, spaces::PERSONAL_BOARD, &|_| true)
+                            spaces::with_personal_rules(|r| {
+                                spaces::board_list_in(&st, spaces::PERSONAL_BOARD, r)
+                            })
                         })
                     }),
                     ..Default::default()
@@ -1316,8 +1539,16 @@ impl Core {
         let person_color = coord::devcolor::PersonPick::new();
         let faces = coord::avatar::Faces::new();
         let person_avatar = coord::person_avatar::PersonAvatar::new();
+        let assistant_name = coord::assistant_name::AssistantName::new();
         let colors_sub = Arc::new(st.subscribe());
-        load_colors(&st, &colors, &person_color, &faces, &person_avatar);
+        load_colors(
+            &st,
+            &colors,
+            &person_color,
+            &faces,
+            &person_avatar,
+            &assistant_name,
+        );
         let talk = Arc::new(coord::talk::Talk::new(Some(st.clone()), {
             let now = now.clone();
             Some(Arc::new(move || now().utc()))
@@ -1332,6 +1563,10 @@ impl Core {
         }
         let notifications = Arc::new(coord::notifications::History::new());
         load_notifications(&st, &notifications);
+        let assistant_chat = Arc::new(assistant_chat::Fold::new());
+        // What the chat worker counts as folded: every row before the load.
+        let chat_heard = st.vector().unwrap_or_default();
+        assistant_chat::load(&st, &assistant_chat);
         laps.lap("colors+names");
         let decisions_sub = Arc::new(st.subscribe());
 
@@ -1395,6 +1630,14 @@ impl Core {
                         let (ib, co, asks, roster) =
                             (ib.clone(), co.clone(), asks.clone(), roster.clone());
                         Some(Arc::new(move || ignored_by(&ib, &co, &asks, &roster)))
+                    },
+                    assistant_turns: {
+                        let cell = services_cell.clone();
+                        Some(Arc::new(move |turn: &str| {
+                            cell.get()
+                                .and_then(|w| w.upgrade())
+                                .and_then(|s| s.chat.stream_open(turn))
+                        }))
                     },
                 },
             );
@@ -1463,6 +1706,7 @@ impl Core {
         }
 
         let token = lockfile::new_token().map_err(|e| fail(&st, other("", e)))?;
+        let assistant = lockfile::new_token().map_err(|e| fail(&st, other("", e)))?;
         let s = Arc::new(Services {
             data_dir: dir,
             version: opts.version.clone(),
@@ -1486,6 +1730,7 @@ impl Core {
             desk_lister: opts.desk_lister.clone(),
             desk_watch: Default::default(),
             desk_merges: Default::default(),
+            desks_due: Default::default(),
             clear_builds: opts.clear_builds,
             builds_looked: Default::default(),
             builds_busy: Default::default(),
@@ -1498,13 +1743,18 @@ impl Core {
             person_color,
             faces,
             person_avatar,
+            assistant_name,
             device_names,
             talk,
             notifications,
+            assistant_chat,
             files,
             scrubber,
             secrets: Mutex::new(Vec::new()),
             token: token.clone(),
+            assistant: assistant.clone(),
+            assistant_screen: Mutex::new(String::new()),
+            assistant_grants: Default::default(),
             reviver,
             spawn: spawn_state,
             hub: Hub::new(),
@@ -1527,6 +1777,17 @@ impl Core {
                 opts.call_transcriber.clone(),
             ),
             call_settings,
+            naming,
+            assistant_home: assistant_home::HomeState::default(),
+            chat: assistant_turns::ChatQueue::new(chat_heard),
+            weighing,
+            choosing: Default::default(),
+            huddle_switches,
+            asst: Default::default(),
+            held: Default::default(),
+            hosting: Default::default(),
+            feed: Default::default(),
+            name_themes,
             invites,
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
@@ -1583,6 +1844,7 @@ impl Core {
                 .set_notify(Some(Arc::new(move || h.kick())));
         }
         s.add_secret(&token);
+        s.add_secret(&assistant);
         laps.lap("services");
 
         let tools = tools::Set::new(Arc::new(ToolsView(s.clone())), Some(s.now.clone()));
@@ -1596,10 +1858,14 @@ impl Core {
             terms: Arc::new(term::Terms::new()),
             closed: AtomicBool::new(false),
         };
+        // The old Pause all has no way on now (card #1196): a start lifts
+        // it, before catch_up decides the queued deliveries' holds.
+        s.lift_old_pause_all("start");
         // Other devices' queued deliveries get this device's own hold
         // decision before anything serves an attach stream that could wake
         // them.
         s.inbox.catch_up();
+        s.follow_assistant_home();
         laps.lap("catch-up");
         let changes = Arc::new(s.presence.subscribe());
         core.start_loops(
@@ -1929,6 +2195,7 @@ impl Core {
                             &s.person_color,
                             &s.faces,
                             &s.person_avatar,
+                            &s.assistant_name,
                         );
                         load_device_names(&s.store, &s.device_names);
                         s.follow_person_name();
@@ -1936,35 +2203,71 @@ impl Core {
                         load_notifications(&s.store, &s.notifications);
                         s.settle_notifications();
                         s.hub.publish(CoreEvent::Devices);
-                        s.hub.publish(CoreEvent::Notifications);
+                        s.hub
+                            .publish(CoreEvent::Notifications(crate::events::NotifChange::all()));
+                        let before = s.store.vector().unwrap_or_default();
+                        s.assistant_chat.reload(&s.store);
+                        s.hub.publish(CoreEvent::AssistantChat);
                         // Card #538: this thread doesn't wait for the
                         // reconcile, which reads the markers too.
                         if let Err(e) = s.dm_spaces.load(&s.store) {
                             logf(format_args!("dm spaces: load: {e}"));
                         }
                         let _ = s.talk.load();
-                        s.hub.publish(CoreEvent::Talk);
+                        s.hub
+                            .publish(CoreEvent::Talk(crate::events::TalkChange::all()));
                         s.follow_call_settings();
+                        s.follow_names_themes();
+                        s.follow_names_on();
+                        s.follow_weighs_on();
+                        s.follow_assistant_home();
+                        // Questions past the buffer are lost to the
+                        // chat's queue: its scan finds them (card 3).
+                        s.chat_resynced(&before);
+                    } else if ev.kind == kinds::ASSISTANT_HOME
+                        || ev.kind == kinds::PERSON_DEVICE_REVOKED
+                    {
+                        // The recorded assistant's computer, or a removal
+                        // that may end its rows (one-assistant card 1).
+                        s.follow_assistant_home();
+                    } else if ev.kind == kinds::ASSISTANT_NAMES_SET {
+                        // Another device's "Name new threads" (card #782).
+                        s.follow_names_on();
+                    } else if ev.kind == kinds::ASSISTANT_HUDDLE_NOTES_SET
+                        || ev.kind == kinds::ASSISTANT_HUDDLE_CHAIR_SET
+                    {
+                        // Another device's huddle switches (card #1053).
+                        s.follow_huddle_switches();
+                    } else if ev.kind == kinds::ASSISTANT_WEIGHS_SET {
+                        // Another device's "Weigh new cards" (card #965).
+                        s.follow_weighs_on();
                     } else if ev.kind == kinds::TRANSCRIBE_SET {
                         // Another device's switch (card #656).
                         s.follow_call_settings();
+                    } else if ev.kind == kinds::NAMES_THEMES {
+                        // Another device's switches (card #702).
+                        s.follow_names_themes();
                     } else if coord::talk::KINDS.contains(&ev.kind.as_str()) {
                         // A write here was folded when it was written; the
                         // window still hears it (card #389).
                         s.talk.apply(&ev);
-                        s.hub.publish(CoreEvent::Talk);
+                        s.hub
+                            .publish(CoreEvent::Talk(crate::events::TalkChange::of_row(&ev)));
                         if ev.kind == kinds::TALK_POST {
                             s.talk_note(&ev);
                         }
-                    } else if ev.kind == kinds::MESSAGE_SENT {
-                        // Agents' messages show as DMs (card #389); a
-                        // notice, a stop or a mention's wake never does,
-                        // so it doesn't make the window rebuild Talk's
-                        // list from the whole inbox (card #468).
-                        if inbox::decode_message(&ev.payload)
-                            .map_or(true, |m| tools::talk::mirrors(&m))
-                        {
-                            s.hub.publish(CoreEvent::Talk);
+                        // A live line feeds the assistant (card #1050).
+                        s.huddle_line_row(&ev);
+                    } else if assistant_chat::KINDS.contains(&ev.kind.as_str()) {
+                        // The assistant's conversation (card #1102); a row
+                        // written here was folded when it was written.
+                        if s.assistant_chat.apply(&ev) {
+                            s.hub.publish(CoreEvent::AssistantChat);
+                        }
+                        // A tap on Let it answer, from any device: the
+                        // assistant's computer serves it (card #1062).
+                        if ev.kind == kinds::ASSISTANT_ANSWER_REQUESTED {
+                            s.serve_answer_requests();
                         }
                     } else if ev.kind == coord::notifications::POSTED
                         || ev.kind == coord::notifications::READ
@@ -1972,7 +2275,7 @@ impl Core {
                         // This device's own rows were folded when written;
                         // folding again changes nothing.
                         if s.notifications.apply(&ev) {
-                            s.hub.publish(CoreEvent::Notifications);
+                            s.hub.publish(notifications::notif_change(&ev));
                             // Another device kept one this one can see is
                             // already resolved.
                             if ev.kind == coord::notifications::POSTED {
@@ -1980,7 +2283,11 @@ impl Core {
                             }
                         }
                     } else if ev.kind == coord::devcolor::KIND {
-                        s.colors.apply(&ev);
+                        // Cards and the header show device colours
+                        // (list-signals.md §3.2).
+                        if s.colors.apply(&ev) {
+                            s.hub.publish(CoreEvent::Devices);
+                        }
                     } else if ev.kind == coord::avatar::KIND {
                         if s.faces.apply(&ev) {
                             s.hub.publish(CoreEvent::Devices);
@@ -1990,10 +2297,14 @@ impl Core {
                         }
                     } else if ev.kind == coord::devcolor::PERSON_KIND
                         || ev.kind == coord::person_avatar::KIND
+                        || ev.kind == coord::assistant_name::KIND
                     {
                         // The pick reaches every shared board on the
                         // person's member.profile (cards #385, #393).
-                        if s.person_color.apply(&ev) || s.person_avatar.apply(&ev) {
+                        if s.person_color.apply(&ev)
+                            || s.person_avatar.apply(&ev)
+                            || s.assistant_name.apply(&ev)
+                        {
                             s.follow_person_name();
                             s.hub.publish(CoreEvent::Devices);
                         }
@@ -2009,6 +2320,11 @@ impl Core {
                         // the row again changes nothing.
                         s.coord.apply_sides(&ev);
                         s.hub.publish(CoreEvent::Devices);
+                    }
+                    if !ev.is_resync() {
+                        // After the folds: the chat worker's live way in,
+                        // its Stop, and how far the folds have got.
+                        s.chat_heard(&ev);
                     }
                 }
             });
@@ -2101,6 +2417,21 @@ impl Core {
             });
         }
 
+        // A `gh pr merge` heard on any device (cards #421, #970): this
+        // device's open PRs and its desks are asked about at once.
+        {
+            let s = s.clone();
+            let stop = self.stop.clone();
+            self.spawn("merges", move || {
+                loop {
+                    s.merge_heard();
+                    if stop.sleep(crate::prwatch::MERGE_TICK) {
+                        return;
+                    }
+                }
+            });
+        }
+
         // Merge desks' PR lists (card #415), and which repos are the
         // person's (card #625): a device that polls none still hides
         // stray desks.
@@ -2109,7 +2440,7 @@ impl Core {
             let stop = self.stop.clone();
             self.spawn("desks", move || {
                 loop {
-                    s.desk_merge_heard();
+                    s.desks_heard_merge();
                     s.check_desks();
                     if stop.sleep(crate::deskwatch::DESK_TICK) {
                         return;
@@ -2180,6 +2511,19 @@ impl Core {
             self.spawn("feed-inbox", move || {
                 let _reg = reg;
                 while let Some(ch) = sub.recv() {
+                    // An agent's message shows as a DM from its delivery's
+                    // first row (list-signals.md §3.2).
+                    // Only a first row or a move can show one: no lookup
+                    // for the rest.
+                    let d = (!ch.delivery_id.is_empty()
+                        && (ch.created
+                            || ch.was_to.is_some()
+                            || ch.kind == inbox::ChangeKind::MovedAway))
+                        .then(|| s.inbox.get(&ch.delivery_id))
+                        .flatten();
+                    if let Some(t) = dm_change(&ch, d.as_ref()) {
+                        s.hub.publish(CoreEvent::Talk(t));
+                    }
                     s.hub.publish(CoreEvent::Inbox(ch));
                     // A message replied to, read or released (card #482).
                     s.settle_notifications();
@@ -2209,6 +2553,99 @@ impl Core {
                     // A blocker answered or a done check marked, by anyone.
                     s2.settle_notifications();
                 }
+            });
+        }
+        {
+            // A shared board opened, went, was renamed or changed members,
+            // or a DM space was hidden (`Boards::moved`): an opened board's
+            // cards come by replay, which notes nothing, so every card list
+            // reads again (list-signals.md §3.1). Through the hub, so a
+            // full feed's lost flag covers it.
+            let q = s.boards.subscribe();
+            let reg = self.on_stop(&q, |q| q.close());
+            let s = s.clone();
+            self.spawn("feed-board-set", move || {
+                let _reg = reg;
+                while q.recv().is_some() {
+                    s.hub.publish(CoreEvent::Board(coord::Change {
+                        kind: coord::RESYNC.into(),
+                        ..coord::Change::default()
+                    }));
+                }
+            });
+        }
+        {
+            // Irori's assistant names the person's new threads (card
+            // #782): one loop hears the Board, another runs the turns one
+            // at a time, so a slow turn never holds the Board's feed.
+            let q = s.coord.subscribe();
+            let reg = self.on_stop(&q, |q| q.close());
+            s.names_seen_all();
+            let (tx, rx) = std::sync::mpsc::channel();
+            s.names_queue(Some(tx));
+            let s2 = s.clone();
+            self.spawn("assistant-names", move || {
+                let _reg = reg;
+                while let Some(ch) = q.recv() {
+                    s2.names_hear(&ch);
+                }
+                s2.names_queue(None);
+            });
+            let s3 = s.clone();
+            self.spawn("assistant-names-run", move || s3.names_loop(rx));
+        }
+        {
+            // The assistant answers other people's questions (assistants
+            // talk, card 4): one worker takes the checked questions.
+            let (tx, rx) = std::sync::mpsc::channel();
+            s.answers_queue(Some(tx));
+            let s2 = s.clone();
+            let reg = self.on_stop(&s2, |s| s.answers_queue(None));
+            let s3 = s.clone();
+            self.spawn("assistant-answers", move || {
+                let _reg = reg;
+                s3.answers_loop(rx);
+            });
+        }
+        {
+            // The assistant's computer answers the chat's questions from
+            // rows (one-assistant card 3): one worker, oldest first.
+            let s2 = s.clone();
+            let reg = self.on_stop(&s2, |s| s.chat_close());
+            let s3 = s.clone();
+            self.spawn("assistant-chat", move || {
+                let _reg = reg;
+                s3.chat_loop();
+            });
+        }
+        {
+            // Irori's assistant weighs new cards (card #965), as above.
+            let q = s.coord.subscribe();
+            let reg = self.on_stop(&q, |q| q.close());
+            s.weighs_seen_all();
+            let (tx, rx) = std::sync::mpsc::channel();
+            s.weighs_queue(Some(tx));
+            let s2 = s.clone();
+            self.spawn("assistant-weighs", move || {
+                let _reg = reg;
+                while let Some(ch) = q.recv() {
+                    s2.weighs_hear(&ch);
+                }
+                s2.weighs_queue(None);
+            });
+            let s3 = s.clone();
+            self.spawn("assistant-weighs-run", move || s3.weighs_loop(rx));
+        }
+        {
+            // The assistant's turn on a PR's reviewer (card #1081): one
+            // worker, off the poll thread.
+            let (tx, rx) = std::sync::mpsc::channel();
+            s.choose_queue(Some(tx));
+            let reg = self.on_stop(s, |s| s.choose_queue(None));
+            let s2 = s.clone();
+            self.spawn("assistant-review-choice", move || {
+                let _reg = reg;
+                s2.choose_loop(rx);
             });
         }
         {
@@ -2264,7 +2701,10 @@ impl Core {
                 let _ = h.join();
             }
         }
+        // Killed shells remove their bootstrap folders from the temp dir as
+        // they exit: wait for them, a stuck one at most CLOSE_WAIT (#960).
         self.terms.close_all();
+        self.terms.settle(CLOSE_WAIT);
         self.s.boards.close_all();
         self.s.hub.close();
         self.s.pairing.shutdown();
@@ -2300,6 +2740,38 @@ impl Core {
         &self.s.token
     }
 
+    /// The window assistant's secret for this run (card #783): sent as
+    /// `X-Irori-Assistant`, it reads as the person through
+    /// `tools::ASSISTANT_TOOLS` (writes per grant, card #987). A secret:
+    /// never log it.
+    pub fn assistant_secret(&self) -> &str {
+        &self.s.assistant
+    }
+
+    /// Keeps the window's plain-text snapshot of what it shows (card
+    /// #1009) for the assistant's `screen` tool, cut to
+    /// [`ASSISTANT_SCREEN_MAX`] characters. An empty one clears it.
+    pub fn set_assistant_screen(&self, text: &str) {
+        let t: String = text.trim().chars().take(ASSISTANT_SCREEN_MAX).collect();
+        *self
+            .s
+            .assistant_screen
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = t;
+    }
+
+    /// What the person's message lets the window assistant change, for
+    /// the run going now (card #987).
+    pub fn assistant_grants(&self) -> &tools::Grants {
+        &self.s.assistant_grants
+    }
+
+    /// Where the window assistant runs (card #783): its `claude -p` cwd,
+    /// which presence leaves off the roster.
+    pub fn assistant_dir(&self) -> PathBuf {
+        assistant_dir(&self.s.data_dir)
+    }
+
     /// Gives capture's scrubber one more exact value to redact, kept for the
     /// Core's life (the lockfile token, member secrets).
     pub fn add_secret(&self, v: &str) {
@@ -2322,10 +2794,16 @@ impl Core {
     /// checked, merged into the kept reading and saved. Every reading taken
     /// is `usage:changed`, so the window's "as of" moves too; one with no
     /// window left after the checks changes nothing and is no event. `Err`
-    /// is why the reading was refused.
-    pub fn record_usage_limits(&self, input: &[crate::usage::RateLimit]) -> Result<(), String> {
+    /// is why the reading was refused. `account` is the Claude account the
+    /// session is signed in as, when the mod could tell (card #1040): a
+    /// different one replaces the kept windows.
+    pub fn record_usage_limits(
+        &self,
+        input: &[crate::usage::RateLimit],
+        account: Option<&str>,
+    ) -> Result<(), String> {
         let now = (self.s.now)().unix_milli_value();
-        if self.s.usage.record(input, now)? {
+        if self.s.usage.record(input, account, now)? {
             self.s.hub.publish(CoreEvent::Usage);
         }
         Ok(())
@@ -2616,6 +3094,214 @@ impl Core {
         self.s.asks_kick.kick();
     }
 
+    /// Gives the Core the desktop app's assistant turn (card #782): one
+    /// `claude -p` on Haiku that names the person's new threads. A
+    /// headless Core, or the phone, has none and names nothing.
+    pub fn set_namer(&self, n: Option<thread_names::Namer>) {
+        self.s.set_namer(n);
+    }
+
+    /// Gives the Core the desktop app's chat turn (one-assistant card 3):
+    /// the window runs each question this computer answers, blocking until
+    /// it ends. Installing it answers the questions that came before it,
+    /// and says on `spawn.host` that this computer can answer the person's
+    /// other devices (`assistantChat`). A headless Core, or the phone, has
+    /// none and answers nothing.
+    pub fn set_chat_turn(&self, f: Option<assistant_chat::ChatTurnFn>) {
+        self.s.set_chat_turn(f);
+    }
+
+    /// How many times the kind loop has resynced (tests; card 3's scan).
+    #[doc(hidden)]
+    pub fn chat_resyncs(&self) -> u64 {
+        self.s.chat_resyncs()
+    }
+
+    /// Questions each catch-up scan queued: on install, on becoming the
+    /// assistant's computer, on a resync, from the sweep (tests).
+    #[doc(hidden)]
+    pub fn chat_scan_counts(&self) -> [u64; 4] {
+        self.s.chat_scan_counts()
+    }
+
+    /// Whether the kind loop has folded every row the store holds (tests).
+    #[doc(hidden)]
+    pub fn chat_heard_all(&self) -> bool {
+        self.s.chat_heard_all()
+    }
+
+    /// Whether question `turn` is queued or running here (tests).
+    #[doc(hidden)]
+    pub fn chat_queued(&self, turn: &str) -> bool {
+        self.s.chat_queued(turn)
+    }
+
+    /// Installs the turn that weighs a new card (card #965).
+    pub fn set_weigher(&self, n: Option<thread_names::Namer>) {
+        self.s.set_weigher(n);
+    }
+
+    /// Installs the turn that picks related agents and a reviewer for a PR
+    /// (merge desk §12.5, card #1081). A device without one skips it.
+    pub fn set_review_chooser(&self, n: Option<thread_names::Namer>) {
+        self.s.set_review_chooser(n);
+    }
+
+    /// Installs the turn that answers other people's questions to the
+    /// person's Office Assistant (assistants talk, card 4); a desktop with
+    /// Claude Code has one. Installing it answers the questions that came
+    /// before it.
+    pub fn set_answerer(&self, n: Option<assistant_answers::Answerer>) {
+        self.s.set_answerer(n);
+    }
+
+    /// What the assistant held back and didn't post, oldest first.
+    pub fn assistant_held(&self) -> Vec<assistant_answers::Held> {
+        self.s.assistant_held()
+    }
+
+    /// Writes a raw `talk.post` row to space `space` as `by`, folded and
+    /// shown at once. The assistant's answers go in this way: `PostRow`
+    /// carries the hop and `replyTo` that `talk_post` has no place for.
+    pub fn space_talk_post(
+        &self,
+        space: &str,
+        by: &str,
+        payload: serde_json::Value,
+    ) -> Result<(), String> {
+        self.s.space_talk_post(space, by, payload)
+    }
+
+    /// Gives the Core the desktop app's held huddle sessions (card #1046):
+    /// one `claude -p` per huddle, kept up between looks. A headless Core,
+    /// or the phone, has none and runs no looks.
+    pub fn set_huddle_runner(&self, r: Option<Arc<dyn huddle_session::HuddleRunner>>) {
+        self.s.set_huddle_runner(r);
+    }
+
+    /// The packet huddle `seed` starts a session with (tests; card #1046).
+    #[doc(hidden)]
+    pub fn huddle_packet_text(&self, seed: &huddle_session::HuddleSeed) -> Result<String, String> {
+        self.s.huddle_packet_text(seed)
+    }
+
+    /// Opens `seed`'s huddle's held session with its priming turn (tests;
+    /// card 7a calls it when the person joins).
+    #[doc(hidden)]
+    pub fn huddle_open(&self, seed: &huddle_session::HuddleSeed) -> Result<(), String> {
+        self.s.huddle_open(seed)
+    }
+
+    /// One look of `seed`'s huddle's assistant (tests; card 7b's feed
+    /// calls it).
+    #[doc(hidden)]
+    pub fn huddle_look(
+        &self,
+        seed: &huddle_session::HuddleSeed,
+        message: &str,
+    ) -> Result<huddle_session::Look, String> {
+        self.s.huddle_look(seed, message)
+    }
+
+    /// Ends `call`'s held session (tests; card 7a).
+    #[doc(hidden)]
+    pub fn huddle_close(&self, call: &str) {
+        self.s.huddle_close(call)
+    }
+
+    /// Whether `call` has an open held session (tests).
+    #[doc(hidden)]
+    pub fn huddle_is_open(&self, call: &str) -> bool {
+        self.s.huddle_is_open(call)
+    }
+
+    /// "Weigh new cards" (card #965): on unless the person turned it off.
+    pub fn weighs_on(&self) -> bool {
+        self.s.weighs_on()
+    }
+
+    /// The person turns "Weigh new cards" on or off, from the app only.
+    pub fn set_weighs_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_weighs_on(on)
+    }
+
+    /// The Office Assistant's computer, folded from the person's
+    /// `assistant.home` rows; `None` before one claims itself.
+    pub fn assistant_home(&self) -> Option<String> {
+        self.s.assistant_home()
+    }
+
+    /// Whether this device is the recorded assistant's computer. It reads
+    /// the fold, so it never moves for a device that is offline or a Claude
+    /// Code that is missing.
+    pub fn is_assistant_home(&self) -> bool {
+        self.s.is_assistant_home()
+    }
+
+    /// Where the assistant runs and whether it can be reached, for the chat
+    /// and Settings.
+    pub fn assistant_home_status(&self) -> assistant_home::HomeStatus {
+        self.s.assistant_home_status()
+    }
+
+    /// The person picks which computer runs the assistant. From any of
+    /// their devices, the phone included.
+    pub fn set_assistant_home(&self, device: &str) -> Result<(), String> {
+        self.s.set_assistant_home(device)
+    }
+
+    /// Runs `f` with the new answer whenever the assistant's computer
+    /// changes. The chat worker doesn't use it: `follow_assistant_home`
+    /// runs its catch-up scan itself (one-assistant card 3).
+    pub fn set_assistant_home_listener(&self, f: Option<assistant_home::HomeListener>) {
+        self.s.set_assistant_home_listener(f);
+    }
+
+    /// A crashed huddle's end mark check at `now` (tests move the clock).
+    #[doc(hidden)]
+    pub fn huddle_crash_check_at(&self, now: std::time::SystemTime) {
+        self.s.huddle_crash_check_at(now)
+    }
+
+    /// How long a huddle runs before its chair proposes a title (tests).
+    #[doc(hidden)]
+    pub fn set_huddle_title_after(&self, d: std::time::Duration) {
+        self.s.set_huddle_title_after(d)
+    }
+
+    /// "Let my assistant add notes from what I say" (card #1053): on unless
+    /// the person turned it off.
+    pub fn huddle_notes_on(&self) -> bool {
+        self.s.huddle_notes_on()
+    }
+
+    /// Turns the notes switch on or off, on all the person's devices.
+    pub fn set_huddle_notes_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_huddle_notes_on(on)
+    }
+
+    /// "Let my assistant chair huddles I start" (card #1053): on unless the
+    /// person turned it off.
+    pub fn huddle_chair_on(&self) -> bool {
+        self.s.huddle_chair_on()
+    }
+
+    /// Turns the chair switch on or off, on all the person's devices.
+    pub fn set_huddle_chair_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_huddle_chair_on(on)
+    }
+
+    /// "Name new threads" (card #782): on unless the person turned it off.
+    pub fn names_on(&self) -> bool {
+        self.s.names_on()
+    }
+
+    /// The person turns "Name new threads" on or off, from the app only:
+    /// no tool reaches this.
+    pub fn set_names_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_names_on(on)
+    }
+
     /// The `irori` whose `permission-hook` role each spawned agent's
     /// settings run on a permission prompt (card #682); `None` (the
     /// default) starts agents without the hook.
@@ -2801,6 +3487,28 @@ impl Core {
         self.s.set_agent_starts(on, max)
     }
 
+    /// "Agents review other people's PRs without asking" (merge-desk
+    /// §12.8): on unless the person turned it off.
+    pub fn reviews_unasked(&self) -> bool {
+        self.s.reviews_unasked()
+    }
+
+    /// The person sets it, from the app only: no tool reaches this.
+    pub fn set_reviews_unasked(&self, on: bool) -> Result<(), String> {
+        self.s.set_reviews_unasked(on)
+    }
+
+    /// "Start a reviewer on this machine when nobody else fits"
+    /// (merge-desk §12.10): on unless the person turned it off.
+    pub fn review_starts(&self) -> bool {
+        self.s.review_starts()
+    }
+
+    /// The person sets it, from the app only: no tool reaches this.
+    pub fn set_review_starts(&self, on: bool) -> Result<(), String> {
+        self.s.set_review_starts(on)
+    }
+
     /// "Transcribe what I say in calls" (card #656): on unless the person
     /// turned it off.
     pub fn call_transcribe(&self) -> bool {
@@ -2810,6 +3518,18 @@ impl Core {
     /// The person sets it, from the app only: no tool reaches this.
     pub fn set_call_transcribe(&self, on: bool) -> Result<(), String> {
         self.s.set_call_transcribe(on)
+    }
+
+    /// The themes new agents' names don't come from (card #702): every
+    /// theme is on until the person turns it off.
+    pub fn names_themes_off(&self) -> Vec<String> {
+        self.s.names_themes_off()
+    }
+
+    /// The person turns a `coord::names::THEMES` theme on or off, from the
+    /// app only: no tool reaches this.
+    pub fn set_names_theme(&self, id: &str, on: bool) -> Result<(), String> {
+        self.s.set_names_theme(id, on)
     }
 
     pub fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
@@ -2831,17 +3551,65 @@ impl Core {
         self.s.pause_by_name(by)
     }
 
+    /// Whether device `dev` starts no agents now: its own pause, or Stop
+    /// everywhere's (card #787).
+    pub fn agents_paused_on(&self, dev: &str) -> bool {
+        self.s.agents_paused_on(dev)
+    }
+
+    /// Every device's Pause agents, by device id (card #787), and Stop
+    /// everywhere's own under [`spawn_pause::EVERYWHERE`].
+    pub fn agents_pauses(&self) -> std::collections::HashMap<String, spawn_pause::AgentsPause> {
+        self.s.agents_pauses()
+    }
+
+    /// Wind down on (card #787): Pause agents on each of `devs` (any of the
+    /// person's devices), marked as Wind down's. Devices already paused are
+    /// left as they are. Says which it paused. App only.
+    pub fn wind_down_pause(&self, devs: &[String]) -> Result<Vec<String>, String> {
+        self.s.wind_down_pause(devs)
+    }
+
+    /// Wind down off (card #787): lifts the pauses Wind down set, on every
+    /// device, and no other. Says which. App only.
+    pub fn wind_down_lift(&self) -> Result<Vec<String>, String> {
+        self.s.wind_down_lift()
+    }
+
+    /// The devices that can run agents: every device that said so (its
+    /// `spawn.host`), and this one (card #787).
+    pub fn agent_devices(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.s.hosts().into_keys().collect();
+        v.push(self.s.device.id.clone());
+        v.sort();
+        v.dedup();
+        v
+    }
+
     /// The person turns Pause agents on or off for this device, from the
     /// app (their agents use the `agents_pause` tool).
+    ///
+    /// Off also lifts the old inbox Pause all here, even when Stop here was
+    /// already off (card #1196): the person turned starts back on.
     pub fn set_agents_paused(&self, on: bool) -> Result<spawn_pause::AgentsPause, String> {
         let me = self.s.device.id.clone();
         let by = format!("user:{me}");
-        self.s.set_agents_paused(&me, on, &by)
+        let p = self.s.set_agents_paused(&me, on, &by)?;
+        if !on {
+            self.s.lift_old_pause_all("Stop here off");
+        }
+        Ok(p)
     }
 
     /// "Hand to an agent" (card #485): the person moves a card whose items
     /// wait on gone agents back on the Board, and Irori starts an agent for
     /// it (or hands it to the next free one). Says which. App only.
+    ///
+    /// With this computer's Agents switch off the card still goes back on
+    /// the Board: start_agent's switch refusal (card #1066) isn't for this
+    /// button, whose card has already moved by then (card #1096). A card
+    /// another computer hands out is still asked for there, since that
+    /// computer goes by its own switch (cards #492, #995).
     pub fn hand_on(&self, id: &str) -> Result<String, String> {
         let person = format!("user:{}", self.s.device.id);
         let (t, _) = self
@@ -2849,13 +3617,19 @@ impl Core {
             .coord
             .hand_on(&person, id)
             .map_err(|e| e.to_string())?;
-        self.s.start_agent(id, "")?;
-        // The device that made the card runs its hand-out (card #485: the
-        // PC's cards go out from the PC).
+        let here = self.s.coord.hands_out_here(id);
+        let spawning = self.s.coord.spawning();
+        if spawning {
+            self.s.start_agent(id, "")?;
+        } else if !here {
+            self.s.request_start(id, "")?;
+        }
         if let Some(why) = self.s.no_agent_all().remove(id) {
             return Ok(format!("{} is back on the Board. {why}", t.short_ref()));
         }
-        if !self.s.coord.hands_out_here(id) {
+        // The device that made the card runs its hand-out (card #485: the
+        // PC's cards go out from the PC).
+        if !here {
             let dev = irori_identity::owner::device_of(&t.created_by).to_string();
             let mut name = self.device_label(&dev);
             if self.s.cant_run_devices().contains(&dev) {
@@ -2868,14 +3642,14 @@ impl Core {
                 t.short_ref()
             ));
         }
-        Ok(if self.s.coord.spawning() {
+        Ok(if spawning {
             format!(
                 "{} is back on the Board: Irori starts an agent for it.",
                 t.short_ref()
             )
         } else {
             format!(
-                "{} is back on the Board: it goes to the next free agent.",
+                "{} is back on the Board. Agents is switched off on this computer (Settings › Agents), so it waits for a free agent.",
                 t.short_ref()
             )
         })
@@ -2932,6 +3706,12 @@ impl Core {
     /// A feed of the services' changes (`topics` empty: all of them).
     pub fn feed(&self, topics: &[Topic]) -> Feed {
         self.s.hub.subscribe(topics)
+    }
+
+    /// [`Core::feed`] with a queue of `cap` slots: the window's debug
+    /// switch shrinks its feeds so they overflow (list-signals.md §8).
+    pub fn feed_sized(&self, topics: &[Topic], cap: usize) -> Feed {
+        self.s.hub.subscribe_sized(topics, cap)
     }
 
     /// This device's presence changes (Go `Changes`).
@@ -2994,7 +3774,7 @@ impl Core {
     /// was written; an error when this device doesn't poll it or GitHub
     /// couldn't be asked.
     pub fn poll_desk(&self, repo_key: &str) -> Result<bool, String> {
-        self.s.poll_desk(repo_key)
+        self.s.poll_desk(repo_key, true)
     }
 
     /// How polling `repo_key`'s desk stands on this device: the last poll,
@@ -3017,6 +3797,12 @@ impl Core {
     /// poller's write.
     pub fn desk_verdicts(&self, repo_key: &str) -> Vec<crate::deskmap::DeskAuthor> {
         self.s.desk_verdicts(repo_key)
+    }
+
+    /// Each person's open and 14-day review claims across the spaces this
+    /// device shows (merge desk §12.9, card #1080).
+    pub fn desk_claim_counts(&self) -> Vec<crate::deskmap::ClaimCount> {
+        self.s.claim_counts_all()
     }
 
     /// The inbox sweep (every [`inbox::SWEEP_INTERVAL`]).
@@ -3411,6 +4197,54 @@ fn ignored_by(
     out
 }
 
+/// The DMs an inbox change shows an agent's message in (list-signals.md
+/// §3.2), as Talk lists them (`tools::talk::mirrored`): only on the
+/// delivery's first row, or a move or a new recipient (an assign, a
+/// release), which takes the message from the old recipient's DM to the
+/// new one's. A notice, a stop or a mention's wake never shows. `d` is the
+/// delivery now.
+pub(crate) fn dm_change(
+    ch: &inbox::Change,
+    d: Option<&inbox::Delivery>,
+) -> Option<crate::events::TalkChange> {
+    use crate::events::TalkChange;
+    use inbox::ChangeKind as K;
+    // Lost changes may have held a delivery's first row; a re-fold after a
+    // revoke's cut (an Updated naming nobody and no delivery, as a policy
+    // write also sends) may drop or bring back any DM's posts.
+    if ch.kind == K::Resync
+        || (ch.kind == K::Updated && ch.to.is_empty() && ch.delivery_id.is_empty())
+    {
+        return Some(TalkChange::all());
+    }
+    let moved = ch.kind == K::MovedAway || ch.was_to.is_some();
+    if ch.delivery_id.is_empty() || !(ch.created || moved) {
+        return None;
+    }
+    let d = d?;
+    let m = &d.message;
+    // The delivery came from another device before its message did.
+    if m.id.is_empty() {
+        return Some(TalkChange::all());
+    }
+    if !tools::talk::mirrors(m) {
+        return None;
+    }
+    let dm = |to: &str| {
+        (!to.is_empty() && coord::talk::canon(&m.from.key) != coord::talk::canon(to))
+            .then(|| coord::talk::dm_id(&m.from.key, to))
+    };
+    let mut convs: Vec<String> = dm(&d.to).into_iter().collect();
+    if ch.kind == K::MovedAway {
+        // moved_to is the new recipient's key.
+        convs.extend(dm(&d.moved_to));
+    }
+    if let Some(was) = &ch.was_to {
+        convs.extend(dm(was));
+    }
+    (!convs.is_empty()).then(|| TalkChange::convs(convs))
+}
+
 fn load_notifications(st: &Store, h: &coord::notifications::History) {
     let mut f = Filter {
         kinds: vec![
@@ -3472,6 +4306,7 @@ fn load_colors(
     person: &coord::devcolor::PersonPick,
     faces: &coord::avatar::Faces,
     avatar: &coord::person_avatar::PersonAvatar,
+    assistant: &coord::assistant_name::AssistantName,
 ) {
     let mut f = Filter {
         kinds: vec![
@@ -3479,6 +4314,7 @@ fn load_colors(
             coord::devcolor::PERSON_KIND.into(),
             coord::avatar::KIND.into(),
             coord::person_avatar::KIND.into(),
+            coord::assistant_name::KIND.into(),
         ],
         limit: store::MAX_LIST_LIMIT,
         ..Filter::default()
@@ -3490,6 +4326,7 @@ fn load_colors(
             person.apply(ev);
             faces.apply(ev);
             avatar.apply(ev);
+            assistant.apply(ev);
         }
         if (evs.len() as i64) < f.limit {
             return;
@@ -3999,12 +4836,14 @@ impl Services {
                 let mut a = DeskAuthor {
                     pr: p.number,
                     agent: author.clone(),
+                    review_note: self.desk_watch.note(repo_key, p.number),
                     ..DeskAuthor::default()
                 };
                 match judge(&PrRef::of(&repo, p), &tasks, &author, &trust) {
                     Verdict::NotOurs => return None,
-                    Verdict::NewCard(_) => {}
+                    Verdict::NewCard(_) => a.review = self.pr_review(repo_key, p),
                     Verdict::Card(m) => {
+                        a.review = self.pr_review(repo_key, p);
                         if let Some(t) = tasks.iter().find(|t| t.id == m.task_id) {
                             if a.agent.is_empty() {
                                 a.agent = t.holders.first().cloned().unwrap_or_default();
@@ -4036,6 +4875,14 @@ impl Services {
         let ledger = self.capture.prs(&repo);
         let (mut tasks, home) = self.desk_cards(false);
         let logins = crate::deskmap::desk_logins(&desk, &self.people_logins());
+        // Other members' logins: a PR of theirs gets its card from their
+        // device, in the space we share (merge desk §12.2, card #1077).
+        let mine = [self.own_github_login(), snap.viewer.clone()];
+        let others: Vec<String> = self
+            .people_logins()
+            .into_iter()
+            .filter(|l| !mine.iter().any(|m| m.eq_ignore_ascii_case(l)))
+            .collect();
         let mut out = Vec::new();
         for p in &snap.prs {
             let pr = PrRef::of(&repo, p);
@@ -4051,6 +4898,17 @@ impl Services {
             let v = judge(&pr, &tasks, &author, &trust);
             let made = match &v {
                 Verdict::Card(m) => Some(m.task_id.clone()),
+                // A member's PR: their device makes its PR card in the space
+                // we share, and a private card made here would be one nobody
+                // else can claim on (merge desk §12.2, card #1077).
+                Verdict::NewCard(_)
+                    if !p.author.is_empty()
+                        && !desk.settings.reviews_off
+                        && crate::prcard::needs_card(p, &[])
+                        && others.iter().any(|l| l.eq_ignore_ascii_case(&p.author)) =>
+                {
+                    None
+                }
                 Verdict::NewCard(m) => {
                     let nt = coord::NewTask {
                         title: new_card_title(&pr),
@@ -4080,7 +4938,11 @@ impl Services {
                 }
                 Verdict::NotOurs => None,
             };
-            if let Some(id) = made {
+            // A PR card already links its PR, and is its author's to write.
+            let own_link = made
+                .as_ref()
+                .is_some_and(|id| tasks.iter().any(|t| &t.id == id && coord::pr_card(t)));
+            if let Some(id) = made.filter(|_| !own_link) {
                 let co = home.get(&id).unwrap_or(&self.coord);
                 match co.add_link("irori", &id, &p.url) {
                     Ok(t) => {
@@ -4136,11 +4998,59 @@ impl Services {
         // First, while another person's row is still theirs alone: a poll
         // here hearing the same would count as this person's word for it.
         self.tell_pr_news();
+        self.tell_missed_reviews();
         if let Some(checker) = self.pr_checker.clone().filter(|c| c.ready()) {
             self.ask_github(checker.as_ref(), now);
         }
         // And what folded while gh answered.
         self.tell_pr_news();
+        self.tell_missed_reviews();
+    }
+
+    /// [`tools::Backend::recheck_prs`] (card #970): asks GitHub about each
+    /// PR card `task_id` links that `co` last heard open, and records a
+    /// merge or a closing. The caller, completing the card, isn't told
+    /// what it just did; anyone else on the card is. An open answer or a
+    /// failure changes nothing here: the poller goes on as before.
+    fn recheck_prs(self: &Arc<Self>, co: &Arc<Coord>, caller: &str, task_id: &str) {
+        let Some(checker) = self.pr_checker.clone().filter(|c| c.ready()) else {
+            return;
+        };
+        for p in co.pr_states(task_id) {
+            if p.state != coord::PR_OPEN {
+                continue;
+            }
+            let c = checker.check(&p.pr);
+            // A failure is the poller's to note and say, not this one's.
+            if !c.error.is_empty() {
+                continue;
+            }
+            self.pr_watch.answered(task_id, &p.pr, true);
+            if c.state != coord::PR_MERGED && c.state != coord::PR_CLOSED {
+                continue;
+            }
+            // Overtaken while gh answered: what folded since stands.
+            if co.pr_state(task_id, &p.pr).map(|q| q.state).as_deref() != Some(coord::PR_OPEN) {
+                continue;
+            }
+            match co.record_pr_state(task_id, c) {
+                Ok((_, ns)) => {
+                    for mut n in ns {
+                        // A board card's recipients are in its board form.
+                        n.to.retain(|k| self.private_key(k) != caller);
+                        if n.to.is_empty() {
+                            continue;
+                        }
+                        if let Some(e) =
+                            notice::notice_err(&self.route_notice(&inbox::system_sender(), &n))
+                        {
+                            logf(format_args!("pr notice {}: {e}", n.reference));
+                        }
+                    }
+                }
+                Err(e) => logf(format_args!("pr {} on {task_id}: {e}", p.pr)),
+            }
+        }
     }
 
     fn ask_github(
@@ -4348,13 +5258,15 @@ impl Services {
             if !self.desk_watch.due(&k, now) {
                 continue;
             }
-            if let Err(e) = self.poll_desk(&k) {
+            if let Err(e) = self.poll_desk(&k, true) {
                 logf(format_args!("desk {k}: {e}"));
             }
         }
     }
 
-    fn poll_desk(self: &Arc<Self>, repo_key: &str) -> Result<bool, String> {
+    /// One desk poll; `pick` for a counted one, which picks reviewers
+    /// (§12.5): a re-poll after a merge is no gap for their waits.
+    fn poll_desk(self: &Arc<Self>, repo_key: &str, pick: bool) -> Result<bool, String> {
         let Some(lister) = self.desk_lister.clone() else {
             return Err("this Irori polls no merge desk".into());
         };
@@ -4393,6 +5305,13 @@ impl Services {
                 if wrote.is_ok() {
                     let v = self.map_desk(repo_key);
                     self.post_desk(repo_key, &v);
+                    // Merge desk §12.2 (card #1077): the PR card in a
+                    // shared space, and what GitHub says on the PR.
+                    let standing = self.pr_cards(repo_key, &v);
+                    // §12.5 (card #1079): pick a reviewer for them.
+                    if pick {
+                        self.review_pick(repo_key, &standing);
+                    }
                     // Card #421: a PR that left the list may have merged.
                     self.settle_gone_prs(repo_key);
                 }
@@ -4428,6 +5347,16 @@ impl Services {
             let Some(p) = snap.prs.iter().find(|p| p.number == *n) else {
                 continue;
             };
+            // A shared PR card (merge desk §12.2) is nobody's to post on from
+            // here: its board takes no Irori comment from another member's
+            // device, and nobody holds it to hear one.
+            if home
+                .get(&m.task_id)
+                .and_then(|c| c.get_task(&m.task_id))
+                .is_some_and(|t| coord::pr_card(&t))
+            {
+                continue;
+            }
             let co = home
                 .get(&m.task_id)
                 .cloned()
@@ -5010,5 +5939,210 @@ impl StartLaps {
 
     fn report(&self) {
         logf(format_args!("start: core ready in {}", self.summary()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use coord::talk::dm_id;
+    use inbox::{Change, ChangeKind as K, Delivery, Message, Sender};
+
+    use super::dm_change;
+    use crate::events::TalkChange;
+
+    const AGENT: &str = "agent:dev1/s1";
+    const TO: &str = "user";
+
+    fn ch(kind: K, created: bool, delivery_id: &str) -> Change {
+        Change {
+            kind,
+            to: TO.into(),
+            delivery_id: delivery_id.into(),
+            created,
+            was_to: None,
+        }
+    }
+
+    /// An agent's message to the person: one that shows as a DM.
+    fn msg() -> Message {
+        Message {
+            id: "m1".into(),
+            from: Sender::new(AGENT, "Ann", "claude"),
+            text: "hi".into(),
+            ..Default::default()
+        }
+    }
+
+    fn delivery(to: &str, m: Message) -> Delivery {
+        Delivery {
+            id: "d1".into(),
+            message_id: m.id.clone(),
+            to: to.into(),
+            message: m,
+            ..Default::default()
+        }
+    }
+
+    /// A delivery's first row shows its message in the sender's DM with the
+    /// recipient (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_first_row_names_the_dm() {
+        let d = delivery(TO, msg());
+        assert_eq!(
+            dm_change(&ch(K::WakeReady, true, "d1"), Some(&d)),
+            Some(TalkChange::convs([dm_id(AGENT, TO)]))
+        );
+    }
+
+    /// A later row of the same delivery (read, replied) shows nothing new,
+    /// and is not looked up (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_later_row_is_none() {
+        let d = delivery(TO, msg());
+        assert_eq!(dm_change(&ch(K::Updated, false, "d1"), Some(&d)), None);
+        assert_eq!(dm_change(&ch(K::Updated, false, "d1"), None), None);
+        assert_eq!(dm_change(&ch(K::WakeReady, false, "d1"), Some(&d)), None);
+    }
+
+    /// A notice, a stop and a mention's wake never show as a DM (card
+    /// #1144, list-signals.md §3.2; tools::talk::mirrors).
+    #[test]
+    fn dm_change_unmirrored_is_none() {
+        let cases = [
+            Message {
+                notice: true,
+                ..msg()
+            },
+            Message {
+                stop: true,
+                ..msg()
+            },
+            Message {
+                reason: inbox::REASON_MENTIONED.into(),
+                ..msg()
+            },
+        ];
+        for m in cases {
+            let d = delivery(TO, m.clone());
+            assert_eq!(
+                dm_change(&ch(K::WakeReady, true, "d1"), Some(&d)),
+                None,
+                "{m:?}"
+            );
+        }
+    }
+
+    /// A move takes the message from the old recipient's DM to the new
+    /// one's: both, old first (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_move_names_old_and_new_dm() {
+        let other = "agent:dev1/s2";
+        let d = Delivery {
+            moved_to: other.into(),
+            ..delivery(TO, msg())
+        };
+        assert_eq!(
+            dm_change(&ch(K::MovedAway, false, "d1"), Some(&d)),
+            Some(TalkChange::convs([dm_id(AGENT, TO), dm_id(AGENT, other)]))
+        );
+    }
+
+    /// A move with no new recipient names only the old DM (card #1144,
+    /// list-signals.md §3.2).
+    #[test]
+    fn dm_change_move_without_target_names_old_dm() {
+        let d = delivery(TO, msg());
+        assert_eq!(
+            dm_change(&ch(K::MovedAway, false, "d1"), Some(&d)),
+            Some(TalkChange::convs([dm_id(AGENT, TO)]))
+        );
+    }
+
+    /// A delivery whose message hasn't arrived yet can't be placed: Talk
+    /// reads everything (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_missing_message_is_all() {
+        let d = delivery(TO, Message::default());
+        assert_eq!(
+            dm_change(&ch(K::WakeReady, true, "d1"), Some(&d)),
+            Some(TalkChange::all())
+        );
+    }
+
+    /// A lost inbox change may have held a first row: Talk reads everything
+    /// (card #1144, list-signals.md §3.1).
+    #[test]
+    fn dm_change_resync_is_all() {
+        let r = Change {
+            kind: K::Resync,
+            to: String::new(),
+            delivery_id: String::new(),
+            created: false,
+            was_to: None,
+        };
+        assert_eq!(dm_change(&r, None), Some(TalkChange::all()));
+    }
+
+    /// A message between two of the person's own keys has no DM (card
+    /// #1144, list-signals.md §3.2; coord::talk::canon).
+    #[test]
+    fn dm_change_same_party_is_none() {
+        let m = Message {
+            from: Sender::new("user:dev1", "Me", "user"),
+            ..msg()
+        };
+        let d = delivery("user:dev2", m);
+        assert_eq!(dm_change(&ch(K::WakeReady, true, "d1"), Some(&d)), None);
+    }
+
+    /// An existing delivery given to someone else without a move (an
+    /// assign, a release) takes its message from the old recipient's DM to
+    /// the new one's: both are named (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_new_recipient_names_both_dms() {
+        const OTHER: &str = "agent:dev1/s2";
+        let d = delivery(OTHER, msg());
+        let c = Change {
+            was_to: Some(TO.into()),
+            ..ch(K::Updated, false, "d1")
+        };
+        assert_eq!(
+            dm_change(&c, Some(&d)),
+            Some(TalkChange::convs([
+                coord::talk::dm_id(AGENT, OTHER),
+                coord::talk::dm_id(AGENT, TO),
+            ]))
+        );
+        // Handed out from nobody (an assign of an unrouted delivery): only
+        // the new DM.
+        let c = Change {
+            was_to: Some(String::new()),
+            ..ch(K::Updated, false, "d1")
+        };
+        assert_eq!(
+            dm_change(&c, Some(&d)),
+            Some(TalkChange::convs([coord::talk::dm_id(AGENT, OTHER)]))
+        );
+    }
+
+    /// A change that names no delivery shows nothing (card #1144,
+    /// list-signals.md §3.2).
+    #[test]
+    fn dm_change_without_delivery_id_is_none() {
+        let d = delivery(TO, msg());
+        assert_eq!(dm_change(&ch(K::WakeReady, true, ""), Some(&d)), None);
+        assert_eq!(dm_change(&ch(K::MovedAway, false, ""), Some(&d)), None);
+    }
+
+    /// The inbox's re-fold after a revoke's cut (an Updated naming nobody
+    /// and no delivery) may change any DM: Talk reads everything (card
+    /// #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_refold_is_all() {
+        let r = Change {
+            to: String::new(),
+            ..ch(K::Updated, false, "")
+        };
+        assert_eq!(dm_change(&r, None), Some(TalkChange::all()));
     }
 }

@@ -111,10 +111,19 @@ pub fn map_pr(pr: &PrRef, tasks: &[Task], author: &str) -> Mapping {
             author: author.into(),
         })
     };
-    // 1. A card that links the PR: an open one first.
+    // 1. A card that links the PR: an open one first, and a shared PR card
+    //    (merge desk §12.2) only when no other card links it: nobody holds
+    //    it, so a post there would wake no one, while an author's own card
+    //    is the one their agent hears.
     let linked = || tasks.iter().filter(|t| links_pr(t, pr));
-    if let Some(m) = found(Rule::Linked, newest(linked().filter(|t| open(t))))
-        .or_else(|| found(Rule::Linked, newest(linked())))
+    let plain = |t: &&Task| !coord::pr_card(t);
+    if let Some(m) = found(
+        Rule::Linked,
+        newest(linked().filter(|t| open(t) && plain(t))),
+    )
+    .or_else(|| found(Rule::Linked, newest(linked().filter(|t| open(t)))))
+    .or_else(|| found(Rule::Linked, newest(linked().filter(plain))))
+    .or_else(|| found(Rule::Linked, newest(linked())))
     {
         return m;
     }
@@ -299,6 +308,113 @@ pub struct DeskAuthor {
     pub card_ref: String,
     /// The agent behind it: the ledger's author, else the card's holder.
     pub agent: String,
+    /// Why the PR has no review card in a shared space yet, "" when
+    /// nothing is waiting (merge desk §12.2, card #1077).
+    pub review_note: String,
+    /// Who reviews it and where the review stands (merge desk §12.9,
+    /// card #1080).
+    pub review: DeskReview,
+}
+
+/// The agent holding a PR's review claim.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeskClaimer {
+    pub agent: String,
+    pub person: String,
+    /// When the claim lapses unless renewed, RFC 3339.
+    pub until: String,
+}
+
+/// An agent told to look at a PR, and why it is related.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeskRelated {
+    pub agent: String,
+    pub person: String,
+    /// `same card`, `same files`, `commented`, `dedicated reviewer` or
+    /// `named by the assistant`.
+    pub why: String,
+}
+
+/// A PR's review, as the desk line and the `prs` tool show it (merge desk
+/// §12.9). All of it is read from the visible boards: no row is written.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeskReview {
+    /// `none` (no PR card), `off`, `waiting`, `asked`, `claimed` or
+    /// `reviewed`.
+    pub pick: String,
+    /// GitHub's review decision: APPROVED, CHANGES_REQUESTED,
+    /// REVIEW_REQUIRED, "" for none.
+    pub review: String,
+    /// The agent asked, when `pick` is `asked`.
+    pub asked: String,
+    pub claimer: Option<DeskClaimer>,
+    pub related: Vec<DeskRelated>,
+    /// Why nothing is picked, as this viewer can see it; "" when nothing
+    /// waits.
+    pub why_none: String,
+}
+
+/// One person's claims across the spaces the viewer shares (§12.6).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimCount {
+    pub person: String,
+    /// Live claims now.
+    pub open: usize,
+    /// Distinct PRs claimed in the last 14 days.
+    pub recent: usize,
+}
+
+/// What the desk knows about why a PR has nobody picked.
+#[derive(Debug, Clone, Default)]
+pub struct NoPick {
+    /// The viewer is the PR's author (their person made the card, or they
+    /// opened the PR).
+    pub author: bool,
+    pub has_card: bool,
+    /// The reviewer-less line the pick or card pass set, "" none.
+    pub note: String,
+    pub reviews_off: bool,
+    /// No shared space takes this repo's reviews (none works in it, or the
+    /// space is on Ask me).
+    pub no_space: bool,
+    /// Another device polls this repo's desk.
+    pub polled_elsewhere: bool,
+    /// The author shares a space with the viewer.
+    pub author_in_space: bool,
+}
+
+/// The line saying why nothing is picked (§12.9), split by who looks. The
+/// author sees every reason their own device knows; another member sees
+/// only what a shared log shows, since the author's desk rows are private.
+pub fn why_none(n: &NoPick) -> String {
+    if n.has_card {
+        return n.note.clone();
+    }
+    if n.author {
+        if n.reviews_off {
+            return "kept to you: this repo's reviews are switched off".into();
+        }
+        if !n.note.is_empty() {
+            return n.note.clone();
+        }
+        if n.no_space {
+            return "kept to you: no shared space works in this repo, or the space is on Ask me"
+                .into();
+        }
+        if n.polled_elsewhere {
+            return "no PR card yet: the device that polls this repo makes it, and may be offline"
+                .into();
+        }
+        return "no PR card yet: the next poll makes it".into();
+    }
+    if !n.author_in_space {
+        return "the author isn't in a space with you".into();
+    }
+    "no PR card yet (the author's Irori makes it; it may be offline, have no desk here, or keep this repo to itself)".into()
 }
 
 /// What says a repo is one of the person's (card #625): the person or a
@@ -336,4 +452,80 @@ pub fn our_repo(desk: &coord::Desk, ev: &RepoEvidence) -> bool {
             login(&p.author) || (!viewer.is_empty() && p.author.eq_ignore_ascii_case(viewer))
         })
     })
+}
+
+#[cfg(test)]
+mod why_none_tests {
+    use super::*;
+
+    #[test]
+    fn the_authors_own_desk_gives_every_reason() {
+        let n = NoPick {
+            author: true,
+            ..NoPick::default()
+        };
+        assert!(why_none(&n).starts_with("no PR card yet: the next poll"));
+        let off = NoPick {
+            reviews_off: true,
+            ..n.clone()
+        };
+        assert!(why_none(&off).contains("switched off"));
+        let alone = NoPick {
+            no_space: true,
+            ..n.clone()
+        };
+        assert!(why_none(&alone).contains("no shared space works"));
+        let away = NoPick {
+            polled_elsewhere: true,
+            ..n.clone()
+        };
+        assert!(why_none(&away).contains("may be offline"));
+        let waiting = NoPick {
+            note: "waiting for bob/laptop to update".into(),
+            no_space: true,
+            ..n
+        };
+        assert_eq!(why_none(&waiting), "waiting for bob/laptop to update");
+    }
+
+    #[test]
+    fn another_members_desk_sees_only_a_shared_log() {
+        // The author's private reasons never reach them.
+        let n = NoPick {
+            reviews_off: true,
+            no_space: true,
+            polled_elsewhere: true,
+            note: "private note".into(),
+            author_in_space: true,
+            ..NoPick::default()
+        };
+        let w = why_none(&n);
+        assert!(
+            w.starts_with("no PR card yet (the author's Irori makes it"),
+            "{w}"
+        );
+        assert!(!w.contains("switched off") && !w.contains("private"));
+        let apart = NoPick {
+            author_in_space: false,
+            ..n
+        };
+        assert_eq!(why_none(&apart), "the author isn't in a space with you");
+    }
+
+    #[test]
+    fn a_card_that_stands_says_only_its_note() {
+        let n = NoPick {
+            has_card: true,
+            note: "nobody in the space is free to review this PR yet".into(),
+            ..NoPick::default()
+        };
+        assert!(why_none(&n).starts_with("nobody"));
+        assert_eq!(
+            why_none(&NoPick {
+                has_card: true,
+                ..NoPick::default()
+            }),
+            ""
+        );
+    }
 }

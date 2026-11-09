@@ -52,6 +52,9 @@ pub struct GoneSession {
     pub gone_at: GoTime,
     pub reason: String,
     pub transcript: bool,
+    /// Whether Claude Code will start `claude --bg --resume` in `cwd`: the
+    /// spawn's rule ([`crate::spawn::trusted_in`]), so a git repo needs its
+    /// own entry even under a trusted parent (card #731).
     pub trusted: bool,
 }
 
@@ -228,7 +231,9 @@ impl Window {
                 gone_at: GoTime::from_system(wall),
                 reason: p.reason,
                 transcript: self.has_transcript(c),
-                trusted: trust.as_ref().is_some_and(|t| t.covers(&c.cwd)),
+                trusted: trust
+                    .as_ref()
+                    .is_some_and(|t| crate::spawn::trusted_in(t, Path::new(&c.cwd)).is_ok()),
             });
             if out.len() == limit {
                 break;
@@ -354,6 +359,7 @@ impl Window {
             }
         };
         let mut cmd = std::process::Command::new(bin);
+        no_autoupdate(&mut cmd);
         cmd.args(["--bg", "--resume", id])
             .current_dir(&c.cwd)
             .stdin(std::process::Stdio::null())
@@ -482,7 +488,19 @@ pub(crate) fn find_claude() -> Result<PathBuf, String> {
             }
         }
     }
-    Err("can't find the claude command on PATH".into())
+    Err(CLAUDE_MISSING.into())
+}
+
+/// Said when [`find_claude`] finds nothing. Several sessions starting at once
+/// can race Claude Code's own updater on the global npm install, and npm's
+/// rollback then removes the package (GitHub #321), so say so.
+pub(crate) const CLAUDE_MISSING: &str = "can't find the claude command on PATH. Claude Code may have been removed by a failed update (several sessions starting at once can race the updater): reinstall it with `npm install -g @anthropic-ai/claude-code`, then try again";
+
+/// Keeps Claude Code's own auto-updater from running in a process Irori
+/// starts: sessions started together race it on the global install and npm's
+/// rollback can remove Claude Code (GitHub #321).
+pub(crate) fn no_autoupdate(cmd: &mut std::process::Command) {
+    cmd.env("DISABLE_AUTOUPDATER", "1");
 }
 
 /// Keeps a console child of the GUI from flashing a window on Windows.
@@ -588,7 +606,9 @@ impl TrustSet {
         !dir.is_empty() && self.0.contains(&trust_key(dir))
     }
 
-    /// Whether this folder or one of its parents is trusted.
+    /// Whether this folder or one of its parents is trusted. Right only
+    /// outside git: Claude Code wants a repo's own entry, so ask
+    /// [`crate::spawn::trusted_in`], which uses this for non-git folders.
     pub(crate) fn covers(&self, dir: &str) -> bool {
         if dir.is_empty() {
             return false;

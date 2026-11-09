@@ -208,7 +208,7 @@ fn board_edit_sets_the_order_and_refuses_a_circle() {
         &call_a(),
         "board_edit",
         json!({"task_id": "#3"}),
-        &["or after or not_after"],
+        &["after or not_after (its order), or weight"],
     );
 }
 

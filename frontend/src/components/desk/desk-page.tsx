@@ -25,14 +25,17 @@ import {
   deskQueue,
   deskShown,
   inputsOf,
+  claimCountsLine,
   ownerName,
   queueCount,
+  reviewParts,
   stateLabel,
   type Desk,
   type DeskState,
   type QueueLine,
 } from "@/lib/desk"
 import { cards } from "@/lib/cards"
+import { Tick } from "@/components/common/ago"
 import { parseTime, relativeTime } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
@@ -96,7 +99,10 @@ function QueueLineRow({
 }) {
   const dim = l.state === "draft" || l.state === "merged"
   return (
-    <div className="grid rounded-md" data-pr={l.pr}>
+    <div
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)] rounded-md"
+      data-pr={l.pr}
+    >
       <div
         className={cn(
           "flex items-center gap-2 px-2 py-1 text-[12.5px]",
@@ -148,9 +154,65 @@ function QueueLineRow({
           <StateChip s={l.state} />
         </span>
       </div>
-      <div className="-mt-1 flex min-h-5 flex-wrap items-center gap-2 pr-2 pb-0.5 pl-[72px] text-[11px] text-muted-foreground">
+      <div className="-mt-1 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-0.5 pr-2 pb-0.5 pl-8 text-[11px] text-muted-foreground sm:pl-[72px]">
         <span className="min-w-0 truncate">{l.note}</span>
       </div>
+      <ReviewRow l={l} />
+    </div>
+  )
+}
+
+// ReviewRow is a PR's review under its line (merge desk §12.9): GitHub's
+// state, who holds the claim or was asked, the related agents, and why
+// nothing is picked. It draws nothing for a PR with no review to show.
+function ReviewRow({ l }: { l: QueueLine }) {
+  const r = reviewParts(l.author.review)
+  if (!r.github && !r.pick && !r.claimer && !r.related.length && !r.why)
+    return null
+  return (
+    <div
+      className="-mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 pr-2 pb-1 pl-8 text-[11px] sm:pl-[72px]"
+      data-review={l.pr}
+    >
+      {r.github && (
+        <Badge
+          variant={r.github === "Approved" ? "success" : "outline"}
+          className="text-[10.5px]"
+        >
+          {r.github}
+        </Badge>
+      )}
+      {r.claimer && (
+        <span
+          className="max-w-full min-w-0 break-words text-ink-2"
+          data-claimer
+        >
+          Claimed by <span className="font-medium text-ink">{r.claimer}</span>
+          {r.until && (
+            <span className="text-muted-foreground">
+              {" "}
+              until {clock(r.until)}
+            </span>
+          )}
+        </span>
+      )}
+      {r.pick && <span className="text-ink-2">{r.pick}</span>}
+      {r.related.length > 0 && (
+        <span
+          className="max-w-full min-w-0 break-words text-muted-foreground"
+          data-related
+        >
+          Related: {r.related.join("; ")}
+        </span>
+      )}
+      {r.why && (
+        <span
+          className="max-w-full min-w-0 break-words text-muted-foreground"
+          data-why
+        >
+          {r.why}
+        </span>
+      )}
     </div>
   )
 }
@@ -172,12 +234,10 @@ function QueueHead({ count, right }: { count: ReactNode; right?: ReactNode }) {
 // asked; when GitHub can't be asked it keeps the last list.
 export function DeskPanel({
   desk,
-  now,
   nameOf,
   onOpenCard,
 }: {
   desk: Desk
-  now: Date
   nameOf: (key: string) => string
   onOpenCard: (id: string) => void
 }) {
@@ -197,11 +257,19 @@ export function DeskPanel({
     >
       <QueueHead
         count={
-          snap
-            ? down
-              ? `${snap.prs.length} open at ${clock(snap.at)}`
-              : `${queueCount(snap)} · polled ${timeOf(lastPoll, now)} (every 3 min)`
-            : queueCount(snap)
+          snap ? (
+            down ? (
+              `${snap.prs.length} open at ${clock(snap.at)}`
+            ) : (
+              <Tick
+                of={(now) =>
+                  `${queueCount(snap)} · polled ${timeOf(lastPoll, now)} (every 3 min)`
+                }
+              />
+            )
+          ) : (
+            queueCount(snap)
+          )
         }
       />
       {down && (
@@ -246,7 +314,7 @@ export function DeskPanel({
           </div>
         </div>
       ) : (
-        <div className="grid gap-0.5 p-1.5">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-0.5 p-1.5">
           {lines.map((l) => (
             <QueueLineRow
               key={`${l.state === "merged" ? "m" : "o"}${l.pr}`}
@@ -276,6 +344,14 @@ function DeskHeader({
         <GitMergeIcon className="size-5" />
         <span className="font-mono">{ownerName(desk.settings.repoKey)}</span>
       </span>
+      {claimCountsLine(desk.claimCounts) && (
+        <span
+          className="w-full text-[11.5px] text-muted-foreground sm:w-auto"
+          data-claim-counts
+        >
+          Claims: {claimCountsLine(desk.claimCounts)}
+        </span>
+      )}
       <span className="ml-auto flex items-center gap-1.5">
         <Button
           size="sm"
@@ -297,7 +373,6 @@ export function DeskPage({
   onOpenCard,
   onSettings,
   nameOf,
-  now,
 }: {
   desks: Desk[]
   // The desk open, by repo key ("" the first).
@@ -306,7 +381,6 @@ export function DeskPage({
   onOpenCard: (id: string) => void
   onSettings: () => void
   nameOf: (key: string) => string
-  now: Date
 }) {
   // Only desks with an open PR of ours are listed (card #625). A link to
   // one that has none left opens it anyway, with its calm empty queue.
@@ -363,11 +437,11 @@ export function DeskPage({
           })}
         </nav>
       )}
-      <div className="grid min-w-0 flex-1 content-start gap-3 overflow-y-auto pb-6 mac:overscroll-none">
+      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto pb-20 mac:overscroll-none">
         <DeskHeader desk={desk} onSettings={onSettings} />
         <DeskPanel
           desk={desk}
-          now={now}
+
           nameOf={nameOf}
           onOpenCard={onOpenCard}
         />

@@ -97,6 +97,15 @@ pub(crate) fn close_named(t: &mut Task, ids: &[String], by: &str, note: &str, at
 /// The person's completed answers t's open done checks with Done (card
 /// #315), as their Done button would have.
 pub(crate) fn say_done_open(t: &mut Task, by: &str, at: GoTime) {
+    let answered: Vec<String> = t
+        .blockers
+        .iter()
+        .filter(|b| b.open() && b.done_check)
+        .map(|b| b.id.clone())
+        .collect();
+    // Card #966: Done withdraws a Not done on the same check.
+    t.retries
+        .retain(|r| r.cause != RETRY_SENT_BACK || !answered.contains(&r.of));
     for b in t.blockers.iter_mut().filter(|b| b.open() && b.done_check) {
         let Some(i) = b.options.iter().position(|o| o.answer == DONE_ANSWER) else {
             continue;
@@ -250,6 +259,22 @@ pub(crate) fn refresh_blocker(
     b.status = BLOCKER_OPEN.into();
     b.sent_to.clear();
     b.missing.clear();
+    // Card #966: the person's Not done on a done check raises the next
+    // attempt, for as long as it is their last word since the check was
+    // last asked. Worked out afresh each time, so the order rows fold in
+    // doesn't matter.
+    if b.done_check {
+        let bid = b.id.clone();
+        let word = cs.iter().rfind(|c| c.person).map(|c| (c.pick, c.at));
+        t.retries
+            .retain(|r| r.cause != RETRY_SENT_BACK || r.of != bid);
+        // Their Done on the check after it withdraws it, as in sent_back.
+        let done = b.resolved.as_ref().is_some_and(|r| r.option >= 0);
+        if let Some((_, at)) = word.filter(|(pick, _)| *pick <= 0 && !done) {
+            t.note_retry(RETRY_SENT_BACK, &bid, at.unix_nano());
+        }
+    }
+    let b = &mut t.blockers[i];
     let n = cs.len();
     if n == 0 {
         return;
@@ -758,6 +783,8 @@ impl Fold {
                 attachments: capped(add_files(Vec::new(), &br.attachments), MAX_ATTACHMENTS),
                 done_check: br.done_check,
                 transfer: br.transfer,
+                given_back: br.given_back,
+                batch: br.batch.clone(),
                 later: br.later.clone(),
                 permission: br.permission.clone(),
                 ..Blocker::default()
@@ -889,7 +916,9 @@ impl Fold {
                     return;
                 };
                 let person = self.person_row(ev, &p.by);
-                let said = self.given_say(&p, person);
+                let said = self
+                    .given_say(&p, person)
+                    .or_else(|| self.marked_say(&p, person));
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -1198,6 +1227,7 @@ impl Fold {
             false,
             false,
             nb.permission,
+            None,
         )
     }
 
@@ -1395,6 +1425,7 @@ impl Fold {
             done_check,
             transfer,
             None,
+            None,
         )
     }
 
@@ -1416,6 +1447,7 @@ impl Fold {
         done_check: bool,
         transfer: bool,
         permission: Option<PermissionWait>,
+        given_back: Option<String>,
     ) -> Result<(Task, Blocker)> {
         if t.open_ask().is_some() {
             return Err(super::asks::ask_refusal(
@@ -1489,6 +1521,8 @@ impl Fold {
             done_check,
             transfer,
             permission,
+            given_back: given_back.is_some(),
+            batch: given_back.unwrap_or_default(),
             ..BlockerRow::default()
         };
         if reason_only
@@ -1807,6 +1841,13 @@ impl Fold {
                 }
                 _ => {}
             }
+        }
+        // A card given back (decision 69): Keep it is a plain resolve; Cancel
+        // it cancels the card, which closes the item.
+        if b.given_back
+            && let Some(t) = self.answer_given_back(&by, &t, &b, a.pick)?
+        {
+            return Ok((t, Vec::new()));
         }
         // The person's say on the crash question goes on its thread and
         // puts the card back on the Board, whichever way it came (card
@@ -2688,6 +2729,9 @@ impl Fold {
                 t.short_ref()
             )));
         }
+        if let Some(v) = &title {
+            self.check_person_title(&by, &t, v)?;
+        }
         let same = title.as_ref().is_none_or(|v| *v == t.title)
             && obj.as_ref().is_none_or(|v| *v == t.objective)
             && done.as_ref().is_none_or(|v| *v == t.done_criteria)
@@ -2732,6 +2776,132 @@ impl Fold {
         }
         Ok(now.clone())
     }
+
+    /// The person named `t` by hand (card #779): an agent that would rename
+    /// it is refused, saying why, before anything is written (the fold
+    /// would drop the title without a word).
+    pub(crate) fn check_person_title(&self, by: &str, t: &Task, title: &str) -> Result<()> {
+        if t.title_by_person && !self.is_person(by) && !title.is_empty() && title != t.title {
+            return Err(not_allowed(format!(
+                "the person named {} “{}” themselves: leave its title out, or give it as it is (an agent doesn't rename it); they can rename it on its page",
+                t.short_ref(),
+                t.title
+            )));
+        }
+        Ok(())
+    }
+
+    /// Irori's assistant names the person's thread (card #782): only while
+    /// its title is still `was` and the person hasn't named it, and only a
+    /// thread the person posted. The thread's log says Irori renamed it,
+    /// and the title it had is kept for Undo.
+    pub(crate) fn rename_as_irori(&mut self, id: &str, title: &str, was: &str) -> Result<Task> {
+        let title = super::asks::ask_title(title);
+        if title.is_empty() {
+            return Err(invalid("a thread needs a title"));
+        }
+        let t = self.any_task(id)?.clone();
+        if !t
+            .ask
+            .as_ref()
+            .is_some_and(|a| a.thread && a.opener.is_empty() && !a.assistant)
+        {
+            return Err(not_allowed(format!(
+                "Irori names only the person's threads, and {} isn't one",
+                t.short_ref()
+            )));
+        }
+        if self.on_board {
+            return Err(not_allowed(
+                "Irori names threads on the person's own board only",
+            ));
+        }
+        if t.title_by_person {
+            return Err(not_allowed(format!(
+                "the person named {} themselves",
+                t.short_ref()
+            )));
+        }
+        if t.title != was {
+            return Err(super::error::Error::raw(
+                super::error::ErrorKind::BadState,
+                format!("coord: {} was renamed meanwhile", t.short_ref()),
+            ));
+        }
+        if t.title == title {
+            return Ok(t);
+        }
+        let at = self.stamp();
+        self.write(
+            SWEEPER,
+            kinds::TASK_EDITED,
+            &TaskEditedRow {
+                task_id: id.into(),
+                title: Some(title.clone()),
+                by: SWEEPER.into(),
+                at,
+                ..TaskEditedRow::default()
+            },
+        )?;
+        let now = &self.tasks[id];
+        if now.title != title {
+            return Err(super::error::Error::raw(
+                super::error::ErrorKind::BadState,
+                format!("coord: name {}: the change didn't apply", now.short_ref()),
+            ));
+        }
+        Ok(now.clone())
+    }
+
+    /// The person renames a card or thread by hand (card #779), on its
+    /// page: any state, an open ask or thread too. It is the same
+    /// task.edited row an agent's board_edit writes, and from then on an
+    /// agent's rename doesn't land (see the fold).
+    pub(crate) fn rename_task(&mut self, by: &str, id: &str, title: &str) -> Result<Task> {
+        let by = caller(by)?;
+        if !self.is_person(&by) {
+            return Err(not_allowed(
+                "only the person renames a card here; an agent uses board_edit",
+            ));
+        }
+        let title = trim_space(title).to_string();
+        if title.is_empty() {
+            return Err(invalid("a card needs a title"));
+        }
+        if runes(&title) > super::MAX_TITLE {
+            return Err(invalid(format!(
+                "title longer than {} characters",
+                super::MAX_TITLE
+            )));
+        }
+        let t = self.any_task(id)?.clone();
+        if t.title == title {
+            return Ok(t);
+        }
+        let at = self.stamp();
+        self.write(
+            &by,
+            self.ask_kind(kinds::TASK_EDITED),
+            &TaskEditedRow {
+                task_id: id.into(),
+                title: Some(title.clone()),
+                by: by.clone(),
+                at,
+                ..TaskEditedRow::default()
+            },
+        )?;
+        let now = &self.tasks[id];
+        if now.title != title {
+            return Err(super::error::Error::raw(
+                super::error::ErrorKind::BadState,
+                format!(
+                    "coord: rename {}: the change didn't apply, so it keeps its name",
+                    now.short_ref()
+                ),
+            ));
+        }
+        Ok(now.clone())
+    }
 }
 
 impl Fold {
@@ -2761,6 +2931,9 @@ impl Fold {
         }
         if !board.is_empty() && self.board_tag(&board).is_none() {
             return Err(not_found(format!("board {}", quote(&board))));
+        }
+        if self.board_closed(&board) {
+            return Err(self.closed_refusal(&board));
         }
         // Only the ones not there yet: this also brings together a family
         // that came apart, and a card already there keeps its number.

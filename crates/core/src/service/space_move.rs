@@ -202,6 +202,12 @@ impl Services {
                 out.rows_already += 1;
                 continue;
             }
+            // A board takes no title row from Irori (card #782), so none
+            // comes into the private log, where it would fold.
+            if kind == kinds::TASK_EDITED && ev.actor == crate::deskpost::IRORI {
+                *out.rows_left.entry(ev.kind.clone()).or_default() += 1;
+                continue;
+            }
             let Ok(mut v) = serde_json::from_slice::<Value>(&ev.payload) else {
                 *out.rows_left.entry(ev.kind.clone()).or_default() += 1;
                 continue;

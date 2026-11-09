@@ -5,9 +5,16 @@
 // from the notification, so they go once it's resolved anywhere. The
 // words here are pure, so they're tested without a window.
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react"
 
-import { Events, NotificationService } from "./host"
+import { onChange, type Notice } from "./changes"
+import { NotificationService } from "./host"
 import { inWails } from "./irori"
 import {
   Notification,
@@ -17,14 +24,14 @@ import {
 } from "./models"
 import type { CardBlocker, Delivery } from "./models"
 import { pending } from "./pending"
-import { EventInboxChanged, useLatest } from "./talk"
+import { usePatched, type Want } from "./patched"
+import { useLatest } from "./talk"
 
 export type { Notification } from "./models"
 
 // EventNotificationsChanged is notifications:changed (crates/window
 // notifications.rs): one was kept or read, here or on another device.
 export const EventNotificationsChanged = "notifications:changed"
-const EventBoardChanged = "board:changed"
 
 export type NotificationFilter = "unread" | "all"
 
@@ -205,21 +212,93 @@ export function askOutcome(a: NotificationAsk): string {
   return "Closed: no answer in time"
 }
 
-// useNotifications is the history, re-read whenever it changes and on
-// every card or inbox change (an item's card title follows the card),
-// with the person's pending answers on it (card #644).
+// MaxListed is the most rows the page keeps (crates/window notifications.rs).
+export const MaxListed = 500
+
+const at = (n: Notification) => Date.parse(n.at) || 0
+
+// upsertNotifications puts rows read by key into the list: a row we have
+// keeps its place unless it moved, new ones go in by time, newest first,
+// and the list is cut to MaxListed.
+export function upsertNotifications(
+  current: Notification[],
+  rows: Notification[]
+): Notification[] {
+  if (rows.length === 0) return current
+  const fresh = new Map(rows.map((r) => [r.key, r]))
+  const kept = current.map((n) => fresh.get(n.key) ?? n)
+  const have = new Set(current.map((n) => n.key))
+  const added = rows.filter((r) => !have.has(r.key))
+  // Stable: new rows go first, so they win an exact tie.
+  return [...added, ...kept].sort((a, b) => at(b) - at(a)).slice(0, MaxListed)
+}
+
+// keysToRead is what a patch read asks for: the keys a notice named, the
+// rows whose card changed (their titles follow it) and the rows whose ask
+// changed.
+export function keysToRead(current: Notification[], want: Want): string[] {
+  const keys = new Set(want.ids["notifications:changed.keys"] ?? [])
+  const cards = new Set(want.ids["board:changed.cards"] ?? [])
+  const asks = new Set(want.ids["notifications:changed.asks"] ?? [])
+  for (const n of current) {
+    if (n.taskId && cards.has(n.taskId)) keys.add(n.key)
+    else if (n.ask && n.ask.id && asks.has(n.ask.id)) keys.add(n.key)
+  }
+  return [...keys]
+}
+
+// deliveryWakes: an inbox notice is for a delivery row when it names that
+// delivery, or says everything changed.
+export function deliveryWakes(n: Notice, deliveryId: string): boolean {
+  return n.all || (n.ids.deliveries ?? []).includes(deliveryId)
+}
+
+async function notificationsByKey(keys: string[]): Promise<Notification[]> {
+  if (inWails()) return (await NotificationService.ByKey(keys)) ?? []
+  const want = new Set(keys)
+  return sampleNotifications().filter((n) => want.has(n.key))
+}
+
+// useNotifications is the history. A notice names what changed: the keys
+// kept or read, the asks that changed, and the cards (an item's card title
+// follows its card), and only those rows are read again. A notice for
+// everything, or a failed read, reads the list in full. Inbox changes
+// don't touch it: a message's state is read live by the row itself
+// (DeliveryLive). The person's pending answers go on top (card #644).
 export function useNotifications(): {
   list: Notification[]
   loading: boolean
   error: string | null
   reload: () => Promise<void>
 } {
-  const load = useCallback(
-    async (): Promise<Notification[]> =>
-      inWails() ? NotificationService.List() : sampleNotifications(),
-    []
-  )
-  const { value, loading, error, reload } = useLatest<Notification[]>(load, [])
+  const shownRows = useRef<Notification[]>([])
+  const { value, loading, error, reload } = usePatched<
+    Notification[],
+    Notification[]
+  >({
+    name: "notifications",
+    initial: [],
+    follow: [
+      {
+        signal: "notifications:changed",
+        buckets: ["keys", "asks"],
+        focus: true,
+      },
+      { signal: "board:changed", buckets: ["cards"] },
+    ],
+    read: async (want) => {
+      if (want.full)
+        return inWails() ? NotificationService.List() : sampleNotifications()
+      const keys = keysToRead(shownRows.current, want)
+      return keys.length ? notificationsByKey(keys) : []
+    },
+    merge: (current, rows, want) =>
+      want.full ? rows : upsertNotifications(current, rows),
+    rows: (v) => v.map((n) => [n.key, n]),
+  })
+  useEffect(() => {
+    shownRows.current = value
+  }, [value])
   // A read ends the answers it agrees with once it is shown (useCards).
   useEffect(() => {
     if (!loading && !error) pending.observeNotifications(value)
@@ -231,23 +310,10 @@ export function useNotifications(): {
     [value, v]
   )
   useEffect(() => {
-    void reload()
-    if (!inWails()) {
-      sampleListeners.add(reload)
-      return () => {
-        sampleListeners.delete(reload)
-      }
-    }
-    const offs = [
-      EventNotificationsChanged,
-      EventBoardChanged,
-      EventInboxChanged,
-    ].map((e) => Events.On(e, () => void reload()))
-    const onFocus = () => void reload()
-    window.addEventListener("focus", onFocus)
+    if (inWails()) return
+    sampleListeners.add(reload)
     return () => {
-      offs.forEach((off) => off())
-      window.removeEventListener("focus", onFocus)
+      sampleListeners.delete(reload)
     }
   }, [reload])
   return { list, loading, error, reload }
@@ -264,7 +330,7 @@ export function useUnreadNotifications(): number {
         : unreadCount(sampleNotifications()),
     []
   )
-  const { value, reload } = useLatest<number>(load, 0)
+  const { value, reload } = useLatest<number>(load, 0, "unread")
   useEffect(() => {
     void reload()
     if (!inWails()) {
@@ -273,13 +339,9 @@ export function useUnreadNotifications(): number {
         sampleListeners.delete(reload)
       }
     }
-    const off = Events.On(EventNotificationsChanged, () => void reload())
-    const onFocus = () => void reload()
-    window.addEventListener("focus", onFocus)
-    return () => {
-      off()
-      window.removeEventListener("focus", onFocus)
-    }
+    return onChange(EventNotificationsChanged, () => void reload(), {
+      focus: true,
+    })
   }, [reload])
   return value
 }
@@ -343,6 +405,7 @@ function sampleNotifications(): Notification[] {
       level: "warn",
       at: ago(4),
       ask: NotificationAsk({
+        id: "sample-ask",
         open: true,
         actions: ["Restart", "Leave it"],
         until: ago(-10),
@@ -395,10 +458,11 @@ function sampleNotifications(): Notification[] {
       key: "ask:sample-ask-old",
       kind: Kind.Ask,
       title: "otter: Push to main?",
-      body: "check.sh is green on the branch.",
+      body: "The tests are green on the branch.",
       at: ago(180),
       read: true,
       ask: NotificationAsk({
+        id: "sample-ask-old",
         open: false,
         answered: true,
         choice: "Push",

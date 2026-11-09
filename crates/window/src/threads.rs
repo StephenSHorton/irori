@@ -18,8 +18,19 @@ use crate::board::{TaskResult, Told, UploadFile};
 use crate::cards::AgentRef;
 use crate::ts;
 
+/// Where a new thread came from, for [`Window::start_thread_in`].
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ThreadFrom<'a> {
+    /// The Talk channel it was started from (its `ch_` id); "" none.
+    pub channel: &'a str,
+    /// The Office Assistant posted it (card #991).
+    pub assistant: bool,
+}
+
 /// Where a thread stands, for the panel.
 pub const THREAD_WAITING: &str = "waiting";
+/// Irori's own key on a card's thread.
+const IRORI: &str = "irori";
 pub const THREAD_HANDED: &str = "handed";
 pub const THREAD_ANSWERED: &str = "answered";
 pub const THREAD_RESOLVED: &str = "resolved";
@@ -27,12 +38,34 @@ pub const THREAD_RESOLVED: &str = "resolved";
 /// How many resolved threads the panel lists.
 const RESOLVED_SHOWN: usize = 20;
 
+/// The lists' order within a bucket: newest first, equal times by id, so the
+/// page's sort (which has the same tiebreak) and this one agree.
+fn newest(a: &ThreadSummary, b: &ThreadSummary) -> std::cmp::Ordering {
+    b.updated_at
+        .unix_nano()
+        .cmp(&a.updated_at.unix_nano())
+        .then_with(|| a.id.cmp(&b.id))
+}
+
+/// ThreadsById's answer (card #1149): the rows asked for that exist, and
+/// the ids that don't, for the page to drop.
+#[derive(Clone, Debug, Default, Serialize, Type)]
+pub struct ThreadsById {
+    pub rows: Vec<ThreadSummary>,
+    pub gone: Vec<String>,
+}
+
 /// Whether `t` is the person's thread.
 pub fn is_thread(t: &Task) -> bool {
     t.ask.as_ref().is_some_and(|a| a.thread)
 }
 
 /// The shared board a private thread is about ("" for none).
+/// Whether thread `t` is in the panel's resolved lists (card #1149).
+pub fn is_resolved(t: &Task) -> bool {
+    t.ask.as_ref().is_some_and(|a| a.outcome.is_some()) || coord::is_terminal(&t.state)
+}
+
 fn about(t: &Task) -> String {
     t.ask.as_ref().map(|a| a.board.clone()).unwrap_or_default()
 }
@@ -117,6 +150,10 @@ pub struct ThreadSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub opened_by: Option<AgentRef>,
+    /// An agent wrote in it after the person last opened or replied in it
+    /// (card #719): Talk's count counts it and its list marks it. An
+    /// agent's own thread is unread until the person first opens it.
+    pub unread: bool,
 }
 
 fn is_zero(n: &i64) -> bool {
@@ -193,11 +230,12 @@ impl Window {
         files: &[UploadFile],
         board_id: &str,
     ) -> Result<TaskResult, String> {
-        self.start_thread_with(text, mentions, files, board_id, None)
+        self.start_thread_with(text, mentions, files, board_id, None, false)
     }
 
     /// [`Self::start_thread`] with the composer's "Agents answer now" (card
-    /// #391); none: the default for its mentions.
+    /// #391); none: the default for its mentions. `assistant`: the Office
+    /// Assistant posted it (card #991), so Irori doesn't name it.
     pub fn start_thread_with(
         &self,
         text: &str,
@@ -205,14 +243,20 @@ impl Window {
         files: &[UploadFile],
         board_id: &str,
         agents_now: Option<bool>,
+        assistant: bool,
     ) -> Result<TaskResult, String> {
-        self.start_thread_in(text, mentions, files, board_id, agents_now, "")
+        let from = ThreadFrom {
+            channel: "",
+            assistant,
+        };
+        self.start_thread_in(text, mentions, files, board_id, agents_now, from)
     }
 
     /// [`Self::start_thread_with`] from a message in Talk channel `channel`
     /// (its `ch_` id; "" none, card #454): the thread records the channel,
     /// and in your own log, in a channel named after a repo here it is that
     /// repo's thread, so the agent Irori starts for it starts in that repo.
+    /// `from` says where it came from.
     pub(crate) fn start_thread_in(
         &self,
         text: &str,
@@ -220,14 +264,15 @@ impl Window {
         files: &[UploadFile],
         board_id: &str,
         agents_now: Option<bool>,
-        channel: &str,
+        from: ThreadFrom<'_>,
     ) -> Result<TaskResult, String> {
+        let ThreadFrom { channel, assistant } = from;
         let quiet = !agents_now.unwrap_or_else(|| agents_now_default(mentions));
         let board_id = crate::trim(board_id);
         let private = !board_id.is_empty()
             && self.core.inbox().threads_mode(board_id) == inbox::threads_mode::PRIVATE;
         let (t, n) = if private {
-            self.private_board_thread(text, mentions, files, board_id, quiet, channel)?
+            self.private_board_thread(text, mentions, files, board_id, quiet, from)?
         } else if board_id.is_empty() {
             let plan = self.plan_mentions("", mentions);
             let refs = self.store_uploads(files)?;
@@ -243,6 +288,7 @@ impl Window {
                         quiet,
                         channel: channel.into(),
                         repo_key: self.channel_repo(channel),
+                        assistant,
                         ..Default::default()
                     },
                     &self.core.ask_agents(),
@@ -268,6 +314,7 @@ impl Window {
                         // No repo: another member's device has its own
                         // checkouts, and a board ask names none.
                         channel: channel.into(),
+                        assistant,
                         ..Default::default()
                     },
                 )
@@ -310,7 +357,7 @@ impl Window {
         files: &[UploadFile],
         board_id: &str,
         quiet: bool,
-        channel: &str,
+        from: ThreadFrom<'_>,
     ) -> Result<(Task, coord::Notice), String> {
         let bc = self.core.board_coord(board_id).map_err(|e| e.to_string())?;
         let theirs = |k: &str| {
@@ -363,8 +410,9 @@ impl Window {
                     thread: true,
                     board: board_id.into(),
                     quiet,
-                    channel: channel.into(),
-                    repo_key: self.channel_repo(channel),
+                    channel: from.channel.into(),
+                    repo_key: self.channel_repo(from.channel),
+                    assistant: from.assistant,
                     ..Default::default()
                 },
                 &self.core.ask_agents(),
@@ -423,43 +471,174 @@ impl Window {
             .collect();
         all.extend(self.thread_rows(left, ""));
         let resolved = |t: &ThreadSummary| t.state == THREAD_RESOLVED;
-        all.sort_by(|a, b| {
-            resolved(a)
-                .cmp(&resolved(b))
-                .then(b.updated_at.unix_nano().cmp(&a.updated_at.unix_nano()))
-        });
+        all.sort_by(|a, b| resolved(a).cmp(&resolved(b)).then_with(|| newest(a, b)));
         all
+    }
+
+    /// BoardService.ThreadsById (cards #1136, #1149): the rows of just these
+    /// ids, each as `threads_all` would list it (same space, same fields),
+    /// without reading every thread: one slim `people()`, and per id its
+    /// route, task, comments, rests, read cursor and made cards. The bucket
+    /// is worked out per id: a shared board's log; Personal; a space the
+    /// private thread is about; or one you left (Personal's, private). Rows
+    /// come in `threads_all`'s order. Not capped: the page cuts each
+    /// bucket's resolved ones. `gone` is every id with no row (not a thread,
+    /// withdrawn, cleared while closed, or unknown).
+    pub fn threads_by_id(&self, ids: &[String]) -> ThreadsById {
+        let listed: Vec<String> = self
+            .core
+            .board_list()
+            .into_iter()
+            .map(|b| b.board_id)
+            .collect();
+        let spaces: Vec<(String, std::sync::Arc<coord::Coord>)> = listed
+            .iter()
+            .filter_map(|id| Some((id.clone(), self.core.board_coord(id).ok()?)))
+            .collect();
+        let own = self.core.coord().clone();
+        let p = self.thread_people();
+        let cleared = own.archived_ids();
+        let me = self.core.user_sender().key;
+        let mut rows: Vec<ThreadSummary> = Vec::new();
+        let mut gone: Vec<String> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for id in ids {
+            let id = crate::trim(id);
+            if id.is_empty() || !seen.insert(id.to_string()) {
+                continue;
+            }
+            let row = match own.get_task(id) {
+                // Your own log's: Personal's, or private and about a space.
+                Some(t) if is_thread(&t) => {
+                    let about = about(&t);
+                    let in_space = !about.is_empty() && listed.contains(&about);
+                    let (private, space) = if in_space {
+                        (true, about)
+                    } else {
+                        (!about.is_empty(), String::new())
+                    };
+                    self.thread_row(&p, &cleared, &me, own.clone(), t, private, &space)
+                }
+                Some(_) => None,
+                None => spaces.iter().find_map(|(sid, bc)| {
+                    let t = bc.get_task(id)?;
+                    self.thread_row(&p, &cleared, &me, bc.clone(), t, false, sid)
+                }),
+            };
+            match row {
+                Some(r) => rows.push(r),
+                None => gone.push(id.to_string()),
+            }
+        }
+        rows.sort_by(|a, b| {
+            (a.state == THREAD_RESOLVED)
+                .cmp(&(b.state == THREAD_RESOLVED))
+                .then_with(|| newest(a, b))
+        });
+        ThreadsById { rows, gone }
     }
 
     /// `found` as the panel lists it, in space `space` ("": Personal): open
     /// ones newest first, then the newest resolved ones.
     fn thread_rows(&self, found: Vec<Found>, space: &str) -> Vec<ThreadSummary> {
-        let p = self.people();
+        let p = self.thread_people();
+        // Threads the person cleared from Storage (card #728) leave the
+        // lists while they stay closed, as cleared cards do (#138).
+        let cleared = self.core.coord().archived_ids();
+        let me = self.core.user_sender().key;
         let mut open = Vec::new();
         let mut done = Vec::new();
         for (co, t, private) in found {
-            if !is_thread(&t) || t.withdrawn {
+            let Some(s) = self.thread_row(&p, &cleared, &me, co, t, private, space) else {
                 continue;
+            };
+            if s.state == THREAD_RESOLVED {
+                done.push(s);
+            } else {
+                open.push(s);
+            }
+        }
+        open.sort_by(newest);
+        done.sort_by(newest);
+        done.truncate(RESOLVED_SHOWN);
+        open.extend(done);
+        open
+    }
+
+    /// One thread's row (card #1149), or `None` when the lists leave it
+    /// out: not a thread, withdrawn, or cleared while closed.
+    #[allow(clippy::too_many_arguments)]
+    fn thread_row(
+        &self,
+        p: &crate::cards::People,
+        cleared: &std::collections::HashSet<String>,
+        me: &str,
+        co: std::sync::Arc<coord::Coord>,
+        t: Task,
+        private: bool,
+        space: &str,
+    ) -> Option<ThreadSummary> {
+        {
+            if !is_thread(&t)
+                || t.withdrawn
+                || (cleared.contains(&t.id) && coord::is_terminal(coord::effective_state(&t)))
+            {
+                return None;
             }
             let raw = co.comments(&t.id).unwrap_or_default();
             // People, not agents: on a board, any member (card #134).
             let mut answered: Vec<String> = Vec::new();
+            let mut said: Vec<Said> = Vec::new();
+            // The newest reply by an agent and post by a person (card #739).
+            // Irori's own lines (say why its agent can't start) aren't one.
+            let (mut agent_at, mut person_at) = (i64::MIN, i64::MIN);
             for c in &raw {
+                if !c.msg_id.is_empty() {
+                    continue;
+                }
+                said.push(Said {
+                    at: c.at.unix_nano(),
+                    id: c.id.clone(),
+                    agent: !co.is_any_person(&c.by),
+                });
+                if co.is_any_person(&c.by) {
+                    person_at = person_at.max(c.at.unix_nano());
+                    continue;
+                }
+                if c.by != IRORI {
+                    agent_at = agent_at.max(c.at.unix_nano());
+                }
                 let k = self.core.private_key(&c.by);
-                if c.msg_id.is_empty() && !co.is_any_person(&c.by) && !answered.contains(&k) {
+                if !answered.contains(&k) {
                     answered.push(k);
                 }
             }
             // An agent's own thread (card #631) waits on the person until
             // they write in it: no agent is handed or started for it.
             let rests = co.agent_thread_rests(&t);
+
             let cs = self.priv_comments(raw);
             let t = self.priv_task(t);
             let a = t.ask.clone().unwrap_or_default();
             let opener = self.core.private_key(&a.opener);
             let resolved = a.outcome.is_some() || coord::is_terminal(&t.state);
+            // The person's follow-up that no live agent heard (card #739):
+            // it went out again, nobody has it yet, and no agent wrote since.
+            // It waits on an agent as a new thread does, so it reads
+            // Waiting, with the agent Irori starts for it, not Answered by
+            // an agent that is gone. With Agents answer now off nothing
+            // comes for it: it stays Answered, the person's to follow up.
+            let follow_up_waits = !rests
+                && a.wake
+                && a.taker.is_empty()
+                && (a.reason == coord::TAKE_REOPENED || a.reason == coord::TAKE_UNCLAIMED)
+                && (answered.is_empty() || person_at > agent_at);
+            let cursor = self.core.talk().cursor(me, &read_conv(&t.id));
+            let unread = !resolved && thread_unread(&said, cursor.as_deref(), !opener.is_empty());
             let state = if resolved {
                 THREAD_RESOLVED
+            } else if follow_up_waits {
+                THREAD_WAITING
             } else if !answered.is_empty() || a.reason == coord::TAKE_ANSWERED || rests {
                 THREAD_ANSWERED
             } else if !a.taker.is_empty() {
@@ -524,8 +703,9 @@ impl Window {
                         sp.op == coord::SPAWN_FAILED
                             && !coord::usage_limited(sp)
                             && state == THREAD_WAITING
+                            && crate::cards::failed_wait_applies(&t, p)
                     })
-                    .map(|sp| crate::cards::cant_start_text(&t, sp, &p))
+                    .map(|sp| crate::cards::cant_start_text(&t, sp, p))
                     .unwrap_or_default(),
                 // A waiting thread, or an answered one the person followed
                 // up on: that waits on an agent too (card #541).
@@ -538,29 +718,18 @@ impl Window {
                 },
 
                 space_id: space.to_string(),
+                unread,
                 ..ThreadSummary::default()
             };
             let mut s = s;
             if state == THREAD_WAITING {
-                let w = crate::cards::queue_words(&t.id, &p);
+                let w = crate::cards::queue_words(&t.id, p);
                 s.at_cap = w.at_cap;
                 s.queue_place = w.queue_place;
                 s.usage_limit = w.usage_limit;
             }
-            if resolved {
-                done.push(s);
-            } else {
-                open.push(s);
-            }
+            Some(s)
         }
-        let newest = |a: &ThreadSummary, b: &ThreadSummary| {
-            b.updated_at.unix_nano().cmp(&a.updated_at.unix_nano())
-        };
-        open.sort_by(newest);
-        done.sort_by(newest);
-        done.truncate(RESOLVED_SHOWN);
-        open.extend(done);
-        open
     }
 
     /// BoardService.ReopenThread: a resolved thread is live again (card
@@ -582,6 +751,33 @@ impl Window {
             .map_err(|e| e.to_string())
     }
 
+    /// BoardService.ReadThread: the person has the thread open (card
+    /// #719), so what is in it now is read: its newest reply, or its
+    /// opening words when nobody has replied yet. Kept with DMs' read
+    /// cursors, so the person's other devices see it read too.
+    pub fn read_thread(&self, id: &str) -> Result<(), String> {
+        let id = crate::trim(id);
+        let co = self.read(id);
+        let t = co
+            .get_task(id)
+            .filter(is_thread)
+            .ok_or_else(|| format!("no thread {id}"))?;
+        let newest = co
+            .comments(&t.id)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|c| c.msg_id.is_empty())
+            .max_by(|x, y| {
+                x.at.unix_nano()
+                    .cmp(&y.at.unix_nano())
+                    .then_with(|| x.id.cmp(&y.id))
+            })
+            .map(|c| c.id)
+            .unwrap_or_else(|| t.id.clone());
+        self.core
+            .talk_mark_read(&read_conv(&t.id), &newest, &self.core.user_sender().key)
+    }
+
     /// BoardService.ResolveThread: the person is done with it.
     pub fn resolve_thread(&self, id: &str) -> Result<(), String> {
         let id = crate::trim(id);
@@ -590,6 +786,36 @@ impl Window {
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
+}
+
+/// The read cursor that keeps how far the person has read thread `id`
+/// (card #719): Talk's, beside the DMs' and channels'.
+fn read_conv(id: &str) -> String {
+    format!("thread:{id}")
+}
+
+/// One reply in a thread, for [`thread_unread`].
+#[derive(Debug, Clone)]
+struct Said {
+    at: i64,
+    id: String,
+    agent: bool,
+}
+
+/// Whether a thread waits unread on the person (card #719): an agent
+/// replied after the newest of where they last read it (`cursor`: a reply's
+/// id, or the thread's own when it had none) and their own newest reply.
+/// An agent's own thread (`agent_opened`) is unread until the person first
+/// reads or replies in it.
+fn thread_unread(said: &[Said], cursor: Option<&str>, agent_opened: bool) -> bool {
+    let pos = |s: &Said| (s.at, s.id.clone());
+    let read = said.iter().find(|s| Some(s.id.as_str()) == cursor).map(pos);
+    let replied = said.iter().filter(|s| !s.agent).map(pos).max();
+    let seen = read.max(replied);
+    if said.iter().any(|s| s.agent && Some(pos(s)) > seen) {
+        return true;
+    }
+    agent_opened && cursor.is_none() && !said.iter().any(|s| !s.agent)
 }
 
 /// "Agents answer now"'s default for a composer's mentions (card #391):
@@ -605,4 +831,67 @@ pub fn agents_now_default(mentions: &[ts::Mention]) -> bool {
         .filter(|m| !m.key.is_empty() && m.key != "irori")
         .collect();
     coord::agents_now_default(&ms)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Said, thread_unread};
+
+    fn agent(at: i64, id: &str) -> Said {
+        Said {
+            at,
+            id: id.into(),
+            agent: true,
+        }
+    }
+    fn person(at: i64, id: &str) -> Said {
+        Said {
+            at,
+            id: id.into(),
+            agent: false,
+        }
+    }
+
+    /// Card #719: a thread is unread when an agent wrote after the person
+    /// last read or replied in it.
+    #[test]
+    fn unread_is_an_agent_reply_after_the_person_looked() {
+        // Nobody answered yet: nothing to read.
+        assert!(!thread_unread(&[], None, false));
+        // An agent answered, never opened: unread.
+        let one = [agent(1, "c1")];
+        assert!(thread_unread(&one, None, false));
+        // Opened since the answer: read.
+        assert!(!thread_unread(&one, Some("c1"), false));
+        // Opened before any answer (the cursor is the thread's own id),
+        // then an agent answered: unread.
+        assert!(thread_unread(&one, Some("t"), false));
+        // A new agent reply after the read one brings it back.
+        let two = [agent(1, "c1"), agent(2, "c2")];
+        assert!(thread_unread(&two, Some("c1"), false));
+        assert!(!thread_unread(&two, Some("c2"), false));
+        // The person's own reply reads what came before it, cursor or not.
+        let replied = [agent(1, "c1"), person(2, "c2")];
+        assert!(!thread_unread(&replied, None, false));
+        let again = [agent(1, "c1"), person(2, "c2"), agent(3, "c3")];
+        assert!(thread_unread(&again, None, false));
+        assert!(thread_unread(&again, Some("c1"), false));
+        // Same instant: the id breaks the tie.
+        assert!(thread_unread(&[agent(5, "b"), person(5, "a")], None, false));
+        assert!(!thread_unread(
+            &[agent(5, "a"), person(5, "b")],
+            None,
+            false
+        ));
+    }
+
+    /// An agent's own thread waits unread until the person first opens or
+    /// replies in it.
+    #[test]
+    fn an_agents_own_thread_is_unread_until_opened() {
+        assert!(thread_unread(&[], None, true));
+        assert!(!thread_unread(&[], Some("t"), true));
+        assert!(!thread_unread(&[person(1, "c1")], None, true));
+        assert!(thread_unread(&[agent(1, "c1")], Some("t"), true));
+    }
 }

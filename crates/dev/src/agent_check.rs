@@ -2,7 +2,7 @@
 //! tools (card #92). The goldens pin what the tools return; this checks
 //! what an agent does with them, the gap #68, #69, #71, #74 and #82 fell
 //! through. It spends API tokens, so it is run by hand before a release
-//! (`sh scripts/agent-check.sh`, docs/releasing.md), never by check.sh.
+//! (`sh scripts/agent-check.sh`, docs/releasing.md), never by the full check.
 //!
 //! A real Core runs in-process on a scratch --home, with its loopback API
 //! and lockfile as `irori serve` has them, offline (no mesh, no home
@@ -792,10 +792,7 @@ fn wind_down(o: &Opts, h: &Host) -> (Result<String, String>, Option<PathBuf>) {
     if let Err(e) = a.wait_tool_uses(3, o.turn_wait) {
         return (Err(format!("the long turn never got going: {e}")), log);
     }
-    let run = match h
-        .window
-        .wind_down_all(irori_window::wind_down::SCOPE_THIS, true)
-    {
+    let run = match h.window.wind_down_all() {
         Ok(r) => r,
         Err(e) => return (Err(format!("the person's wind down: {e}")), log),
     };
@@ -843,12 +840,12 @@ fn wind_down(o: &Opts, h: &Host) -> (Result<String, String>, Option<PathBuf>) {
         }
         if missing.is_empty() {
             Ok(format!(
-                "card unheld with a hand-off, lease released, answered; left_off {:?}; Pause all {}",
+                "card unheld with a hand-off, lease released, answered; left_off {:?}; Wind down {}",
                 t.left_off
                     .as_ref()
                     .map(|l| l.text.clone())
                     .unwrap_or_default(),
-                if st.paused { "on" } else { "off" }
+                if st.on { "on" } else { "off" }
             ))
         } else {
             Err(missing.join(", "))
@@ -1028,12 +1025,18 @@ pub fn run(o: &Opts) -> ExitCode {
             continue;
         }
         println!("agent-check: running {name}");
-        // Every scenario shares one Core: start each with Pause all off,
-        // since 6's wind down turns it on and would hold the next agent's
-        // messages (card #669).
-        let (r, log) = match h.window.inbox_set_paused(false) {
+        // Every scenario shares one Core: start each with Pause all and
+        // Wind down off, since 6's wind down holds agent starts until it is
+        // turned off (cards #669, #787). Reset any other shared state a new
+        // scenario changes too, and run a full pass, not just --only N, since
+        // a scenario run alone never meets what the others leave behind.
+        let off = h
+            .window
+            .inbox_set_paused(false)
+            .and_then(|()| h.window.wind_down_off().map(|_| ()));
+        let (r, log) = match off {
             Ok(()) => f(o, &h),
-            Err(e) => (Err(format!("Pause all off: {e}")), None),
+            Err(e) => (Err(format!("Pause all and Wind down off: {e}")), None),
         };
         tally.report(name, r, log.as_deref());
     }

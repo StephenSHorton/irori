@@ -5,8 +5,8 @@
 //! Seams for the rest of M6 (merge notes): the inbox pump calls
 //! [`Tray::set_inbox`], the board pump [`Tray::set_decide`], the notifier's
 //! opener goes into [`Tray::set_held_opener`], and the updater into
-//! [`Tray::set_update`]. The shell itself wires the roster line, the pause
-//! checkbox and launch at login.
+//! [`Tray::set_update`]. The shell itself wires the roster line, Stop
+//! everywhere and launch at login.
 
 use std::sync::{Arc, Mutex};
 
@@ -17,16 +17,16 @@ use tauri::{AppHandle, Wry};
 
 use super::tray_text::{self, Counts, Line, Model, id};
 
-pub type SetPause = Arc<dyn Fn(bool) -> Result<(), String> + Send + Sync>;
 pub type Action = Arc<dyn Fn() + Send + Sync>;
 pub type Restart = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
 
 #[derive(Default)]
 struct State {
     model: Model,
-    set_pause: Option<SetPause>,
     open_held: Option<Action>,
     open_wind_down: Option<Action>,
+    /// Starts everywhere (card #787; Wind down off); the same shape as [`Restart`].
+    wind_down_off: Option<Restart>,
     restart: Option<Restart>,
 }
 
@@ -115,31 +115,12 @@ impl Tray {
         });
     }
 
-    /// The pause state alone, after the tray's own toggle.
-    pub fn set_paused(&self, paused: bool) {
-        self.edit(|st| {
-            let changed = st.model.counts.paused != paused;
-            st.model.counts.paused = paused;
-            changed
-        });
-    }
-
     /// Go `SetDecide`: cards waiting on a decision, every device's.
     pub fn set_decide(&self, n: usize) {
         self.edit(|st| {
             let changed = st.model.decide != n;
             st.model.decide = n;
             changed
-        });
-    }
-
-    /// Go `SetPause`: shows the "Pause wakes on <device>" checkbox.
-    pub fn set_pause(&self, device: &str, set: SetPause) {
-        self.edit(|st| {
-            st.model.device = device.to_string();
-            st.model.can_pause = true;
-            st.set_pause = Some(set);
-            true
         });
     }
 
@@ -153,12 +134,31 @@ impl Tray {
         });
     }
 
-    /// Wind down all agents… opens the window's Wind down dialog (card #220).
+    /// Stop everywhere… opens the window's Stop everywhere dialog (card #220).
     pub fn set_wind_down_opener(&self, open: Action) {
         self.edit(|st| {
             st.model.can_wind_down = true;
             st.open_wind_down = Some(open);
             true
+        });
+    }
+
+    /// Stop everywhere's switch (card #787; Wind down in the code), as the
+    /// window tells it: now and whenever it moves, on any machine.
+    pub fn set_wind_down(&self, on: bool) {
+        self.edit(|st| {
+            let changed = st.model.wind_down_on != on;
+            st.model.wind_down_on = on;
+            changed
+        });
+    }
+
+    /// What a click on the Stop everywhere line does while it is on:
+    /// starts everywhere (card #787). The menu itself doesn't change.
+    pub fn set_wind_down_off(&self, off: Restart) {
+        self.edit(|st| {
+            st.wind_down_off = Some(off);
+            false
         });
     }
 
@@ -243,13 +243,12 @@ impl Tray {
     }
 
     fn clicked(self: &Arc<Self>, item: &str) {
-        let (paused, set_pause, open_held, open_wind_down, restart) = {
+        let (open_held, open_wind_down, wind_down, restart) = {
             let st = self.st.lock().unwrap_or_else(|e| e.into_inner());
             (
-                st.model.counts.paused,
-                st.set_pause.clone(),
                 st.open_held.clone(),
                 st.open_wind_down.clone(),
+                (st.model.wind_down_on, st.wind_down_off.clone()),
                 st.restart.clone(),
             )
         };
@@ -260,24 +259,29 @@ impl Tray {
                     f();
                 }
             }
-            id::WIND_DOWN => {
-                if let Some(f) = open_wind_down {
-                    f();
+            // A switch (card #787): on, a click turns it off; the window
+            // tells the tray the new state. Off, it opens the dialog, where
+            // the person confirms.
+            id::WIND_DOWN => match wind_down {
+                (true, Some(off)) => {
+                    let t = self.clone();
+                    std::thread::spawn(move || {
+                        if let Err(e) = off() {
+                            irori_core::log(&format!("irori: start everywhere: {e}"));
+                            // Rebuild to snap the checkbox back.
+                            t.rebuild();
+                        }
+                    });
                 }
-            }
-            id::PAUSE => {
-                let Some(set) = set_pause else { return };
-                let want = !paused;
-                let t = self.clone();
-                std::thread::spawn(move || match set(want) {
-                    Ok(()) => t.set_paused(want),
-                    // Rebuild to snap the checkbox back.
-                    Err(e) => {
-                        irori_core::log(&format!("irori: pause all wakes: {e}"));
-                        t.rebuild();
+                _ => {
+                    if let Some(f) = open_wind_down {
+                        f();
                     }
-                });
-            }
+                    // The checkbox ticked itself on the click; it stays as
+                    // the switch is until the dialog turns it on.
+                    self.rebuild();
+                }
+            },
             id::LOGIN => {
                 let app = self.app.clone();
                 std::thread::spawn(move || {

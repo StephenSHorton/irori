@@ -13,7 +13,7 @@ use store::{Event, Store, kinds};
 
 use super::asks::AskBook;
 use super::error::{Error, ErrorKind, Result};
-use super::resource::{Resource, normalize_resource, parse_resource};
+use super::resource::{Resource, is_pr_claim, normalize_resource, parse_resource};
 use super::rows::*;
 use super::types::*;
 use super::util::{SWEEPER, cmp_str, collapse_space, contains, cut, remove_str};
@@ -255,6 +255,7 @@ pub struct Fold {
     pub(crate) now: NowFn,
     pub(crate) grace: Duration,
     pub(crate) holder_grace: Duration,
+    pub(crate) ask_room_hold: Duration,
     pub(crate) owner_fn: KeyFn,
     pub(crate) revoked: Option<KeyFn>,
     /// See [`super::Options::busy_elsewhere`].
@@ -288,6 +289,8 @@ pub struct Fold {
     pub(crate) origin: HashMap<String, String>,
     pub(crate) key_person: Option<StrFn>,
     pub(crate) dev_person: Option<StrFn>,
+    pub(crate) login_people: Option<super::PeopleFn>,
+    pub(crate) member_active: Option<super::KeyFn>,
     pub(crate) tag_fn: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     pub(crate) board_tag_fn: Option<super::BoardTagFn>,
     pub(crate) board_tags_fn: Option<super::BoardTagsFn>,
@@ -297,6 +300,8 @@ pub struct Fold {
     pub(crate) no_cards_fn: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pub(crate) board_owner: Option<super::OwnerAtFn>,
     pub(crate) hop_of: Option<super::HopFn>,
+    /// See [`super::Options::others_of`].
+    pub(crate) others_of: Option<super::OthersFn>,
     pub(crate) holds_file: Option<KeyFn>,
     pub(crate) ignored: usize,
     pub(crate) ignored_by: BTreeMap<String, usize>,
@@ -402,8 +407,18 @@ pub struct Fold {
     /// Cards the person paused (card #207), by id, with the row that last
     /// set it.
     pub(crate) paused: HashMap<String, (bool, RowPos)>,
+    /// Each card's newest weight rows (card #963).
+    pub(crate) weights: HashMap<String, super::weight::WeightSlots>,
+    /// Each card's attempts, by request generation (card #966).
+    pub(crate) runs: HashMap<String, HashMap<i64, super::runs::Run>>,
     /// A board's review requests by card, and its dedicated reviewers.
     pub(crate) reviews: BTreeMap<String, Vec<super::review::ReviewRequest>>,
+    /// Every `pr/` claim seen on a board, by (holder, resource): its
+    /// newest acquired_at and the row that first carried it (merge desk
+    /// §12.6). Kept after the claim ends.
+    pub(crate) pr_claims: BTreeMap<(String, String), super::review_pick::ClaimSeen>,
+    /// Each card's creation row.
+    pub(crate) created_pos: HashMap<String, RowPos>,
     /// Agents whose device reads offline, for the presence notices (card
     /// #372). In memory only.
     pub(crate) away: HashMap<String, super::presence::Away>,
@@ -486,6 +501,11 @@ impl Fold {
             } else {
                 o.holder_grace
             },
+            ask_room_hold: if o.ask_room_hold.is_zero() {
+                super::ASK_ROOM_HOLD
+            } else {
+                o.ask_room_hold
+            },
             owner_fn,
             revoked: o.revoked,
             busy_elsewhere: o.busy_elsewhere,
@@ -504,6 +524,8 @@ impl Fold {
             spawn_now: HashSet::new(),
             origin: HashMap::new(),
             dev_person: o.device_person,
+            login_people: o.login_people,
+            member_active: o.member_active,
             tag_fn: o.tag,
             board_tag_fn: o.board_tag,
             board_tags_fn: o.board_tags,
@@ -512,6 +534,7 @@ impl Fold {
             no_cards_fn: o.no_cards,
             board_owner: o.board_owner,
             hop_of: o.hop_of,
+            others_of: o.others_of,
             holds_file: o.holds_file,
             ignored: 0,
             ignored_by: BTreeMap::new(),
@@ -568,7 +591,11 @@ impl Fold {
             pins: HashMap::new(),
             archived: HashMap::new(),
             paused: HashMap::new(),
+            weights: HashMap::new(),
+            runs: HashMap::new(),
             reviews: BTreeMap::new(),
+            pr_claims: BTreeMap::new(),
+            created_pos: HashMap::new(),
             away: HashMap::new(),
             reviewers: BTreeMap::new(),
             notes: BTreeMap::new(),
@@ -696,6 +723,12 @@ impl Fold {
         if self.on_board && ev.actor == SWEEPER && !self.sweeper_ok(ev) {
             return false;
         }
+        // What GitHub said of a PR counts on a board only as Irori's row
+        // (merge desk §12.2): a member's modified client could otherwise
+        // end claims or feed fake reviews as an agent or a person.
+        if self.on_board && ev.kind == kinds::PR_STATE && ev.actor != SWEEPER {
+            return false;
+        }
         match ev.kind.as_str() {
             kinds::LEASE_ACQUIRED => match row::<LeaseAcquiredRow>(&ev.payload) {
                 Some(r) => self.may_write(&r.lease.holder, &ev.device_id),
@@ -768,6 +801,7 @@ impl Fold {
         self.fold_kind(ev);
         if let Some(p) = row::<TaskIdRow>(&ev.payload) {
             self.note_pr_vouchers(&p.task_id);
+            self.note_others(ev, &p.task_id);
         }
     }
 
@@ -791,12 +825,18 @@ impl Fold {
                 if p.by.is_empty() {
                     return;
                 }
+                if self.tasks.get(&p.task_id).is_some_and(pr_card) {
+                    // Nobody holds a PR card (merge desk §12.2).
+                    self.ignore(&ev.device_id);
+                    return;
+                }
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
                     return;
                 };
                 add_holder(&mut t, &p.by);
                 t.assigned = remove_str(&t.assigned, &p.by);
                 sync_holder(&mut t);
+                close_given_for_agent(&mut t, &p.by, at(p.at));
                 if t.state == SUBMITTED {
                     t.state = WORKING.into();
                 }
@@ -820,8 +860,13 @@ impl Fold {
                 if p.to.is_empty() {
                     return;
                 }
+                if self.tasks.get(&p.task_id).is_some_and(pr_card) {
+                    self.ignore(&ev.device_id);
+                    return;
+                }
                 let gave = self.gave_to_person(ev, &p);
                 let back = self.takes_back(ev, &p);
+                let to_agent = gave.is_none() && !back;
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
                     return;
                 };
@@ -829,12 +874,20 @@ impl Fold {
                     self.given_ever.insert(p.task_id.clone());
                     // A say and a question were about the last give.
                     super::cards::close_given_question(&mut t, at(p.at));
+                    let by_person = self
+                        .key_person
+                        .as_ref()
+                        .map_or_else(String::new, |kp| kp(&p.by));
                     t.given = Some(Given {
                         key: p.to.clone(),
                         person,
                         by: p.by.clone(),
                         asker: String::new(),
                         question: String::new(),
+                        batch: p.batch.clone(),
+                        note: trim_space(&p.note).to_string(),
+                        assistant: p.assistant,
+                        by_person,
                     });
                     t.given_said = None;
                 } else if back {
@@ -848,6 +901,10 @@ impl Fold {
                 add_holder(&mut t, &p.to);
                 if !engaged && !contains(&t.assigned, &p.to) {
                     t.assigned.push(p.to.clone());
+                }
+                // Given on to one of their agents (card #717).
+                if to_agent {
+                    close_given_for_agent(&mut t, &p.to, at(p.at));
                 }
                 let note = trim_space(&p.note).to_string();
                 if !engaged && !note.is_empty() {
@@ -891,6 +948,11 @@ impl Fold {
                 if p.who.is_empty() {
                     return;
                 }
+                if ev.kind == kinds::TASK_JOINED && self.tasks.get(&p.task_id).is_some_and(pr_card)
+                {
+                    self.ignore(&ev.device_id);
+                    return;
+                }
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
                     return;
                 };
@@ -899,6 +961,7 @@ impl Fold {
                     if !contains(&t.holders, &p.who) {
                         t.holders.push(p.who.clone());
                     }
+                    close_given_for_agent(&mut t, &p.who, at(p.at));
                     if t.state == SUBMITTED {
                         t.state = WORKING.into();
                     }
@@ -931,6 +994,7 @@ impl Fold {
                     if self.spawned.get(&p.who).is_some_and(|m| m.task_id == t.id) {
                         if p.reason == LEFT_GONE {
                             t.spawn_crashes += 1;
+                            t.note_retry(RETRY_CRASH, &p.who, p.at.unix_nano());
                         } else {
                             t.spawn_crashes = 0;
                         }
@@ -1086,6 +1150,7 @@ impl Fold {
             kinds::TASK_PINNED => self.fold_pin(ev),
             kinds::TASK_ARCHIVED => self.fold_archived(ev),
             kinds::TASK_PAUSED => self.fold_paused(ev),
+            kinds::TASK_WEIGHT => self.fold_weight(ev),
             kinds::TASK_OWNER => self.fold_owner(ev),
             kinds::TASK_PLACED => self.fold_placed(ev),
             kinds::TASK_COMMENT_EDITED => self.fold_comment_edited(ev, &at),
@@ -1210,6 +1275,9 @@ impl Fold {
                 {
                     return;
                 }
+                if self.on_board && is_pr_claim(&res.name) {
+                    self.see_claim(&p.holder, &res.name, p.acquired_at, RowPos::of(ev));
+                }
                 let mut rec = LeaseRec {
                     lease: p,
                     res,
@@ -1286,10 +1354,18 @@ impl Fold {
             self.claim_short(&p.task_id, RowPos::of(ev), p.num, &p.board);
             return;
         }
+        // A PR card is fixed by its creation row: a second `task.created`
+        // for its id (anyone's) changes nothing (merge desk §12.2).
+        if self.tasks.get(&p.task_id).is_some_and(pr_card) {
+            return;
+        }
         let t = at(p.at);
         if !self.tasks.contains_key(&p.task_id) {
             self.next_order += 1;
             self.order.insert(p.task_id.clone(), self.next_order);
+            self.created_pos
+                .entry(p.task_id.clone())
+                .or_insert_with(|| RowPos::of(ev));
         }
         let mut links: Vec<Link> = Vec::new();
         for l in &p.links {
@@ -1300,9 +1376,41 @@ impl Fold {
                 links.push(l.clone());
             }
         }
+        let title_by_person = p.title_by_person && self.person_row(ev, &p.by);
+        // A PR card: a person row of its creator that names the PR, the
+        // repo and the author's login. An agent's row with the same fields
+        // is a plain card.
+        let pr_card = (!p.pr.is_empty()
+            && !p.pr_author.is_empty()
+            && !p.repo_key.is_empty()
+            && p.ask.is_none()
+            && self.person_row(ev, &p.by))
+        .then(|| PrCard {
+            pr: p.pr.clone(),
+            author: p.pr_author.clone(),
+        });
+        // A review card: a person row of the PR card's own creator that
+        // names it (merge desk §12.10). Anyone else's row is a plain card,
+        // so no stranger's card starts an agent without asking.
+        let review_of = if p.review_of.is_empty() || p.ask.is_some() || pr_card.is_some() {
+            String::new()
+        } else if self.on_board
+            && self.person_row(ev, &p.by)
+            && self
+                .tasks
+                .get(&p.review_of)
+                .is_some_and(|c| c.pr_card.is_some() && c.created_by == p.by)
+        {
+            p.review_of.clone()
+        } else {
+            String::new()
+        };
         let mut task = Task {
+            pr_card,
+            review_of,
             id: p.task_id.clone(),
             title: p.title.clone(),
+            title_by_person,
             objective: p.objective.clone(),
             done_criteria: p.done_criteria.clone(),
             // Cards from before #480 may carry any case; read them back in
@@ -1374,7 +1482,10 @@ impl Fold {
         if !valid_state(&p.state) || !self.tasks.contains_key(&p.task_id) {
             return;
         }
-        if p.state == CANCELED
+        // On a PR card every end counts only from where a cancel does: the
+        // creator's person (which follows the PR) or the board's owner
+        // (merge desk §12.2).
+        if (p.state == CANCELED || (is_terminal(&p.state) && pr_card(&self.tasks[&p.task_id])))
             && !self.may_cancel(
                 &self.tasks[&p.task_id],
                 &ev.device_id,
@@ -1588,6 +1699,11 @@ impl Fold {
             ..Comment::default()
         };
         cm.unheard = p.unheard && person;
+        // Only the declining agent's own row (merge desk §12.3): a member
+        // can't decline for another person's agent.
+        if p.to.is_empty() && self.agent_own_row(ev, &p.by) {
+            cm.declines = p.declines.clone();
+        }
         if self.verdict_counts(&p) {
             cm.verdict = p.verdict.clone();
         }
@@ -1685,6 +1801,12 @@ impl Fold {
             let mut line = line_of(ev, at, by, &format!("mentioned this in {src}"));
             line.kind = MENTIONED_KIND.into();
             self.touch_line(&ti, line, true, Vec::new());
+            // The named card's activity has the line (list-signals.md §3.2).
+            self.note(Change {
+                kind: TASK_CHANGED.into(),
+                task_id: ti.id,
+                ..Change::default()
+            });
         }
     }
 
@@ -1822,11 +1944,22 @@ impl Fold {
             Some(f) if self.on_board && super::carries_hop(kind) => f(actor),
             _ => 0,
         };
-        let ev = if hop > 0 {
+        // Card #1075: on the private log, the cards, edits and steps an
+        // agent writes after it read another person's text say so.
+        let others = !self.on_board
+            && super::carries_others(kind)
+            && actor.starts_with("agent:")
+            && self.others_of.as_ref().is_some_and(|f| f(actor));
+        let ev = if hop > 0 || others {
             let mut v = serde_json::to_value(payload)
                 .map_err(|e| Error::raw(ErrorKind::Store, format!("coord: {e}")))?;
             if let Some(o) = v.as_object_mut() {
-                o.insert("hop".into(), hop.into());
+                if hop > 0 {
+                    o.insert("hop".into(), hop.into());
+                }
+                if others {
+                    o.insert("others".into(), true.into());
+                }
             }
             st.append(actor, kind, &v)?
         } else {
@@ -1969,6 +2102,10 @@ impl Fold {
     /// the clock skew), so a member who went away can't hold a resource
     /// past it.
     pub(crate) fn live(&self, l: &LeaseRec, now: &GoTime) -> bool {
+        // A claim on a PR that merged or closed is over (merge desk §12.3).
+        if self.pr_claim_over(&l.lease.resource) {
+            return false;
+        }
         if self.lease_local(l) {
             return gotime::after(&l.lease.until, now);
         }
@@ -2270,6 +2407,9 @@ impl Fold {
         }
         match ev.kind.as_str() {
             kinds::LEASE_RELEASED => true,
+            // Irori's office assistant weighs cards (card #963); the fold
+            // keeps a weight the person set.
+            kinds::TASK_WEIGHT => true,
             // The take lock: its fold counts only the asking device's.
             kinds::BOARD_ASK_STATE => true,
             // Its fold checks who may take the ask (card #541).
@@ -2530,6 +2670,8 @@ pub(crate) fn may_record(by: &str, to: &str, by_recipient: bool, dev: &str) -> b
 }
 
 /// Records who as working t: added once on a shared task, else replaces.
+/// So `holders` is not the card's owner: binding an agent drops the person.
+/// Read the owner with `owner_person`.
 pub(crate) fn add_holder(t: &mut Task, who: &str) {
     if !t.shared {
         t.holders = vec![who.to_string()];
@@ -2638,8 +2780,9 @@ pub const MADE_KIND: &str = "task.made";
 
 /// The card refs in text: `#12` (tag None) or `mlg#12`, each a whole word
 /// (start, whitespace or "(" before; not a digit or letter after). The
-/// number is returned as written.
-pub(crate) fn card_refs(text: &str) -> Vec<(Option<String>, String)> {
+/// number is returned as written. "Whitespace" is ASCII here; the window's
+/// `cardRefs` (mentions.ts) uses JS `\s`, which also takes NBSP and U+3000.
+pub fn card_refs(text: &str) -> Vec<(Option<String>, String)> {
     let b = text.as_bytes();
     let mut out = Vec::new();
     for (i, &c) in b.iter().enumerate() {
@@ -2749,5 +2892,14 @@ fn offered_by(st: &Store, dev: &str) -> Result<HashSet<String>> {
             return Ok(out);
         }
         f.after = evs.last().map(Event::cursor).unwrap_or_default();
+    }
+}
+
+/// An agent took card t (card #717): "OK to start an agent on this?" no
+/// longer asks anything, so it closes, as the given card's other turns do.
+/// A person joining leaves it: the question is whether an agent starts.
+fn close_given_for_agent(t: &mut Task, who: &str, when: GoTime) {
+    if !who.starts_with(kinds::PERSON_ACTOR_PREFIX) && !who.starts_with("user:") {
+        super::cards::close_given_question(t, when);
     }
 }

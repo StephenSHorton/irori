@@ -86,6 +86,11 @@ struct MemberFold {
     /// a device that can't learn it (a phone, an older build) writes a
     /// profile without one, which never blanks it.
     github_login: String,
+    /// The latest counted profile's assistant name (card #1045).
+    assistant_name: String,
+    /// The newest non-empty assistant card id on a counted profile; folds like
+    /// `github_login`, so an older build's profile never blanks it.
+    assistant_card: String,
     profile: bool,
 }
 
@@ -378,6 +383,8 @@ fn fold_member(
         color: String::new(),
         avatar: String::new(),
         github_login: String::new(),
+        assistant_name: String::new(),
+        assistant_card: String::new(),
         profile: false,
     };
     for p in &rows.profiles {
@@ -396,8 +403,12 @@ fn fold_member(
             m.name = p.prof.name.clone(); // the latest counted one
             m.color = p.prof.color.clone();
             m.avatar = p.prof.avatar.clone();
+            m.assistant_name = p.prof.assistant_name.clone();
             if !p.prof.github_login.trim().is_empty() {
                 m.github_login = p.prof.github_login.trim().to_string();
+            }
+            if !p.prof.assistant_card.trim().is_empty() {
+                m.assistant_card = p.prof.assistant_card.trim().to_string();
             }
             m.profile = true;
         }
@@ -1000,6 +1011,18 @@ impl BoardVerifier {
             .unwrap_or_default()
     }
 
+    /// The assistant name on a member's counted member.profile, "" when
+    /// none (card #1045). The member's own claim, shown with the name of
+    /// the person who signed it, never alone.
+    pub fn profile_assistant_name(&self, person_id: &str) -> String {
+        let st = self.lock();
+        st.members
+            .get(person_id)
+            .filter(|m| m.profile)
+            .map(|m| m.assistant_name.clone())
+            .unwrap_or_default()
+    }
+
     /// The GitHub login on a member's counted member.profile, "" when none
     /// (card #625). The member's own claim: only their certified devices
     /// write a counted profile.
@@ -1009,6 +1032,43 @@ impl BoardVerifier {
             .get(person_id)
             .filter(|m| m.profile)
             .map(|m| m.github_login.clone())
+            .unwrap_or_default()
+    }
+
+    /// The active members whose counted member.profile names GitHub
+    /// `login` (any case), by person id (card #1155). A profile's login is
+    /// its member's own claim: a PR card stands for a login only when one
+    /// member claims it, so a member who claims another's login can stop
+    /// it naming anyone, never take it.
+    pub fn github_login_people(&self, login: &str) -> Vec<String> {
+        let want = login.trim();
+        if want.is_empty() {
+            return Vec::new();
+        }
+        let st = self.lock();
+        st.members
+            .iter()
+            .filter(|(id, m)| {
+                m.profile && m.github_login.eq_ignore_ascii_case(want) && st.ms.active(id)
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    /// Whether a person is an active member, without copying the
+    /// membership (card #1155).
+    pub fn member_active(&self, person_id: &str) -> bool {
+        self.lock().ms.active(person_id)
+    }
+
+    /// The assistant card id on a member's counted member.profile, "" when
+    /// none. The member's own claim, like the GitHub login.
+    pub fn profile_assistant_card(&self, person_id: &str) -> String {
+        let st = self.lock();
+        st.members
+            .get(person_id)
+            .filter(|m| m.profile)
+            .map(|m| m.assistant_card.clone())
             .unwrap_or_default()
     }
 

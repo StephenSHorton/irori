@@ -7,7 +7,8 @@
 import { useEffect } from "react"
 
 import { devices } from "./devices"
-import { Events, SettingsService } from "./host"
+import { SettingsService } from "./host"
+import { onChange } from "./changes"
 import { EventDevicesChanged, inWails } from "./irori"
 import { useLatest } from "./talk"
 
@@ -34,13 +35,14 @@ async function readMe(): Promise<Me> {
 export function useMe(): Me {
   const { value, reload } = useLatest<Me>(
     readMe,
-    inWails() ? { name: "", color: "", avatar: "" } : sampleMe
+    inWails() ? { name: "", color: "", avatar: "" } : sampleMe,
+    "me"
   )
   useEffect(() => {
     void reload()
     const on = () => void reload()
     window.addEventListener(MeEvent, on)
-    const off = inWails() ? Events.On(EventDevicesChanged, on) : () => {}
+    const off = inWails() ? onChange(EventDevicesChanged, () => on()) : () => {}
     return () => {
       window.removeEventListener(MeEvent, on)
       off()

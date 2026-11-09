@@ -83,6 +83,16 @@ const MAX_META_VALUE_RUNES: usize = 400;
 /// The protocol versions `initialize` agrees to, newest first.
 pub const PROTOCOL_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
+/// What the window assistant's `irori mcp` tells its model (card #783).
+pub fn assistant_instructions() -> String {
+    format!(
+        "{}\n\n{}",
+        tools::INSTRUCTIONS,
+        "These tools read Irori as the person sees it. They only read: nothing here changes a card, \
+starts an agent or posts a message, and no join is needed."
+    )
+}
+
 /// The tools' shared context plus what is particular to this front end.
 pub fn instructions() -> String {
     format!(
@@ -113,6 +123,11 @@ pub struct Options {
     pub log: Option<LogFn>,
     /// Reads the session-id environment variables; `None` reads none.
     pub getenv: Option<GetenvFn>,
+    /// The window assistant (card #783): lists `client=assistant`
+    /// ([`tools::ASSISTANT_TOOLS`] and its writes), has no irori_join and no member
+    /// stream, and calls as the person through the dialed Core's
+    /// assistant secret ([`HttpCore::with_assistant`]).
+    pub assistant: bool,
     /// Member-stream reconnect pacing (1 s doubling to 16 s when zero).
     pub min_backoff: Duration,
     pub max_backoff: Duration,
@@ -207,6 +222,29 @@ fn for_grok(specs: Vec<Spec>, log: &dyn Fn(&str)) -> Vec<Spec> {
                 .into_iter()
                 .filter(|s| s.name == TOOL_JOIN),
         );
+    }
+    out
+}
+
+/// The specs the window assistant gets (card #783): valid ones in
+/// [`tools::ASSISTANT_TOOLS`] and [`tools::ASSISTANT_WRITE_TOOLS`] only,
+/// and never join.
+fn for_assistant(specs: Vec<Spec>, log: &dyn Fn(&str)) -> Vec<Spec> {
+    let mut out = vec![];
+    let mut seen = HashSet::new();
+    for s in specs {
+        if !tools::ASSISTANT_TOOLS.contains(&s.name.as_str())
+            && !tools::ASSISTANT_WRITE_TOOLS.contains(&s.name.as_str())
+        {
+            continue;
+        }
+        if let Err(e) = check_spec(&s) {
+            log(&format!("skipping tool spec: {e}"));
+            continue;
+        }
+        if seen.insert(s.name.clone()) {
+            out.push(s);
+        }
     }
     out
 }
@@ -313,7 +351,7 @@ impl Server {
     ) -> std::io::Result<()> {
         *lock(&self.x.out) = Some(Box::new(output));
         if self.x.get_core(false).is_err() {
-            self.x.sync_tools(tools::fallback_specs());
+            self.x.sync_tools(self.x.fallback());
         }
         let mut workers = vec![];
         for line in input.split(b'\n') {
@@ -479,7 +517,11 @@ impl Inner {
                 experimental: Experimental { channel: Empty {} },
                 tools: ToolsCap { list_changed: true },
             },
-            instructions: instructions(),
+            instructions: if self.opts.assistant {
+                assistant_instructions()
+            } else {
+                instructions()
+            },
             protocol_version: &version,
             server_info: Info {
                 name: "irori",
@@ -541,10 +583,19 @@ impl Inner {
         gocompat::json::marshal(&list).unwrap_or_default()
     }
 
+    /// The built-in spec list, for a Core that doesn't answer.
+    fn fallback(&self) -> Vec<Spec> {
+        tools::fallback_specs()
+    }
+
     /// Makes the registered tools match `specs`; a change after the
     /// handshake is announced.
     fn sync_tools(&self, specs: Vec<Spec>) {
-        let specs = for_grok(specs, &|m| self.log(m));
+        let specs = if self.opts.assistant {
+            for_assistant(specs, &|m| self.log(m))
+        } else {
+            for_grok(specs, &|m| self.log(m))
+        };
         let changed = {
             let mut cur = lock(&self.specs);
             let next: BTreeMap<String, Spec> =
@@ -598,20 +649,28 @@ impl Inner {
     }
 
     fn on_connect(&self, c: &Arc<dyn Core>) {
-        let specs = match c.tools(CLIENT_KIND) {
+        let client = if self.opts.assistant {
+            tools::CLIENT_ASSISTANT
+        } else {
+            CLIENT_KIND
+        };
+        let specs = match c.tools(client) {
             Ok(s) if !s.is_empty() => s,
             Ok(_) => {
                 self.log("core lists no tools; using the built-in copy");
-                tools::fallback_specs()
+                self.fallback()
             }
             Err(e) => {
                 self.log(&format!(
                     "tool list unavailable; using the built-in copy: {e}"
                 ));
-                tools::fallback_specs()
+                self.fallback()
             }
         };
         self.sync_tools(specs);
+        if self.opts.assistant {
+            return; // no member to rejoin
+        }
         let rejoin = {
             let st = lock(&self.st);
             st.mem.is_some() && !st.superseded && st.mem_run != c.run_id()
@@ -630,7 +689,32 @@ impl Inner {
         }
     }
 
+    /// The window assistant's call (card #783): no member, no join; a
+    /// Core that went away or restarted is dialed again once.
+    fn forward_assistant(&self, name: &str, args: &[u8]) -> String {
+        let Ok(c) = self.get_core(false) else {
+            return NOT_RUNNING_TEXT.into();
+        };
+        let mut r = c.call_tool("", name, args);
+        if let Err(e) = &r
+            && (e.code() == 401 || e.unsent())
+        {
+            self.drop_core(&c);
+            r = match self.get_core(false) {
+                Ok(c2) => c2.call_tool("", name, args),
+                Err(e2) => Err(e2),
+            };
+        }
+        match r {
+            Ok(out) => out,
+            Err(e) => self.failed(name, &e),
+        }
+    }
+
     fn forward(self: &Arc<Self>, name: &str, args: &[u8]) -> String {
+        if self.opts.assistant {
+            return self.forward_assistant(name, args);
+        }
         let ro = self.read_only(name);
         let Ok(mut c) = self.get_core(false) else {
             return NOT_RUNNING_TEXT.into();
@@ -1118,7 +1202,7 @@ mod tests {
     #[test]
     fn fallback_is_valid_and_has_join() {
         let specs = for_grok(tools::fallback_specs(), &|m| panic!("{m}"));
-        assert_eq!(specs.len(), 59);
+        assert_eq!(specs.len(), 67);
         assert!(specs.iter().any(|s| s.name == "join"));
     }
 }

@@ -32,6 +32,7 @@ import {
   takeEvents,
   titleToSet,
   heldReminder,
+  deviceReminder,
   sideReminder,
   applyPause,
   pausedFromBoard,
@@ -48,6 +49,8 @@ import {
   permissionAnswer,
   permissionBody,
   reportsPermission,
+  accountFromConfig,
+  claudeConfigPath,
 } from './lib'
 
 /** How long /irori reconnect waits for the new hello before it answers. */
@@ -458,13 +461,31 @@ async function onHello($: EngineInterface, e: AttachEvent) {
  * session's problem, and the next measurement sends a fresh reading.
  */
 function postUsage($: EngineInterface, rateLimits: unknown) {
-  const body = usageBody(rateLimits)
-  if (!body || !api || !attachSecret) return
-  void callCore($, 'POST', USAGE_PATH, body)
-    .then(answer => {
-      if (!answer.ok) $.ui.log(`irori: usage not posted: ${answer.error}`, { to: 'debug' })
-    })
-    .catch(() => {})
+  if (!usageBody(rateLimits) || !api || !attachSecret) return
+  void (async () => {
+    // The account the session is signed in as, so the Core replaces the
+    // windows when the subscription changes (card #1040). Read with each
+    // post: the login can change between two readings.
+    const body = usageBody(rateLimits, await sessionAccount($))
+    if (!body || !api || !attachSecret) return
+    const answer = await callCore($, 'POST', USAGE_PATH, body)
+    if (!answer.ok) $.ui.log(`irori: usage not posted: ${answer.error}`, { to: 'debug' })
+  })().catch(() => {})
+}
+
+/**
+ * The Claude account this session is signed in as (card #1040), from the
+ * login record Claude Code keeps: the engine tells a mod its account only
+ * when managed settings install it. Undefined when the record can't be read;
+ * the Core then merges the reading as before.
+ */
+async function sessionAccount($: EngineInterface): Promise<string | undefined> {
+  try {
+    const path = claudeConfigPath(await $.env.get('CLAUDE_CONFIG_DIR'), (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE')))
+    return path ? accountFromConfig(await $.fs.read(path)) : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -737,6 +758,8 @@ async function withTitle<R extends { sessionTitle?: string }>($: EngineInterface
  * on the card as a blocker, even when the person asked in this terminal. Any
  * failure returns the result unchanged.
  */
+let deviceHeard = false
+
 async function withHeld<R extends { additionalContext?: string[] }>($: EngineInterface, result: R): Promise<R> {
   try {
     const view = await read($, attachAtom)
@@ -745,7 +768,11 @@ async function withHeld<R extends { additionalContext?: string[] }>($: EngineInt
     if (!board.ok) return result
     // Which side this device runs (card #496), then the cards it holds.
     const texts = [sideReminder(board.body as BoardLists), heldReminder(board.body as BoardLists, view.agentKey)].filter(Boolean)
-    if (!texts.length) return result
+    // Once a session (card #1035); set only now that the line is returned.
+    if (!deviceHeard) {
+      deviceHeard = true
+      texts.push(deviceReminder())
+    }
     return { ...result, additionalContext: [...(result?.additionalContext ?? []), ...texts] }
   } catch {
     return result
@@ -809,6 +836,7 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     ended = false
     standby = false
+    deviceHeard = false
     await onSessionStart($, e.cwd)
     return started
   })
