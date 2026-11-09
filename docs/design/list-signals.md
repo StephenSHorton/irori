@@ -235,6 +235,16 @@ A new `frontend/src/lib/changes.ts` takes over **every `Events.On`/`OnShown` of 
   - Card 5 builds the check, but it does nothing until a list patches.
   - **The grid's drift read is cold.** The host builds `cards_in("")` without the summary cache, diffs it with the cached rows, logs `drift cards-cache <n>` with the ids, and replaces the cache with it. Otherwise a missed invalidation would serve the same stale row to the patch and to the check. One cold read every 5 minutes is far less than today's read on every change.
 
+**As built (card 5, #1146).** `changes.ts` is the listener module (`onChange(signal, fn, {follow, held, focus})`, one `Events.On` per signal, `createChanges` for tests) and `patched.ts` the patch hook (`patchedReads` core, `usePatched`, the drift schedule). Where the build differs or chooses:
+- **Every list is on `onChange` and still reads everything**: the handler ignores the notice and calls `reload()`, so the reads per notice are as before (checked on the perf harness: the same IPC per `board:changed` and `talk:changed` on Home, Notifications, Talk and Notes).
+- **Held or not.** A subscriber is held while hidden by default (the `OnShown` lists, and now `useAllThreads`' and the transcript's `talk:changed`, the one intended change besides focus). Those that were plain `Events.On` and stay so with `held: false`: the storage page's board listener, `useMe`'s and the header's `devices:changed`.
+- **Focus** is `focus: true` on one signal of a list: a full read, at most once a minute (`FocusEveryMs`) per subscriber. It replaces each list's own `window` `focus` listener.
+- **`rekey()`** on the unsubscribe function marks a load-key change (the next notice is `all`). A hook that resubscribes on a key change gets the same from the new subscription.
+- **Signals with no id buckets** (devices, boards, assistant) are always `all`, whatever the payload says. The desk flag is the bucket `desk` holding `"desk"`.
+- **The patch hook.** `patchedReads` has one stable load that drains `{all, drift, ids}` (ids keyed `signal.bucket`) as `latestReads` starts it. A read that errors puts its ids back and marks the next read `all`. A dropped one (`latestReads`' new optional `dropped` callback) puts its ids back and asks for a follow-up. A notice naming none of the list's buckets is ignored. The hook's `reload()` is a full read.
+- **Drift.** `driftCheck()` does nothing until a patch has been merged since the last full read, and only for a list that gives `rows()`. It sets a `drift` flag that makes the next read full through the same queue; the sample is dropped (`noteDriftDropped`) if a notice for the list came while it read or a patch is waiting, else compared (`rowsDiffer`: ids in one list only, rows that serialize differently, and one if the shared rows' order differs) and logged (`drift <list> <rows> of <samples>`, before `ipc:` in the lists line). Either way the full answer replaces the list. Lists register on a `DriftSlots`-way stagger of `DriftEveryMs`, skipping a hidden window.
+- **The perf harness** needed `mockWindows("main")` and answers for `plugin:window|…`: since #1134 `appPage()` asks the Tauri window, and without one the page never mounted.
+
 ## 6. Each list
 
 ### 6.1 The grid (`useCards`): a summary cache in the window

@@ -7,7 +7,8 @@
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react"
 
-import { Events, NotificationService } from "./host"
+import { onChange } from "./changes"
+import { NotificationService } from "./host"
 import { inWails } from "./irori"
 import {
   Notification,
@@ -242,17 +243,10 @@ export function useNotifications(): {
         sampleListeners.delete(reload)
       }
     }
-    const offs = [
-      EventNotificationsChanged,
-      EventBoardChanged,
-      EventInboxChanged,
-    ].map((e) => Events.OnShown(e, () => void reload()))
-    const onFocus = () => void reload()
-    window.addEventListener("focus", onFocus)
-    return () => {
-      offs.forEach((off) => off())
-      window.removeEventListener("focus", onFocus)
-    }
+    const offs = (
+      [EventNotificationsChanged, EventBoardChanged, EventInboxChanged] as const
+    ).map((e, i) => onChange(e, () => void reload(), { focus: i === 0 }))
+    return () => offs.forEach((off) => off())
   }, [reload])
   return { list, loading, error, reload }
 }
@@ -277,13 +271,9 @@ export function useUnreadNotifications(): number {
         sampleListeners.delete(reload)
       }
     }
-    const off = Events.OnShown(EventNotificationsChanged, () => void reload())
-    const onFocus = () => void reload()
-    window.addEventListener("focus", onFocus)
-    return () => {
-      off()
-      window.removeEventListener("focus", onFocus)
-    }
+    return onChange(EventNotificationsChanged, () => void reload(), {
+      focus: true,
+    })
   }, [reload])
   return value
 }

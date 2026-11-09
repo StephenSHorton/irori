@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { Events, InboxService, RosterService } from "./host"
+import { onChange } from "./changes"
 import {
   HoldReason,
   Mode,
@@ -404,7 +405,11 @@ export type Answer<T> = { value: T } | { error: unknown }
 export function latestReads<T>(
   show: (answer: Answer<T>) => void,
   now: () => number = Date.now,
-  report: (r: ReadReport) => void = () => {}
+  report: (r: ReadReport) => void = () => {},
+  // dropped hears an answer that is not shown (an older one than the last
+  // shown, or one of a load that is no longer the newest), so a read that
+  // covered something can see to it again (patched.ts).
+  dropped: (answer: Answer<T>) => void = () => {}
 ): (load: () => Promise<T>) => Promise<void> {
   let started = 0
   let landed = 0
@@ -431,7 +436,7 @@ export function latestReads<T>(
     if (shows) {
       landed = n
       show(answer)
-    }
+    } else dropped(answer)
     for (const done of covered) done()
     if (running?.n !== n) return
     running = null
@@ -567,7 +572,7 @@ export function useInbox(): InboxState {
   useEffect(() => {
     void reload()
     if (!inWails()) return onSample(() => void reload())
-    return Events.OnShown(EventInboxChanged, () => void reload())
+    return onChange(EventInboxChanged, () => void reload())
   }, [reload])
 
   return { ...value, loading, error, reload }
@@ -626,7 +631,7 @@ export function useHeld(history: boolean): HeldState {
   useEffect(() => {
     void reload()
     if (!inWails()) return onSample(() => void reload())
-    return Events.OnShown(EventInboxChanged, () => void reload())
+    return onChange(EventInboxChanged, () => void reload())
   }, [reload])
 
   return { ...value, loading, error, reload }
@@ -657,7 +662,7 @@ export function useRepoNames(): (key: string) => string {
   useEffect(() => {
     void reload()
     if (!inWails()) return
-    return Events.OnShown(EventInboxChanged, () => void reload())
+    return onChange(EventInboxChanged, () => void reload())
   }, [reload])
   return useMemo(() => {
     const names = new Map(value)

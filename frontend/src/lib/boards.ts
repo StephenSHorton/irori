@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react"
 
 import { BoardsService, Events } from "./host"
+import { onChange } from "./changes"
 import { timedRead } from "./window-log"
 import {
   BoardSettings,
@@ -1003,7 +1004,7 @@ const listState = {
 // onBoardsMoved calls fn whenever the list may have changed: the host's
 // boards:changed, or a sample board moving in a plain browser.
 function onBoardsMoved(fn: () => void): () => void {
-  if (inWails()) return Events.OnShown(EventBoardsChanged, fn)
+  if (inWails()) return onChange(EventBoardsChanged, () => fn())
   sampleListeners.add(fn)
   return () => {
     sampleListeners.delete(fn)
