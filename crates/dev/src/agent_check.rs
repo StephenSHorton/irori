@@ -2,7 +2,7 @@
 //! tools (card #92). The goldens pin what the tools return; this checks
 //! what an agent does with them, the gap #68, #69, #71, #74 and #82 fell
 //! through. It spends API tokens, so it is run by hand before a release
-//! (`sh scripts/agent-check.sh`, docs/releasing.md), never by check.sh.
+//! (`sh scripts/agent-check.sh`, docs/releasing.md), never by the full check.
 //!
 //! A real Core runs in-process on a scratch --home, with its loopback API
 //! and lockfile as `irori serve` has them, offline (no mesh, no home

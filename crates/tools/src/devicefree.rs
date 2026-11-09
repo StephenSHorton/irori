@@ -1,5 +1,5 @@
 //! The `device_free` tool (device-free plan §2): what this device can still
-//! give, after margins, and who holds its heavy and check slots.
+//! give, after margins, and who holds its heavy and script slots.
 
 use std::path::Path;
 
@@ -110,7 +110,7 @@ pub(crate) fn device_free(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     b
 }
 
-/// The heavy and check slot lines, and the call to take one.
+/// The heavy and script slot lines, and the call to take one.
 fn slots(s: &Inner) -> String {
     let dev = s.b.device_id();
     let family = crate::heavy_family(&dev);
@@ -196,9 +196,9 @@ fn slots(s: &Inner) -> String {
         })
         .collect();
     if check.is_empty() {
-        out += "Check slots: none held.\n";
+        out += "Script slots: none held.\n";
     } else {
-        out += &format!("Check slots: {}.\n", check.join("; "));
+        out += &format!("Script slots: {}.\n", check.join("; "));
     }
     out
 }

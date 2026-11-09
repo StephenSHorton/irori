@@ -22,7 +22,7 @@
 //! | `stream` | `stream.go` | attach |
 //! | `v03` | `routes_v03.go`, `v03.go` | timeline, edits, commits, blobs, decisions, prs, capture/status, why |
 //! | [`board`] | `routes_board.go`, `board.go`, `board_overview.go` | board, tasks, search, show, overview |
-//! | `slots` | (card #437) | slots, slots/release: check.sh's slot leases |
+//! | `slots` | (card #437) | slots, slots/release: slot leases for scripts |
 //! | `usage` | (card #599) | usage/limits: the mod's Claude plan rate-limit windows |
 //! | [`pair`] | `routes_pair.go`, `pairing.go`, `client_pair.go` | pair/{join,status,key,cancel} (the joining side only) |
 //! | [`attach`] | `internal/attach` | the attach wire types, `ModAtLeast` |
