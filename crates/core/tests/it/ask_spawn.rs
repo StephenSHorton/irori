@@ -196,6 +196,63 @@ fn a_thread_nobody_takes_gets_a_background_agent_that_answers_it() {
     assert_eq!(*fake.ended.lock().unwrap(), [SPAWNED_SESS]);
 }
 
+/// GitHub #305 (card #1196): a device still holding the old inbox Pause
+/// all (no switch since card #787) starts no agent for a thread, and the
+/// card says why in today's words. The person turning Stop here on and off
+/// lifts it, and the thread gets its agent and loses the line.
+#[test]
+fn stop_here_off_lifts_the_old_pause_all_and_the_thread_gets_its_agent() {
+    let r = Rig::new();
+    let (_repo, _dir) = agent_in_repo(&r);
+    let fake = Arc::new(Fake::default());
+    let me = r.core.device_id().to_string();
+    let spawned = format!("{me}/{SPAWNED_SESS}");
+    let co = r.core.coord();
+    let inbox = r.core.inbox();
+    let mut pol = inbox.policy();
+    pol.paused = true;
+    inbox.set_policy(pol, &format!("user:{me}")).unwrap();
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    spawning_on(&r);
+
+    let tk = thread(&r, "What did we ship today?");
+    for _ in 0..3 {
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+    }
+    std::thread::sleep(Duration::from_millis(1500));
+    assert!(
+        fake.started.lock().unwrap().is_empty(),
+        "nothing starts under the old Pause all"
+    );
+    let why = r
+        .core
+        .why_no_agent(&tk.id, true)
+        .map(|w| w.to_string())
+        .unwrap_or_default();
+    assert!(
+        why.contains("Resume wakes") && !why.contains("Pause all"),
+        "{why}"
+    );
+
+    // What the person did: Stop here on, then off.
+    r.core.set_agents_paused(true).unwrap();
+    assert!(r.core.inbox().policy().paused, "on lifts nothing");
+    r.core.set_agents_paused(false).unwrap();
+    assert!(!r.core.inbox().policy().paused, "off lifts it");
+    wait_for(60, "the spawned agent took the thread", || {
+        co.get_task(&tk.id)
+            .and_then(|t| t.ask)
+            .is_some_and(|a| a.taker == spawned)
+    });
+    assert_eq!(fake.started.lock().unwrap().len(), 1);
+    assert!(
+        r.core.why_no_agent(&tk.id, true).is_none(),
+        "the line is gone: {:?}",
+        r.core.why_no_agent(&tk.id, true)
+    );
+}
+
 #[test]
 fn an_agent_with_offer_it_cards_on_takes_a_thread_first() {
     let r = Rig::new();

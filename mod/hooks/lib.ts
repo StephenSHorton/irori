@@ -4,7 +4,7 @@
 import type { AttachEvent, AttachView, PausedCard, Policy, ToolSpec, TrackedAppend } from '../types'
 
 /** Matches .claude-plugin/plugin.json; sent to `irori attach` and shown by /irori. */
-export const MOD_VERSION = '0.7.1'
+export const MOD_VERSION = '0.7.2'
 /** hello's `v` from which `irori attach --standby` is safe: the Core refuses it while another attach is live. */
 export const STANDBY_SINCE = 3
 
@@ -166,7 +166,7 @@ export const USAGE = [
   '/irori unblock <key or name>         remove a block',
   '/irori allow <key or name>           (allowlist mode) let that sender wake agents',
   '/irori deny <key or name>            remove an allowed sender',
-  '/irori pause | resume                hold every new wake, or let them through again',
+  '/irori resume                        let wakes the old Pause all held through again',
   'Policy changes only work when a person types them.',
 ].join('\n')
 
@@ -226,8 +226,8 @@ export function editPolicy(
       return { policy, text: `Removed ${who} from the allow list.` }
     }
     case 'pause':
-      policy.paused = true
-      return { policy, text: 'Paused: every new message is held and nothing wakes until /irori resume.' }
+      // The old Pause all left with Stop here (cards #787, #1196).
+      return { error: "Pause all is gone: Stop here in Irori's top bar stops this machine's agents." }
     case 'resume':
       policy.paused = false
       return { policy, text: 'Resumed: held-by-pause messages are queued again.' }

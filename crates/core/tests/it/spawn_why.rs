@@ -223,6 +223,72 @@ fn a_full_device_says_n_of_m_and_pause_all_says_so() {
     }
 }
 
+fn pause_all(core: &irori_core::Core) {
+    let inbox = core.inbox();
+    let mut pol = inbox.policy();
+    pol.paused = true;
+    inbox.set_policy(pol, "user:test").unwrap();
+    assert!(core.inbox().policy().paused);
+}
+
+/// Card #1196 (GitHub #305): Stop here and Stop everywhere say their own
+/// names, and the person's Stop here off, even with it already off, and
+/// Start everywhere both lift the old Pause all.
+#[test]
+fn stop_here_and_stop_everywhere_say_so_and_lift_the_old_pause_all() {
+    let r = Rig::new();
+    switch(&r, true);
+    r.core.set_spawner(Some(idle_spawner()));
+    // No sweep tries it meanwhile: a try here would fail on no copy.
+    r.core.set_spawn_cap(0).unwrap();
+    let t = card(&r, "A card");
+    let why = || {
+        r.core
+            .why_no_agent(&t.id, false)
+            .map(|w| w.to_string())
+            .unwrap_or_default()
+    };
+
+    r.core.set_agents_paused(true).unwrap();
+    assert!(why().starts_with("Stop here is on for "), "{}", why());
+    r.core.set_agents_paused(false).unwrap();
+    // As the window's Stop everywhere: this device paused with the rest.
+    let me = r.core.device_id().to_string();
+    r.core.wind_down_pause(std::slice::from_ref(&me)).unwrap();
+    assert!(r.core.agents_pause().on);
+    assert!(
+        why().starts_with("Stop everywhere is on (since "),
+        "{}",
+        why()
+    );
+
+    pause_all(&r.core);
+    assert!(why().contains("Resume wakes"), "{}", why());
+    r.core.wind_down_lift().unwrap();
+    assert!(!r.core.inbox().policy().paused, "Start everywhere lifts it");
+
+    pause_all(&r.core);
+    assert!(!r.core.agents_pause().on);
+    r.core.set_agents_paused(false).unwrap();
+    assert!(!r.core.inbox().policy().paused, "Stop here off lifts it");
+    match r.core.why_no_agent(&t.id, false) {
+        Some(Why::AtCap { .. }) => {}
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Card #1196: a start lifts the old Pause all, which has no way on now.
+#[test]
+fn a_start_lifts_the_old_pause_all() {
+    let (d, c) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let core = irori_core::Core::start(crate::common::options(d.path(), c.path())).unwrap();
+    pause_all(&core);
+    core.close().unwrap();
+    let core = irori_core::Core::start(crate::common::options(d.path(), c.path())).unwrap();
+    assert!(!core.inbox().policy().paused, "the restart lifted it");
+    core.close().unwrap();
+}
+
 /// A card with no checkout here, or an untrusted one, says so whether the
 /// sweep has tried yet (the line looks for itself) or not (its failed row
 /// says the same).
