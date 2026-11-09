@@ -3139,7 +3139,8 @@ impl Core {
     }
 
     /// Runs `f` with the new answer whenever the assistant's computer
-    /// changes (the one-assistant worker's catch-up scan hangs off this).
+    /// changes. The chat worker doesn't use it: `follow_assistant_home`
+    /// runs its catch-up scan itself (one-assistant card 3).
     pub fn set_assistant_home_listener(&self, f: Option<assistant_home::HomeListener>) {
         self.s.set_assistant_home_listener(f);
     }

@@ -512,6 +512,28 @@ fn start_core(
             None => Err("Irori is closing".into()),
         })));
     }
+    // The one assistant's chat, answered from rows when this is the
+    // assistant's computer (one-assistant card 3), from every one of the
+    // person's devices. Before the spawner: its first sweep publishes
+    // spawn.host, which must already say assistantChat, or a restart writes
+    // a row saying false and then one saying true.
+    #[cfg(desktop)]
+    {
+        let w = Arc::downgrade(&window);
+        core.set_chat_turn(Some(Arc::new(
+            move |job: &irori_core::assistant_chat::ChatJob,
+                  emit: &dyn Fn(irori_core::assistant_chat::ChatEvent) -> bool| {
+                match w.upgrade() {
+                    Some(w) => w.chat_turn(job, emit),
+                    // Closing: no reply, so the next start answers it.
+                    None => irori_core::assistant_chat::ChatDone {
+                        later: true,
+                        ..Default::default()
+                    },
+                }
+            },
+        )));
+    }
     // A phone runs no agents (card #524): with no spawner its sweep never
     // lists `claude` agents, so it doesn't log "spawn cleanup: can't find
     // the claude command" every second. Its switch's default is unchanged:
@@ -558,23 +580,6 @@ fn start_core(
         // And holds a huddle's assistant session (card #1046): one
         // `claude -p` per huddle, kept up between looks.
         core.set_huddle_runner(Some(window.huddle_runner()));
-        // And answers the one assistant's chat from rows when this is the
-        // assistant's computer (one-assistant card 3), from every one of
-        // the person's devices.
-        let w = Arc::downgrade(&window);
-        core.set_chat_turn(Some(Arc::new(
-            move |job: &irori_core::assistant_chat::ChatJob,
-                  emit: &dyn Fn(irori_core::assistant_chat::ChatEvent) -> bool| {
-                match w.upgrade() {
-                    Some(w) => w.chat_turn(job, emit),
-                    // Closing: no reply, so the next start answers it.
-                    None => irori_core::assistant_chat::ChatDone {
-                        later: true,
-                        ..Default::default()
-                    },
-                }
-            },
-        )));
     }
     // Spawning is on by default for the private board where agents can
     // start (card #448, decision 1 (a)); his own switch wins.
