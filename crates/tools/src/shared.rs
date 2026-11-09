@@ -19,7 +19,7 @@ use coord::{Coord, NewTask, Task};
 
 use crate::args::Ty;
 use crate::board::steps_of;
-use crate::format::{add, one_line, q, trim};
+use crate::format::{add, one_line, trim};
 use crate::{Caller, Inner, decode, err_text, map_err};
 
 /// One shared board as the tools show it.
