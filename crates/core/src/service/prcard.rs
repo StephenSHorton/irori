@@ -144,7 +144,7 @@ impl Services {
     }
 
     /// Every PR card on the boards this device shows, open or not.
-    fn pr_cards_found(&self, boards: &[Arc<BoardLog>]) -> Vec<Found> {
+    pub(super) fn pr_cards_found(&self, boards: &[Arc<BoardLog>]) -> Vec<Found> {
         let mut out = Vec::new();
         for b in boards {
             for t in b.coord().list_tasks(&TaskFilter::default()) {
@@ -161,7 +161,7 @@ impl Services {
 
     /// What [`prcard::choose_space`] needs of each space the person is in
     /// (§12.2).
-    fn space_facts(&self, boards: &[Arc<BoardLog>], repo_key: &str) -> Vec<SpaceFacts> {
+    pub(super) fn space_facts(&self, boards: &[Arc<BoardLog>], repo_key: &str) -> Vec<SpaceFacts> {
         let me = self.person_id();
         boards
             .iter()

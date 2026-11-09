@@ -88,8 +88,12 @@ export type CommentResult = B.CommentResult
 export type Delivery = B.Delivery
 export type DeliveryMode = B.DeliveryMode
 export type DeskAuthorView = B.DeskAuthorView
+export type DeskClaimCountView = B.DeskClaimCountView
+export type DeskClaimerView = B.DeskClaimerView
 export type DeskPollView = B.DeskPollView
 export type DeskPrView = B.DeskPrView
+export type DeskRelatedView = B.DeskRelatedView
+export type DeskReviewView = B.DeskReviewView
 export type DeskSettings = B.DeskSettings
 export type DeskSnapshotView = B.DeskSnapshotView
 export type DeskView = B.DeskView
@@ -608,7 +612,17 @@ export function Delivery(p: Partial<B.Delivery> = {}): B.Delivery {
 
 /** DeskAuthorView with Go's zero values for every field left out. */
 export function DeskAuthorView(p: Partial<B.DeskAuthorView> = {}): B.DeskAuthorView {
-  return { "pr": 0, "card": "", "cardRef": "", "agent": "", "reviewNote": "", ...p } as B.DeskAuthorView
+  return { "pr": 0, "card": "", "cardRef": "", "agent": "", "reviewNote": "", "review": DeskReviewView(), ...p } as B.DeskAuthorView
+}
+
+/** DeskClaimCountView with Go's zero values for every field left out. */
+export function DeskClaimCountView(p: Partial<B.DeskClaimCountView> = {}): B.DeskClaimCountView {
+  return { "person": "", "open": 0, "recent": 0, ...p } as B.DeskClaimCountView
+}
+
+/** DeskClaimerView with Go's zero values for every field left out. */
+export function DeskClaimerView(p: Partial<B.DeskClaimerView> = {}): B.DeskClaimerView {
+  return { "agent": "", "person": "", "until": "", ...p } as B.DeskClaimerView
 }
 
 /** DeskPollView with Go's zero values for every field left out. */
@@ -619,6 +633,16 @@ export function DeskPollView(p: Partial<B.DeskPollView> = {}): B.DeskPollView {
 /** DeskPrView with Go's zero values for every field left out. */
 export function DeskPrView(p: Partial<B.DeskPrView> = {}): B.DeskPrView {
   return { "number": 0, "url": "", "title": "", "author": "", "isDraft": false, "headRefName": "", "headRefOid": "", "baseRefName": "", "mergeable": "", "mergeStateStatus": "", "checks": "", "createdAt": "", "updatedAt": "", ...p } as B.DeskPrView
+}
+
+/** DeskRelatedView with Go's zero values for every field left out. */
+export function DeskRelatedView(p: Partial<B.DeskRelatedView> = {}): B.DeskRelatedView {
+  return { "agent": "", "person": "", "why": "", ...p } as B.DeskRelatedView
+}
+
+/** DeskReviewView with Go's zero values for every field left out. */
+export function DeskReviewView(p: Partial<B.DeskReviewView> = {}): B.DeskReviewView {
+  return { "pick": "", "review": "", "asked": "", "related": [], "whyNone": "", ...p } as B.DeskReviewView
 }
 
 /** DeskSettings with Go's zero values for every field left out. */
@@ -633,7 +657,7 @@ export function DeskSnapshotView(p: Partial<B.DeskSnapshotView> = {}): B.DeskSna
 
 /** DeskView with Go's zero values for every field left out. */
 export function DeskView(p: Partial<B.DeskView> = {}): B.DeskView {
-  return { "settings": DeskSettings(), "isDefault": false, "seenOn": "", "followsSeen": false, "poll": DeskPollView(), "authors": [], ...p } as B.DeskView
+  return { "settings": DeskSettings(), "isDefault": false, "seenOn": "", "followsSeen": false, "poll": DeskPollView(), "authors": [], "claimCounts": [], ...p } as B.DeskView
 }
 
 /** DeviceCap with Go's zero values for every field left out. */

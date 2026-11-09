@@ -2277,6 +2277,23 @@ export type DeskAuthorView = {
 	 *  "" when nothing waits.
 	 */
 	reviewNote: string,
+	/**  Who reviews it and where the review stands (card #1080). */
+	review: DeskReviewView,
+};
+
+/**  One person's review claims. */
+export type DeskClaimCountView = {
+	person: string,
+	open: number,
+	recent: number,
+};
+
+/**  The agent holding a PR's review claim. */
+export type DeskClaimerView = {
+	agent: string,
+	person: string,
+	/**  When the claim lapses unless renewed, RFC 3339. */
+	until: string,
 };
 
 /**  How polling stands, on the device that polls. */
@@ -2305,6 +2322,30 @@ export type DeskPrView = {
 	checks: string,
 	createdAt: string,
 	updatedAt: string,
+};
+
+/**  An agent told to look at a PR, and why. */
+export type DeskRelatedView = {
+	agent: string,
+	person: string,
+	why: string,
+};
+
+/**  A PR's review on the desk line (merge desk §12.9, card #1080). */
+export type DeskReviewView = {
+	/**
+	 *  `none`, `off`, `waiting`, `asked`, `claimed` or `reviewed`; ""
+	 *  when unknown.
+	 */
+	pick: string,
+	/**  GitHub's review decision; "" none. */
+	review: string,
+	/**  The agent asked, while `pick` is `asked`. */
+	asked: string,
+	claimer?: DeskClaimerView | null,
+	related: DeskRelatedView[],
+	/**  Why nothing is picked, as this viewer can see it. */
+	whyNone: string,
 };
 
 /**  A repo's desk settings (`repo.desk`). */
@@ -2362,6 +2403,8 @@ export type DeskView = {
 	 *  #625): anyone else's is left out here.
 	 */
 	authors: DeskAuthorView[],
+	/**  Each person's open and 14-day claims (card #1080). */
+	claimCounts: DeskClaimCountView[],
 };
 
 /**  One device's cap in Settings › Agents (card #450, sa-6). */

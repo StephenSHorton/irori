@@ -1967,7 +1967,7 @@
   },
   {
     "name": "prs",
-    "description": "Pull requests Irori linked to agents in a GitHub repo: who authored, touched or reviewed each. show pr:\u003cowner\u003e/\u003cname\u003e#\u003cn\u003e for one.",
+    "description": "Pull requests Irori linked to agents in a GitHub repo: who authored, touched or reviewed each, and for a PR in a shared space who holds its review claim, which agents are related, GitHub's review state and why nobody is picked. The review state shows with capture off. show pr:\u003cowner\u003e/\u003cname\u003e#\u003cn\u003e for one.",
     "inputSchema": {
       "type": "object",
       "properties": {
