@@ -26,6 +26,7 @@
 //! | `attachments` | `attachments.go` |
 //! | [`notify`] | `notify.go` |
 //! | [`talk`] | (Rust only, card #389) talk_post, talk_thread (#631), talk_read, talk_list, talk_join, talk_leave |
+//! | [`huddle`] (private) | (Rust only, card #1055) huddle_status, huddle_canvas, huddle_note |
 //!
 //! Wiring notes (for the merge):
 //! - The Core implements [`Backend`] (Go's `core.Core` does). Optional
@@ -53,6 +54,7 @@ mod capturetools;
 mod devicefree;
 mod explore;
 mod format;
+mod huddle;
 mod later;
 mod mention;
 mod messages;
@@ -310,6 +312,18 @@ pub trait BoardViewer: Send + Sync {
     fn board_views(&self, f: &coord::BoardFilter) -> Vec<coord::BoardView>;
 }
 
+/// A huddle as the Core sees it now (card #1055).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HuddleNow {
+    /// The huddle is over (call-agents.md §8): no more is being said.
+    pub over: bool,
+    /// The people in it now, by key in this device's form.
+    pub people: Vec<String>,
+    /// Each person's assistant: the person's key and its state
+    /// (`connected`, `reconnecting`, `not connected`).
+    pub assistants: Vec<(String, String)>,
+}
+
 /// What the tools act on (Go `Backend`); the Core provides it.
 pub trait Backend: Send + Sync {
     /// This device's id (`deviceId` in `irori.json`); empty when the backend
@@ -459,6 +473,12 @@ pub trait Backend: Send + Sync {
     fn talk(&self) -> Option<&Arc<coord::talk::Talk>> {
         None
     }
+    /// What only the Core knows of huddle `call` now (card #1055): whether
+    /// it is over, who is in it and whose assistant is connected. `None`:
+    /// not known here; the tools then read the huddle's end mark.
+    fn huddle_now(&self, _call: &str) -> Option<HuddleNow> {
+        None
+    }
     /// The face kept for an agent name (card #407), "" for none.
     fn avatar(&self, _name: &str) -> String {
         String::new()
@@ -512,7 +532,9 @@ pub fn heavy_family(device_id: &str) -> Option<String> {
 }
 
 /// The read-only tools that read as the caller.
-const CALLER_READS: [&str; 8] = [
+const CALLER_READS: [&str; 10] = [
+    "huddle_status",
+    "huddle_canvas",
     "inbox",
     "timeline",
     "overview",
@@ -524,7 +546,7 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 65] = [
+    let list: [(&'static str, Handler); 68] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -588,6 +610,9 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("talk_list", talk::talk_list),
         ("talk_join", talk::talk_join),
         ("talk_leave", talk::talk_leave),
+        ("huddle_status", huddle::huddle_status),
+        ("huddle_canvas", huddle::huddle_canvas),
+        ("huddle_note", huddle::huddle_note),
         ("notes_propose", notes::notes_propose),
         ("notes_search", notes::notes_search),
     ];

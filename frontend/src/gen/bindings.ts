@@ -3247,8 +3247,12 @@ export type SummaryMember = {
 
 /**  One person's assistant in a huddle's roster (card #1049). */
 export type TalkAssistant = {
-	/**  The person, as a key (`names` in the transcript read it). */
+	/**  The person, as a key. */
 	person: string,
+	/**  The person's name ("you" for this person), never a key (card #1052). */
+	name: string,
+	/**  The person is this one. */
+	mine: boolean,
 	/**  `connected`, `reconnecting` or `not connected`. */
 	state: string,
 	/**  Why it isn't connected, when this device knows; else empty. */
@@ -3520,6 +3524,11 @@ export type TalkTranscriptLine = {
 	name: string,
 	/**  The person said it. */
 	mine: boolean,
+	/**
+	 *  Said under the notice that lets agents read it (card #1047); the
+	 *  roster says when a person's lines aren't (card #1052).
+	 */
+	agents: boolean,
 	/**  When the phrase began, Unix ms. */
 	atMs: number,
 	text: string,

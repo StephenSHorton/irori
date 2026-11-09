@@ -340,6 +340,19 @@ export const TalkService = {
   Huddles: () => call(commands.talkHuddles()),
   CallTitleSet: (callId: string, title: string) =>
     call(commands.talkCallTitleSet(callId, title)),
+  // A huddle's canvas, as the person (card #1052).
+  HuddleItemAdd: (callId: string, kind: string, text: string) =>
+    call(commands.huddleItemAdd(callId, kind, text)),
+  HuddleItemSet: (
+    callId: string,
+    itemId: string,
+    text: string | null,
+    status: string | null,
+    x: number | null,
+    y: number | null
+  ) => call(commands.huddleItemSet(callId, itemId, text, status, x, y)),
+  HuddleAsk: (callId: string, text: string) =>
+    call(commands.huddleAsk(callId, text)),
   Posts: (convId: string, before: string | null, limit: number) =>
     call(commands.talkPosts(convId, before, limit)),
   // mentions: the keys the composer's picker recorded (#461).

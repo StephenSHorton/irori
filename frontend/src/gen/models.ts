@@ -965,7 +965,7 @@ export function SummaryMember(p: Partial<B.SummaryMember> = {}): B.SummaryMember
 
 /** TalkAssistant with Go's zero values for every field left out. */
 export function TalkAssistant(p: Partial<B.TalkAssistant> = {}): B.TalkAssistant {
-  return { "person": "", "state": "", "why": "", ...p } as B.TalkAssistant
+  return { "person": "", "name": "", "mine": false, "state": "", "why": "", ...p } as B.TalkAssistant
 }
 
 /** TalkCall with Go's zero values for every field left out. */
@@ -1025,7 +1025,7 @@ export function TalkTranscript(p: Partial<B.TalkTranscript> = {}): B.TalkTranscr
 
 /** TalkTranscriptLine with Go's zero values for every field left out. */
 export function TalkTranscriptLine(p: Partial<B.TalkTranscriptLine> = {}): B.TalkTranscriptLine {
-  return { "name": "", "mine": false, "atMs": 0, "text": "", ...p } as B.TalkTranscriptLine
+  return { "name": "", "mine": false, "agents": false, "atMs": 0, "text": "", ...p } as B.TalkTranscriptLine
 }
 
 /** Target with Go's zero values for every field left out. */
