@@ -70,21 +70,30 @@ impl Services {
             .iter()
             .filter(|p| p.author.eq_ignore_ascii_case(&own))
         {
+            // Only the person's own cards count (card #1155): another
+            // member's card for this PR never stands for it, so it is
+            // neither followed nor a reason to make none.
             let cards: Vec<&Found> = found
                 .iter()
-                .filter(|f| f.task.pr_card.as_ref().is_some_and(|k| k.pr == p.url))
+                .filter(|f| {
+                    f.task.pr_card.as_ref().is_some_and(|k| k.pr == p.url)
+                        && f.task.created_by == me
+                })
                 .collect();
-            // The lowest id stands on every device; the author's device
-            // cancels the others it made (§12.2).
+            // The lowest id is kept; the author's device cancels the others
+            // it made (§12.2).
             let stands = cards
                 .iter()
                 .min_by(|a, b| a.task.id.cmp(&b.task.id))
                 .copied();
             if let Some(keep) = stands {
                 self.cancel_duplicates(&me, keep, &cards);
-                self.desk_watch.set_note(repo_key, p.number, None);
+                let note = self.login_note(&keep.board, &own);
+                self.desk_watch.set_note(repo_key, p.number, note.clone());
                 self.follow_pr_card(&lister, &repo, p, keep, verdicts);
-                standing.push((keep.clone(), p.clone()));
+                if note.is_none() {
+                    standing.push((keep.clone(), p.clone()));
+                }
                 continue;
             }
             if !prcard::needs_card(p, &[]) {
@@ -116,6 +125,16 @@ impl Services {
                     continue;
                 }
             }
+            // A card that couldn't stand there would only sit on the board.
+            if let Some(line) = self.login_note(b, &own) {
+                if self
+                    .desk_watch
+                    .set_note(repo_key, p.number, Some(line.clone()))
+                {
+                    logf(format_args!("desk: PR #{}: {line}", p.number));
+                }
+                continue;
+            }
             self.desk_watch.set_note(repo_key, p.number, None);
             let nt = NewTask {
                 title: prcard::card_title(p),
@@ -141,6 +160,22 @@ impl Services {
             }
         }
         standing
+    }
+
+    /// Why a PR card of the person's for a PR by GitHub `own` can't stand
+    /// on `b` (card #1155), or None when it can: the one active member
+    /// whose profile there names `own` must be the person.
+    fn login_note(&self, b: &BoardLog, own: &str) -> Option<String> {
+        let me = self.person_id();
+        if b.verifier.github_login_person(own) == me {
+            return None;
+        }
+        let space = b.verifier.membership().name;
+        Some(prcard::login_line(
+            &space,
+            own,
+            &b.verifier.profile_github_login(&me),
+        ))
     }
 
     /// Every PR card on the boards this device shows, open or not.

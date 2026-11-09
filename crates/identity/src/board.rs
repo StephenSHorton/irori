@@ -1035,6 +1035,30 @@ impl BoardVerifier {
             .unwrap_or_default()
     }
 
+    /// The one active member whose counted member.profile names GitHub
+    /// `login` (any case), "" when none does or more than one does (card
+    /// #1155). A profile's login is its member's own claim, so a login two
+    /// members claim is nobody's: a member who claims another's login can
+    /// only stop it naming anyone, never take it.
+    pub fn github_login_person(&self, login: &str) -> String {
+        let want = login.trim();
+        if want.is_empty() {
+            return String::new();
+        }
+        let st = self.lock();
+        let mut found: Option<&String> = None;
+        for (id, m) in &st.members {
+            if !m.profile || !m.github_login.eq_ignore_ascii_case(want) || !st.ms.active(id) {
+                continue;
+            }
+            if found.is_some() {
+                return String::new();
+            }
+            found = Some(id);
+        }
+        found.cloned().unwrap_or_default()
+    }
+
     /// The assistant card id on a member's counted member.profile, "" when
     /// none. The member's own claim, like the GitHub login.
     pub fn profile_assistant_card(&self, person_id: &str) -> String {

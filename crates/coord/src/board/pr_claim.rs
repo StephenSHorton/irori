@@ -34,9 +34,9 @@ pub struct ClaimStep {
 }
 
 impl Fold {
-    /// The PR card for `pr` (its URL): the card whose creation row names
-    /// that PR. The lowest id stands among duplicates, preferring one
-    /// still open (§12.2).
+    /// The PR card for `pr` (its URL): the standing card whose creation
+    /// row names that PR. The lowest id stands among duplicates, preferring
+    /// one still open (§12.2).
     pub(crate) fn pr_card_for(&self, pr: &str) -> Option<&Task> {
         let want = pr_claim_resource(pr)?;
         self.pr_card_by_resource(&want)
@@ -50,8 +50,51 @@ impl Fold {
                     .as_ref()
                     .and_then(|c| pr_claim_resource(&c.pr))
                     .is_some_and(|r| r == want)
+                    && self.pr_card_stands(t)
             })
             .min_by(|a, b| (a.state == CANCELED, &a.id).cmp(&(b.state == CANCELED, &b.id)))
+    }
+
+    /// Whether PR card `t` may stand for its PR (card #1155): on a board,
+    /// only when its creator is the one active member whose profile names
+    /// the card's PR author. Any member's person row can carry a PR card's
+    /// fields, so without this a lower-id card for someone else's PR would
+    /// stand in for the author's. A login two members claim stands for
+    /// nobody. Off a board every PR card may stand.
+    pub(crate) fn pr_card_stands(&self, t: &Task) -> bool {
+        let Some(c) = &t.pr_card else {
+            return false;
+        };
+        if !self.on_board {
+            return true;
+        }
+        let Some(lp) = &self.login_person else {
+            return false;
+        };
+        let who = lp(c.author.trim());
+        !who.is_empty() && who == self.person_of(&t.created_by)
+    }
+
+    /// The people who made a PR card for the PR `res` names on this board,
+    /// standing or not (card #1155). Only an author's own client makes one,
+    /// so these are the author and anyone posing as them; a row's fold
+    /// reads this rather than which card stands, which turns on profiles.
+    pub(crate) fn pr_card_makers(&self, res: &str) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .tasks
+            .values()
+            .filter(|t| {
+                t.pr_card
+                    .as_ref()
+                    .and_then(|c| pr_claim_resource(&c.pr))
+                    .is_some_and(|r| r == res)
+            })
+            .map(|t| self.person_of(&t.created_by))
+            .filter(|p| !p.is_empty())
+            .collect();
+        out.sort();
+        out.dedup();
+        out
     }
 
     /// Whether the PR a `pr/` claim is on has ended: its card's `pr.state`

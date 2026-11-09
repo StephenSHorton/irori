@@ -1396,8 +1396,9 @@ impl Services {
         laps.lap("identity+secret");
         let me = self.person_actor();
         let co = {
-            let (ch, v1, v2, v3, v4, v5) = (
+            let (ch, v1, v2, v3, v4, v5, v6) = (
                 self.chain.clone(),
+                v.clone(),
                 v.clone(),
                 v.clone(),
                 v.clone(),
@@ -1426,6 +1427,8 @@ impl Services {
                     is_owner: Some(Arc::new(move |k: &str| k == person_key)),
                     revoked: Some(Arc::new(move |dev: &str| v1.cut(dev).is_some())),
                     key_person: Some(Arc::new(move |k: &str| v2.key_person(k))),
+                    // Whose PR a PR card may stand for (card #1155).
+                    login_person: Some(Arc::new(move |l: &str| v6.github_login_person(l))),
                     device_person: Some(Arc::new(move |dev: &str| {
                         v3.person_of(dev).unwrap_or_else(|| {
                             if dev == self_dev {

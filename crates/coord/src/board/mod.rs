@@ -340,6 +340,11 @@ pub struct Options {
     pub key_person: Option<StrFn>,
     /// On a board, the member a writing device is certified to.
     pub device_person: Option<StrFn>,
+    /// On a board, the one active member whose member.profile names a
+    /// GitHub login, `""` for none or for a login two members claim (card
+    /// #1155). A PR card stands only for that member; `None` on a board:
+    /// none stands.
+    pub login_person: Option<StrFn>,
     /// A board's short handle, read as rows fold.
     pub tag: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     /// On a space (card #392): the tag of another board in it, by id;

@@ -235,6 +235,32 @@ pub fn waiting_line(too_old: &[String], unheard: &[String]) -> Option<String> {
     })
 }
 
+/// The desk's line when the person's PR card can't stand in a space (card
+/// #1155): a PR card stands only for the one active member whose profile
+/// there names the PR's author. `own` is the login the person's gh says,
+/// `profile` the login their profile in that space names ("" none yet).
+pub fn login_line(space: &str, own: &str, profile: &str) -> String {
+    let space = if space.trim().is_empty() {
+        "the space"
+    } else {
+        space.trim()
+    };
+    if profile.trim().is_empty() {
+        format!(
+            "waiting for {space} to hear your GitHub login ({own}) before this PR gets a review card"
+        )
+    } else if !profile.trim().eq_ignore_ascii_case(own) {
+        format!(
+            "your profile in {space} names GitHub {}, not {own}, so this PR gets no review card there",
+            profile.trim()
+        )
+    } else {
+        format!(
+            "another member of {space} also says they are GitHub {own}, so this PR gets no review card there until one of you changes it"
+        )
+    }
+}
+
 // ---- the card's text -----------------------------------------------------
 
 /// A PR card's title: "PR #n: <title>", the title as one clean line.
