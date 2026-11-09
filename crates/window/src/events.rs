@@ -2,7 +2,7 @@
 //!
 //! | Event | Payload | Emitted |
 //! |---|---|---|
-//! | `roster:changed` | [`RosterChange`] | every presence change |
+//! | `roster:changed` | [`RosterChange`] | coalesced, 250 ms, only when the roster changed (#1135) |
 //! | `inbox:changed` | [`InboxCounts`] | coalesced, 250 ms |
 //! | `board:changed` | `{}` | coalesced, 250 ms |
 //! | `capture:changed` | [`CaptureChange`] | coalesced, 300 ms |
@@ -60,6 +60,9 @@ pub const EVENT_APP_OPEN: &str = "app:open";
 /// From the page: it listens for app:open now (card #395: a phone
 /// notification tapped while Irori was closed opens then).
 pub const EVENT_APP_OPEN_READY: &str = "app:open-ready";
+
+/// How often roster:changed goes at most (card #1135).
+const ROSTER_EMIT_EVERY: Duration = Duration::from_millis(250);
 
 /// How often call:state goes at most (#654): a call's health and
 /// speaking change about twice a second.
@@ -146,19 +149,33 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
         let feed = w.core.feed(&[Topic::Presence]);
         out.push(spawn("irori-window-roster", move || {
             let q = feed.queue().clone();
-            while !stop.is_canceled() {
-                match q.recv_timeout(std::time::Duration::from_millis(200)) {
-                    Ok(Some(CoreEvent::Presence(ch))) => {
-                        let payload = RosterChange {
-                            change: *ch,
-                            agents: w.agents(),
-                        };
-                        w.emit(EVENT_ROSTER_CHANGED, &payload);
-                    }
-                    Ok(Some(_)) | Err(()) => {}
-                    Ok(None) => return,
+            // Coalesced like the others (card #1135): a busy agent's every
+            // line is a presence change. The last change of a burst rides
+            // with the roster after it, and an unchanged roster is dropped.
+            let mut last: Option<serde_json::Value> = None;
+            coalesce(&q, ROSTER_EMIT_EVERY, &stop, |batch| {
+                let Some(ch) = batch.into_iter().rev().find_map(|ev| match ev {
+                    CoreEvent::Presence(ch) => Some(ch),
+                    _ => None,
+                }) else {
+                    return;
+                };
+                let payload = RosterChange {
+                    change: *ch,
+                    agents: w.agents(),
+                };
+                // The window draws from the roster alone; the change is
+                // context. Compare the roster, not the change.
+                let Ok(agents) = serde_json::to_value(&payload.agents) else {
+                    w.emit(EVENT_ROSTER_CHANGED, &payload);
+                    return;
+                };
+                if last.as_ref() == Some(&agents) {
+                    return;
                 }
-            }
+                last = Some(agents);
+                w.emit(EVENT_ROSTER_CHANGED, &payload);
+            });
         }));
     }
     {
