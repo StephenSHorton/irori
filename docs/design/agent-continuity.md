@@ -1,6 +1,6 @@
 # Agents that stay present: identity, rest and a context budget
 
-*Card #1209, from the person's thread #1207, 2026-11-09. This is a plan only; nothing here is built. Code references are against main @ d9cd094d. Line numbers drift, so go by the names. Four reviewers checked the plan against the code from different angles, and their fixes are in it. Sibling card #1208 is the small first step: a thread's live agent takes the cards made from that thread. It does not wait on this plan. The details a builder needs are in Appendix A.*
+*Card #1209, from the person's thread #1207, 2026-11-09. This is a plan only; nothing here is built. Code references are against main @ d9cd094d. Line numbers drift, so go by the names. Four reviewers checked the plan against the code from different angles, and their fixes are in it. Sibling card #1208 was the small first step: a thread's live agent takes the cards made from that thread. It is on main (decision 68), and this plan builds on it. The details a builder needs are in Appendix A.*
 
 ## 1. What the person asked, and the short answer
 
@@ -260,7 +260,10 @@ Everything else still works without resume: the budget, same-repo reuse while aw
 When a card, ask or thread needs an agent, Irori tries these in order, on the device that hands it out:
 
 1. **Its own last agent.** This is the item coming back: a "Not done", the person's answer, or a parked card that can go on. It goes first to the agent that last worked it and left it, if that agent is free by the rule above and under budget. Awake, the agent gets the card by assignment, as #1208 does. Resting, it is woken for it. If that agent is busy, retired, or can't start (any gate in §7), the card goes on to step 2.
-2. **Its thread's agent** (#1208). A card made from a thread goes to that thread's agent, under the same conditions. This plan adds the budget in place of #1208's "one card at a time" stand-in, adds the same run level (below), and wakes a resting thread agent instead of starting a fresh one. A wake that can't start takes the assignment back, so the card goes on to step 3.
+2. **Its thread's agent** (#1208, decision 68, now on main). A card made from a thread goes to that thread's agent. #1208 built this as `route_to_thread_agents` (`core/src/service/spawn.rs` about 2193), which hands the card over with `hand_off` when the agent is on this device's roster and holds no other card. It left `thread_agent_reusable(key)` (about 2240, `true` for now) as the place for this design's check. This plan:
+   - fills that function with the budget and the same run level (below), through the shared check in A.2;
+   - extends the agent lookup to a resting thread agent, which is woken for the card instead of a fresh agent starting;
+   - takes the card back when a wake can't start, so it goes on to step 3.
 3. **A same-repo agent that is awake**, through the ordinary offer (decision 40). The candidates must be all of these:
    - spawned by Irori, awake and idle; resting agents aren't woken just to be asked;
    - **on the device that hands the card out**: v1 is same-device only (§11);
@@ -281,7 +284,7 @@ When a card, ask or thread needs an agent, Irori tries these in order, on the de
 - **The brief.** Irori writes a brief file for the item and sends a "You now have #M; read its brief at <path>" notice, the way it sends the end notice today. A next-item brief leaves out the fixed parts the agent already read (build output, base check, device_free, Talk, splitting). It keeps the card, the person's words nearby, Left off and the exit rules.
 - **The worktree.** A running session's folder and environment can't change.
   - A card agent keeps its tree. Its brief says to push the last card's branch, then run `git switch -c card-<M>-<g> origin/main` in the same tree. The new card's Where records that branch, and treeclean keeps the tree until both cards settle. The shared `target/` stays warm, which is a small win.
-  - A thread agent works in the main checkout and has no tree. When it takes a code card, Irori makes the card's tree, and the brief tells it to move in with Claude Code's `EnterWorktree <path>`. This gap is #1208's too, and its agent was told.
+  - A thread agent works in the main checkout and has no tree. #1208's hand-off note tells it to "make or enter this card's own worktree (EnterWorktree)". This plan has Irori make the tree itself with `spawn_tree` and put the path in the note. The tree is then tied to the card, so treeclean keeps it while the card is open and removes it once the card settles, and an agent can't forget to make one.
   - **The reopen guard.** If card N is reopened while a reused agent works card M in N's old tree, N's new agent must get a fresh tree on its own branch, not N's old tree, which is now on M's branch.
 - **The wording.** Every brief, notice and refusal that says "take only this card" or "Irori ends you after that" changes. They become: "work only #N now; when it settles, Irori may give you your next item, let you rest, or retire you" (Appendix A.5).
 
@@ -389,7 +392,7 @@ The cards sit on the Board after #1209. Each has steps, files and done-when, and
 4. **#1214 The multi-item mark** (`agent.took`; Appendix A.3).
 5. **#1215 Rest instead of end**: rows, roster state, letting go, drop-off, restart, cap, names, retire rules. After 1, 3 and 4. It ships together with 6, or with §7's fallback until 6 lands, so a resting agent is never stranded.
 6. **#1216 Wake a resting agent**: the wake rule, who may, start gates, flags and permissions, folder, races. After 1 and 5.
-7. **#1217 The next item**: last agent first, thread cards, same-repo offer, no double start, next-item brief, worktree switch, reopen guard, wording. After 3, 4 and 6, and after #1208 has merged.
+7. **#1217 The next item**: last agent first, thread cards, same-repo offer, no double start, next-item brief, worktree switch, reopen guard, wording. After 3, 4 and 6 (#1208 is on main).
 8. **#1218 Roster, hover and Settings.** After 2 to 6.
 
 ## Appendix A: notes for builders
@@ -414,7 +417,7 @@ The cards sit on the Board after #1209. Each has steps, files and done-when, and
 - **The shared check.** Coord can't read files under its lock. Core measures off-lock, and the fold reads a live map, the same pattern as "Offer it cards" (`SpawnState.offers`, the `offers` closure on `coord::Options`, `core/src/service.rs` about 1414-1437 and `boards.rs` about 1514-1562).
   - `reusable(key)` returns `{ctx, ctx_at, compacted, budget}`.
   - The fold compares `ctx_at` with its own clock (`self.stamp()`), so coord tests can use their fake clock. There is no stored "warm" flag.
-  - #1208's thread arm calls the same check.
+  - #1208's `thread_agent_reusable` (`core/src/service/spawn.rs` about 2240) calls the same check.
 - **Who is offered.**
   - `may_hand_to(key, t)` (`coord/src/board/spawn.rs:256`) gains the step 3 arm (`reusable_for(t)` names `key`). This is what `free_for` (`offers.rs:282`) calls to pick.
   - `spawned_may_take` (`:265`) and `check_free` (`offers.rs:207-226`) gain "a live offer on `t` names `key`", so `board_join` accepts it.

@@ -1673,7 +1673,7 @@ impl Services {
     }
 
     /// Routes a coord notice from the person at its next turn.
-    fn tell_notices(&self, n: &Notice) {
+    pub(crate) fn tell_notices(&self, n: &Notice) {
         if let Some(e) = crate::notice::notice_err(&self.route_notice(&self.user_sender(), n)) {
             logf(format_args!("boards: notice: {e}"));
         }
