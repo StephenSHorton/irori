@@ -1373,10 +1373,12 @@ fn a_tracked_sessions_prompt_goes_on_the_card_it_holds() {
     let core = &r.core;
     std::thread::scope(|sc| {
         let a = ask.clone();
-        let h = sc.spawn(move || loop {
-            match core.permission_wait(&a, Duration::from_millis(500)) {
-                PermissionDecision::Pending => continue,
-                d => return d,
+        let h = sc.spawn(move || {
+            loop {
+                match core.permission_wait(&a, Duration::from_millis(500)) {
+                    PermissionDecision::Pending => continue,
+                    d => return d,
+                }
             }
         });
         wait_for(30, "the item on the held card", || {
