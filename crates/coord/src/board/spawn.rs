@@ -1122,7 +1122,8 @@ impl Fold {
         let Some(s) = t.spawn_request() else {
             return false;
         };
-        let rests = self.rested_at(&s.key).is_some();
+        let rested = self.rested_at(&s.key);
+        let rests = rested.is_some();
         if s.key.is_empty()
             || !(rests || self.ended_by_irori.contains(&s.key))
             || self.usage_limited.contains(&s.key)
@@ -1132,14 +1133,14 @@ impl Fold {
         if a.reason == super::asks::TAKE_REOPENED {
             return false;
         }
-        // Since the agent let it go: its take's last change, never before
-        // the request. A word the person wrote while it worked was its to
-        // answer, so it doesn't start another (and a quiet retire after a
-        // rest doesn't either).
-        let since = if gotime::before(&s.at, &a.since) {
-            a.since
-        } else {
-            s.at
+        // Since the agent let it go: when it rested, or when Irori ended
+        // it, never before the request. A word the person wrote while it
+        // worked was its to answer, so it starts no other (and a quiet
+        // retire after a rest doesn't either).
+        let let_go = rested.or_else(|| self.gone_rows.get(&s.key).copied());
+        let since = match let_go {
+            Some(at) if gotime::before(&s.at, &at) => at,
+            _ => s.at,
         };
         !self
             .comments

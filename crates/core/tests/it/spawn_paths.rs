@@ -230,13 +230,30 @@ fn ended(s: &Setup, n: usize) -> bool {
     s.fake.ended.lock().unwrap().contains(&sess(n))
 }
 
+/// Waits until the fake's nth agent rested (card #1215): its hand-off wait
+/// runs out, and its job is stopped, never removed.
+fn wait_rested(s: &Setup, n: usize, what: &str) {
+    wait_for(60, what, || {
+        if s.fake.stopped.lock().unwrap().contains(&sess(n)) {
+            return true;
+        }
+        s.skew
+            .fetch_add(irori_core::spawn::HANDOFF_WAIT.as_secs() as i64, Ordering::SeqCst);
+        s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        false
+    });
+    assert!(!ended(s, n), "a rest never removes the job");
+}
+
 #[test]
-fn the_agent_stays_through_the_grace_then_ends() {
+fn the_agent_stays_through_the_grace_then_rests() {
     let s = at_done_check();
     std::thread::sleep(Duration::from_millis(1500));
     assert!(!ended(&s, 1), "ended inside the grace");
+    assert!(!s.fake.stopped.lock().unwrap().contains(&sess(1)));
     past_grace(&s);
-    wait_for(60, "the agent ended after the grace", || ended(&s, 1));
+    wait_rested(&s, 1, "the agent rested after the grace");
 }
 
 #[test]
@@ -267,7 +284,7 @@ fn a_late_not_done_starts_a_fresh_agent_with_his_words() {
     let s = at_done_check();
     let co = s.r.core.coord();
     past_grace(&s);
-    wait_for(60, "the first agent ended", || ended(&s, 1));
+    wait_rested(&s, 1, "the first agent rested");
     wait_for(90, "the first agent off its card", || {
         co.get_task(&s.t.id).is_some_and(|t| t.holders.is_empty())
     });
@@ -298,6 +315,9 @@ fn a_late_not_done_starts_a_fresh_agent_with_his_words() {
         co.get_task(&s.t.id)
             .is_some_and(|t| t.holders.contains(&second))
     });
+    // Until agents can be woken, the resting one retires: its successor
+    // has the card (card #1215).
+    wait_for(60, "the resting agent retired", || ended(&s, 1));
 }
 
 fn skew_by(s: &Setup, d: Duration) {
@@ -324,7 +344,7 @@ fn stuck_on_a_question_past_the_idle_limit_it_goes_and_his_answer_brings_a_fresh
     )
     .unwrap();
     skew_by(&s, IDLE_LIMIT);
-    wait_for(60, "the stuck agent ended", || ended(&s, 1));
+    wait_rested(&s, 1, "the stuck agent rested");
     wait_for(90, "the stuck agent off its card", || {
         co.get_task(&s.t.id).is_some_and(|t| t.holders.is_empty())
     });
@@ -351,7 +371,7 @@ fn pause_all_starts_no_agent_until_it_lifts() {
     let s = at_done_check();
     let co = s.r.core.coord();
     past_grace(&s);
-    wait_for(60, "the first agent ended", || ended(&s, 1));
+    wait_rested(&s, 1, "the first agent rested");
     wait_for(90, "the first agent off its card", || {
         co.get_task(&s.t.id).is_some_and(|t| t.holders.is_empty())
     });
@@ -467,7 +487,8 @@ fn ends(s: &Setup) -> usize {
 fn a_failing_end_writes_agent_gone_once_and_is_tried_again_later() {
     let s = at_done_check();
     s.fake.fail.store(usize::MAX, Ordering::SeqCst);
-    past_grace(&s);
+    // The person's End retires it (card #1215: a settled agent rests).
+    s.r.core.end_spawned(&s.first()).unwrap();
     wait_for(60, "the first end tried", || ends(&s) >= 1);
     // Many sweeps inside END_RETRY: no second try, one row.
     for _ in 0..5 {
@@ -498,7 +519,8 @@ fn a_failing_end_writes_agent_gone_once_and_is_tried_again_later() {
 fn a_failing_end_is_given_up_after_its_tries() {
     let s = at_done_check();
     s.fake.fail.store(usize::MAX, Ordering::SeqCst);
-    past_grace(&s);
+    // The person's End retires it (card #1215: a settled agent rests).
+    s.r.core.end_spawned(&s.first()).unwrap();
     let tries = irori_core::spawn::END_TRIES as usize;
     for n in 1..=tries {
         wait_for(60, "a try", || ends(&s) >= n);
@@ -520,7 +542,8 @@ fn a_kept_worktree_is_said_on_the_card() {
     let s = at_done_check();
     *s.fake.says.lock().unwrap() =
         "kept worktree /r/.claude/worktrees/fix-save: 2 unpushed commits".into();
-    past_grace(&s);
+    // The person's End retires it (card #1215: a settled agent rests).
+    s.r.core.end_spawned(&s.first()).unwrap();
     wait_for(60, "the agent ended", || ended(&s, 1));
     let co = s.r.core.coord();
     wait_for(30, "the kept line", || {
@@ -573,7 +596,8 @@ fn a_job_rm_kept_is_asked_about_once() {
 fn a_leftover_job_of_an_ended_agent_is_removed() {
     let s = at_done_check();
     s.fake.fail.store(usize::MAX, Ordering::SeqCst);
-    past_grace(&s);
+    // The person's End retires it (card #1215: a settled agent rests).
+    s.r.core.end_spawned(&s.first()).unwrap();
     let tries = irori_core::spawn::END_TRIES as usize;
     for n in 1..=tries {
         wait_for(60, "a try", || ends(&s) >= n);
@@ -603,7 +627,8 @@ fn a_leftover_job_of_an_ended_agent_is_removed() {
 fn the_reaper_leaves_a_running_agent_alone() {
     let s = at_done_check();
     s.fake.fail.store(usize::MAX, Ordering::SeqCst);
-    past_grace(&s);
+    // The person's End retires it (card #1215: a settled agent rests).
+    s.r.core.end_spawned(&s.first()).unwrap();
     let tries = irori_core::spawn::END_TRIES as usize;
     for n in 1..=tries {
         wait_for(60, "a try", || ends(&s) >= n);
@@ -637,7 +662,8 @@ fn an_end_that_only_stopped_is_an_end_and_not_a_kept_job() {
         "{} its folder /r/.claude/worktrees/card-1-1 is a worktree Irori removes itself",
         irori_core::spawn::STOPPED_ONLY
     );
-    past_grace(&s);
+    // The person's End retires it (card #1215: a settled agent rests).
+    s.r.core.end_spawned(&s.first()).unwrap();
     wait_for(60, "the agent ended", || ended(&s, 1));
     std::thread::sleep(Duration::from_millis(500));
     assert_eq!(gone_rows(&s, &s.first()), 1);
@@ -659,7 +685,8 @@ fn an_end_that_only_stopped_is_an_end_and_not_a_kept_job() {
 fn the_reaper_waits_for_a_jobs_tree_to_go() {
     let s = at_done_check();
     s.fake.fail.store(usize::MAX, Ordering::SeqCst);
-    past_grace(&s);
+    // The person's End retires it (card #1215: a settled agent rests).
+    s.r.core.end_spawned(&s.first()).unwrap();
     let tries = irori_core::spawn::END_TRIES as usize;
     for n in 1..=tries {
         wait_for(60, "a try", || ends(&s) >= n);
@@ -786,7 +813,7 @@ fn parked_on_another_card_past_the_idle_limit_it_goes_and_a_fresh_one_starts_whe
     std::thread::sleep(Duration::from_millis(1500));
     assert!(!ended(&s, 1), "ended inside the idle limit");
     skew_by(&s, IDLE_LIMIT);
-    wait_for(60, "the parked agent ended", || ended(&s, 1));
+    wait_rested(&s, 1, "the parked agent rested");
     wait_for(90, "the parked agent off its card", || {
         co.get_task(&s.t.id).is_some_and(|t| t.holders.is_empty())
     });
@@ -1076,11 +1103,7 @@ fn an_agent_moves_its_card_up_and_the_next_carries_on_from_left_off() {
         .unwrap();
     assert_eq!(got.weight.as_ref().unwrap().level, "heavy");
     assert!(!got.holders.contains(&s.first()), "it left the card");
-    wait_for(60, "the first agent ended", || {
-        s.skew.fetch_add(30, Ordering::SeqCst);
-        s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
-        ended(&s, 1)
-    });
+    wait_rested(&s, 1, "the first agent rested");
     wait_for(60, "a fresh agent", || {
         s.fake.started.lock().unwrap().len() == 2
     });
@@ -1424,13 +1447,24 @@ fn an_irori_restart_keeps_resting_agents() {
 fn a_quiet_day_retires_a_resting_agent() {
     let s = rested_with_hand_off();
     let k = s.first();
+    wait_for(60, "presence lost the session", || {
+        !s.r.core.local_agents().iter().any(|a| a.key == k)
+    });
     wait_for(60, "it retired after a quiet day", || {
         skew_by(&s, irori_core::resting::QUIET_FOR);
         ended(&s, 1)
     });
     let r = rows_about(&s, store::kinds::AGENT_RETIRE, &k);
+    let inbox: Vec<(String, String, String)> = s
+        .r
+        .core
+        .inbox()
+        .for_agent(&k, true, 0)
+        .into_iter()
+        .map(|d| (d.mode, d.message.reason, d.message.text.chars().take(80).collect()))
+        .collect();
     assert_eq!(r.len(), 1, "{r:?}");
-    assert_eq!(r[0]["reason"], coord::roster::RETIRE_QUIET);
+    assert_eq!(r[0]["reason"], coord::roster::RETIRE_QUIET, "{inbox:?}");
     assert_eq!(gone_rows(&s, &k), 1);
     assert!(s.r.core.coord().ended_by_irori(&k));
     assert!(!s.r.core.resting(&k));
@@ -1477,16 +1511,35 @@ fn the_cap_ignores_resting_agents() {
     let s = at_done_check();
     s.r.core.set_spawn_cap(1).unwrap();
     let co = s.r.core.coord();
-    co.create_task(
-        &s.person,
-        NewTask {
-            title: "Fix the load".into(),
-            ..NewTask::default()
+    let t2 = co
+        .create_task(
+            &s.person,
+            NewTask {
+                title: "Fix the load".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.set_where(
+        &t2.id,
+        Where {
+            who: s.r.key_a.clone(),
+            cwd: s._work.path().to_string_lossy().into(),
+            worktree: s._work.path().to_string_lossy().into(),
+            ..Where::default()
         },
     )
     .unwrap();
+    s.r.core.set_spawn_cap(1).unwrap();
     std::thread::sleep(Duration::from_millis(1500));
-    assert_eq!(s.fake.started.lock().unwrap().len(), 1, "the cap holds it");
+    let q = s.r.core.spawn_queue();
+    assert_eq!(
+        s.fake.started.lock().unwrap().len(),
+        1,
+        "the cap holds it: running {} of {}",
+        q.running,
+        q.cap
+    );
     past_grace(&s);
     wait_for(60, "the second card started past the resting agent", || {
         skew_by(&s, irori_core::spawn::HANDOFF_WAIT);
