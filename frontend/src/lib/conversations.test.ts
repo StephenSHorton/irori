@@ -8,6 +8,9 @@ import {
   isYou,
   listed,
   memberOf,
+  mergeConversations,
+  readConversations,
+  readPosts,
   postLine,
   readAll,
   replyingLine,
@@ -17,6 +20,7 @@ import {
   type Conversation,
 } from "./conversations"
 import { TalkConversation, TalkPost, type FileRef } from "./models"
+import type { Want } from "./patched"
 
 const conv = (p: Partial<Conversation>): Conversation => TalkConversation(p)
 
@@ -434,5 +438,79 @@ describe("the person in a DM an agent opened (card #642)", () => {
     expect(isYou("user")).toBe(true)
     expect(isYou("person:bob")).toBe(false)
     expect(isYou("username/s1")).toBe(false)
+  })
+})
+
+// Card #1150: Talk's list and posts read by conversation.
+const talkKey = "talk:changed.convs"
+const want = (ids: string[]): Want => ({
+  all: false,
+  drift: false,
+  full: false,
+  ids: { [talkKey]: ids },
+})
+const everything: Want = { all: true, drift: false, full: true, ids: {} }
+
+describe("Talk's list reads by conversation (card #1150)", () => {
+  const a = conv({ convId: "a", name: "a", lastAt: "2026-11-03T10:00:00Z" })
+  const b = conv({ convId: "b", name: "b", lastAt: "2026-11-03T11:00:00Z" })
+  const c = conv({ convId: "c", name: "c", lastAt: "2026-11-03T09:00:00Z" })
+
+  test("a full answer replaces the list", () => {
+    expect(mergeConversations([a], { full: true, rows: [b, c] })).toEqual([
+      b,
+      c,
+    ])
+  })
+
+  test("a patch upserts the rows read, drops the gone, keeps newest first", () => {
+    const a2 = { ...a, lastAt: "2026-11-03T12:00:00Z", unread: 3 }
+    const got = mergeConversations([b, a, c], {
+      full: false,
+      rows: [a2],
+      gone: ["c"],
+    })
+    expect(got.map((x) => x.convId)).toEqual(["a", "b"])
+    expect(got[0].unread).toBe(3)
+  })
+
+  test("a notice reads only the rows it names; ids with no row are gone", async () => {
+    const seen: string[][] = []
+    const orig = talkApi.conversationsById
+    talkApi.conversationsById = async (ids) => {
+      seen.push(ids)
+      return [a].filter((x) => ids.includes(x.convId))
+    }
+    try {
+      const got = await readConversations(want(["a", "z"]))
+      expect(seen).toEqual([["a", "z"]])
+      expect(got).toEqual({ full: false, rows: [a], gone: ["z"] })
+    } finally {
+      talkApi.conversationsById = orig
+    }
+  })
+})
+
+describe("Posts reload only for their own conversation (card #1150)", () => {
+  test("a post in conversation A doesn't read conversation B's posts", async () => {
+    const loaded: string[] = []
+    const load = async (id: string) => {
+      loaded.push(id)
+      return []
+    }
+    expect(await readPosts("b", want(["a"]), load)).toBeNull()
+    expect(loaded).toEqual([])
+    expect(await readPosts("a", want(["a"]), load)).toEqual([])
+    expect(await readPosts("b", want(["a", "b"]), load)).toEqual([])
+    expect(loaded).toEqual(["a", "b"])
+  })
+
+  test("a full read (all, a gap, a failure) reads them", async () => {
+    const loaded: string[] = []
+    await readPosts("b", everything, async (id) => {
+      loaded.push(id)
+      return []
+    })
+    expect(loaded).toEqual(["b"])
   })
 })

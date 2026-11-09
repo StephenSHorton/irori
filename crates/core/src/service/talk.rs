@@ -25,6 +25,26 @@ impl Core {
         tools::talk::conversations(&self.talk_view(), reader)
     }
 
+    /// [`Core::talk_conversations`] with the thread rows left out unless
+    /// `threads` (card #1150).
+    pub fn talk_conversations_with(
+        &self,
+        reader: &str,
+        threads: bool,
+    ) -> Result<Vec<Conversation>, String> {
+        tools::talk::conversations_with(&self.talk_view(), reader, threads)
+    }
+
+    /// Just the rows of `convs` ([`tools::talk::conversations_by_id`]).
+    pub fn talk_conversations_by_id(
+        &self,
+        reader: &str,
+        convs: &[String],
+        threads: bool,
+    ) -> Result<Vec<Conversation>, String> {
+        tools::talk::conversations_by_id(&self.talk_view(), reader, convs, threads)
+    }
+
     /// Up to `limit` posts of `conv` before post `before` (`None`: the
     /// newest), oldest first, as `reader` may read them.
     pub fn talk_posts(

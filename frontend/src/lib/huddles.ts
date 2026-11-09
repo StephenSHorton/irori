@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from "react"
 
 import { subscribeCall, sharedCall, personWord, lengthText } from "./call"
 import { TalkService } from "./host"
-import { onChange } from "./changes"
+import { names, onChange } from "./changes"
 import { timedRead } from "./window-log"
 import { inWails } from "./irori"
 import { errorText } from "./talk"
@@ -111,7 +111,11 @@ export function useHuddles(): {
     const offCall = subscribeCall(() => void reload())
     previewListeners.add(reload)
     const off = inWails()
-      ? onChange(EventTalkChanged, () => void reload())
+      ? // Every huddle is read again whenever a call changed, so a new one
+        // shows (card #1150); a change to conversations only reads nothing.
+        onChange(EventTalkChanged, (n) => names(n, "calls") && void reload(), {
+          follow: ["calls"],
+        })
       : () => {}
     return () => {
       offCall()
