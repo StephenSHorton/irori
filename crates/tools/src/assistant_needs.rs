@@ -85,7 +85,7 @@ fn toks(text: &str) -> Vec<Tok> {
         let body = core
             .trim_end_matches(|c: char| ".!?,;:".contains(c))
             .to_lowercase();
-        let stop = if tail.contains('?') || raw.contains('?') {
+        let stop = if tail.contains('?') || raw.contains(['?', '\u{ff1f}']) {
             Some('?')
         } else if tail.chars().count() > 1 && tail.chars().all(|c| c == '.') {
             // "..." trails off; it ends nothing.
@@ -325,7 +325,14 @@ fn reserved(part: &str) -> bool {
         || TIME_WORDS.contains(&part)
         || OTHER_VERBS.contains(&part)
         || verb_at(&[part], 0).is_some()
-        || ["not", "go", "because", "since", "review", "done", "yes"].contains(&part)
+        || [
+            "not", "go", "because", "since", "review", "done", "yes", "trash", "bin", "backlog",
+            "personal", "archive", "inbox", "board", "nobody", "void",
+        ]
+        .contains(&part)
+        // A possessive ("Spencer's Assistant") is someone else's.
+        || part.ends_with("'s")
+        || part.ends_with('\'')
         || number(part)
         || is_ref(part)
         || !part.chars().any(char::is_alphabetic)
@@ -341,86 +348,97 @@ fn name_words(name: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether the snapshot's people or givers include a name as the words
-/// starting at `i`: the person's key and how many words the name took.
-/// A first name alone counts when no one else has it; a whole name beats
-/// a first-name-only match, never another member's whole name. A name
-/// never runs across a stop. Two that fit equally are `Err`: which one
-/// isn't known, and that includes a member whose name the reader can't
-/// match but who shares the first word.
+/// Letters and digits only, for comparing names however they are
+/// accented or decorated: "José" and "Jo🙂" become "jos" and "jo".
+fn skeleton(s: &str) -> String {
+    s.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
+/// Who a name at word `i` is, among everyone the snapshot knows (people
+/// and givers together): their key and how many words it took. One
+/// matcher for every name, and any doubt is `Err`:
+/// - a second candidate of any kind (a whole name, a first name, a
+///   member whose name the reader can't match but who looks the same);
+/// - a hit outside `allowed` (a non-giver for "Spencer's" or a tell);
+/// - a name that would run across a stop.
+///
+/// `max` is how many words the name may take: a tell takes one.
 fn name_at(
     w: &[&str],
     stops: &[Option<char>],
     i: usize,
-    people: &[(String, String)],
+    everyone: &[(String, String)],
+    allowed: &[String],
     possessive: bool,
+    max: usize,
 ) -> Option<Result<(String, usize), ()>> {
     let first = *w.get(i)?;
     if possessive && CONTRACTIONS.contains(&first) {
         return None;
     }
-    // (key, words, whole name)
-    let mut hits: Vec<(String, usize, bool)> = vec![];
+    let bare = first
+        .strip_suffix("'s")
+        .or_else(|| first.strip_suffix('\''))
+        .filter(|_| possessive)
+        .unwrap_or(first);
+    let mut hits: Vec<(String, usize)> = vec![];
     let mut shadow = false;
-    for (key, name) in people {
+    for (key, name) in everyone {
         let parts = name_words(name);
         if parts.is_empty() {
             continue;
         }
         if parts.iter().any(|p| reserved(p)) {
             // Unmatchable, but "Ann" still means two people when one of
-            // them is "Ann 2".
-            let p0 = &parts[0];
-            if first == p0
-                || (possessive && (first == format!("{p0}'s") || first == format!("{p0}'")))
-            {
+            // them is "Ann 2", "Anné" or "Ann🙂".
+            let (a, b) = (skeleton(&parts[0]), skeleton(bare));
+            if !a.is_empty() && !b.is_empty() && (a.starts_with(&b) || b.starts_with(&a)) {
                 shadow = true;
             }
             continue;
         }
+        if parts[0].chars().any(|c| !c.is_ascii()) {
+            // A name typed with letters a keyboard may not have: only an
+            // exact match counts, and a near one is doubt.
+            let (a, b) = (skeleton(&parts[0]), skeleton(bare));
+            if parts[0] != bare && !a.is_empty() && (a.starts_with(&b) || b.starts_with(&a)) {
+                shadow = true;
+            }
+        }
         let fits = |n: usize| -> bool {
-            (0..n).all(|k| {
-                let Some(x) = w.get(i + k) else {
-                    return false;
-                };
-                // No stop inside a name: "Ann, close #5" isn't "Ann Close".
-                if k + 1 < n && stops.get(i + k).copied().flatten().is_some() {
-                    return false;
-                }
-                let want = &parts[k];
-                if k + 1 == n && possessive {
-                    *x == format!("{want}'s") || (want.ends_with('s') && *x == format!("{want}'"))
-                } else {
-                    x == want
-                }
-            })
+            n <= max
+                && (0..n).all(|k| {
+                    let Some(x) = w.get(i + k) else {
+                        return false;
+                    };
+                    // No stop inside a name: "Ann, close #5" isn't "Ann Close".
+                    if k + 1 < n && stops.get(i + k).copied().flatten().is_some() {
+                        return false;
+                    }
+                    let want = &parts[k];
+                    if k + 1 == n && possessive {
+                        *x == format!("{want}'s")
+                            || (want.ends_with('s') && *x == format!("{want}'"))
+                    } else {
+                        x == want
+                    }
+                })
         };
         if fits(parts.len()) {
-            hits.push((key.clone(), parts.len(), true));
+            hits.push((key.clone(), parts.len()));
         } else if parts.len() > 1 && fits(1) {
-            hits.push((key.clone(), 1, false));
+            hits.push((key.clone(), 1));
         }
     }
     hits.sort();
-    hits.dedup();
-    if hits.is_empty() {
-        return shadow.then_some(Err(()));
-    }
-    if shadow {
-        return Some(Err(()));
-    }
-    match hits.as_slice() {
-        [one] => Some(Ok((one.0.clone(), one.1))),
-        _ => {
-            let best = hits.iter().map(|h| h.1).max().unwrap_or(0);
-            let top: Vec<_> = hits.iter().filter(|h| h.1 == best).collect();
-            // The longer name wins only over first-name-only matches.
-            let others_partial = hits.iter().filter(|h| h.1 < best).all(|h| !h.2);
-            match top.as_slice() {
-                [one] if best > 1 && one.2 && others_partial => Some(Ok((one.0.clone(), one.1))),
-                _ => Some(Err(())),
-            }
-        }
+    hits.dedup_by(|a, b| a.0 == b.0);
+    match (hits.as_slice(), shadow) {
+        ([], false) => None,
+        ([one], false) if allowed.contains(&one.0) => Some(Ok(one.clone())),
+        _ => Some(Err(())),
     }
 }
 
@@ -467,8 +485,12 @@ struct Clause {
 struct Reader<'a> {
     text: &'a str,
     snap: &'a Snapshot,
-    givers: Vec<(String, String)>,
     people: Vec<(String, String)>,
+    /// People and givers together, once each: every name is matched
+    /// against all of them.
+    everyone: Vec<(String, String)>,
+    giver_keys: Vec<String>,
+    people_keys: Vec<String>,
 }
 
 impl Reader<'_> {
@@ -499,7 +521,7 @@ impl Reader<'_> {
         if verb_at(w, j).is_some() {
             return true;
         }
-        if w[j] == "tell" && name_at(w, &stops, j + 1, &self.givers, false).is_some() {
+        if w[j] == "tell" && self.teller(w, &stops, j + 1).is_some() {
             return true;
         }
         if !(is_ref(w[j]) || ["the", "all", "rest", "others"].contains(&w[j])) {
@@ -552,6 +574,35 @@ impl Reader<'_> {
         out
     }
 
+    /// The giver a tell names, by one word: "tell Spencer Little chance…"
+    /// is Spencer, and "Little" is the person's words.
+    fn teller(
+        &self,
+        w: &[&str],
+        stops: &[Option<char>],
+        j: usize,
+    ) -> Option<Result<(String, usize), ()>> {
+        name_at(w, stops, j, &self.everyone, &self.giver_keys, false, 1)
+    }
+
+    /// The person a give is to.
+    fn person(
+        &self,
+        w: &[&str],
+        stops: &[Option<char>],
+        j: usize,
+    ) -> Option<Result<(String, usize), ()>> {
+        name_at(
+            w,
+            stops,
+            j,
+            &self.everyone,
+            &self.people_keys,
+            false,
+            usize::MAX,
+        )
+    }
+
     /// The giver's possessive ("Spencer's").
     fn whose(
         &self,
@@ -559,7 +610,15 @@ impl Reader<'_> {
         stops: &[Option<char>],
         j: usize,
     ) -> Option<Result<(String, usize), ()>> {
-        name_at(w, stops, j, &self.givers, true)
+        name_at(
+            w,
+            stops,
+            j,
+            &self.everyone,
+            &self.giver_keys,
+            true,
+            usize::MAX,
+        )
     }
 
     /// "of them", "of Spencer's" after a set word: what it counts over,
@@ -589,7 +648,7 @@ impl Reader<'_> {
         }
         // "tell Spencer it's too big": the rest is the reason.
         if w.get(j) == Some(&"tell") {
-            let (key, n) = name_at(w, &stops, j + 1, &self.givers, false)?.ok()?;
+            let (key, n) = self.teller(w, &stops, j + 1)?.ok()?;
             let mut r = j + 1 + n;
             if t.get(r - 1).is_some_and(|x| x.stop == Some(':')) {
                 // "tell Spencer: it's too big"
@@ -635,9 +694,12 @@ impl Reader<'_> {
                 c.back = true;
                 1
             } else if x == "to" && c.verb == Some(Verb::Give) && c.to.is_none() {
-                let (k, n) = name_at(w, &stops, j + 1, &self.people, false)?.ok()?;
+                let (k, n) = self.person(w, &stops, j + 1)?.ok()?;
                 c.to = Some(k);
                 1 + n
+            } else if (x == "all" || x == "everything") && t[j].stop.is_some() {
+                c.targets.push(Target::All(Scope::All));
+                1
             } else if x == "all" || x == "everything" {
                 let (scope, n) = match self.of(w, &stops, j + 1).ok()? {
                     (Scope::All, 0) => match self.whose(w, &stops, j + 1) {
@@ -671,7 +733,7 @@ impl Reader<'_> {
                 n
             } else if c.verb == Some(Verb::Give) && c.to.is_none() && verb_end == Some(j) {
                 // "give Spencer #12": the person right after the verb.
-                let (k, n) = name_at(w, &stops, j, &self.people, false)?.ok()?;
+                let (k, n) = self.person(w, &stops, j)?.ok()?;
                 c.to = Some(k);
                 n
             } else {
@@ -707,6 +769,17 @@ impl Reader<'_> {
         if c.reason.is_some() && c.verb != Some(Verb::GiveBack) {
             return None;
         }
+        // A "because" reason goes with the cards it names, never with
+        // "all", "the rest" or "Spencer's": it may carve some out.
+        if c.reason.is_some() && c.targets.iter().any(Target::is_set) {
+            return None;
+        }
+        // "reject #15 for now" is a Not now, not a give-back.
+        if c.verb == Some(Verb::GiveBack)
+            && w[a..].windows(2).any(|p| p[0] == "for" && p[1] == "now")
+        {
+            return None;
+        }
         Some(c)
     }
 
@@ -734,7 +807,47 @@ impl Reader<'_> {
     /// something, asks nothing, names no card given to them, takes nothing
     /// back or carves nothing out, and fits what the card keeps.
     fn reason_ok(&self, reason: &str) -> bool {
-        if reason.chars().count() > MAX_REASON || reason.contains('?') {
+        if reason.chars().count() > MAX_REASON {
+            return false;
+        }
+        // One plain clause: letters, digits, apostrophes and spaces, with a
+        // '.' or '-' only inside a word. No ref, no question, no second
+        // sentence, list, quote or aside.
+        let folded = apostrophes(reason);
+        let cs: Vec<char> = folded.chars().collect();
+        for (k, c) in cs.iter().enumerate() {
+            let inside = k > 0
+                && cs[k - 1].is_alphanumeric()
+                && cs.get(k + 1).is_some_and(|n| n.is_alphanumeric());
+            let ok = c.is_alphanumeric()
+                || *c == ' '
+                || *c == '\''
+                || ((*c == '.' || *c == '-') && inside);
+            if !ok {
+                return false;
+            }
+        }
+        // No Needs you verb: "because not now" says something else to do.
+        let low = folded.to_lowercase();
+        let ws: Vec<&str> = low.split(' ').filter(|x| !x.is_empty()).collect();
+        if (0..ws.len()).any(|k| verb_at(&ws, k).is_some()) {
+            return false;
+        }
+        // No member's name: the reason goes to one giver, and a name in it
+        // may be meant for someone else.
+        let names: Vec<String> = self
+            .everyone
+            .iter()
+            .flat_map(|(_, n)| name_words(n))
+            .filter(|p| !reserved(p))
+            .collect();
+        if folded.to_lowercase().split(' ').any(|x| {
+            let x = x
+                .strip_suffix("'s")
+                .or_else(|| x.strip_suffix('\''))
+                .unwrap_or(x);
+            names.iter().any(|n| n == x)
+        }) {
             return false;
         }
         // Word by word, whatever punctuation is stuck to them.
@@ -757,8 +870,9 @@ impl Reader<'_> {
 fn earlier_items(r: &Reader, text: &str) -> Option<Vec<usize>> {
     let mut out = vec![];
     for t in toks(text) {
-        if is_ref(&t.w) {
-            match r.item_refs(&norm_ref(&t.w)).as_slice() {
+        let w = earlier_ref(&t.w)?;
+        if is_ref(w) {
+            match r.item_refs(&norm_ref(w)).as_slice() {
                 [i] => {
                     if !out.contains(i) {
                         out.push(*i);
@@ -804,7 +918,7 @@ fn about_needs(r: &Reader, t: &[Tok], w: &[&str]) -> bool {
     let give = w.iter().any(|x| ["give", "send", "hand"].contains(x))
         && w.iter()
             .any(|x| is_ref(x) || ["it", "this", "that"].contains(x))
-        && (0..w.len()).any(|i| name_at(w, &stops, i, &r.people, false).is_some());
+        && (0..w.len()).any(|i| r.person(w, &stops, i).is_some());
     verb && (target || give)
 }
 
@@ -818,15 +932,24 @@ pub(crate) fn read(text: &str, earlier: &[&str], snap: &Snapshot) -> Read {
             givers.push(g);
         }
     }
+    let people: Vec<(String, String)> = snap
+        .people
+        .iter()
+        .map(|p| (p.person_key.clone(), p.name.clone()))
+        .collect();
+    let mut everyone = people.clone();
+    for g in &givers {
+        if !everyone.iter().any(|(k, _)| *k == g.0) {
+            everyone.push(g.clone());
+        }
+    }
     let r = Reader {
         text,
         snap,
-        givers,
-        people: snap
-            .people
-            .iter()
-            .map(|p| (p.person_key.clone(), p.name.clone()))
-            .collect(),
+        giver_keys: givers.iter().map(|g| g.0.clone()).collect(),
+        people_keys: people.iter().map(|p| p.0.clone()).collect(),
+        people,
+        everyone,
     };
     let t = toks(text);
     let w: Vec<&str> = t.iter().map(|x| x.w.as_str()).collect();
@@ -1015,6 +1138,8 @@ fn parse(r: &Reader, t: &[Tok], w: &[&str], earlier: &[&str]) -> Option<Vec<Gran
                     tg,
                     Target::All(Scope::Giver(_) | Scope::Named)
                         | Target::Rest(Scope::Giver(_) | Scope::Named)
+                        | Target::It
+                        | Target::Them
                 )
             }) {
                 scoped = true;
@@ -1124,12 +1249,27 @@ fn reason_start(w: &[&str], a: usize, b: usize, c: &Clause) -> usize {
     b
 }
 
+/// A word of an earlier message as a ref may be read: "#12's" is #12; a
+/// "#" this reader can't read ("#12/#13", "'#12'") makes the message
+/// unclear, so `None`.
+fn earlier_ref(w: &str) -> Option<&str> {
+    let x = w
+        .strip_suffix("'s")
+        .or_else(|| w.strip_suffix('\''))
+        .unwrap_or(w);
+    if x.contains('#') && !is_ref(x) {
+        return None;
+    }
+    Some(x)
+}
+
 /// The one card the person's previous message named.
 fn earlier_one_ref(earlier: &[&str]) -> Option<String> {
     let mut refs: Vec<String> = vec![];
     for t in toks(earlier.last()?) {
-        if is_ref(&t.w) {
-            let r = norm_ref(&t.w);
+        let w = earlier_ref(&t.w)?;
+        if is_ref(w) {
+            let r = norm_ref(w);
             if !refs.contains(&r) {
                 refs.push(r);
             }
@@ -1326,8 +1466,8 @@ mod tests {
                 vec![back("t13", "it's too vague")],
             ),
             (
-                "reject #15 because it duplicates #9",
-                vec![back("t15", "it duplicates #9")],
+                "reject #15 because it duplicates another card",
+                vec![back("t15", "it duplicates another card")],
             ),
             ("give #15 back", vec![back("t15", "")]),
             ("send back #15", vec![back("t15", "")]),
@@ -1346,8 +1486,8 @@ mod tests {
                 ],
             ),
             (
-                "give back #15 because it's big, and old",
-                vec![back("t15", "it's big, and old")],
+                "give back #15 because it's big and old",
+                vec![back("t15", "it's big and old")],
             ),
         ] {
             assert_eq!(g(text, &s), want, "{text}");
@@ -1771,10 +1911,10 @@ mod tests {
         );
         assert_eq!(
             g(
-                "give back #15 because it's out of scope, e.g. the login part",
+                "give back #15 because it's out of scope for this sprint",
                 &s
             ),
-            vec![back("t15", "it's out of scope, e.g. the login part")]
+            vec![back("t15", "it's out of scope for this sprint")]
         );
 
         let mut late = snap();
@@ -1932,13 +2072,18 @@ mod tests {
         // What still reads.
         assert_eq!(
             g(
-                "give back #15 because it's out of scope, e.g. the login part",
+                "give back #15 because it's out of scope for this sprint",
                 &s
             ),
-            vec![back("t15", "it's out of scope, e.g. the login part")]
+            vec![back("t15", "it's out of scope for this sprint")]
         );
+        // A "because" reason never rides on a set word; a tell's may.
         assert_eq!(
             g("reject all of Spencer's because they're stale", &s),
+            vec![]
+        );
+        assert_eq!(
+            g("reject all of Spencer's, tell Spencer they're stale", &s),
             vec![
                 back("t12", "they're stale"),
                 back("t13", "they're stale"),
@@ -2002,5 +2147,255 @@ mod tests {
             Some(("person:pAnn".into(), ids(&["task:p3"])))
         );
         gs.end(run);
+    }
+
+    /// Round three of the adversarial pass on #1226, against the shape
+    /// rules: a reason is one plain clause with no ref and no member's
+    /// name; a "because" reason never rides on a set word; a tell takes
+    /// one name word; names never look past a stop.
+    #[test]
+    fn round_three_cases_grant_nothing() {
+        let s = snap();
+        for text in [
+            "reject all because I'm swamped, not Blake's",
+            "reject all because I'm swamped; leave Blake's",
+            "reject all, tell Spencer I'm swamped, not Blake's",
+            "Give back #15 because it's fixed in v1.2... Not now.",
+            "Give back #15 because it's fixed in v1.2\u{2026} Not now.",
+            "Give back #15 because it's fixed, etc. Not now.",
+            "give back #15 because it's too big, just kidding",
+            "give back #15 because it's too big, j/k",
+            "give back #15 because it's too big, do it anyway",
+            "give back #15 because it's too big - hang on",
+            "give back #15 because it's too big, forget it",
+            "give back #15 because not now",
+            "reject #15, tell Spencer it's too big, just kidding",
+            "give back #15 because it's too big, as long as Spencer agrees",
+            "give back #15 because it's done\u{ff1f}",
+            "reject #15, tell Spencer is this even yours\u{ff1f}",
+            "reject #15 and #7, tell Spencer and Blake it's too big",
+            "reject #15 and #7 because Spencer, these are dupes",
+            "reject #15 for now",
+            "reject #15, tell Spencer \"it's too big, the rest later\"",
+            "reject #15, tell Spencer \u{201c}it's too big, start #12\u{201d}",
+            "give back #15 because it's too big, do not",
+            "give back #15 because it's too big, not yet",
+            "reject #15, tell Spencer it's too big, not yet",
+            "reject everything; Blake's okay",
+            "reject all, Blake's ok",
+        ] {
+            assert_eq!(g(text, &s), vec![], "{text}");
+        }
+        assert_eq!(
+            gf(
+                "accept them, reject the rest",
+                &["what are ops#13 and ops#14?"],
+                &s
+            ),
+            vec![]
+        );
+        assert_eq!(
+            gf("start it", &["is #12's scope smaller than #13?"], &s),
+            vec![]
+        );
+        assert_eq!(gf("give it to Ann", &["is #3's fix in #4?"], &s), vec![]);
+        let with_person = |n: &str| {
+            let mut x = snap();
+            x.people.push(SnapPerson {
+                person_key: "person:pX".into(),
+                name: n.into(),
+            });
+            x
+        };
+        assert_eq!(g("send #3 to trash", &with_person("Trash")), vec![]);
+        assert_eq!(
+            g(
+                "give #3 to Spencer's assistant",
+                &with_person("Spencer's Assistant")
+            ),
+            vec![]
+        );
+        let mut jose = snap();
+        for (k, n) in [
+            ("person:pJ1", "Jos\u{e9}"),
+            ("person:pJ2", "Jose Ruiz"),
+            ("person:pJo", "Jo\u{1f642}"),
+            ("person:pJL", "Jo Lee"),
+        ] {
+            jose.people.push(SnapPerson {
+                person_key: k.into(),
+                name: n.into(),
+            });
+        }
+        assert_eq!(g("give #3 to Jose", &jose), vec![]);
+        assert_eq!(g("give #3 to Jo", &jose), vec![]);
+        let al = ("person:pAL", "Ann Lee");
+        let mut ann = Snapshot::new(
+            vec![
+                item("x1", "dev#1", al, ItemState::Asked),
+                item("x2", "dev#2", al, ItemState::Asked),
+            ],
+            people(),
+        );
+        ann.people.push(SnapPerson {
+            person_key: "person:pAL".into(),
+            name: "Ann Lee".into(),
+        });
+        for text in [
+            "start Ann's",
+            "reject all of Ann's",
+            "reject dev#1, tell Ann it's too big",
+            "tell Ann it's too big, reject dev#1",
+        ] {
+            assert_eq!(g(text, &ann), vec![], "{text}");
+        }
+        let little = Snapshot::new(
+            vec![item(
+                "x1",
+                "dev#1",
+                ("person:pSL", "Spencer Little"),
+                ItemState::Asked,
+            )],
+            people(),
+        );
+        let got = g(
+            "reject dev#1, tell Spencer little chance we get to it",
+            &little,
+        );
+        assert!(
+            !got.iter().any(
+                |x| matches!(x, Grant::GiveBack { reason, .. } if reason == "chance we get to it")
+            ),
+            "{got:?}"
+        );
+    }
+
+    /// Member-controlled names never add, widen or redirect a grant: for
+    /// each message, a member (and a giver of one card) is named after each
+    /// word, pair of words and possessive in it. A message that granted
+    /// grants the same or nothing; one that granted nothing still does.
+    #[test]
+    fn no_member_name_changes_what_a_message_grants() {
+        let granted = [
+            "start ops#13",
+            "Please accept #12 and #13.",
+            "can you start ops#13?",
+            "go ahead with #12",
+            "ok, start an agent on #12",
+            "park #12",
+            "#12 later",
+            "not now #12",
+            "start #12 and #13 later",
+            "decline #13 because it's too vague",
+            "give #15 back",
+            "send back #15",
+            "pass on #15",
+            "give back #15 because it's not mine",
+            "tell Spencer it's too big, give back #15",
+            "give #3 and #4 to Blake",
+            "send Spencer #3",
+            "hand ops#40 to Ann",
+            "start all of Spencer's",
+            "start #12, give the others back",
+            "accept #12, #13 and #14, reject the rest, tell Spencer it's too big",
+        ];
+        let refused = [
+            "don't start #12",
+            "maybe start #12",
+            "start #12 when the tests pass",
+            "should I start #12?",
+            "start #12. Or not?",
+            "start #99",
+            "start #12, tell Spencer thanks",
+            "start #12 and close #5",
+            "take a look at #12",
+            "start the first six",
+            "reject the rest",
+            "start it",
+            "start #12, but not #13",
+            "give back Spencer's #15 because it's not mine",
+            "start #13 first",
+            "give #3 a go",
+            "reject #15 for now",
+            "reject all because I'm swamped, not Blake's",
+            "reject everything; Blake's okay",
+            "give back #15 - not yet",
+        ];
+        let names_in = |text: &str| -> Vec<String> {
+            let words: Vec<String> = text
+                .to_lowercase()
+                .split_whitespace()
+                .map(|w| w.trim_matches(|c: char| ",.!?;:\"".contains(c)).to_string())
+                .filter(|w| !w.is_empty())
+                .collect();
+            let mut out: Vec<String> = vec![];
+            for (i, w) in words.iter().enumerate() {
+                let bare = w.strip_suffix("'s").unwrap_or(w).to_string();
+                for n in [w.clone(), bare.clone()] {
+                    if !out.contains(&n) {
+                        out.push(n);
+                    }
+                }
+                if let Some(next) = words.get(i + 1) {
+                    let pair = format!("{bare} {}", next.strip_suffix("'s").unwrap_or(next));
+                    if !out.contains(&pair) {
+                        out.push(pair);
+                    }
+                }
+            }
+            out
+        };
+        let set_word = |t: &str| {
+            let l = t.to_lowercase();
+            ["all", "everything", "rest", "others"]
+                .iter()
+                .any(|x| l.split(|c: char| !c.is_alphanumeric()).any(|w| w == *x))
+        };
+        let mut runs = 0;
+        for (text, must_grant) in granted
+            .iter()
+            .map(|t| (*t, true))
+            .chain(refused.iter().map(|t| (*t, false)))
+        {
+            let base = g(text, &snap());
+            assert_eq!(!base.is_empty(), must_grant, "{text}: {base:?}");
+            for name in names_in(text) {
+                // As another member.
+                let mut p = snap();
+                p.people.push(SnapPerson {
+                    person_key: "person:pEvil".into(),
+                    name: name.clone(),
+                });
+                // As a giver of one card, too, unless a set word would
+                // rightly count that card.
+                let mut variants = vec![p];
+                if !set_word(text) {
+                    let mut gv = snap();
+                    gv.items.push(
+                        Snapshot::new(
+                            vec![item(
+                                "x99",
+                                "evil#777",
+                                ("person:pEvil", &name),
+                                ItemState::Asked,
+                            )],
+                            vec![],
+                        )
+                        .items
+                        .remove(0),
+                    );
+                    variants.push(gv);
+                }
+                for v in variants {
+                    runs += 1;
+                    let got = g(text, &v);
+                    assert!(
+                        got.is_empty() || got == base,
+                        "{text} with a member named {name:?}: {got:?} (alone: {base:?})"
+                    );
+                }
+            }
+        }
+        assert!(runs > 300, "{runs}");
     }
 }
