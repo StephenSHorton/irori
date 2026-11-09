@@ -160,10 +160,16 @@ impl Pass {
         logf(format_args!("kept {w} for now ({n} in a row): {why}"));
         let (say, wait) = busy_plan(n);
         if say {
-            self.say(
-                t,
-                &format!("nothing could remove it yet ({why}); Irori looks again later"),
-            );
+            // A holder is named ("held by cat.exe (pid 12)"), so the card
+            // says what to end; Storage has the End it button (card #1118).
+            let said = if why.starts_with(treeclean::HELD_BY) {
+                format!(
+                    "nothing could remove it yet: it is {why}; end it in Storage, or Irori looks again later"
+                )
+            } else {
+                format!("nothing could remove it yet ({why}); Irori looks again later")
+            };
+            self.say(t, &said);
         }
         if let Some(wait) = wait {
             self.rest(w, Some(Instant::now() + wait));

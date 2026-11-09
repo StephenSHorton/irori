@@ -54,7 +54,16 @@ export type StorageItem = {
   keep: string
   // An attachment this device attached itself: maybe the only copy.
   onlyHere: boolean
+  // Why the sweep keeps a worktree ("waiting for Done", "canceled, 3
+  // unpushed commits"), "" for none (#1118).
+  pinned: string
+  // Processes with their folder in a worktree: End it ends one (#1118).
+  holders: StorageHolder[]
+  // A canceled card's worktree, which may be deleted whole (#1118).
+  deleteAnyway: boolean
 }
+
+export type StorageHolder = { pid: number; name: string }
 
 export type StorageCleaned = {
   removed: number
@@ -249,6 +258,9 @@ function item(
     cleanable: true,
     keep: "",
     onlyHere: false,
+    pinned: "",
+    holders: [],
+    deleteAnyway: false,
     ...p,
   }
 }
@@ -323,6 +335,36 @@ function freshSample(): Record<string, StorageItem[]> {
         cards: ["01SAMPLE728"],
         cleanable: false,
         keep: "an agent is working in it",
+      }),
+      item({
+        id: "c:/work/irori/.claude/worktrees/card-973-1",
+        name: "card-973-1",
+        bytes: 33 * GB,
+        at: ago(4),
+        detail: "#973 Relay health",
+        cards: ["01SAMPLE973"],
+        pinned: "waiting for Done",
+      }),
+      item({
+        id: "c:/work/irori/.claude/worktrees/card-655-1",
+        name: "card-655-1",
+        bytes: 31 * GB,
+        at: ago(6),
+        detail: "#655 Share a screen",
+        cards: ["01SAMPLE655"],
+        cleanable: false,
+        keep: "held by cat (pid 4242)",
+        holders: [{ pid: 4242, name: "cat" }],
+      }),
+      item({
+        id: "c:/work/irori/.claude/worktrees/card-610-1",
+        name: "card-610-1",
+        bytes: 12 * GB,
+        at: ago(9),
+        detail: "#610 Old idea",
+        cards: ["01SAMPLE610"],
+        pinned: "canceled, 3 unpushed commits",
+        deleteAnyway: true,
       }),
     ],
     updates: [
@@ -521,6 +563,34 @@ export const storage = {
     }
     changed(kind)
     return out
+  },
+
+  // endHolder ends process `pid`, which has its folder in worktree `tree`
+  // (#1118): the sweep can't remove a tree past it.
+  endHolder: async (tree: string, pid: number): Promise<string> => {
+    let who: string
+    if (inWails()) who = await StorageService.EndHolder(tree, pid)
+    else {
+      const t = (sample.builds ?? []).find((i) => i.id === tree)
+      who = t?.holders.find((h) => h.pid === pid)?.name ?? `pid ${pid}`
+      if (t) {
+        t.holders = t.holders.filter((h) => h.pid !== pid)
+        if (!t.holders.length) {
+          t.keep = ""
+          t.cleanable = true
+        }
+      }
+    }
+    changed("builds")
+    return who
+  },
+
+  // deleteTree deletes a canceled card's worktree whole, unpushed work and
+  // all (#1118).
+  deleteTree: async (tree: string): Promise<void> => {
+    if (inWails()) await StorageService.DeleteTree(tree)
+    else sample.builds = (sample.builds ?? []).filter((i) => i.id !== tree)
+    changed("builds")
   },
 
   cleared: (): Promise<ClearedCard[]> =>
