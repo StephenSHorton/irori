@@ -2160,11 +2160,13 @@ impl crate::Window {
     /// the chat's files named in `files` are offered to the person's other
     /// devices, so the assistant's computer can fetch them, and the
     /// question's row carries them. Only files the chat itself stored count.
+    /// `call_id` is the huddle it is asked from (Divide, card #1054), or "".
     pub fn assistant_chat_ask(
         &self,
         text: &str,
         screen: &str,
         again: &str,
+        call_id: &str,
         files: &[AssistantFile],
     ) -> Result<String, String> {
         let index = load_index(&self.core.assistant_dir());
@@ -2184,7 +2186,7 @@ impl crate::Window {
             });
         }
         self.core
-            .assistant_chat_ask_with(text, screen, again, asked)
+            .assistant_chat_ask_from(text, screen, again, call_id, asked)
     }
 
     /// The bytes of a question's files for the model, each file's name and

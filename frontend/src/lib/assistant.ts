@@ -31,6 +31,14 @@ import {
 } from "./assistant-follow"
 import { cards, threads } from "./cards"
 import { goesByItself, splitGo, type GoTarget } from "./goto"
+import { sampleDivideReply } from "./sample-huddle"
+import {
+  divideNow,
+  stopDivide,
+  takeDrafts,
+  type CardDraft,
+  type SettleDraft,
+} from "./huddle-divide"
 import { screenLabel, screenSnapshot, StatusHead } from "./assistant-screen"
 import { AssistantService, Events } from "./host"
 import { EventDevicesChanged, inWails } from "./irori"
@@ -476,6 +484,8 @@ export function setAssistantOpen(open: boolean) {
 // far. The turns being answered stop; the threads it posted are no longer
 // followed.
 export function newChat() {
+  // A new chat is no longer on the huddle it was dividing (card #1054).
+  stopDivide()
   if (!inWails()) {
     for (const t of [...localRuns.keys()]) stopTurn(t)
     set({ entries: [], streams: {}, busy: false, work: {} })
@@ -840,7 +850,16 @@ export async function ask(
   try {
     // What the window shows, sent along for the screen tool (card #1009).
     const screen = await screenSnapshot().catch(() => "")
-    const turn = await AssistantService.ChatAsk(body, screen, again, files)
+    // Divide (card #1054): while the chat is on a huddle, each question
+    // carries its id and the assistant's computer puts the huddle in the
+    // prompt.
+    const turn = await AssistantService.ChatAsk(
+      body,
+      screen,
+      again,
+      files,
+      divideNow()?.callId
+    )
     asked.set(turn, Date.now())
     await refresh()
   } catch (err) {
@@ -924,17 +943,24 @@ export function splitDraft(raw: string): Split {
   }
 }
 
-// splitReply splits a reply as the chat shows it: its drafted thread
-// (splitDraft) and its go line (card #784, lib/goto.ts), taken only from
-// the text outside the draft, so the draft posts exactly as shown.
+// splitReply splits a reply as the chat shows it: the card and settle
+// drafts of a huddle's Divide (card #1054, lib/huddle-divide.ts), its
+// drafted thread (splitDraft) and its go line (card #784, lib/goto.ts),
+// taken only from the text outside the blocks, in that order, so a go line
+// inside a block never fires and a draft posts exactly as shown.
 // writing: the reply is still being written.
 export function splitReply(
   raw: string,
   writing = false
-): Split & { go: GoTarget | null } {
-  const d = splitDraft(raw)
+): Split & {
+  go: GoTarget | null
+  cards: CardDraft[]
+  settle: SettleDraft | null
+} {
+  const k = takeDrafts(raw)
+  const d = splitDraft(k.text)
   const g = splitGo(d.text, writing)
-  return { ...d, text: g.text, go: g.go }
+  return { ...d, text: g.text, go: g.go, cards: k.cards, settle: k.settle }
 }
 
 // postDraft posts the draft of the reply at `turn` as a thread, as the
@@ -1407,9 +1433,16 @@ function sampleAsk(
   screen = ""
 ): number {
   const id = ++sampleIds
-  const { tools, text } = files.length
-    ? sampleFiles(q, files)
-    : sampleAnswer(q, screen)
+  // Divide (card #1054): the chat is on a huddle.
+  const dividing = divideNow()
+  const { tools, text } = dividing
+    ? {
+        tools: ["Reading the canvas"],
+        text: sampleDivideReply(dividing.callId),
+      }
+    : files.length
+      ? sampleFiles(q, files)
+      : sampleAnswer(q, screen)
   const timers: ReturnType<typeof setTimeout>[] = []
   let at = 150
   const after = (ms: number, ev: AssistantEvent) => {

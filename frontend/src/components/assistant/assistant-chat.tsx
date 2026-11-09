@@ -82,6 +82,8 @@ import {
   useOldHistory,
 } from "@/lib/assistant-import"
 import { goLabel, type GoTarget } from "@/lib/goto"
+import { stopDivide, takeDrafts, useDivide } from "@/lib/huddle-divide"
+import { DivideDrafts } from "./divide-drafts"
 import { BlockerState, useCard } from "@/lib/cards"
 import { useDraft } from "@/lib/drafts"
 import { GIVEN_QUESTION } from "@/lib/needs"
@@ -667,6 +669,8 @@ export function AssistantPanel({
         </IconTip>
       </header>
 
+      <DivideBar />
+
       <div
         ref={scroller}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3"
@@ -943,11 +947,14 @@ function Entry({
   // A thread posting by itself shows that, not Post thread (card #988).
   // A draft cut short (Stopped, or a reply that never closed it) shows
   // with no Post thread: it isn't the whole thread.
-  const { text, draft, partial, go } = splitReply(entry.text)
+  const { text, draft, partial, go, cards, settle } = splitReply(entry.text)
   return (
     <Message>
       <MessageContent className="gap-2 text-[13.5px] leading-relaxed">
         {text && <RichText bold text={replyText(text)} />}
+        {(cards.length > 0 || settle) && (
+          <DivideDrafts cards={cards} settle={settle} />
+        )}
         {go && <GoButton target={go} onGo={onGo} />}
         {entry.looked && <LookedAt label={entry.looked} />}
         {draft && (
@@ -963,6 +970,37 @@ function Entry({
         )}
       </MessageContent>
     </Message>
+  )
+}
+
+// DivideBar says the chat is on a huddle (card #1054): each question it asks
+// carries the huddle, and nothing is made until a draft's button is tapped.
+function DivideBar() {
+  const divide = useDivide()
+  if (!divide) return null
+  return (
+    <div
+      className="flex shrink-0 items-center gap-2 border-b border-border bg-secondary/40 px-4 py-1.5 text-[12px]"
+      data-divide-bar=""
+    >
+      <span className="grid min-w-0 flex-1 gap-0.5">
+        <span className="truncate">
+          Dividing <span className="font-medium">{divide.title}</span>
+        </span>
+        <span className="text-muted-foreground">
+          Nothing is made until you tap.
+        </span>
+      </span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Stop dividing this huddle"
+        onClick={stopDivide}
+      >
+        <XIcon />
+      </Button>
+    </div>
   )
 }
 
@@ -1192,7 +1230,11 @@ function Waiting({
 // words so far, and a thread it is drafting (posted only once it's done).
 function Answering({ reply }: { reply: Reply }) {
   const { text, draft, partial } = splitReply(reply.text, true)
-  const status = reply.status || (partial ? "Drafting a thread" : "")
+  // A Divide reply's blocks are cut from the text as they are written.
+  const drafting = takeDrafts(reply.text).partial
+  const status =
+    reply.status ||
+    (drafting ? "Drafting cards" : partial ? "Drafting a thread" : "")
   return (
     <Message>
       <MessageContent className="gap-1.5 text-[13.5px] leading-relaxed">

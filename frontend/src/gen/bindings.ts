@@ -415,8 +415,11 @@ export const commands = {
 	huddleTitleSet: (callId: string, title: string) => __TAURI_INVOKE<string>("huddle_title_set", { callId, title }),
 	/**  Adds an item to a huddle's canvas (card #1051). */
 	huddleItemAdd: (callId: string, kind: string, text: string) => __TAURI_INVOKE<TalkCanvasItem>("huddle_item_add", { callId, kind, text }),
-	/**  Changes a canvas item (card #1051): text, status or place. */
-	huddleItemSet: (callId: string, itemId: string, text: string | null, status: string | null, x: number | null, y: number | null) => __TAURI_INVOKE<TalkCanvasItem>("huddle_item_set", { callId, itemId, text, status, x, y }),
+	/**
+	 *  Changes a canvas item (card #1051): text, status, place or, once the
+	 *  huddle is over, the card it became (card #1054).
+	 */
+	huddleItemSet: (callId: string, itemId: string, text: string | null, status: string | null, x: number | null, y: number | null, card: string | null) => __TAURI_INVOKE<TalkCanvasItem>("huddle_item_set", { callId, itemId, text, status, x, y, card }),
 	/**  Asks the person's assistant a question in a live huddle (card #1051). */
 	huddleAsk: (callId: string, text: string) => __TAURI_INVOKE<TalkCanvasItem>("huddle_ask", { callId, text }),
 	/**  What this device can share: displays, then windows. */
@@ -595,8 +598,10 @@ export const commands = {
 	 *  question's row, which the assistant's computer answers wherever it is,
 	 *  and returns its turn. `screen` is this device's snapshot; `again` the
 	 *  turn it asks again (Ask again). `files` are from [`assistant_attach`].
+	 *  `call_id` is the huddle it is asked from (Divide with my assistant, card
+	 *  #1054): the huddle goes in the prompt.
 	 */
-	assistantChatAsk: (text: string, screen: string, again: string | null, files: AssistantFile[]) => __TAURI_INVOKE<string>("assistant_chat_ask", { text, screen, again, files }),
+	assistantChatAsk: (text: string, screen: string, again: string | null, files: AssistantFile[], callId: string | null) => __TAURI_INVOKE<string>("assistant_chat_ask", { text, screen, again, files, callId }),
 	/**
 	 *  Stops a question, from any device: one that hasn't started never runs,
 	 *  and a running one ends at once.
@@ -3442,6 +3447,10 @@ export type TalkCanvasItem = {
 	y: number | null,
 	/**  The ref of the card it became, once a person divided the canvas. */
 	card: string,
+	/**  Who made that card, by name ("" when it is not known). */
+	cardByName: string,
+	/**  This person made it. */
+	cardMine: boolean,
 };
 
 /**  One conversation in Talk's list. */

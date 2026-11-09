@@ -1938,7 +1938,8 @@ pub async fn huddle_item_add(
     blocking(&w, move |w| w.huddle_item_add(&call_id, &kind, &text)).await
 }
 
-/// Changes a canvas item (card #1051): text, status or place.
+/// Changes a canvas item (card #1051): text, status, place or, once the
+/// huddle is over, the card it became (card #1054).
 #[tauri::command]
 #[specta::specta]
 pub async fn huddle_item_set(
@@ -1949,9 +1950,10 @@ pub async fn huddle_item_set(
     status: Option<String>,
     x: Option<f64>,
     y: Option<f64>,
+    card: Option<String>,
 ) -> R<TalkCanvasItem> {
     blocking(&w, move |w| {
-        w.huddle_item_set(&call_id, &item_id, text, status, x, y)
+        w.huddle_item_set(&call_id, &item_id, text, status, x, y, card)
     })
     .await
 }
@@ -2735,6 +2737,8 @@ pub async fn assistant_chat_list(
 /// question's row, which the assistant's computer answers wherever it is,
 /// and returns its turn. `screen` is this device's snapshot; `again` the
 /// turn it asks again (Ask again). `files` are from [`assistant_attach`].
+/// `call_id` is the huddle it is asked from (Divide with my assistant, card
+/// #1054): the huddle goes in the prompt.
 #[tauri::command]
 #[specta::specta]
 pub async fn assistant_chat_ask(
@@ -2743,9 +2747,16 @@ pub async fn assistant_chat_ask(
     screen: String,
     again: Option<String>,
     files: Vec<AssistantFile>,
+    call_id: Option<String>,
 ) -> R<String> {
     blocking(&w, move |w| {
-        w.assistant_chat_ask(&text, &screen, again.as_deref().unwrap_or(""), &files)
+        w.assistant_chat_ask(
+            &text,
+            &screen,
+            again.as_deref().unwrap_or(""),
+            call_id.as_deref().unwrap_or(""),
+            &files,
+        )
     })
     .await
 }

@@ -258,6 +258,10 @@ pub struct TalkCanvasItem {
     pub y: Option<f64>,
     /// The ref of the card it became, once a person divided the canvas.
     pub card: String,
+    /// Who made that card, by name ("" when it is not known).
+    pub card_by_name: String,
+    /// This person made it.
+    pub card_mine: bool,
 }
 
 impl From<irori_core::CanvasEntry> for TalkCanvasItem {
@@ -281,6 +285,8 @@ impl From<irori_core::CanvasEntry> for TalkCanvasItem {
             x: i.x,
             y: i.y,
             card: i.card,
+            card_by_name: e.card_by_name,
+            card_mine: e.card_by_mine,
         }
     }
 }
@@ -598,6 +604,7 @@ impl Window {
         status: Option<String>,
         x: Option<f64>,
         y: Option<f64>,
+        card: Option<String>,
     ) -> Result<TalkCanvasItem, String> {
         let id = crate::trim(call_id);
         let item = crate::trim(item_id);
@@ -609,6 +616,7 @@ impl Window {
                 status,
                 x,
                 y,
+                card,
                 ..coord::talk::NewItemSet::default()
             },
         )?;

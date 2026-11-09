@@ -40,6 +40,7 @@ mod five_cores;
 mod helpertree;
 mod huddle;
 mod huddle_canvas;
+mod huddle_divide;
 mod huddle_feed;
 mod huddle_host;
 mod huddle_packet;

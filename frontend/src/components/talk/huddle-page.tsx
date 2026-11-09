@@ -22,8 +22,11 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { FinishedCanvas } from "./huddle-finished"
 import { Input } from "@/components/ui/input"
 import { Loading } from "@/components/ui/loading"
+import { ask as askAssistantChat, setAssistantOpen } from "@/lib/assistant"
+import { DivideAsk, startDivide } from "@/lib/huddle-divide"
 import { agentsReady, clockText, joinHuddle, personWord } from "@/lib/call"
 import {
   Kinds,
@@ -419,6 +422,9 @@ export function HuddlePage({
   const { t, error: tError, reload } = useTranscript(callId, true)
   const agentsOff = useAgentsOff(h?.convId)
   const [writeError, setWriteError] = useState("")
+  // A huddle that is over opens on its finished canvas (card #1054); the
+  // freeform canvas stays one tap away.
+  const [view, setView] = useState<"finished" | "canvas">("finished")
 
   if (!h) {
     return (
@@ -454,9 +460,53 @@ export function HuddlePage({
   )
   const canAsk = !!t && askAvailable(t, live)
   const empty = !!t && t.canvas.length === 0
+  const finished = !live && !!t && t.canvas.length > 0 && view === "finished"
+  const divide = () => {
+    startDivide(callId, huddleName(h))
+    setAssistantOpen(true)
+    void askAssistantChat(DivideAsk)
+  }
   const canvas = (
     <div className="flex min-h-0 flex-1 flex-col">
-      {agentsOff && (
+      {!live && !!t && t.canvas.length > 0 && (
+        <div
+          role="group"
+          aria-label="Canvas view"
+          className="flex shrink-0 gap-1 px-4 pt-3"
+        >
+          {(
+            [
+              ["finished", "Finished"],
+              ["canvas", "Canvas"],
+            ] as const
+          ).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              aria-pressed={view === k}
+              onClick={() => setView(k)}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-[12.5px]",
+                view === k
+                  ? "bg-secondary font-medium text-ink"
+                  : "text-muted-foreground hover:text-ink"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {finished && t && (
+        <FinishedCanvas
+          callId={callId}
+          items={t.canvas}
+          personal={h.convKind === "dm"}
+          onDivide={divide}
+          onChanged={reload}
+        />
+      )}
+      {!finished && agentsOff && (
         <p
           role="status"
           className="mx-4 mt-3 rounded-lg border border-border px-3 py-2 text-[12.5px] text-muted-foreground"
@@ -465,45 +515,47 @@ export function HuddlePage({
           updating.
         </p>
       )}
-      <div className="relative min-h-[340px] flex-1">
-        {t ? (
-          <Suspense
-            fallback={
-              <p className="p-4 text-[12.5px] text-muted-foreground">
-                Laying out the canvas…
-              </p>
-            }
-          >
-            <HuddleCanvas
-              callId={callId}
-              t={t}
-              people={people}
-              onError={setWriteError}
-              onChanged={reload}
-            />
-          </Suspense>
-        ) : (
-          <p
-            role={tError ? "alert" : undefined}
-            className="p-4 text-[12.5px] text-muted-foreground"
-          >
-            {tError
-              ? `Could not read the canvas: ${tError}`
-              : "Reading the canvas…"}
-          </p>
-        )}
-        {empty && !agentsOff && (
-          <p className="pointer-events-none absolute inset-x-4 top-3 rounded-lg border border-dashed border-border bg-background/80 px-3 py-3 text-center text-[12.5px] text-muted-foreground">
-            {emptyWords({
-              live,
-              agentsOff,
-              anyAssistant: !!t?.assistants.some(
-                (a) => a.state !== "not connected"
-              ),
-            })}
-          </p>
-        )}
-      </div>
+      {!finished && (
+        <div className="relative min-h-[340px] flex-1">
+          {t ? (
+            <Suspense
+              fallback={
+                <p className="p-4 text-[12.5px] text-muted-foreground">
+                  Laying out the canvas…
+                </p>
+              }
+            >
+              <HuddleCanvas
+                callId={callId}
+                t={t}
+                people={people}
+                onError={setWriteError}
+                onChanged={reload}
+              />
+            </Suspense>
+          ) : (
+            <p
+              role={tError ? "alert" : undefined}
+              className="p-4 text-[12.5px] text-muted-foreground"
+            >
+              {tError
+                ? `Could not read the canvas: ${tError}`
+                : "Reading the canvas…"}
+            </p>
+          )}
+          {empty && !agentsOff && (
+            <p className="pointer-events-none absolute inset-x-4 top-3 rounded-lg border border-dashed border-border bg-background/80 px-3 py-3 text-center text-[12.5px] text-muted-foreground">
+              {emptyWords({
+                live,
+                agentsOff,
+                anyAssistant: !!t?.assistants.some(
+                  (a) => a.state !== "not connected"
+                ),
+              })}
+            </p>
+          )}
+        </div>
+      )}
       {t && (
         <div className="grid gap-2 border-t border-border px-4 py-3 max-md:pr-16">
           {writeError && (

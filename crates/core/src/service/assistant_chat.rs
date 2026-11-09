@@ -959,7 +959,7 @@ impl Core {
         screen: &str,
         again: &str,
     ) -> Result<String, String> {
-        self.assistant_chat_ask_with(text, screen, again, Vec::new())
+        self.assistant_chat_ask_from(text, screen, again, "", Vec::new())
     }
 
     /// [`Self::assistant_chat_ask`] with the files that go with the
@@ -971,8 +971,27 @@ impl Core {
         again: &str,
         files: Vec<AskedFile>,
     ) -> Result<String, String> {
+        self.assistant_chat_ask_from(text, screen, again, "", files)
+    }
+
+    /// [`Self::assistant_chat_ask_with`] from a huddle (Divide with my
+    /// assistant, call-agents §9): `call_id` is the huddle, or "". The
+    /// assistant's computer then puts the huddle in the prompt, fenced.
+    /// Refused when the huddle isn't here or isn't over.
+    pub fn assistant_chat_ask_from(
+        &self,
+        text: &str,
+        screen: &str,
+        again: &str,
+        call_id: &str,
+        files: Vec<AskedFile>,
+    ) -> Result<String, String> {
         if text.trim().is_empty() && files.is_empty() {
             return Err("ask something first".into());
+        }
+        let call_id = call_id.trim();
+        if !call_id.is_empty() {
+            self.s.huddle_divide_context(call_id)?;
         }
         let now = (self.s.now)();
         let turn = coord::new_id(&now);
@@ -983,6 +1002,7 @@ impl Core {
             device: self.s.device.id.clone(),
             at: now.unix_milli_value(),
             again: again.trim().to_string(),
+            call_id: call_id.to_string(),
             files,
             ..Asked::default()
         }))?;
