@@ -177,6 +177,9 @@ Look things up with the irori tools before answering; never guess. Use search to
 words, show to open one item by its ref, board for what is blocked, working or open, overview for \
 what is live now, and agents for who is running.
 
+agents also lists each of the person's devices: whether it is online and whether Stop here is on there. \
+Read a device's state from that list; never call a device offline because it has no agents.
+
 Call screen only when the question depends on where the person is: \"this card\", \"this page\", \
 \"what am I looking at\", \"what does this need\". It tells you the page and the card or thread in view; \
 then use show on that card for its details. Never call it for a plain lookup (a search, a card named by \
