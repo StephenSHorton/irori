@@ -8,7 +8,7 @@ Every claim below was checked against the code on 2026-11-08 by reviewers told t
 
 ## 1. What ships
 
-1. **A tool, `device_free`**, that reads this device now: free disk for a folder, available memory, CPU busy, and who holds the heavy and check slots here.
+1. **A tool, `device_free`**, that reads this device now: free disk for a folder, available memory, CPU busy, and who holds the heavy and script slots here.
 2. **A rule in the brief** that names the tool, says what to do with the numbers, and says a timeout, out-of-memory or disk-full failure means check, not retry.
 3. **Heavy slots**: two per device, taken through the `lease` tool.
 
@@ -119,7 +119,7 @@ Done when: tests in `crates/tools/tests/it/` show the base name takes a slot und
   CPU: 71% busy over 1 s, 18 cores.
   Heavy slots (2): slot-1 held by kitsune on #1018, until 11:40; slot-2 free.
   Take one: lease resource=heavy/3dc30c94 ttl_minutes=<your estimate, at most 240>. Lease again to renew; release when done.
-  Check slots: script check-card-999-1-4411 (no card).
+  Script slots: script check-card-999-1-4411 (no card).
   These numbers don't count what the jobs holding slots will still use.
   ```
 

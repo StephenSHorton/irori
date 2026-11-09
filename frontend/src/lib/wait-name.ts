@@ -30,12 +30,13 @@ function words(seg: string): string {
   return w ? w[0].toUpperCase() + w.slice(1) : seg
 }
 
-// family names a lease family's stem: Irori's own check slots and merge
-// desk by what they are, anything else by its last path part in words.
+// family names a lease family's stem: the heavy pool by what it is, a
+// `<pool>/<host>/slot` pool by its pool and host, anything else by its last
+// path part in words.
 function family(stem: string): string {
-  const check = /^check\/([^/]+)\/slot$/.exec(stem)
-  if (check) return `check slot on ${check[1]}`
   if (/^heavy\/[^/]+\/slot$/.test(stem)) return "heavy slot"
+  const pool = /^([^/]+)\/([^/]+)\/slot$/.exec(stem)
+  if (pool) return `${pool[1]} slot on ${pool[2]}`
   const parts = stem.split("/")
   return words(parts[parts.length - 1])
 }
@@ -51,11 +52,11 @@ function repoName(key: string): string {
 }
 
 // member names one numbered member of a family: "Dolphin slot 2",
-// "check slot 3 on macbook".
+// "build slot 3 on macbook".
 function member(stem: string, n: string): string {
-  const check = /^check\/([^/]+)\/slot$/.exec(stem)
-  if (check) return `check slot ${n} on ${check[1]}`
   if (/^heavy\/[^/]+\/slot$/.test(stem)) return `heavy slot ${n}`
+  const pool = /^([^/]+)\/([^/]+)\/slot$/.exec(stem)
+  if (pool) return `${pool[1]} slot ${n} on ${pool[2]}`
   return `${family(stem)} ${n}`
 }
 
