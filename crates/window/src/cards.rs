@@ -1530,10 +1530,10 @@ impl People {
         self.heavy = c.heavy_runs();
     }
 
-    /// Card `t`'s runs (`t` with its keys as this device knows them): on a
-    /// summary (`all` false) the background runs still going that are heavy
-    /// or on another device, heaviest first; on a page every run, newest
-    /// start first.
+    /// Card `t`'s runs (`t` with its keys as this device knows them), newest
+    /// start first: on a summary (`all` false) the background runs still
+    /// going that are heavy or on another device, with no load figures for
+    /// this device's (they ride runs:changed); on a page every run.
     pub(crate) fn card_runs(&self, t: &Task, all: bool) -> Vec<CardRun> {
         if self.runs.is_empty() {
             return Vec::new();
@@ -1563,20 +1563,19 @@ impl People {
                 {
                     continue;
                 }
-                out.push(self.card_run(r, dev, here));
+                let mut run = self.card_run(r, dev, here);
+                if !all && here {
+                    // A summary row stays put while its run's load moves:
+                    // the grid's cache and revs compare whole rows, and the
+                    // page overlays runs:changed anyway.
+                    (run.cpu_cores, run.mem_bytes) = (None, None);
+                    (run.peak_cores, run.peak_mem_bytes) = (None, None);
+                }
+                out.push(run);
             }
         }
-        if all {
-            out.sort_by(|a, b| b.started.cmp(&a.started).then_with(|| a.run.cmp(&b.run)));
-        } else {
-            let w = |r: &CardRun| {
-                r.cpu_cores.unwrap_or(0.0) + r.mem_bytes.unwrap_or(0) as f32 / (1u64 << 30) as f32
-            };
-            out.sort_by(|a, b| {
-                w(b).total_cmp(&w(a))
-                    .then_with(|| a.started.cmp(&b.started))
-            });
-        }
+        // Newest start first; the page orders chips by their live load.
+        out.sort_by(|a, b| b.started.cmp(&a.started).then_with(|| a.run.cmp(&b.run)));
         out
     }
 

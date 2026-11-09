@@ -461,6 +461,14 @@ impl Expander {
         for h in t.holders.iter().chain(&t.left) {
             add_id(&mut keys, h);
         }
+        // Co-holders and the Where line's agent (one spawned for the card
+        // before it claims) show its runs (card #1249).
+        for h in &t.co_holders {
+            add_id(&mut keys, h);
+        }
+        if let Some(w) = &t.where_ {
+            add_id(&mut keys, &w.who);
+        }
         for s in &t.steps {
             add_id(&mut keys, &s.owner);
         }
