@@ -18,8 +18,7 @@ import type * as B from "../gen/bindings"
 import type { TermHost } from "suzuri-view"
 
 // TermInfo is a terminal; tail is set on one that follows a run's output
-// (card #1249, live-tasks.md §5.1). Hand-written until the bindings have
-// it (slices L5, L7).
+// (card #1249, live-tasks.md §5.1).
 export type TermInfo = TermWithTail
 export type { TailInfo }
 export type TermMsg = B.TermMsg

@@ -8,7 +8,7 @@
 // rejects with an Error whose message is the Rust side's text, and an
 // event callback gets the payload as `data`.
 
-import { Channel, invoke } from "@tauri-apps/api/core"
+import { Channel } from "@tauri-apps/api/core"
 import { emit, listen } from "@tauri-apps/api/event"
 import { readImage, writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { openUrl } from "@tauri-apps/plugin-opener"
@@ -761,12 +761,9 @@ export const MetersService = {
 }
 
 // Live tasks on cards (card #1249, live-tasks.md §5.3): Stop ends a run's
-// process tree. The person's button only; no tool reaches it. runs_stop
-// is not in the bindings until slice L7: then this becomes
-// commands.runsStop(key, taskId).
+// process tree. The person's button only; no tool reaches it.
 export const RunsService = {
-  Stop: (key: string, taskId: string) =>
-    done(invoke<null>("runs_stop", { key, taskId })),
+  Stop: (key: string, taskId: string) => done(commands.runsStop(key, taskId)),
 }
 
 // Claude usage left (card #599): the newest reading of the plan's windows.

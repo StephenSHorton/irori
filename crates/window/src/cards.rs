@@ -1572,7 +1572,10 @@ impl People {
             let w = |r: &CardRun| {
                 r.cpu_cores.unwrap_or(0.0) + r.mem_bytes.unwrap_or(0) as f32 / (1u64 << 30) as f32
             };
-            out.sort_by(|a, b| w(b).total_cmp(&w(a)).then_with(|| a.started.cmp(&b.started)));
+            out.sort_by(|a, b| {
+                w(b).total_cmp(&w(a))
+                    .then_with(|| a.started.cmp(&b.started))
+            });
         }
         out
     }

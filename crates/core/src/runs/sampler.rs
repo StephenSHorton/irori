@@ -435,12 +435,10 @@ fn run_cards(s: &super::Services, keys: &BTreeSet<String>) -> BTreeMap<String, V
         let working = coord::effective_state(t) == coord::WORKING;
         let mut seen: Vec<&str> = Vec::new();
         let who = t.where_.as_ref().map(|w| w.who.as_str());
-        for k in who.into_iter().chain(
-            t.holders
-                .iter()
-                .chain(&t.co_holders)
-                .map(String::as_str),
-        ) {
+        for k in who
+            .into_iter()
+            .chain(t.holders.iter().chain(&t.co_holders).map(String::as_str))
+        {
             if keys.contains(k) && !seen.contains(&k) {
                 seen.push(k);
                 out.entry(k.to_string()).or_default().push(RunCard {

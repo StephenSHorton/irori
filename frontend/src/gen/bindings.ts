@@ -614,6 +614,11 @@ export const commands = {
 	 */
 	metersHistory: () => __TAURI_INVOKE<MetersSample[]>("meters_history"),
 	/**
+	 *  The person's Stop on one of this device's runs (card #1249,
+	 *  live-tasks.md §5.3): it reads Stopped and its process tree ends.
+	 */
+	runsStop: (key: string, taskId: string) => __TAURI_INVOKE<null>("runs_stop", { key, taskId }),
+	/**
 	 *  Claude usage left (card #599): the plan's rate-limit windows as this
 	 *  device's Claude Code sessions last measured them, any past its reset
 	 *  left out.
@@ -2038,6 +2043,36 @@ export type CardRound = {
 	sameProof: boolean,
 };
 
+/**
+ *  One run as a card shows it (card #1249, live-tasks.md §6). Times are
+ *  Unix ms. The live CPU and memory every 2 s ride `runs:changed`
+ *  ([`crate::runs::RunLoad`]); these are as of the read.
+ */
+export type CardRun = {
+	who: AgentRef,
+	/**  The claude task id (a foreground call's tool use id). */
+	run: string,
+	kind: RunKind,
+	/**  The command, scrubbed and cut by the Core. */
+	cmd: string,
+	started: number,
+	ended?: number | null,
+	/**  The exit code, when its end said one. */
+	exit: number | null,
+	/**  The person pressed Stop: whatever end follows reads "Stopped". */
+	stopped: boolean,
+	/**
+	 *  CPU in cores over the run's tree at the last reading; none before
+	 *  the second sample.
+	 */
+	cpuCores?: number | null,
+	memBytes?: number | null,
+	peakCores?: number | null,
+	peakMemBytes?: number | null,
+	/**  The device it runs on, by name. */
+	device: string,
+};
+
 /**  One row of a parent's subtask list. */
 export type CardSubtask = {
 	id: string,
@@ -2264,6 +2299,13 @@ export type CardSummary = {
 	 *  agent starts with; none is normal.
 	 */
 	weight?: CardWeight | null,
+	/**
+	 *  Its agents' runs (card #1249, live-tasks.md §6): on a summary the
+	 *  background runs still going that are heavy (or on another device);
+	 *  on a card page ([`CardDetail`]) every run, ended and foreground ones
+	 *  too. Joined on read from the holders' keys.
+	 */
+	runs?: CardRun[],
 };
 
 /**  One entry of a card's thread. */
@@ -3395,6 +3437,27 @@ export type RunHistoryRow = {
 	firstTry: number,
 	sentBack: number,
 	advised: number,
+};
+
+/**
+ *  What kind of run (live-tasks.md §3): `bash` (any background shell,
+ *  PowerShell included), `agent`, `workflow`, or `fg` (a foreground call).
+ */
+export type RunKind = "bash" | "agent" | "workflow" | "fg";
+
+/**  One live run's latest reading. */
+export type RunLoad = {
+	/**  The agent's key. */
+	key: string,
+	/**  The claude task id. */
+	run: string,
+	/**  CPU in cores over its tree; none before the second sample. */
+	cores: number | null,
+	memBytes: number,
+	/**  When it was read, Unix ms (0: not yet). */
+	at: number,
+	/**  This device's name. */
+	device: string,
 };
 
 /**

@@ -84,6 +84,7 @@ export type CardRef = B.CardRef
 export type CardResolution = B.CardResolution
 export type CardReview = B.CardReview
 export type CardRound = B.CardRound
+export type CardRun = B.CardRun
 export type CardSubtask = B.CardSubtask
 export type CardSummary = B.CardSummary
 export type CardThreadItem = B.CardThreadItem
@@ -173,6 +174,8 @@ export type ReviewerChoice = B.ReviewerChoice
 export type Rollup = B.Rollup
 export type RosterChange = B.RosterChange
 export type RunHistoryRow = B.RunHistoryRow
+export type RunKind = B.RunKind
+export type RunLoad = B.RunLoad
 export type RunningAgent = B.RunningAgent
 export type Scope = B.Scope
 export type SendResult = B.SendResult
@@ -626,6 +629,11 @@ export function CardRound(p: Partial<B.CardRound> = {}): B.CardRound {
   return { "id": "", "round": 0, "proof": "", "answer": "", "thread": [], "sameProof": false, ...p } as B.CardRound
 }
 
+/** CardRun with Go's zero values for every field left out. */
+export function CardRun(p: Partial<B.CardRun> = {}): B.CardRun {
+  return { "who": AgentRef(), "run": "", "kind": "", "cmd": "", "started": 0, "exit": null, "stopped": false, "device": "", ...p } as B.CardRun
+}
+
 /** CardsChange with Go's zero values for every field left out. */
 export function CardsChange(p: Partial<B.CardsChange> = {}): B.CardsChange {
   return { "seq": 0, "all": false, "cards": [], "notes": [], "desk": false, ...p } as B.CardsChange
@@ -1029,6 +1037,11 @@ export function RosterChange(p: Partial<B.RosterChange> = {}): B.RosterChange {
 /** RunHistoryRow with Go's zero values for every field left out. */
 export function RunHistoryRow(p: Partial<B.RunHistoryRow> = {}): B.RunHistoryRow {
   return { "weight": "", "model": "", "effort": "", "runs": 0, "firstTry": 0, "sentBack": 0, "advised": 0, ...p } as B.RunHistoryRow
+}
+
+/** RunLoad with Go's zero values for every field left out. */
+export function RunLoad(p: Partial<B.RunLoad> = {}): B.RunLoad {
+  return { "key": "", "run": "", "cores": null, "memBytes": 0, "at": 0, "device": "", ...p } as B.RunLoad
 }
 
 /** RunningAgent with Go's zero values for every field left out. */

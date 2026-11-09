@@ -143,7 +143,12 @@ fn stop_marks_the_run_and_its_tail_stopped() {
         .unwrap();
     co.claim_task(&r.key_a, &t.id).unwrap();
     let tmp = tempfile::tempdir().unwrap();
-    let tasks = tmp.path().join("claude").join("proj").join("sess").join("tasks");
+    let tasks = tmp
+        .path()
+        .join("claude")
+        .join("proj")
+        .join("sess")
+        .join("tasks");
     std::fs::create_dir_all(&tasks).unwrap();
     let out = tasks.join("bstop1.output");
     std::fs::write(&out, "compiling\n").unwrap();
@@ -167,8 +172,8 @@ fn stop_marks_the_run_and_its_tail_stopped() {
     assert!(!tails[0].stopped);
     // A running tail is no shell in use: it never holds an update back.
     assert_eq!(w.core.open_shells(), 0);
-    let shell =
-        w.term_open(
+    let shell = w
+        .term_open(
             term::Scope::Card(t.id.clone()),
             80,
             24,
@@ -181,13 +186,12 @@ fn stop_marks_the_run_and_its_tail_stopped() {
 
     w.runs_stop(&r.key_a, "bstop1").unwrap();
     let row = w.core.runs_of(&r.key_a);
-    let row = row.iter().find(|x| x.id() == RunId::new(&r.key_a, "bstop1")).unwrap();
-    assert!(row.stopped_by_person);
-    let tail = w
-        .term_list(&t.id)
-        .into_iter()
-        .find_map(|i| i.tail)
+    let row = row
+        .iter()
+        .find(|x| x.id() == RunId::new(&r.key_a, "bstop1"))
         .unwrap();
+    assert!(row.stopped_by_person);
+    let tail = w.term_list(&t.id).into_iter().find_map(|i| i.tail).unwrap();
     assert!(tail.stopped, "the tail reads Stopped");
     let d = w.card(&t.id).unwrap();
     let run = d.summary.runs.iter().find(|x| x.run == "bstop1").unwrap();

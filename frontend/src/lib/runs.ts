@@ -5,9 +5,8 @@
 // live CPU and memory come every 2 s on their own runs:changed event, so
 // a reading never rebuilds the card lists (the meters.ts pattern).
 //
-// The types are written by hand until crates/window's bindings have them
-// (slice L7); runsOf and withRuns are the seam that then becomes `c.runs`.
-// In a plain browser the sample's runs move instead (?runs= in
+// The types are crates/window's (gen/bindings); runsOf and withRuns read
+// and set `c.runs`. In a plain browser the sample's runs move instead (?runs= in
 // PREVIEW.md).
 
 import { useSyncExternalStore } from "react"
@@ -19,59 +18,22 @@ import { inWails, plainLine } from "./irori"
 import { fmtGB } from "./meters"
 import { previewFlag } from "./preview"
 
-// ---- types (crates/window CardRun, crates/term TailInfo) ---------------------
-
-export type RunKind = "bash" | "agent" | "workflow" | "fg"
+// ---- types (crates/window CardRun and RunLoad, crates/term TailInfo) --------
 
 // CardRun is one run as a card shows it. Times are ms since the epoch.
 // exit is the exit code when the run said one; a run killed or gone with
-// no code has ended set and exit null.
-export type CardRun = {
-  who: B.AgentRef
-  // The claude task id (a foreground call's tool use id).
-  run: string
-  kind: RunKind
-  // The command, scrubbed and cut by the Core (a workflow's name, an
-  // agent's description).
-  cmd: string
-  started: number
-  ended?: number | null
-  exit: number | null
-  // The person pressed Stop: whatever end came after reads "Stopped".
-  stopped: boolean
-  // CPU in cores and private memory over the run's tree, the last
-  // reading (null before the second one); none from another device.
-  cpuCores?: number | null
-  memBytes?: number | null
-  // A run on another device (here false on who): its peaks, from its end
-  // row (§7).
-  peakCores?: number | null
-  peakMemBytes?: number | null
-  // The device it runs on, by name.
-  device: string
-}
-
+// no code has ended set and exit null. stopped: the person pressed Stop,
+// and whatever end came after reads "Stopped".
+export type CardRun = B.CardRun
+export type RunKind = B.RunKind
 // TailInfo is on a terminal that follows a run's output (§5.1): read only,
 // with the run's end once it has one. exit: absent while it runs, null for
 // an end with no code.
-export type TailInfo = {
-  label: string
-  run: string
-  exit?: number | null
-  stopped: boolean
-}
-
-export type TermWithTail = B.TermInfo & { tail?: TailInfo | null }
-
-// RunLoad is one live reading (runs:changed).
-export type RunLoad = {
-  key: string
-  run: string
-  cores: number | null
-  memBytes: number
-  at: number
-  device: string
-}
+export type TailInfo = B.TailInfo
+export type TermWithTail = B.TermInfo
+// RunLoad is one live reading (runs:changed): the full set of this
+// device's live runs each time.
+export type RunLoad = B.RunLoad
 
 export const EventRunsChanged = "runs:changed"
 
