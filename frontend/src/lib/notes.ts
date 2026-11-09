@@ -401,10 +401,10 @@ function sampleNotes(): Note[] {
       "sample-note-5",
       "gotcha",
       "Each worktree builds into its own target/. A shared target mixes agents' crates.",
-      [`path:${irori}:scripts/check.sh`],
+      [`path:${irori}:scripts/build.sh`],
       otter,
       9,
-      { stale: "scripts/check.sh is gone from irori" }
+      { stale: "scripts/build.sh is gone from irori" }
     ),
     live(
       "sample-note-6",
@@ -417,7 +417,7 @@ function sampleNotes(): Note[] {
     live(
       "sample-note-7",
       "gotcha",
-      "Run scripts/check.sh with the machine quiet: presence tests time out at a load average over 20.",
+      "Run the full test script with the machine quiet: presence tests time out at a load average over 20.",
       [`repo:${irori}`],
       heron,
       2
