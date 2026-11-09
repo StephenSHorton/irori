@@ -55,7 +55,7 @@ import {
   RUNS_PATH,
   fgStartFrom,
   isShellTool,
-  runEndFrom,
+  runEndsFrom,
   runStartFrom,
 } from './lib'
 
@@ -478,11 +478,17 @@ async function postRun($: EngineInterface, run: RunReport | null) {
   // A queued report keeps the cwd it was made with.
   const cwd = (run.event === 'start' || run.event === 'fg-start') && !run.cwd ? await runCwd($) : undefined
   const body: RunReport = cwd ? { ...run, cwd } : run
-  if (!api || !attachSecret) return queueRun($, body)
+  if ((await sendRun($, body)) === 'queue') await queueRun($, body)
+}
+
+/** One report to the Core: sent, to keep for the next hello (no attach), or dropped (refused). */
+async function sendRun($: EngineInterface, body: RunReport): Promise<'sent' | 'queue' | 'drop'> {
+  if (!api || !attachSecret) return 'queue'
   const answer = await callCore($, 'POST', RUNS_PATH, body)
-  if (answer.ok) return
-  if (answer.status === 0 || answer.status === 401 || answer.status === 403) return queueRun($, body)
+  if (answer.ok) return 'sent'
+  if (answer.status === 0 || answer.status === 401 || answer.status === 403) return 'queue'
   $.ui.log(`irori: run report refused: ${answer.error}`, { to: 'debug' })
+  return 'drop'
 }
 
 /** Where the session runs now; the attach's cwd when the engine won't say. */
@@ -500,11 +506,20 @@ async function queueRun($: EngineInterface, run: RunReport) {
 
 /** At hello: sends the reports kept while there was no attach, oldest first. */
 async function flushRuns($: EngineInterface) {
-  const pending = await read($, runsAtom)
-  if (!pending.length) return
-  // Reports queued while this flush ran stay behind the ones it takes.
-  await update($, runsAtom, list => list.slice(pending.length))
-  for (const run of pending) await postRun($, run)
+  // Take the whole list in one write, so a report queued meanwhile is never
+  // dropped by a count that no longer matches the list.
+  let pending: RunReport[] = []
+  await update($, runsAtom, list => {
+    pending = list
+    return []
+  })
+  for (let i = 0; i < pending.length; i++) {
+    if ((await sendRun($, pending[i]!)) !== 'queue') continue
+    // The attach died mid-flush: the rest go back in front, still oldest first.
+    const rest = pending.slice(i)
+    await update($, runsAtom, list => [...rest, ...list].slice(-MAX_RUNS))
+    return
+  }
 }
 
 /** A shell, Agent, Workflow or TaskStop call finished: what its result says ran (live-tasks.md §2.1). */
@@ -1011,8 +1026,8 @@ export const register: Register = (on, options) => {
   try {
     on('session.append', ($, e, next) => {
       try {
-        const run = runEndFrom(e as never, Date.now())
-        if (run?.taskId && !endedRuns.has(run.taskId)) {
+        for (const run of runEndsFrom(e as never, Date.now())) {
+          if (!run.taskId || endedRuns.has(run.taskId)) continue
           endedRuns.add(run.taskId)
           if (endedRuns.size > MAX_RUNS * 4) endedRuns.delete(endedRuns.values().next().value as string)
           void postRun($, run).catch(() => {})

@@ -90,6 +90,8 @@ function world(
     permissionAnswers?: Array<{ status: number; text: string }>
     /** What each built-in tool beneath the gate answers (card #1249); default `ran <tool>`. */
     toolResults?: Record<string, { result: unknown; text?: string; isError?: boolean }>
+    /** Answers for POST /v1/runs, used up in order (card #1249); default ok. */
+    runsAnswers?: Array<{ status: number; text: string }>
   } = {},
 ) {
   const children: Array<ReturnType<typeof makeChild>> = []
@@ -161,6 +163,8 @@ function world(
       const a = opts.permissionAnswers?.shift() ?? { status: 200, text: '{"decision":"none"}' }
       return { value: { ok: a.status < 300, status: a.status, headers: {}, text: a.text } } as never
     }
+    const run = e.url.endsWith('/v1/runs') ? opts.runsAnswers?.shift() : undefined
+    if (run) return { value: { ok: run.status < 300, status: run.status, headers: {}, text: run.text } } as never
     if (e.url.endsWith('/v1/tools?client=claude')) return { value: { ok: true, status: 200, headers: {}, text: JSON.stringify(specs) } } as never
     const next = e.url.includes('/v1/tools/') ? opts.toolAnswers?.shift() : undefined
     if (next) return { value: { ok: next.status < 300, status: next.status, headers: {}, text: next.text } } as never
@@ -1231,6 +1235,38 @@ describe('live runs (card #1249)', () => {
     await $.session.append({ message: { type: 'user', content: [{ type: 'text', text }] }, door: 'prompt', origin: { kind: 'composer' }, uuid: 'u3' } as never)
     await pause(50)
     expect(bodies(w.calls).length).toBe(1)
+  })
+
+  test('a notification row as session.append hands it (no message.task) ends each run in it, once', OPTIONS, async ($, on) => {
+    const w = world(on)
+    await attached($, w)
+    const n = (id: string, status: string, summary: string) =>
+      `<task-notification>\n<task-id>${id}</task-id>\n<tool-use-id>toolu_${id}</tool-use-id>\n<status>${status}</status>\n<summary>${summary}</summary>\n</task-notification>`
+    const text = n('bx1', 'completed', 'Background command "cargo test" completed (exit code 0)') + '\n' + n('ay2', 'completed', 'Agent "review" completed')
+    const row = (uuid: string) => ({ message: { type: 'user', content: [{ type: 'text', text }] }, door: 'queue', origin: { kind: 'task-notification' }, uuid }) as never
+    await $.session.append(row('u1'))
+    await until(() => bodies(w.calls).length === 2, 'two ends')
+    expect(bodies(w.calls)[0]).toMatchObject({ event: 'end', kind: 'bash', taskId: 'bx1', toolUseId: 'toolu_bx1', status: 'completed', exitCode: 0 })
+    expect(bodies(w.calls)[1]).toMatchObject({ event: 'end', kind: 'agent', taskId: 'ay2', status: 'completed' })
+    await $.session.append(row('u2'))
+    await pause(50)
+    expect(bodies(w.calls).length).toBe(2)
+  })
+
+  test('an attach that dies mid-flush keeps the rest queued, in order, for the next hello', OPTIONS, async ($, on) => {
+    const w = world(on, { toolResults: { Bash: bg('be9ihtlp2', OUT) }, runsAnswers: [{ status: 403, text: '{"error":"dead secret"}' }] })
+    await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    await $.tool.call({ tool: 'Bash', command: 'cargo test', run_in_background: true, tool_use_id: 'toolu_r' } as never)
+    await pause(100)
+    w.children[0]!.write(line(hello))
+    await until(() => bodies(w.calls).length === 1, 'first flush refused')
+    await pause(100)
+    // Refused: the flush stops there, so start never went ahead of its fg-start.
+    expect(bodies(w.calls).map(b => b.event)).toEqual(['fg-start'])
+    w.children[0]!.write(line(hello))
+    await until(() => bodies(w.calls).length === 3, 'second flush')
+    expect(bodies(w.calls).map(b => b.event)).toEqual(['fg-start', 'fg-start', 'start'])
   })
 
   test('TaskStop ends the run early as killed, and its notification adds nothing', OPTIONS, async ($, on) => {

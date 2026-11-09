@@ -637,9 +637,33 @@ function tag(text: string, name: string): string | undefined {
  * mod's own appends (door `note`) and rows with no ended status are not ends.
  */
 export function runEndFrom(row: AppendRow | null | undefined, endedAt?: number): RunReport | null {
-  if (!row || row.door === 'note' || row.origin?.kind !== 'task-notification') return null
+  return runEndsFrom(row, endedAt)[0] ?? null
+}
+
+/**
+ * Every `end` a task-notification row reports. `session.append`'s message
+ * carries no `task` in today's engine types (only the UserMessage render
+ * input has it), so the text is what is read in practice, and a row can hold
+ * several `<task-notification>` blocks: each one is an end.
+ */
+export function runEndsFrom(row: AppendRow | null | undefined, endedAt?: number): RunReport[] {
+  if (!row || row.door === 'note' || row.origin?.kind !== 'task-notification') return []
   const text = rowText(row.message?.content)
-  const task = (row.message?.task && typeof row.message.task === 'object' ? row.message.task : {}) as Record<string, unknown>
+  const task = row.message?.task && typeof row.message.task === 'object' ? (row.message.task as Record<string, unknown>) : null
+  if (task) {
+    const one = endOf(text, task, endedAt)
+    return one ? [one] : []
+  }
+  const blocks = text.match(/<task-notification>[^]*?<\/task-notification>/g) ?? [text]
+  const out: RunReport[] = []
+  for (const b of blocks) {
+    const one = endOf(b, {}, endedAt)
+    if (one) out.push(one)
+  }
+  return out
+}
+
+function endOf(text: string, task: Record<string, unknown>, endedAt: number | undefined): RunReport | null {
   const taskId = str(task.id) ?? tag(text, 'task-id')
   const status = str(task.status) ?? tag(text, 'status')
   if (!taskId || !status) return null

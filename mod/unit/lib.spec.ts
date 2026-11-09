@@ -35,6 +35,7 @@ import {
   isShellTool,
   parseBgResultText,
   runEndFrom,
+  runEndsFrom,
   runKindOf,
   runStartFrom,
 } from '../hooks/lib'
@@ -515,6 +516,19 @@ describe('live runs (card #1249)', () => {
   test('end from the tags when the row has no task', () => {
     const row = { door: 'prompt', origin: { kind: 'task-notification' }, message: { content: note('Background command "x" failed with exit code -1') } }
     expect(runEndFrom(row)).toEqual({ event: 'end', kind: 'bash', taskId: 'bq1', toolUseId: 'toolu_9', status: 'failed', exitCode: -1 })
+  })
+
+  test('a row holding several notifications ends each one', () => {
+    const two =
+      note('Background command "a" completed (exit code 0)') +
+      '\n' +
+      note('x').replace('bq1', 'a77').replace('toolu_9', 'toolu_8').replace('failed', 'completed')
+    const row = { door: 'queue', origin: { kind: 'task-notification' }, message: { content: [{ type: 'text', text: two }] } }
+    expect(runEndsFrom(row, 3)).toEqual([
+      { event: 'end', kind: 'bash', taskId: 'bq1', toolUseId: 'toolu_9', status: 'failed', exitCode: 0, endedAt: 3 },
+      { event: 'end', kind: 'agent', taskId: 'a77', toolUseId: 'toolu_8', status: 'completed', endedAt: 3 },
+    ])
+    expect(runEndsFrom({ door: 'note', origin: { kind: 'task-notification' }, message: { content: two } })).toEqual([])
   })
 
   test("not an end: the mod's own notes, other origins, rows with no id or status", () => {
