@@ -24,7 +24,14 @@ import {
   needsYou,
   prChip,
   rowState,
+  GIVEN_BACK_CANCEL,
+  GIVEN_BACK_KEEP,
+  GIVEN_BACK_KEEP_ONLY,
+  GIVEN_BACK_QUESTION,
+  GIVEN_NOT_NOW,
   GIVEN_QUESTION,
+  GIVEN_START,
+  givenGroups,
   spawnNeed,
   stuckLine,
   toPerson,
@@ -720,6 +727,24 @@ describe("spawned agents' own decisions (card #456, sa-7)", () => {
       `pub const CRASHED_QUESTION: &str = "${CRASHED_QUESTION}";`
     )
   })
+  test("the given constants match the Rust ones (decision 69)", () => {
+    const spawn = rust("coord/src/board/spawn.rs")
+    const given = rust("coord/src/board/given.rs")
+    expect(spawn).toContain(
+      `pub const GIVEN_QUESTION: &str = "${GIVEN_QUESTION}";`
+    )
+    expect(spawn).toContain(`pub const GIVEN_START: &str = "${GIVEN_START}";`)
+    expect(spawn).toContain(
+      `pub const GIVEN_NOT_NOW: &str = "${GIVEN_NOT_NOW}";`
+    )
+    for (const [name, v] of [
+      ["GIVEN_BACK_QUESTION", GIVEN_BACK_QUESTION],
+      ["GIVEN_BACK_KEEP", GIVEN_BACK_KEEP],
+      ["GIVEN_BACK_KEEP_ONLY", GIVEN_BACK_KEEP_ONLY],
+      ["GIVEN_BACK_CANCEL", GIVEN_BACK_CANCEL],
+    ])
+      expect(given).toContain(`pub const ${name}: &str = "${v}";`)
+  })
   test("a permission wait, a crash, anything else", () => {
     const q = (blockerQuestion: string) =>
       card({ openBlockers: 1, blockerQuestion })
@@ -961,5 +986,78 @@ describe("no agent can start (card #541)", () => {
   test("a real question on the card still reads as one", () => {
     const asked = { ...c, openBlockers: 1 }
     expect(needsOf([asked], []).map((n) => n.kind)).toEqual(["decision"])
+  })
+})
+
+describe("given cards in Needs you (decision 69)", () => {
+  const spencer = { key: "person:spencer", name: "Spencer", status: "person" }
+  const blake = { key: "person:blake", name: "Blake", status: "person" }
+  const g = (
+    id: string,
+    rank: number,
+    by: typeof spencer | undefined,
+    batch: string,
+    c: Partial<CardSummary> = {}
+  ) =>
+    card({
+      id,
+      givenBy: by as AgentRef | undefined,
+      givenRank: rank,
+      givenBatch: batch,
+      givenQuestion: `q-${id}`,
+      openBlockers: 1,
+      blockerQuestion: GIVEN_QUESTION,
+      ...c,
+    })
+
+  test("groups by giver and batch, in the order Rust gives", () => {
+    const cards = [
+      g("c4", 4, blake, ""),
+      g("c2", 2, spencer, "b1"),
+      g("c1", 1, spencer, "b1"),
+      g("c3", 3, spencer, "b2"),
+    ]
+    const groups = givenGroups(needsOf(cards, []))
+    expect(groups.map((x) => [x.giver.name, x.batch])).toEqual([
+      ["Spencer", "b1"],
+      ["Spencer", "b2"],
+      ["Blake", ""],
+    ])
+    expect(groups[0].cards.map((c) => c.id)).toEqual(["c1", "c2"])
+  })
+  test("a given card shows once, not also as a decision", () => {
+    const needs = needsOf([g("c1", 1, spencer, "b1")], [])
+    expect(needs.map((n) => n.kind)).toEqual(["given"])
+  })
+  test("another open question on a given card still gets its row", () => {
+    const needs = needsOf([g("c1", 1, spencer, "b1", { openBlockers: 2 })], [])
+    expect(needs.map((n) => n.kind).sort()).toEqual(["decision", "given"])
+  })
+  test("a Not now card stays in its group", () => {
+    const c = g("c1", 1, spencer, "b1", {
+      givenSaid: "notnow",
+      givenQuestion: "",
+      openBlockers: 0,
+      blockerQuestion: "",
+    })
+    const groups = givenGroups(needsOf([c, g("c2", 2, spencer, "b1")], []))
+    expect(groups).toHaveLength(1)
+    expect(groups[0].cards.map((x) => x.id)).toEqual(["c1", "c2"])
+  })
+  test("an open given question with no givenBy is marked", () => {
+    const c = card({
+      id: "m",
+      openBlockers: 1,
+      blockerQuestion: GIVEN_QUESTION,
+      givenQuestion: "q",
+    })
+    expect(needsOf([c], []).map((n) => n.kind)).toEqual(["marked"])
+  })
+  test("a give from an older Irori falls back to today's row", () => {
+    // Given (it has a rank) but no name: the single row, no block.
+    const c = g("o", 1, undefined, "")
+    const needs = needsOf([c], [])
+    expect(needs.map((n) => n.kind)).toEqual(["decision"])
+    expect(givenGroups(needs)).toEqual([])
   })
 })

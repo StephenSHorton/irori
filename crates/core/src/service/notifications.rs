@@ -117,8 +117,13 @@ impl Services {
                 if r.task_id.is_empty() {
                     return false;
                 }
+                let me = format!(
+                    "{}{}",
+                    irori_identity::kinds::PERSON_ACTOR_PREFIX,
+                    self.person_id()
+                );
                 self.notification_task(r)
-                    .is_some_and(|t| card_resolved(&t, r))
+                    .is_some_and(|t| card_resolved(&t, r, &me))
             }
             history::KIND_NO_AGENT => self.notification_task(r).is_some_and(|t| {
                 let co = if r.board_id.is_empty() {
@@ -177,7 +182,7 @@ fn message_waits(state: &str) -> bool {
 /// Whether a card's blocker, question or done check no longer needs the
 /// person: resolved, answered (it's with the agent now), another member's
 /// to decide, or the card finished.
-fn card_resolved(t: &Task, r: &PostedRow) -> bool {
+fn card_resolved(t: &Task, r: &PostedRow, me: &str) -> bool {
     if coord::is_terminal(&t.state) {
         return true;
     }
@@ -192,6 +197,8 @@ fn card_resolved(t: &Task, r: &PostedRow) -> bool {
                     && on
                         .reference
                         .starts_with(irori_identity::kinds::PERSON_ACTOR_PREFIX)
+                    // Another member's to decide, not this person's own.
+                    && on.reference != me
             });
     }
     // An older card's question without a blocker item: open while the

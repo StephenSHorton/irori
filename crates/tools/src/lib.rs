@@ -466,6 +466,11 @@ pub trait Backend: Send + Sync {
     fn agent_start(&self, _caller: &str, _task_id: &str) -> Result<String, String> {
         Err("agents can't start agents here".into())
     }
+    /// The person starts card `task_id`, given to them (decision 69,
+    /// §3.2): Core's `start_given_card`. What happened, or why not.
+    fn given_start(&self, _person_key: &str, _task_id: &str) -> Result<String, String> {
+        Err("this backend can't start a given card".into())
+    }
     /// What `agent_start` would refuse before anything is made, for a
     /// thread `caller` is about to open for a fresh agent (card #1027).
     fn thread_agent_check(&self, _caller: &str) -> Result<(), String> {
@@ -616,7 +621,7 @@ const CALLER_READS: [&str; 10] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 72] = [
+    let list: [(&'static str, Handler); 73] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -644,6 +649,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("board_leave", board::board_leave),
         ("board_move", board::board_move),
         ("board_assign", board::board_assign),
+        ("board_give", board::board_give),
         ("board_status", board::board_status),
         ("assistant_close", assistant_writes::assistant_close),
         ("assistant_tick", assistant_writes::assistant_tick),

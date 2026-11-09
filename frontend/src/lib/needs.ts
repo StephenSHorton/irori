@@ -19,6 +19,7 @@ import {
   runningJobNow,
   TaskState,
   workLabel,
+  type AgentRef,
   type CardRef,
   type CardSummary,
   type GoneWait,
@@ -346,6 +347,14 @@ export const WAITING_PERMISSION = "Waiting for your permission"
 export const CRASHED_QUESTION =
   "Its agent crashed twice in a row: start another?"
 export const GIVEN_QUESTION = "OK to start an agent on this?"
+// The given question's two answers, and the give-back item's words, in
+// crates/coord/src/board/spawn.rs and given.rs (decision 69).
+export const GIVEN_START = "Start an agent"
+export const GIVEN_NOT_NOW = "Not now"
+export const GIVEN_BACK_QUESTION = "Given back to you"
+export const GIVEN_BACK_KEEP = "Keep it"
+export const GIVEN_BACK_KEEP_ONLY = "Keep it on the board"
+export const GIVEN_BACK_CANCEL = "Cancel it"
 
 // spawnNeed says a card's decision is one of those: its agent stopped on
 // a permission prompt nobody is there to answer, or its agents kept going
@@ -391,6 +400,11 @@ export function stuckLine(end: CardRef, cards: CardSummary[]): string {
 
 export type Need =
   | { kind: "check" | "decision"; id: string; at: number; card: CardSummary }
+  // Decision 69: a card another person gave them, shown in the block for
+  // that giver and batch (givenGroups); and an open given question on a
+  // card nobody gave them (made after reading others' text).
+  | { kind: "given"; id: string; at: number; card: CardSummary }
+  | { kind: "marked"; id: string; at: number; card: CardSummary }
   // Card #520: a wait no agent will end, on a card nobody holds.
   | { kind: "gone"; id: string; at: number; card: CardSummary; wait: GoneWait }
   // Card #541: no computer can start its agent, and nothing to decide.
@@ -457,6 +471,58 @@ export function toPerson(d: Delivery): boolean {
 
 const time = (s: string | undefined) => parseTime(s ?? "")?.getTime() ?? 0
 
+// isGiven says another person gave the viewer this card and Irori knows
+// who: it goes in that giver's block. A give from an older Irori has no
+// giver's name and keeps today's single "Given to you" row.
+export function isGiven(c: CardSummary): boolean {
+  return !!c.givenBy && (c.givenRank ?? 0) > 0
+}
+
+// isMarked says the card has an open given question but nobody gave it to
+// the viewer: Irori asks because the card was made after reading others'
+// text.
+export function isMarked(c: CardSummary): boolean {
+  return !!c.givenQuestion && !c.givenBy && !(c.givenRank ?? 0)
+}
+
+// GivenGroup is one giver's cards from one batch, in Core's order.
+export type GivenGroup = {
+  id: string
+  giver: AgentRef
+  batch: string
+  viaAssistant: boolean
+  note: string
+  cards: CardSummary[]
+}
+
+// givenGroups gathers the given needs into one block per giver and batch.
+// The order is Rust's (givenRank): a group takes its first card's place,
+// its cards keep theirs, and nothing is sorted by time here.
+export function givenGroups(needs: Need[]): GivenGroup[] {
+  const cards = needs
+    .flatMap((n) => (n.kind === "given" ? [n.card] : []))
+    .sort((a, b) => (a.givenRank ?? 0) - (b.givenRank ?? 0))
+  const groups = new Map<string, GivenGroup>()
+  for (const c of cards) {
+    const giver = c.givenBy!
+    const id = `${giver.key}|${c.givenBatch ?? ""}`
+    const g = groups.get(id)
+    if (g) {
+      g.cards.push(c)
+      continue
+    }
+    groups.set(id, {
+      id,
+      giver,
+      batch: c.givenBatch ?? "",
+      viaAssistant: !!c.givenViaAssistant,
+      note: c.givenNote ?? "",
+      cards: [c],
+    })
+  }
+  return [...groups.values()]
+}
+
 // needsOf is the Needs you list, newest first: every card waiting on the
 // person (a done check, else a decision, else its repo's trust: card #449)
 // and every message Irori held for them. A PR is never theirs to review
@@ -478,7 +544,20 @@ export function needsOf(
     out.push({ kind: "thread", id: t.id, at: time(t.updatedAt), thread: t })
   }
   for (const c of cards) {
+    if (over(c)) continue
+    if (isGiven(c)) {
+      out.push({ kind: "given", id: c.id, at: time(c.updatedAt), card: c })
+    }
+  }
+  for (const c of cards) {
     if (!needsYou(c)) continue
+    // The given question shows only in the block; the card's other open
+    // questions still get their usual rows.
+    if (isGiven(c) && c.openBlockers <= (c.givenQuestion ? 1 : 0)) continue
+    if (isMarked(c) && c.openBlockers <= 1) {
+      out.push({ kind: "marked", id: c.id, at: time(c.updatedAt), card: c })
+      continue
+    }
     const check = !!c.ready && c.openBlockers <= 1
     // Card #541: nothing to decide, so it never reads as a decision.
     if (c.noAgent && !check && !c.openBlockers) {

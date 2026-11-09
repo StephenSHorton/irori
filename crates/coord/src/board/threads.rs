@@ -119,20 +119,22 @@ impl Fold {
     /// hand-out, the spawn pass and other devices all leave alone. When
     /// the person has the last word and no agent that answered is live,
     /// it goes out again as their own thread would: this covers a post
-    /// from a device that doesn't own it (the phone), which can't.
+    /// from a device that doesn't own it (the phone), which can't. The
+    /// person's own thread gets the same turn (card #1247), for a post
+    /// that reached no agent where it was written.
     pub(crate) fn agent_thread_sweep(
         &mut self,
         id: &str,
         gone: &dyn Fn(&Fold, &str) -> bool,
     ) -> super::error::Result<Option<super::asks::AskAgain>> {
         let t = &self.tasks[id];
-        let Some(a) = t
-            .open_ask()
-            .filter(|a| a.thread && !a.opener.is_empty())
-            .cloned()
-        else {
+        let Some(a) = t.open_ask().filter(|a| a.thread).cloned() else {
             return Ok(None);
         };
+        // The person's own thread (card #1247): only a post that reached
+        // nobody where it was written sends it out again. A post a live
+        // agent heard is that agent's to answer, even once it goes.
+        let persons = a.opener.is_empty();
         if self.agent_thread_rests(t) {
             let left = if a.taker.is_empty() {
                 a.reason != TAKE_ANSWERED
@@ -164,13 +166,34 @@ impl Fold {
         };
         // Only a post that wakes agents sends it out again: a quiet one
         // (Agents answer now off for that post) never does (card #391).
-        let said = last(&|c| self.persons_post(&a, c)).map(|c| (c.at, c.wake));
+        let said = if persons {
+            last(&|c| {
+                c.person && c.msg_id.is_empty() && (!self.on_board || self.started_by(t, &a, &c.by))
+            })
+            .map(|c| (c.at, c.wake && c.unheard))
+        } else {
+            last(&|c| self.persons_post(&a, c)).map(|c| (c.at, c.wake))
+        };
         let agents = last(&|c| !self.is_person(&c.by)).map(|c| c.at);
         let Some((said, true)) = said else {
             return Ok(None);
         };
+        // An agent that answered the person's own thread isn't tracked for
+        // absence here: on this device it is live only while the roster
+        // shows it answering.
+        let live = |k: &String| {
+            if persons && self.local_key(k) {
+                self.roster.as_ref().is_some_and(|r| {
+                    r.agents()
+                        .iter()
+                        .any(|c| c.key == *k && crate::roster::answers(&c.status))
+                })
+            } else {
+                !gone(self, k)
+            }
+        };
         if agents.is_some_and(|at| !gotime::before(&at, &said))
-            || self.thread_repliers(id).iter().any(|k| !gone(self, k))
+            || self.thread_repliers(id).iter().any(live)
         {
             return Ok(None);
         }

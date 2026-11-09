@@ -24,6 +24,8 @@
 //                   share (and Spencer shares a window, #658) or sharing
 //                   (you do); transcript opens #suzuri's earlier huddle's
 //                   transcript beside it (#656)
+//   ?given=batch   Needs you's block of cards given by people (decision 69):
+//                   two givers, one batch of 4 (sample-cards.ts)
 //   ?spawn=first   shows the spawned agents' first-run notice on Home
 //   ?spawn=limit    Settings › Agents with a usage limit holding the queue
 //   ?newcard        opens the New card dialog (?spawn=off: spawning off)
