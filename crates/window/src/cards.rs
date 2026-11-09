@@ -642,7 +642,11 @@ impl Window {
         .into();
         // Only a give written by an Irori that knows the giving person.
         if !g.by_person.is_empty() {
-            cs.given_by = Some(p.ref_(&format!("{}{}", store::kinds::PERSON_ACTOR_PREFIX, g.by_person)));
+            cs.given_by = Some(p.ref_(&format!(
+                "{}{}",
+                store::kinds::PERSON_ACTOR_PREFIX,
+                g.by_person
+            )));
         }
     }
 }
