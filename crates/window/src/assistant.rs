@@ -960,13 +960,17 @@ impl Job {
         Ok(job)
     }
 
-    /// The turn that answers another person's question (assistants talk,
-    /// card 4): a naming turn in its own folder, with no tools.
+    /// The turn that answers another person's question (assistants talk
+    /// §5, cards 4 and 5): no tools, no MCP server and no secret (D5), in
+    /// its own folder, on the chat's model and effort (Settings › Agents).
+    /// Everything it knows is in `ask`: the packet the Core built.
     pub fn answerer(core: &irori_core::Core, ask: &NameAsk) -> Result<Job, String> {
-        let mut job = Job::namer(core, ask)?;
-        job.dir = job.dir.with_file_name(ANSWERS_DIR);
-        job.timeout = ANSWERS_TIMEOUT;
-        Ok(job)
+        let setting = core.spawn_setting("");
+        Ok(answer_job(
+            Job::namer(core, ask)?,
+            setting.assistant_model(),
+            setting.assistant_effort(),
+        ))
     }
 
     /// The turn that rewords a draft (card #981): a naming turn in its own
@@ -1008,6 +1012,20 @@ impl Job {
 
 /// The answering turns' folder under the assistant's (assistants talk).
 pub const ANSWERS_DIR: &str = "answers";
+
+/// A naming job made into an answering one: its folder, timeout, model and
+/// effort. It keeps the naming job's lack of tools and secret, whatever
+/// the job asked for.
+fn answer_job(mut job: Job, model: &str, effort: &str) -> Job {
+    job.dir = job.dir.with_file_name(ANSWERS_DIR);
+    job.timeout = ANSWERS_TIMEOUT;
+    job.model = model.into();
+    job.effort = Some(effort.into());
+    job.tools = false;
+    job.secret = String::new();
+    job.exe = PathBuf::new();
+    job
+}
 /// How long an answering turn may take.
 pub const ANSWERS_TIMEOUT: Duration = Duration::from_secs(90);
 
@@ -2897,6 +2915,33 @@ mod tests {
             tools: false,
             look: String::new(),
         }
+    }
+
+    /// The answering turn (assistants talk, card 5): no tools, no MCP
+    /// config, no secret, even from a job that asked for them, on the
+    /// model and effort it was given (the chat's).
+    #[test]
+    fn an_answering_turn_has_no_tools_and_runs_on_the_chats_model() {
+        let d = tempfile::tempdir().unwrap();
+        let mut asked = names_job(d.path());
+        asked.tools = true;
+        asked.secret = "s3cret".into();
+        asked.exe = PathBuf::from("/bin/irori");
+        let job = answer_job(asked, "sonnet", "low");
+        assert!(job.dir.ends_with(Path::new("assistant").join(ANSWERS_DIR)));
+        assert_eq!(job.timeout, ANSWERS_TIMEOUT);
+        assert!(!job.tools && job.secret.is_empty());
+        let a = job_args(&job);
+        let has = |f: &str| a.iter().any(|x| x == f);
+        assert!(has("--strict-mcp-config") && has("--no-session-persistence"));
+        assert!(!has("--mcp-config") && !has("--allowedTools"), "{a:?}");
+        let i = a.iter().position(|x| x == "--tools").unwrap();
+        assert_eq!(a[i + 1], "");
+        let i = a.iter().position(|x| x == "--model").unwrap();
+        assert_eq!(&a[i + 1..i + 4], ["sonnet", "--effort", "low"]);
+        assert!(!a.iter().any(|x| x.contains("s3cret")));
+        prepare(&job).unwrap();
+        assert!(!job.dir.join(MCP_FILE).exists(), "no MCP config, no secret");
     }
 
     #[test]
