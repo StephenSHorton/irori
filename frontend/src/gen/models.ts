@@ -162,6 +162,7 @@ export type StartedAgent = B.StartedAgent
 export type State = B.State
 export type Step = B.Step
 export type StorageCleaned = B.StorageCleaned
+export type StorageHolder = B.StorageHolder
 export type StorageItem = B.StorageItem
 export type StorageKept = B.StorageKept
 export type StorageKind = B.StorageKind
@@ -933,9 +934,14 @@ export function StorageCleaned(p: Partial<B.StorageCleaned> = {}): B.StorageClea
   return { "removed": 0, "freed": 0, "kept": [], ...p } as B.StorageCleaned
 }
 
+/** StorageHolder with Go's zero values for every field left out. */
+export function StorageHolder(p: Partial<B.StorageHolder> = {}): B.StorageHolder {
+  return { "pid": 0, "name": "", ...p } as B.StorageHolder
+}
+
 /** StorageItem with Go's zero values for every field left out. */
 export function StorageItem(p: Partial<B.StorageItem> = {}): B.StorageItem {
-  return { "id": "", "name": "", "bytes": 0, "at": "", "detail": "", "cards": [], "cleanable": false, "keep": "", "onlyHere": false, ...p } as B.StorageItem
+  return { "id": "", "name": "", "bytes": 0, "at": "", "detail": "", "cards": [], "cleanable": false, "keep": "", "onlyHere": false, "pinned": "", "holders": [], "deleteAnyway": false, ...p } as B.StorageItem
 }
 
 /** StorageKept with Go's zero values for every field left out. */
