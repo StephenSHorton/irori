@@ -37,6 +37,7 @@ import {
   effortLabel,
   endAgent,
   idleLabel,
+  budgetLabel,
   useLimits,
   modelLabel,
   sentBackRate,
@@ -550,6 +551,22 @@ function LimitsSection({
               }))}
               onValueChange={(v) => set({ idleMins: Number(v) })}
               className="w-44 text-[13px]"
+            />
+          </LimitRow>
+          <LimitRow
+            title="Retire an agent past"
+            hint="An agent whose context has grown past this finishes the card it holds and then goes: it isn't handed another or woken for a new one. It never stops mid-card. This computer's number, for the agents running on it."
+          >
+            <ChoiceSelect
+              label="Retire an agent past"
+              size="sm"
+              value={String(s.ctxBudgetK)}
+              choices={s.ctxBudgetChoices.map((k) => ({
+                value: String(k),
+                label: budgetLabel(k),
+              }))}
+              onValueChange={(v) => set({ ctxBudgetK: Number(v) })}
+              className="w-56 text-[13px]"
             />
           </LimitRow>
           <LimitRow

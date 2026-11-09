@@ -1001,7 +1001,7 @@ impl Services {
         let row = EndRequest {
             key: key.into(),
             generation: m.generation,
-            task_id: m.task_id,
+            task_id: m.current().to_string(),
             by: format!("user:{}", self.device.id),
             at_device: self.device.id.clone(),
             at: (self.now)(),
@@ -1027,7 +1027,7 @@ impl Services {
             let Some(m) = self.coord.spawned(&r.key) else {
                 continue;
             };
-            if (!r.task_id.is_empty() && r.task_id != m.task_id)
+            if (!r.task_id.is_empty() && !m.serves(&r.task_id))
                 || self.coord.ended_by_irori(&r.key)
                 || r.generation != m.generation
             {

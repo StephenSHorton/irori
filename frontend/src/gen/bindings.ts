@@ -892,6 +892,11 @@ export type AgentsChange = {
 	assistantModel?: string | null,
 	assistantEffort?: string | null,
 	idleMins?: number | null,
+	/**
+	 *  A context budget in thousands of tokens, one of
+	 *  [`spawn::CTX_BUDGETS_K`]; the default stores nothing.
+	 */
+	ctxBudgetK?: number | null,
 	crashLimit?: number | null,
 	startTries?: number | null,
 };
@@ -978,6 +983,13 @@ export type AgentsSettings = {
 	idleMins: number,
 	/**  The idle limits Settings › Agents offers, in minutes. */
 	idleChoices: number[],
+	/**
+	 *  "Retire an agent past" (card #1213): thousands of tokens of context,
+	 *  -1 always starts a fresh agent.
+	 */
+	ctxBudgetK: number,
+	/**  The budgets Settings › Agents offers. */
+	ctxBudgetChoices: number[],
 	/**
 	 *  How many of a card's agents may crash in a row before Irori stops
 	 *  and asks (card #576).

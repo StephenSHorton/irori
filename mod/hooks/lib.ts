@@ -431,3 +431,45 @@ export function accountFromConfig(text: unknown): string | undefined {
 export function measureMovedLimits(changed: unknown): boolean {
   return Array.isArray(changed) && changed.includes('rateLimits')
 }
+
+/** Where the mod reports a permission prompt and waits for the person's pick (GitHub #322, card #682). */
+export const PERMISSION_PATH = '/v1/permission/wait'
+
+/**
+ * Whether a prompt is the person's to answer from Irori: not a session that
+ * skips permissions (it sees no change), where only Claude Code's own safety
+ * checks ever prompt.
+ */
+export function reportsPermission(mode: unknown): boolean {
+  return mode !== 'bypassPermissions'
+}
+
+/** The `POST /v1/permission/wait` body for one `PermissionRequest` (the same id on every poll). */
+export function permissionBody(
+  id: string,
+  e: { session_id?: string; tool_name?: string; tool_input?: unknown; permission_mode?: string; permission_suggestions?: unknown },
+) {
+  return {
+    id,
+    sessionId: e.session_id ?? '',
+    toolName: e.tool_name ?? '',
+    toolInput: e.tool_input ?? null,
+    permissionMode: e.permission_mode ?? '',
+    permissionSuggestions: e.permission_suggestions ?? [],
+  }
+}
+
+/**
+ * What the Core's answer says: `pending` (ask again), `none` (leave the
+ * prompt to the terminal) or a `decision` for Claude Code, the one inside
+ * the hook output the Core built.
+ */
+export function permissionAnswer(body: unknown): { kind: 'pending' | 'none' } | { kind: 'decide'; decision: Record<string, unknown> } {
+  const b = (body ?? {}) as { decision?: unknown; output?: { hookSpecificOutput?: { decision?: unknown } } }
+  if (b.decision === 'pending') return { kind: 'pending' }
+  const decision = b.output?.hookSpecificOutput?.decision
+  if ((b.decision === 'allow' || b.decision === 'deny') && decision && typeof decision === 'object') {
+    return { kind: 'decide', decision: decision as Record<string, unknown> }
+  }
+  return { kind: 'none' }
+}

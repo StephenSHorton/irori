@@ -1131,3 +1131,156 @@ fn skip_cwd_leaves_the_assistant_off_the_roster() {
     ids.sort();
     assert_eq!(ids, vec!["agent".to_string(), "neighbour".to_string()]);
 }
+
+// ---- context measure (agent-continuity §4, A.1) ---------------------------
+
+fn usage_row(ts: &str, model: &str, sidechain: bool, usage: serde_json::Value) -> String {
+    format!(
+        "{}\n",
+        json!({"type": "assistant", "timestamp": ts, "isSidechain": sidechain,
+               "message": {"model": model, "content": [{"type": "text", "text": "x"}], "usage": usage}})
+    )
+}
+
+fn u(input: i64, read: i64, create: i64) -> serde_json::Value {
+    json!({"input_tokens": input, "cache_read_input_tokens": read,
+           "cache_creation_input_tokens": create, "output_tokens": 999})
+}
+
+#[test]
+fn ctx_plain_row_sums_input_and_caches() {
+    let src = usage_row("2026-10-26T10:00:00Z", "claude-x", false, u(1, 1000, 200))
+        + &usage_row("2026-10-26T10:01:00Z", "claude-x", false, u(3, 5000, 400));
+    let t = tail_of(&src, 1 << 20);
+    assert_eq!(t.ctx, 5403);
+    assert_eq!(
+        t.ctx_at,
+        GoTime::parse_rfc3339("2026-10-26T10:01:00Z").unwrap()
+    );
+    assert!(!t.compacted);
+}
+
+#[test]
+fn ctx_advisor_row_reads_the_last_message_iteration() {
+    let mut usage = u(10, 20000, 0); // top-level adds up every iteration
+    usage["iterations"] = json!([
+        {"type": "message", "input_tokens": 2, "cache_read_input_tokens": 9000, "cache_creation_input_tokens": 100},
+        {"type": "advisor_message", "input_tokens": 50000, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0},
+        {"type": "message", "input_tokens": 3, "cache_read_input_tokens": 9500, "cache_creation_input_tokens": 200}
+    ]);
+    let t = tail_of(
+        &usage_row("2026-10-26T10:00:00Z", "claude-x", false, usage),
+        1 << 20,
+    );
+    assert_eq!(t.ctx, 9703);
+}
+
+#[test]
+fn ctx_ignores_sidechain_and_synthetic_rows() {
+    let src = usage_row("2026-10-26T10:00:00Z", "claude-x", false, u(1, 7000, 0))
+        + &usage_row("2026-10-26T10:01:00Z", "claude-x", true, u(1, 90000, 0))
+        + &usage_row("2026-10-26T10:02:00Z", "<synthetic>", false, u(0, 0, 0));
+    let t = tail_of(&src, 1 << 20);
+    assert_eq!(t.ctx, 7001);
+    assert_eq!(
+        t.ctx_at,
+        GoTime::parse_rfc3339("2026-10-26T10:00:00Z").unwrap()
+    );
+}
+
+#[test]
+fn ctx_compaction_is_marked() {
+    let src = usage_row("2026-10-26T10:00:00Z", "claude-x", false, u(1, 190000, 0))
+        + "{\"type\":\"system\",\"subtype\":\"compact_boundary\",\"timestamp\":\"2026-10-26T10:05:00Z\",\"compactMetadata\":{\"preTokens\":190001}}\n";
+    let t = tail_of(&src, 1 << 20);
+    assert!(t.compacted);
+    assert_eq!(t.ctx, 190001); // size unknown until the next call
+    let src = src + &usage_row("2026-10-26T10:06:00Z", "claude-x", false, u(1, 9000, 0));
+    let t = tail_of(&src, 1 << 20);
+    assert!(t.compacted, "compacted must not clear when the size drops");
+    assert_eq!(t.ctx, 9001);
+}
+
+#[test]
+fn ctx_survives_a_huge_tool_result_with_no_assistant_row_in_the_tail() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = dir.path();
+    let cwd = r"C:\work\ctx";
+    let id = "0b1c2d3e-0000-4000-8000-0000000000c1";
+    write_session(
+        dir,
+        json!({"pid": 43, "sessionId": id, "cwd": cwd, "status": "busy"}),
+    );
+    let tp = dir
+        .join("projects")
+        .join(slug(cwd))
+        .join(format!("{id}.jsonl"));
+    append_file(
+        &tp,
+        &usage_row("2026-10-26T10:00:00Z", "claude-x", false, u(1, 8000, 0)),
+    );
+    let (mut o, _) = test_opts(dir, true);
+    o.tail_bytes = 400;
+    let w = Watcher::new(o);
+    let sub = w.subscribe();
+    w.rescan();
+    let cs = drain(&sub);
+    assert_eq!(cs.len(), 1, "{cs:?}");
+    assert_eq!(cs[0].card.ctx, 8001);
+    let at = cs[0].card.ctx_at;
+    assert!(!at.is_zero());
+
+    // A tool result far bigger than the window: no assistant row in the tail.
+    let big = format!(
+        "{}\n",
+        json!({"type": "user", "timestamp": "2026-10-26T10:00:30Z",
+               "message": {"content": [{"type": "tool_result", "content": "z".repeat(5000)}]}})
+    );
+    append_file(&tp, &big);
+    w.rescan();
+    let card = w.snapshot().into_iter().next().unwrap();
+    assert_eq!((card.ctx, card.ctx_at), (8001, at));
+}
+
+#[test]
+fn a_growing_transcript_changes_no_card_for_ctx_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = dir.path();
+    let cwd = r"C:\work\ctx2";
+    let id = "0b1c2d3e-0000-4000-8000-0000000000c2";
+    write_session(
+        dir,
+        json!({"pid": 44, "sessionId": id, "cwd": cwd, "status": "busy"}),
+    );
+    let tp = dir
+        .join("projects")
+        .join(slug(cwd))
+        .join(format!("{id}.jsonl"));
+    append_file(
+        &tp,
+        &usage_row("2026-10-26T10:00:00Z", "claude-x", false, u(1, 8000, 0)),
+    );
+    let (w, _) = test_watcher(dir, true);
+    let sub = w.subscribe();
+    w.rescan();
+    assert_eq!(drain(&sub).len(), 1);
+    // Same text, same second: only the token count moves.
+    append_file(
+        &tp,
+        &usage_row("2026-10-26T10:00:00Z", "claude-x", false, u(1, 8500, 0)),
+    );
+    w.rescan();
+    assert!(
+        drain(&sub).is_empty(),
+        "a ctx move alone published a change"
+    );
+    assert_eq!(w.snapshot().into_iter().next().unwrap().ctx, 8501);
+
+    let mut a = AgentCard::default();
+    let mut b = a.clone();
+    b.ctx = 5;
+    b.compacted = true;
+    a.key = "k".into();
+    b.key = "k".into();
+    assert!(!changed(&a, &b));
+}

@@ -403,7 +403,7 @@ impl Services {
         let Some((board, co, t)) = self.perm_card_of(key) else {
             // Only agents Irori starts have the hook: worth a line.
             logf(format_args!(
-                "permission hook from {key}: not an agent Irori started here"
+                "permission hook from {key}: no card to raise it on"
             ));
             return None;
         };
@@ -545,9 +545,10 @@ impl Services {
         let nb = NewBlocker {
             question,
             context: format!(
-                "{name}, the agent Irori started for {}, is stopped on a permission prompt. \
+                "{name}, the agent {} {}, is stopped on a permission prompt. \
                  Allow once or Deny answers it from here{}. Or attach to it and answer in its \
                  terminal.{}",
+                self.agent_role(key),
                 t.short_ref(),
                 if rule.is_empty() {
                     String::new()
@@ -602,9 +603,31 @@ impl Services {
         {
             return Some((String::new(), self.coord.clone(), t));
         }
-        let m = self.coord.spawned(key)?;
-        let (co, t, _) = self.spawn_card_of(key)?;
-        Some((m.board, co, t))
+        if let Some(m) = self.coord.spawned(key) {
+            let (co, t, _) = self.spawn_card_of(key)?;
+            return Some((m.board, co, t));
+        }
+        // A session the person started, which the mod tracks (GitHub #322):
+        // the open card it holds on the person's own log, the one it is
+        // working on first.
+        let mut held = self.coord.list_tasks(&TaskFilter {
+            holder: key.to_string(),
+            open: true,
+            ..TaskFilter::default()
+        });
+        held.retain(|t| !coord::is_terminal(&t.state));
+        held.sort_by_key(|t| t.state != coord::WORKING);
+        let t = held.into_iter().next()?;
+        Some((String::new(), self.coord.clone(), t))
+    }
+
+    /// How the item's text names the agent's tie to its card.
+    fn agent_role(&self, key: &str) -> &'static str {
+        if self.coord.spawned(key).is_some() {
+            "Irori started for"
+        } else {
+            "working on"
+        }
     }
 
     /// Who writes a permission item on `co`: Irori on the person's own
@@ -784,10 +807,11 @@ impl Services {
         let nb = NewBlocker {
             question: format!("{WAITING_PERMISSION}: {name} is stopped on a prompt"),
             context: format!(
-                "{name}, the agent Irori started for {}, is waiting for a permission \
+                "{name}, the agent {} {}, is waiting for a permission \
                  nobody is there to give, and Irori can't answer this one from the card. \
                  Attach to it to answer the prompt, or add the command to the space's allow \
                  list in Settings › Agents and start a fresh agent.",
+                self.agent_role(&a.key),
                 t.short_ref()
             ),
             blocked_by: Some(self.perm_decider(board)),

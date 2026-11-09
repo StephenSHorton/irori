@@ -598,3 +598,43 @@ fn the_roster_carries_the_device_it_comes_through() {
     let r = Roster::new(o).unwrap();
     assert_eq!(r.remote()[0].device_via, "Phone");
 }
+
+#[test]
+fn test_agent_status_carries_the_context_measure() {
+    let mut g = Rig::new();
+    const KEY: &str = "dev2/cccccccc-9999-4999-8999-999999999999";
+    g.card("dev2", card(KEY, "mac", "idle"));
+    g.row(
+        "dev2",
+        kinds::AGENT_STATUS,
+        format!(
+            r#"{{"compacted":true,"ctx":123456,"ctxAt":"2026-10-26T10:00:00Z","key":"{KEY}","name":"mac","status":"busy"}}"#
+        )
+        .into_bytes(),
+    );
+    let r = Roster::start(g.opts()).unwrap();
+    let get = |r: &Roster| r.remote().into_iter().find(|c| c.key == KEY).unwrap();
+    let c = get(&r);
+    assert_eq!((c.ctx, c.compacted), (123456, true));
+    assert_eq!(c.ctx_at.secs, 1_793_008_800);
+    // A later status row without a measure keeps the card's.
+    g.row(
+        "dev2",
+        kinds::AGENT_STATUS,
+        format!(r#"{{"key":"{KEY}","name":"mac","status":"idle"}}"#).into_bytes(),
+    );
+    eventually("the second status row folds", || {
+        r.remote()
+            .iter()
+            .any(|c| c.key == KEY && c.status == "idle")
+    });
+    let c = get(&r);
+    assert_eq!((c.ctx, c.compacted), (123456, true));
+    // Zero ctx is omitted from the card's JSON.
+    let json =
+        String::from_utf8(gocompat::json::marshal(&card(KEY, "x", "idle")).unwrap()).unwrap();
+    assert!(
+        !json.contains("ctx") && !json.contains("compacted"),
+        "{json}"
+    );
+}
