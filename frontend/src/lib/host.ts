@@ -340,7 +340,13 @@ export const BoardService = {
 
 // TalkService is Talk's channels, DMs and posts (cards #389, #390).
 export const TalkService = {
-  Conversations: () => call(commands.talkConversations()),
+  // Channels and DMs; the open threads too when `threads` (Talk's own list
+  // leaves them out, card #1150).
+  Conversations: (threads = false) => call(commands.talkConversations(threads)),
+  // Just these conversations' rows (channel and DM ids, bare thread ids);
+  // one with no row is gone.
+  ConversationsById: (convs: string[], threads = false) =>
+    call(commands.talkConversationsById(convs, threads)),
   // Every huddle in Talk, and a huddle's title (card #1044).
   Huddles: () => call(commands.talkHuddles()),
   CallTitleSet: (callId: string, title: string) =>

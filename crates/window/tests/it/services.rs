@@ -955,7 +955,7 @@ fn talk_through_the_window() {
     assert_eq!(tp[1].post_id, cid);
     assert_eq!(w.core.coord().comments(&t.id).unwrap().len(), 1);
 
-    let cs = w.talk_conversations().unwrap();
+    let cs = w.talk_conversations(true).unwrap();
     for (id, kind) in [(&ch, "channel"), (&dm, "dm"), (&t.id, "thread")] {
         let c = cs.iter().find(|c| &c.conv_id == id).expect(kind);
         assert_eq!(c.kind, kind);
@@ -1055,7 +1055,7 @@ fn talk_through_the_window() {
     let sc = w
         .talk_channel_create("general", None, Some(&space))
         .unwrap();
-    let cs = w.talk_conversations().unwrap();
+    let cs = w.talk_conversations(true).unwrap();
     let s = cs.iter().find(|c| c.conv_id == sc).expect("space channel");
     assert_eq!(s.space_id, space);
     let sj = j(s);

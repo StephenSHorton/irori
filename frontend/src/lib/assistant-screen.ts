@@ -131,7 +131,7 @@ async function viewOf(hash: string, s: Section): Promise<string> {
   }
   if (s.kind === "talk" && s.id) {
     if (!inWails()) return "a conversation"
-    const conv = (await TalkService.Conversations()).find(
+    const conv = (await TalkService.Conversations(true)).find(
       (c) => c.convId === s.id
     )
     return conv ? `${conv.kind} ${quoted(conv.name)}` : "a conversation"
