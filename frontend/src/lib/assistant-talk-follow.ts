@@ -287,9 +287,14 @@ export const AskingMs = 30_000
 
 const asking = new Map<string, number>()
 
-// isAsking says a tap on this question is still being served.
-export function isAsking(postId: string, now = Date.now()): boolean {
-  const at = asking.get(postId)
+// isAsking says a tap on this question is still being served. Answer this
+// (`draft`) and Let it answer (`let`) are separate taps.
+export function isAsking(
+  postId: string,
+  now = Date.now(),
+  how: "let" | "draft" = "let"
+): boolean {
+  const at = asking.get(`${how}:${postId}`)
   return at !== undefined && now - at < AskingMs
 }
 
@@ -299,20 +304,58 @@ export function isAsking(postId: string, now = Date.now()): boolean {
 // why it failed, or "".
 export async function letItAnswer(
   from: Pick<From, "postId" | "space">,
-  now = Date.now()
+  now = Date.now(),
+  how: "let" | "draft" = "let"
 ): Promise<string> {
-  if (isAsking(from.postId, now)) return ""
-  asking.set(from.postId, now)
+  if (isAsking(from.postId, now, how)) return ""
+  const key = `${how}:${from.postId}`
+  asking.set(key, now)
   try {
-    await AssistantService.AnswerRequest(from.postId, from.space, "let")
+    await AssistantService.AnswerRequest(from.postId, from.space, how)
     return ""
   } catch (err) {
-    asking.delete(from.postId)
-    return err instanceof Error && err.message
-      ? err.message
-      : typeof err === "string" && err
-        ? err
-        : "Couldn't ask your assistant just now."
+    asking.delete(key)
+    return whyFailed(err, "Couldn't ask your assistant just now.")
+  }
+}
+
+// answerThis taps Answer this on a question that needs the owner: the
+// assistant's computer drafts an answer, which comes back as a draft the
+// owner reads in full and sends with one tap (card #1064).
+export function answerThis(
+  from: Pick<From, "postId" | "space">,
+  now = Date.now()
+): Promise<string> {
+  return letItAnswer(from, now, "draft")
+}
+
+// whyFailed is a failure in words, or `fallback`.
+export function whyFailed(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message
+    ? err.message
+    : typeof err === "string" && err
+      ? err
+      : fallback
+}
+
+// sendDraft sends an owner's-OK draft: the host posts exactly its text, once.
+// It returns why it failed, or "".
+export async function sendDraft(request: string): Promise<string> {
+  try {
+    await AssistantService.AnswerSend(request)
+    return ""
+  } catch (err) {
+    return whyFailed(err, "Couldn't send it just now.")
+  }
+}
+
+// dismissDraft closes an owner's-OK draft on every device.
+export async function dismissDraft(request: string): Promise<string> {
+  try {
+    await AssistantService.AnswerDismiss(request)
+    return ""
+  } catch (err) {
+    return whyFailed(err, "Couldn't close it just now.")
   }
 }
 

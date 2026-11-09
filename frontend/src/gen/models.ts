@@ -322,7 +322,7 @@ export function AssistantChatActIn(p: Partial<B.AssistantChatActIn> = {}): B.Ass
 
 /** AssistantChatDraft with Go's zero values for every field left out. */
 export function AssistantChatDraft(p: Partial<B.AssistantChatDraft> = {}): B.AssistantChatDraft {
-  return { "request": "", "post": "", "space": "", "text": "", "device": "", "at": 0, ...p } as B.AssistantChatDraft
+  return { "request": "", "post": "", "space": "", "asker": "", "text": "", "device": "", "at": 0, ...p } as B.AssistantChatDraft
 }
 
 /** AssistantChatItem with Go's zero values for every field left out. */

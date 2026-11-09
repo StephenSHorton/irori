@@ -84,6 +84,17 @@ impl Grants {
         s.run
     }
 
+    /// How many runs have begun, ever: a turn that holds no grants (the
+    /// owner's-OK turn, assistants-talk card 8) leaves it where it was.
+    pub fn runs(&self) -> u64 {
+        self.lock().run
+    }
+
+    /// How many grants are open now.
+    pub fn open_count(&self) -> usize {
+        self.lock().open.len()
+    }
+
     /// Spends the grant for this write; `false` when there is none.
     pub fn take(&self, tool: &str, task_id: &str, step_id: &str) -> bool {
         let card = norm_ref(task_id);

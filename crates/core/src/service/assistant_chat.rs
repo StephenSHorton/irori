@@ -76,6 +76,11 @@ pub struct ChatEvent {
 pub enum ChatKind {
     #[default]
     Chat,
+    /// The owner's-OK turn (assistants-talk card 8, §7): a draft answer to
+    /// another person's question, from the question fenced, with read tools
+    /// only. It holds no grants, has no history and no markers, and its
+    /// reply is a draft row, never a chat turn.
+    OwnerOk,
 }
 
 /// One question for the window to run (§5): Core built the prompt and the
@@ -106,6 +111,9 @@ pub struct ChatJob {
     /// [`Self::prompt`] when it changes (New chat, another computer, a
     /// failed or stopped turn).
     pub session: u64,
+    /// The turn's own system prompt (an [`ChatKind::OwnerOk`] turn); empty
+    /// for the chat, whose prompt is the window's.
+    pub system: String,
 }
 
 /// How a run ended.
@@ -319,6 +327,10 @@ pub struct AnswerDraft {
     pub request: String,
     pub post: String,
     pub space: String,
+    /// Who asked, as the space names them ("Eve", "Kit (Eve's agent)"):
+    /// what the Send button says.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub asker: String,
     pub text: String,
     pub device: String,
     pub at: i64,
@@ -599,6 +611,24 @@ impl Fold {
     /// (written here, then heard from the kind loop) changes nothing.
     /// The taps that nothing has served yet, oldest first: no `update`
     /// line or draft names the request (§9, "Serving writes a record").
+    /// The tap `request` and where it sits in store order.
+    pub(crate) fn request_at(&self, request: &str) -> Option<(Order, AnswerRequested)> {
+        self.lock()
+            .requests
+            .get(request)
+            .map(|h| (h.at.clone(), h.row.clone()))
+    }
+
+    /// The owner's-OK draft for tap `request`, if one was written.
+    pub(crate) fn draft_for(&self, request: &str) -> Option<AnswerDraft> {
+        self.lock().drafts.get(request).map(|h| h.row.clone())
+    }
+
+    /// The `update` line keyed `key`, if there is one.
+    pub(crate) fn update_for(&self, key: &str) -> Option<Update> {
+        self.lock().updates.get(key).map(|h| h.row.clone())
+    }
+
     pub(crate) fn unserved_requests(&self) -> Vec<AnswerRequested> {
         let st = self.lock();
         let mut out: Vec<(&Order, &AnswerRequested)> = st

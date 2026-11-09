@@ -103,6 +103,8 @@ pub struct AssistantChatDraft {
     pub request: String,
     pub post: String,
     pub space: String,
+    /// Who asked, as the space names them.
+    pub asker: String,
     pub text: String,
     pub device: String,
     pub at: i64,
@@ -212,6 +214,7 @@ fn item(i: chat::ChatItem) -> AssistantChatItem {
                 request: d.request,
                 post: d.post,
                 space: d.space,
+                asker: d.asker,
                 text: d.text,
                 device: d.device,
                 at: d.at,
@@ -508,6 +511,18 @@ impl Window {
         how: &str,
     ) -> Result<String, String> {
         self.core.assistant_answer_request(post, space, how)
+    }
+
+    /// Send on an owner's-OK draft (assistants-talk card 8): posts exactly
+    /// its normalised text as the assistant's card, from this device or any
+    /// other. Refused once an answer exists.
+    pub fn assistant_answer_send(&self, request: &str) -> Result<(), String> {
+        self.core.assistant_answer_send(request)
+    }
+
+    /// Don't send: closes the draft of `request` on every device.
+    pub fn assistant_answer_dismiss(&self, request: &str) -> Result<(), String> {
+        self.core.assistant_answer_dismiss(request)
     }
 
     /// The toast for a line that waits on the person; a click opens the
