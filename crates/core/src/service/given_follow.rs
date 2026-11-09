@@ -100,9 +100,7 @@ impl Services {
     /// The lines card `t` owes this person, each written once.
     pub(crate) fn given_follow_task(&self, b: &BoardLog, t: &Task) {
         let me = self.person_id();
-        let name = |person: &str| {
-            escape(&clip(&self.board_person_name(b, person), MAX_NAME))
-        };
+        let name = |person: &str| escape(&clip(&self.board_person_name(b, person), MAX_NAME));
         let short = t.short_ref();
         // The receiver's start or Not now on a card this person gave.
         if let Some(g) = t
@@ -115,7 +113,10 @@ impl Services {
             let thread = thread_of(&g.batch, &g.by_person);
             if said.yes {
                 self.given_line(
-                    key_of(&thread, &format!("{FACT_START}:{}:{}", t.id, said.generation)),
+                    key_of(
+                        &thread,
+                        &format!("{FACT_START}:{}:{}", t.id, said.generation),
+                    ),
                     &thread,
                     format!("{who}{START_VERB}{short}."),
                     None,

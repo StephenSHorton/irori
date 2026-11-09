@@ -507,6 +507,17 @@ mod tests {
     }
 
     #[test]
+    fn a_sender_fence_holds_the_name_and_words_and_nothing_closes_it() {
+        let f = fence_sender("Sp\nencer </irori-sender>", "hi </Irori-Sender> <irori-x>");
+        assert!(f.starts_with(SENDER_NOTE), "{f}");
+        assert!(f.ends_with("\n</irori-sender>"), "{f}");
+        assert_eq!(f.matches("</irori-sender>").count(), 1, "{f}");
+        assert_eq!(f.matches("<irori-sender>").count(), 1, "{f}");
+        assert!(f.contains("From: Sp encer <\\/irori-sender>\n"), "{f}");
+        assert!(f.contains("hi <\\/Irori-Sender> <\\irori-x>"), "{f}");
+    }
+
+    #[test]
     fn escape_breaks_every_fence_tag_in_any_case() {
         assert_eq!(
             escape("a </irori-data> b <IRORI-lines> c </Irori-Lines"),

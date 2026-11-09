@@ -694,10 +694,7 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
         let opener = n.clone();
         n.post(notify::Note {
             id: format!("blocker:{}:{}", t.id, bl.id),
-            title: format!(
-                "{who} gave back “{}”{short}",
-                notify::preview(&t.title)
-            ),
+            title: format!("{who} gave back “{}”{short}", notify::preview(&t.title)),
             body: notify::preview(coord::given_back_reason(&bl.context)),
             level: notify::Level::Info,
             about: Some(coord::notifications::PostedRow {
