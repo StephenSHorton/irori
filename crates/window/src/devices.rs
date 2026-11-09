@@ -49,6 +49,20 @@ pub struct DeviceView {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub via: String,
+    /// How this device reaches it: direct, relay or unreachable (card
+    /// #1119). Empty (omitted): this device, or a removed one.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub reach: String,
+    /// The app version it runs, when known.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub version: String,
+    /// The newest version among the devices, when this one runs an older
+    /// one (omitted otherwise).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub behind: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub color: String,
@@ -319,6 +333,9 @@ pub fn device_view(r: mesh::DeviceRow) -> DeviceView {
         action: r.action,
         last_seen: r.last_seen.unwrap_or_default(),
         via: r.via,
+        reach: r.reach,
+        version: r.version,
+        behind: r.behind,
         color: String::new(),
         sides: Vec::new(),
     }

@@ -2302,6 +2302,18 @@ export type DeviceView = {
 	 *  reads it.
 	 */
 	via?: string,
+	/**
+	 *  How this device reaches it: direct, relay or unreachable (card
+	 *  #1119). Empty (omitted): this device, or a removed one.
+	 */
+	reach?: string,
+	/**  The app version it runs, when known. */
+	version?: string,
+	/**
+	 *  The newest version among the devices, when this one runs an older
+	 *  one (omitted otherwise).
+	 */
+	behind?: string,
 	color?: string,
 	/**
 	 *  The work/personal sides it runs, the first its new cards' (card
