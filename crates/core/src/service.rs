@@ -58,6 +58,7 @@ use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 pub mod assistant_answers;
 pub mod assistant_chat;
 mod assistant_name;
+pub mod assistant_packet;
 pub mod boards;
 mod boards_members;
 mod boards_own;
