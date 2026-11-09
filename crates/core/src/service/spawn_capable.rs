@@ -120,7 +120,16 @@ impl Services {
         let hosts = self.hosts();
         let labels = self.device_labels();
         let rows = self.mesh.node.devices(false);
-        let mut cant: HashSet<String> = HashSet::new();
+        // A removed device starts nothing, and what it made is a
+        // computer's to start. From the chain: a settled removal has no row
+        // (card #1240).
+        let mut cant: HashSet<String> = self
+            .chain
+            .devices()
+            .into_iter()
+            .filter(|d| d.revoked)
+            .map(|d| d.cert.device_id)
+            .collect();
         let mut away: HashSet<String> = HashSet::new();
         let mut moves: HashSet<String> = HashSet::from([me.clone()]);
         // (tier, no trusted folder, id)
@@ -129,10 +138,7 @@ impl Services {
         let mut seen_me = false;
         for r in &rows {
             let id = &r.device_id;
-            // A removed device starts nothing, and what it made is a
-            // computer's to start.
             if r.revoked {
-                cant.insert(id.clone());
                 continue;
             }
             seen_me |= *id == me;

@@ -185,13 +185,20 @@ impl Services {
     }
 
     /// Who set the pause, for people: "the person on <device>", or the
-    /// agent's name.
+    /// agent's name. A removed device is not named (card #1240).
     pub(crate) fn pause_by_name(&self, by: &str) -> String {
         if by.is_empty() {
             return String::new();
         }
+        let named = |dev: &str| {
+            if self.chain.cut(dev).is_some() {
+                String::new()
+            } else {
+                self.named_device(dev)
+            }
+        };
         if let Some(dev) = by.strip_prefix(WIND_DOWN_BY_PREFIX) {
-            let name = self.named_device(dev);
+            let name = named(dev);
             return if name.is_empty() {
                 "Stop everywhere".into()
             } else {
@@ -199,7 +206,7 @@ impl Services {
             };
         }
         if let Some(dev) = by.strip_prefix("user:") {
-            let name = self.named_device(dev);
+            let name = named(dev);
             return if name.is_empty() {
                 "the person".into()
             } else {
@@ -214,13 +221,17 @@ impl Services {
         }
     }
 
-    /// Every device's Pause agents, by device id.
+    /// Every device's Pause agents, by device id. A removed device's is
+    /// left out (card #1240): it neither counts nor is named.
     pub(crate) fn agents_pauses(&self) -> HashMap<String, AgentsPause> {
-        self.spawn
+        let mut out = self
+            .spawn
             .agents_pause
             .read()
             .unwrap_or_else(|e| e.into_inner())
-            .clone()
+            .clone();
+        out.retain(|d, _| self.chain.cut(d).is_none());
+        out
     }
 
     /// Stop everywhere on (card #787): its own pause ([`EVERYWHERE`]),

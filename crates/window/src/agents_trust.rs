@@ -186,6 +186,10 @@ impl Window {
         };
         let folder = trust_folder(&spawn_folder);
         let here = sp.device == self.core.device_id();
+        // Trust can never be given on a removed device (card #1240).
+        if !here && self.core.device_removed(&sp.device) {
+            return Ok(None);
+        }
         let device = if here {
             "this computer".to_string()
         } else {
@@ -194,6 +198,7 @@ impl Window {
         let asked_by = if here {
             self.core
                 .trust_asked_by(&t.id)
+                .filter(|d| !self.core.device_removed(d))
                 .map(|d| self.device_label(&d))
         } else {
             None
@@ -208,9 +213,11 @@ impl Window {
         }))
     }
 
-    /// A device's name, or the start of its id when it has none.
+    /// A device's name, or the start of its id when it has none
+    /// ("another device" for a removed one, card #1240).
     fn device_label(&self, id: &str) -> String {
         match self.core.device_label(id) {
+            _ if self.core.device_removed(id) => "another device".into(),
             l if l.is_empty() => id.chars().take(8).collect(),
             l => l,
         }

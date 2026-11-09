@@ -60,9 +60,9 @@ impl Services {
     /// started the huddle. None for a huddle this device has no rows of.
     pub(super) fn huddle_seats(&self, call: &str) -> Option<(String, Vec<Seat>)> {
         let info = self.huddle_info(call)?;
-        let rows = self.talk.call_assists(call);
         let me_id = self.person_id();
         let (live, space) = self.call_people_now(call);
+        let rows = self.call_assists_now(call);
         let mut away = self.own_away_for(
             &self
                 .spawn

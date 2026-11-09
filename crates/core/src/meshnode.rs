@@ -103,6 +103,8 @@ pub(crate) struct Parts {
     pub ignored: Option<mesh::node::IgnoredFn>,
     /// The assistant's running turns, for `assistant/<turn>` streams.
     pub assistant_turns: Option<mesh::AssistantTurnsFn>,
+    /// Hears each removal that settles (card #1240).
+    pub on_settled: Option<mesh::node::SettledFn>,
 }
 
 impl Mesh {
@@ -126,6 +128,7 @@ impl Mesh {
             trust_any_peer: false,
             ignored: p.ignored,
             assistant_turns: p.assistant_turns,
+            on_settled: p.on_settled,
             logf: Some(Arc::new(|l: &str| crate::log(l))),
             now: p.now,
         });

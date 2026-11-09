@@ -102,11 +102,13 @@ impl Services {
         };
 
         let mut out = Vec::new();
+        let chain = &self.chain;
         let personal: Vec<(String, i64)> = node
             .freshness()
             .into_iter()
             .map(|f| (f.device_id, f.at.map_or(0, unix_ms)))
             .collect();
+        let personal = kept(personal, &|d| chain.cut(d).is_some());
         out.push(entry(PERSONAL, &personal, &|d| {
             phrase(d, &|_| String::new())
         }));
@@ -127,10 +129,20 @@ impl Services {
                 }
             }
             let theirs = |dev: &str| -> String { their_phrase(whose.get(dev).map_or("", |s| s)) };
-            out.push(entry(&b.id, &m.freshness(), &|d| phrase(d, &theirs)));
+            let devs = kept(m.freshness(), &|d| {
+                chain.cut(d).is_some() || b.verifier.cut(d).is_some()
+            });
+            out.push(entry(&b.id, &devs, &|d| phrase(d, &theirs)));
         }
         out
     }
+}
+
+/// `devs` without the removed ones (card #1240): a removed device is never
+/// the one a log was last in step with, and a log only it shared reads as
+/// not shared.
+fn kept(devs: Vec<(String, i64)>, removed: &dyn Fn(&str) -> bool) -> Vec<(String, i64)> {
+    devs.into_iter().filter(|(d, _)| !removed(d)).collect()
 }
 
 fn entry(log: &str, devs: &[(String, i64)], phrase: &dyn Fn(&str) -> String) -> LogFreshness {
@@ -178,6 +190,15 @@ mod tests {
         assert_eq!(f.device_id, "b");
         assert_eq!(f.with, "dev b");
         assert!(f.shared);
+    }
+
+    #[test]
+    fn a_removed_device_is_never_the_newest() {
+        let devs = vec![("a".into(), 5), ("old".into(), 9)];
+        let f = entry("b", &kept(devs, &|d| d == "old"), &|d| format!("dev {d}"));
+        assert_eq!((f.device_id.as_str(), f.at_ms), ("a", 5));
+        let only = kept(vec![("old".into(), 9)], &|d| d == "old");
+        assert!(!entry("b", &only, &|_| "x".into()).shared);
     }
 
     #[test]
