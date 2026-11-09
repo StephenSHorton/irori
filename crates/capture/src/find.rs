@@ -389,6 +389,22 @@ pub(crate) fn decision_doc(d: &coord::decision::Decision) -> Doc {
     }
 }
 
+/// The first `n` hits for `q` among `docs` alone (its offset is ignored),
+/// ranked as the capture index ranks its own: for docs capture doesn't
+/// index, such as the cards and comments in a shared space's own log
+/// (card #1198). Builds a throwaway index in memory each call.
+pub fn search_docs(docs: &[Doc], q: &Query, n: i64) -> Result<Vec<Hit>, Error> {
+    let idx = crate::index::Index::open().map_err(Error::Other)?;
+    idx.defer();
+    for d in docs {
+        idx.put(d).map_err(Error::Other)?;
+    }
+    let mut q = q.clone();
+    q.offset = 0;
+    q.limit = n.max(1);
+    idx.search(&q).map_err(Error::Other)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,20 +433,4 @@ mod tests {
         assert_eq!(es[0].url, "u1");
         assert_eq!(es[1].role, ledger::Role::REVIEWER);
     }
-}
-
-/// The first `n` hits for `q` among `docs` alone (its offset is ignored),
-/// ranked as the capture index ranks its own: for docs capture doesn't
-/// index, such as the cards and comments in a shared space's own log
-/// (card #1198). Builds a throwaway index in memory each call.
-pub fn search_docs(docs: &[Doc], q: &Query, n: i64) -> Result<Vec<Hit>, Error> {
-    let idx = crate::index::Index::open().map_err(Error::Other)?;
-    idx.defer();
-    for d in docs {
-        idx.put(d).map_err(Error::Other)?;
-    }
-    let mut q = q.clone();
-    q.offset = 0;
-    q.limit = n.max(1);
-    idx.search(&q).map_err(Error::Other)
 }

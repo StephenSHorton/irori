@@ -343,7 +343,7 @@ pub(crate) fn search(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     let limit = limit.min(search::MAX_LIMIT);
     qy.limit = limit + 1;
-    let hits = match s.search_everywhere(&cp, &qy) {
+    let hits = match s.search_everywhere(cp, &qy) {
         Ok(h) => h,
         Err(e) => return err_text(&format!("search failed: {e}. Use plain words.")),
     };
