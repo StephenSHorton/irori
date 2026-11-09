@@ -194,7 +194,10 @@ export const BoardService = {
   Cards: () => call(commands.boardCards()),
   IdleReport: () => call(commands.boardIdleReport()),
   Card: (id: string) => call(commands.boardCard(id)),
-  CardsById: (ids: string[]) => call(commands.boardCardsById(ids)),
+  // have: the rev of each card the caller already holds (card #1136); one
+  // that still matches comes back unchanged, without its card.
+  CardsById: (ids: string[], have: { id: string; rev: string }[] = []) =>
+    call(commands.boardCardsById(ids, have)),
   DoneCards: (limit: number, before: string) =>
     call(commands.boardDoneCards(limit, before)),
   DoneCardsIn: (limit: number, before: string, scope: string) =>
@@ -315,6 +318,8 @@ export const BoardService = {
     done(commands.boardThreadAgentsNow(id, on)),
   Threads: (boardId: string) => call(commands.boardThreads(boardId)),
   ThreadsAll: () => call(commands.boardThreadsAll()),
+  // Just these threads' rows (card #1136).
+  ThreadsById: (ids: string[]) => call(commands.boardThreadsById(ids)),
   CardRef: (r: string) => call(commands.boardCardRef(r)),
   ReadThread: (id: string) => done(commands.boardReadThread(id)),
   ResolveThread: (id: string) => done(commands.boardResolveThread(id)),

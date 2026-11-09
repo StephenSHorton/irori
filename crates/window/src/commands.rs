@@ -313,8 +313,12 @@ pub async fn board_card(w: W<'_>, id: String) -> R<CardDetail> {
 /// Several cards in one call, each with its card or why not (card #468).
 #[tauri::command]
 #[specta::specta]
-pub async fn board_cards_by_id(w: W<'_>, ids: Vec<String>) -> R<Vec<crate::cards::CardRead>> {
-    blocking(&w, move |w| Ok(w.cards_by_id(&ids))).await
+pub async fn board_cards_by_id(
+    w: W<'_>,
+    ids: Vec<String>,
+    have: Vec<crate::cards::CardHave>,
+) -> R<Vec<crate::cards::CardRead>> {
+    blocking(&w, move |w| Ok(w.cards_by_id(&ids, &have))).await
 }
 
 #[tauri::command]
@@ -827,6 +831,16 @@ pub async fn board_threads(w: W<'_>, board_id: String) -> R<Vec<crate::threads::
 #[specta::specta]
 pub async fn board_threads_all(w: W<'_>) -> R<Vec<crate::threads::ThreadSummary>> {
     blocking(&w, move |w| Ok(w.threads_all())).await
+}
+
+/// Just these threads' rows (card #1136).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_threads_by_id(
+    w: W<'_>,
+    ids: Vec<String>,
+) -> R<Vec<crate::threads::ThreadSummary>> {
+    blocking(&w, move |w| Ok(w.threads_by_id(&ids))).await
 }
 
 /// The person has a thread open: what is in it now is read (card #719).
@@ -2390,6 +2404,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_start_thread_with_files,
             board_threads,
             board_threads_all,
+            board_threads_by_id,
             board_card_ref,
             board_read_thread,
             board_resolve_thread,

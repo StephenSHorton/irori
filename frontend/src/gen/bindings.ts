@@ -43,7 +43,7 @@ export const commands = {
 	boardCards: () => __TAURI_INVOKE<CardSummary[]>("board_cards"),
 	boardCard: (id: string) => __TAURI_INVOKE<CardDetail>("board_card", { id }),
 	/**  Several cards in one call, each with its card or why not (card #468). */
-	boardCardsById: (ids: string[]) => __TAURI_INVOKE<CardRead[]>("board_cards_by_id", { ids }),
+	boardCardsById: (ids: string[], have: CardHave[]) => __TAURI_INVOKE<CardRead[]>("board_cards_by_id", { ids, have }),
 	boardDoneCards: (limit: number, before: string) => __TAURI_INVOKE<DonePage>("board_done_cards", { limit, before }),
 	/**
 	 *  One scope's live cards (card #161): "" every card, "own" the private
@@ -173,6 +173,8 @@ export const commands = {
 	boardThreads: (boardId: string) => __TAURI_INVOKE<ThreadSummary[]>("board_threads", { boardId }),
 	/**  Every thread on this device, each with its space (card #558). */
 	boardThreadsAll: () => __TAURI_INVOKE<ThreadSummary[]>("board_threads_all"),
+	/**  Just these threads' rows (card #1136). */
+	boardThreadsById: (ids: string[]) => __TAURI_INVOKE<ThreadSummary[]>("board_threads_by_id", { ids }),
 	/**  What a #ref in text names (card #144), or null. */
 	boardCardRef: (r: string) => __TAURI_INVOKE<RefTarget | null>("board_card_ref", { r }),
 	/**  The person has a thread open: what is in it now is read (card #719). */
@@ -1540,6 +1542,12 @@ export type CardDetail = {
 	sharedTo?: SharedCopy | null,
 } & CardSummary;
 
+/**  What the window holds of one card: the `rev` it was last sent. */
+export type CardHave = {
+	id: string,
+	rev: string,
+};
+
 /**  The holder line. */
 export type CardHolder = {
 	who: AgentRef,
@@ -1688,6 +1696,15 @@ export type CardRead = {
 	card: CardDetail | null,
 	/**  "" when card is there. */
 	error: string,
+	/**
+	 *  A stamp of the card as read (card #1136): the window sends it back in
+	 *  `have`, and a card that still hashes to it comes back `unchanged`
+	 *  with no card, so a quiet board costs a few bytes a card, not every
+	 *  comment and step of it. "" when the card isn't there.
+	 */
+	rev: string,
+	/**  The card is what `have` said: `card` is empty on purpose. */
+	unchanged: boolean,
 };
 
 /**  Another card: a subtask's parent. */

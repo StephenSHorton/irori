@@ -670,6 +670,14 @@ export const threads = {
     return sampleThreads(null)
   },
 
+  // byId is just these threads' rows, for Ask Irori's follower, which
+  // follows a few (card #1136).
+  async byId(ids: string[]): Promise<ThreadSummary[]> {
+    if (inWails()) return (await BoardService.ThreadsById(ids)) ?? []
+    const want = new Set(ids)
+    return sampleThreads(null).filter((t) => want.has(t.id))
+  },
+
   // start is the header box's message as a thread: the agents on the
   // cards it names (#12) and the ones it @mentions hear it, and at once
   // one idle agent or Irori's own agent gets it (card #512).
@@ -818,20 +826,32 @@ const RefTTL = 60_000
 // one drops the cache, and every useCardRef asks again, so a looked-up
 // card's chip moves with the card, no reload. One subscription for all.
 let refGen = 0
+// RefRefreshMs is the wait that gathers a burst of board changes into one
+// refresh of the chips.
+export const RefRefreshMs = 1500
+let refTimer: ReturnType<typeof setTimeout> | undefined
 const refWatchers = new Set<() => void>()
 let refOff: (() => void) | null = null
 function watchRefs(fn: () => void): () => void {
   refWatchers.add(fn)
   refOff ??= subscribe(() => {
-    refCache.clear()
-    refGen++
-    for (const w of refWatchers) w()
+    // One refresh per burst (card #1136): a busy board changes many times
+    // a minute, and each change used to ask for every chip again.
+    if (refTimer !== undefined) return
+    refTimer = setTimeout(() => {
+      refTimer = undefined
+      refCache.clear()
+      refGen++
+      for (const w of refWatchers) w()
+    }, RefRefreshMs)
   })
   return () => {
     refWatchers.delete(fn)
     if (!refWatchers.size && refOff) {
       refOff()
       refOff = null
+      clearTimeout(refTimer)
+      refTimer = undefined
     }
   }
 }
@@ -2584,8 +2604,30 @@ export function onCardsChanged(fn: () => void): () => void {
 // cardsById reads cards by id in one call, as the card hooks share
 // (readCards): each id's card, or its error. Ask Irori's follower (card
 // #785) reads the threads it posted and the cards made from them.
-export function cardsById(ids: string[]): Promise<Map<string, CardSlot>> {
-  return readCards(ids)
+// It holds what it last read of each id and asks with its rev (card
+// #1136), so a card that hasn't moved costs a stamp, not its whole body.
+let followed = new Map<string, CardSlot>()
+export async function cardsById(ids: string[]): Promise<Map<string, CardSlot>> {
+  const held = followed
+  const have = new Map<string, string>()
+  for (const id of ids) {
+    const s = held.get(id)
+    if (s?.rev && s.detail && !s.error) have.set(id, s.rev)
+  }
+  const got = await readCards(ids, have)
+  const out = new Map<string, CardSlot>()
+  for (const [id, slot] of got) {
+    if (!slot.same) {
+      out.set(id, slot)
+      continue
+    }
+    // Same as held; if the held one moved on meanwhile (another caller),
+    // leave it out: the caller tries again next round.
+    const was = held.get(id)
+    if (was && was.rev === slot.rev) out.set(id, was)
+  }
+  followed = new Map(out)
+  return out
 }
 
 function subscribe(fn: () => void): () => void {
@@ -2912,18 +2954,34 @@ export function useCard(id: string): {
 export type CardSlot = {
   detail: CardDetail | null
   error: string | null
+  // The host's stamp of this card as read (card #1136): sent back as
+  // `have`, so a card that hasn't changed comes back without its body.
+  rev?: string
+  // Set on a read of a card that still has the rev asked with: detail is
+  // null on purpose and the held slot stands.
+  same?: boolean
 }
 
 // readCards is the shared read: each id's card, or why not.
-async function readCards(ids: string[]): Promise<Map<string, CardSlot>> {
+async function readCards(
+  ids: string[],
+  have: ReadonlyMap<string, string> = new Map()
+): Promise<Map<string, CardSlot>> {
   const out = new Map<string, CardSlot>()
   if (inWails()) {
     try {
-      for (const r of await BoardService.CardsById(ids))
-        out.set(r.id, {
-          detail: (r.card as CardDetail | null) ?? null,
-          error: r.card ? null : r.error || "coord: no such card",
-        })
+      const held = [...have].map(([id, rev]) => ({ id, rev }))
+      for (const r of await BoardService.CardsById(ids, held))
+        out.set(
+          r.id,
+          r.unchanged
+            ? { detail: null, error: null, rev: r.rev, same: true }
+            : {
+                detail: (r.card as CardDetail | null) ?? null,
+                error: r.card ? null : r.error || "coord: no such card",
+                ...(r.rev ? { rev: r.rev } : {}),
+              }
+        )
     } catch (err) {
       for (const id of ids) out.set(id, { detail: null, error: errText(err) })
     }
@@ -2953,7 +3011,10 @@ async function readCards(ids: string[]): Promise<Map<string, CardSlot>> {
 export const cardStore = createCardStore(readCards)
 
 export function createCardStore(
-  read: (ids: string[]) => Promise<Map<string, CardSlot>>,
+  read: (
+    ids: string[],
+    have: ReadonlyMap<string, string>
+  ) => Promise<Map<string, CardSlot>>,
   events: (again: () => void) => () => void = cardEvents,
   retryMs = RetryMs,
   pend: Pending = pending
@@ -3002,9 +3063,28 @@ export function createCardStore(
         all = false
         want = new Set()
         if (!ids.length) continue
-        const got = await read(ids)
+        // What it holds, by rev: a card still the same comes back as a
+        // stamp, not as every comment and step of it (card #1136).
+        const have = new Map<string, string>()
+        for (const id of ids) {
+          const s = slots.get(id)
+          if (s?.rev && s.detail && !s.error) have.set(id, s.rev)
+        }
+        const got = await read(ids, have)
         for (const [id, got1] of got) {
           if (!users.has(id)) continue
+          if (got1.same) {
+            // Nothing changed, yet the person's change may now agree with
+            // it: that still ends the change.
+            const held = slots.get(id)
+            if (held?.detail && held.rev === got1.rev) {
+              pend.observeDetail(held.detail)
+              continue
+            }
+            // The held card moved on meanwhile: read it whole.
+            want.add(id)
+            continue
+          }
           // A failed read keeps the card shown, with the error beside it,
           // as each useCard's own read did.
           const slot = got1.error
