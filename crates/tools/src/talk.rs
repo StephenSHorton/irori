@@ -487,7 +487,13 @@ fn answers_wind_down(m: &inbox::Message, wind_downs: &std::collections::HashSet<
 }
 
 /// The DMs mirrored from messages: by DM id, its two parties and posts.
-fn mirrored(b: &dyn Backend, talk: &Talk) -> BTreeMap<String, (Vec<Member>, Vec<Post>)> {
+///
+/// `only` limits it to those DM ids, the filter applied inside the scan.
+fn mirrored(
+    b: &dyn Backend,
+    talk: &Talk,
+    only: Option<&std::collections::HashSet<String>>,
+) -> BTreeMap<String, (Vec<Member>, Vec<Post>)> {
     let ids = talk.post_ids();
     let mut seen = std::collections::HashSet::new();
     let mut out: BTreeMap<String, (Vec<Member>, Vec<Post>)> = BTreeMap::new();
@@ -509,6 +515,9 @@ fn mirrored(b: &dyn Backend, talk: &Talk) -> BTreeMap<String, (Vec<Member>, Vec<
             continue;
         }
         let conv = ct::dm_id(&m.from.key, &d.to);
+        if only.is_some_and(|o| !o.contains(&conv)) {
+            continue;
+        }
         let e = out
             .entry(conv.clone())
             .or_insert_with(|| (vec![Member::of(&m.from.key), Member::of(&d.to)], Vec::new()));
@@ -589,135 +598,262 @@ pub fn post_line(p: &Post) -> String {
 /// channels it joined, its DMs and the open threads it is on, in the
 /// private log and every space's. Newest first.
 pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>, String> {
+    conversations_with(b, reader, true)
+}
+
+/// [`conversations`], with the thread rows left out when `threads` is
+/// false: the window never shows them in Talk's list (card #1150, design
+/// list-signals.md §6.4), and a thread's row costs a read of every log.
+pub fn conversations_with(
+    b: &dyn Backend,
+    reader: &str,
+    threads: bool,
+) -> Result<Vec<Conversation>, String> {
     let talk = talk_of(b)?;
-    let names = Book::new(b);
-    let person = ct::is_person_key(reader);
-    let me = ct::canon(reader).to_string();
+    let who = Who::of(b, reader);
     let mut out = Vec::new();
 
     for c in talk.channels() {
-        let joined = talk.is_member(&c.id, reader);
-        if c.archived || (!person && !joined) {
-            continue;
-        }
-        let ps = talk.posts(&c.id);
-        let (unread, mentions) = counts(talk, &ps, reader, &c.id);
-        let (last_text, last_by) = last_line(&ps);
-        out.push(Conversation {
-            conv_id: c.id.clone(),
-            kind: ct::KIND_CHANNEL.into(),
-            name: c.name.clone(),
-            topic: c.topic.clone(),
-            unread,
-            mentions,
-            members: talk
-                .members(&c.id)
-                .iter()
-                .map(|m| names.member(m))
-                .collect(),
-            last_at: last_at(&ps),
-            last_text,
-            last_by,
-            joined,
-            space_id: c.space_id.clone(),
-            ..Conversation::default()
-        });
+        out.extend(channel_row(talk, &who, &c));
     }
 
-    let mirror = mirrored(b, talk);
+    let mirror = mirrored(b, talk, None);
     let mut dms: BTreeMap<String, Vec<Member>> = talk.dms().into_iter().collect();
     for (id, (parties, _)) in &mirror {
         dms.entry(id.clone()).or_insert_with(|| parties.clone());
     }
     for (id, parties) in dms {
-        let mine = parties.iter().any(|m| ct::canon(&m.key) == me);
-        if !mine && !person {
-            continue;
-        }
-        let ps = dm_posts(talk, mirror.get(&id), &id);
-        // A DM opened with a shared board's sender (from a Board notice)
-        // and never written in lists nothing (card #478): what that
-        // sender wrote is on the card, not here.
-        if ps.is_empty() && parties.iter().any(|m| m.key.starts_with("board:")) {
-            continue;
-        }
-        let (unread, mentions) = if mine {
-            counts(talk, &ps, reader, &id)
-        } else {
-            (0, 0)
-        };
-        let others: Vec<String> = parties
-            .iter()
-            .filter(|m| ct::canon(&m.key) != me)
-            .map(|m| names.name(&m.key))
-            .collect();
-        let (last_text, last_by) = last_line(&ps);
-        let waiting = talk
-            .pair_other(&id)
-            .zip(b.shared_boards())
-            .map(|(o, sb)| sb.dm_waiting(&o).to_string())
-            .unwrap_or_default();
-        out.push(Conversation {
-            conv_id: id.clone(),
-            kind: ct::KIND_DM.into(),
-            name: others.join(", "),
-            unread,
-            mentions,
-            members: parties.iter().map(|m| names.member(m)).collect(),
-            last_at: last_at(&ps),
-            last_text,
-            last_by,
-            joined: mine,
-            read_only: !mine,
-            waiting,
-            ..Conversation::default()
-        });
+        out.extend(dm_row(b, talk, &who, &id, &parties, mirror.get(&id)));
     }
 
-    for (space, co) in thread_logs(b) {
-        for t in co.list_tasks(&coord::TaskFilter::default()) {
-            if !is_thread(&t) || !thread_open(&t) {
-                continue;
+    if threads {
+        for (space, co) in thread_logs(b) {
+            for t in co.list_tasks(&coord::TaskFilter::default()) {
+                out.extend(thread_row(b, talk, &who, &space, &co, &t));
             }
-            let members = thread_members(b, &t);
-            let ps = own_posts(b, &co, &t);
-            // On it: asked, told, holding, watching or answered.
-            let on = members.iter().any(|m| ct::canon(&m.key) == me)
-                || ps.iter().any(|p| ct::canon(&p.by) == me);
-            if !person && !on {
-                continue;
-            }
-            let (unread, mentions) = counts(talk, &ps, reader, &t.id);
-            let (last_text, last_by) = last_line(&ps);
-            out.push(Conversation {
-                conv_id: t.id.clone(),
-                kind: ct::KIND_THREAD.into(),
-                name: t.title.clone(),
-                unread,
-                mentions,
-                members: members.iter().map(|m| names.member(m)).collect(),
-                last_at: last_at(&ps),
-                last_text,
-                last_by,
-                joined: on || person,
-                short: if space.is_empty() {
-                    t.short.clone()
-                } else {
-                    t.short_ref()
-                },
-                agents_now: t.ask.as_ref().is_some_and(|a| a.wake),
-                space_id: if space.is_empty() {
-                    t.ask.as_ref().map(|a| a.board.clone()).unwrap_or_default()
-                } else {
-                    space.clone()
-                },
-                ..Conversation::default()
-            });
         }
     }
 
-    out.sort_by(|a, b| coord_cmp(&b.last_at, &a.last_at).then_with(|| a.conv_id.cmp(&b.conv_id)));
+    sort_conversations(&mut out);
     Ok(out)
+}
+
+/// The rows of just the conversations `convs` names (channel and DM ids,
+/// and bare thread ids), as [`conversations_with`] would list them. One
+/// that isn't listed for `reader` (archived, left, resolved, never was)
+/// has no row: the caller drops it. Newest first.
+pub fn conversations_by_id(
+    b: &dyn Backend,
+    reader: &str,
+    convs: &[String],
+    threads: bool,
+) -> Result<Vec<Conversation>, String> {
+    let talk = talk_of(b)?;
+    let who = Who::of(b, reader);
+    let mut out = Vec::new();
+    let mut dm_ids = std::collections::HashSet::new();
+    let mut thread_ids = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for id in convs {
+        let id = id.trim();
+        // An id named twice is one row.
+        if !seen.insert(id) {
+            continue;
+        }
+        if ct::is_channel(id) {
+            if let Some(c) = talk.channel(id) {
+                out.extend(channel_row(talk, &who, &c));
+            }
+        } else if ct::is_dm(id) {
+            dm_ids.insert(id.to_string());
+        } else if threads && !id.is_empty() {
+            thread_ids.push(id.to_string());
+        }
+    }
+
+    if !dm_ids.is_empty() {
+        let mirror = mirrored(b, talk, Some(&dm_ids));
+        let mut dms: BTreeMap<String, Vec<Member>> = talk
+            .dms()
+            .into_iter()
+            .filter(|(id, _)| dm_ids.contains(id))
+            .collect();
+        for (id, (parties, _)) in &mirror {
+            dms.entry(id.clone()).or_insert_with(|| parties.clone());
+        }
+        for (id, parties) in dms {
+            out.extend(dm_row(b, talk, &who, &id, &parties, mirror.get(&id)));
+        }
+    }
+
+    if !thread_ids.is_empty() {
+        for (space, co) in thread_logs(b) {
+            for id in &thread_ids {
+                if let Some(t) = co.get_task(id) {
+                    out.extend(thread_row(b, talk, &who, &space, &co, &t));
+                }
+            }
+        }
+    }
+
+    sort_conversations(&mut out);
+    Ok(out)
+}
+
+fn sort_conversations(out: &mut [Conversation]) {
+    out.sort_by(|a, b| coord_cmp(&b.last_at, &a.last_at).then_with(|| a.conv_id.cmp(&b.conv_id)));
+}
+
+/// Who a list is for, and what it names members by.
+struct Who<'a> {
+    reader: &'a str,
+    person: bool,
+    me: String,
+    names: Book,
+}
+
+impl<'a> Who<'a> {
+    fn of(b: &'a dyn Backend, reader: &'a str) -> Who<'a> {
+        Who {
+            reader,
+            person: ct::is_person_key(reader),
+            me: ct::canon(reader).to_string(),
+            names: Book::new(b),
+        }
+    }
+}
+
+/// A channel's row; none for an archived one, or one an agent hasn't joined.
+fn channel_row(talk: &Talk, who: &Who, c: &ct::Channel) -> Option<Conversation> {
+    let joined = talk.is_member(&c.id, who.reader);
+    if c.archived || (!who.person && !joined) {
+        return None;
+    }
+    let ps = talk.posts(&c.id);
+    let (unread, mentions) = counts(talk, &ps, who.reader, &c.id);
+    let (last_text, last_by) = last_line(&ps);
+    Some(Conversation {
+        conv_id: c.id.clone(),
+        kind: ct::KIND_CHANNEL.into(),
+        name: c.name.clone(),
+        topic: c.topic.clone(),
+        unread,
+        mentions,
+        members: talk
+            .members(&c.id)
+            .iter()
+            .map(|m| who.names.member(m))
+            .collect(),
+        last_at: last_at(&ps),
+        last_text,
+        last_by,
+        joined,
+        space_id: c.space_id.clone(),
+        ..Conversation::default()
+    })
+}
+
+/// A DM's row, from its `parties` and the messages `mirror`ed into it; none
+/// for one `reader` may not see.
+fn dm_row(
+    b: &dyn Backend,
+    talk: &Talk,
+    who: &Who,
+    id: &str,
+    parties: &[Member],
+    mirror: Option<&(Vec<Member>, Vec<Post>)>,
+) -> Option<Conversation> {
+    let mine = parties.iter().any(|m| ct::canon(&m.key) == who.me);
+    if !mine && !who.person {
+        return None;
+    }
+    let ps = dm_posts(talk, mirror, id);
+    // A DM opened with a shared board's sender (from a Board notice)
+    // and never written in lists nothing (card #478): what that
+    // sender wrote is on the card, not here.
+    if ps.is_empty() && parties.iter().any(|m| m.key.starts_with("board:")) {
+        return None;
+    }
+    let (unread, mentions) = if mine {
+        counts(talk, &ps, who.reader, id)
+    } else {
+        (0, 0)
+    };
+    let others: Vec<String> = parties
+        .iter()
+        .filter(|m| ct::canon(&m.key) != who.me)
+        .map(|m| who.names.name(&m.key))
+        .collect();
+    let (last_text, last_by) = last_line(&ps);
+    let waiting = talk
+        .pair_other(id)
+        .zip(b.shared_boards())
+        .map(|(o, sb)| sb.dm_waiting(&o).to_string())
+        .unwrap_or_default();
+    Some(Conversation {
+        conv_id: id.to_string(),
+        kind: ct::KIND_DM.into(),
+        name: others.join(", "),
+        unread,
+        mentions,
+        members: parties.iter().map(|m| who.names.member(m)).collect(),
+        last_at: last_at(&ps),
+        last_text,
+        last_by,
+        joined: mine,
+        read_only: !mine,
+        waiting,
+        ..Conversation::default()
+    })
+}
+
+/// An open thread's row, in log `space` ("" for the private one); none for
+/// a task that isn't an open thread, or one `reader` isn't on.
+fn thread_row(
+    b: &dyn Backend,
+    talk: &Talk,
+    who: &Who,
+    space: &str,
+    co: &Coord,
+    t: &Task,
+) -> Option<Conversation> {
+    if !is_thread(t) || !thread_open(t) {
+        return None;
+    }
+    let members = thread_members(b, t);
+    let ps = own_posts(b, co, t);
+    // On it: asked, told, holding, watching or answered.
+    let on = members.iter().any(|m| ct::canon(&m.key) == who.me)
+        || ps.iter().any(|p| ct::canon(&p.by) == who.me);
+    if !who.person && !on {
+        return None;
+    }
+    let (unread, mentions) = counts(talk, &ps, who.reader, &t.id);
+    let (last_text, last_by) = last_line(&ps);
+    Some(Conversation {
+        conv_id: t.id.clone(),
+        kind: ct::KIND_THREAD.into(),
+        name: t.title.clone(),
+        unread,
+        mentions,
+        members: members.iter().map(|m| who.names.member(m)).collect(),
+        last_at: last_at(&ps),
+        last_text,
+        last_by,
+        joined: on || who.person,
+        short: if space.is_empty() {
+            t.short.clone()
+        } else {
+            t.short_ref()
+        },
+        agents_now: t.ask.as_ref().is_some_and(|a| a.wake),
+        space_id: if space.is_empty() {
+            t.ask.as_ref().map(|a| a.board.clone()).unwrap_or_default()
+        } else {
+            space.to_string()
+        },
+        ..Conversation::default()
+    })
 }
 
 fn coord_cmp(a: &GoTime, b: &GoTime) -> std::cmp::Ordering {
@@ -1052,7 +1188,8 @@ pub fn posts(b: &dyn Backend, reader: &str, conv: &str) -> Result<Vec<Post>, Str
         return Ok(talk.posts(conv));
     }
     if ct::is_dm(conv) {
-        let mirror = mirrored(b, talk);
+        let only = std::collections::HashSet::from([conv.to_string()]);
+        let mirror = mirrored(b, talk, Some(&only));
         let m = mirror.get(conv);
         let mut parties = talk.members(conv);
         if parties.is_empty()

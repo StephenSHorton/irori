@@ -10,13 +10,15 @@
 // browser everything runs on the sample below, which the buttons change in
 // memory.
 
-import { useCallback, useEffect } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 
 import { NotesService } from "./host"
 import { onChange } from "./changes"
 import { EventBoardChanged } from "./cards"
 import { inWails } from "./irori"
+import { Follows, notesWake } from "./small-lists"
 import { useLatest } from "./talk"
+import { appPage } from "./visibility"
 
 // ---- the shapes (crates/coord/src/board/notes.rs, §11) ---------------------
 
@@ -289,14 +291,26 @@ export function useNotes(): {
 } {
   const load = useCallback(() => notes.list(), [])
   const { value, loading, error, reload } = useLatest<Note[]>(load, [], "notes")
-  useNotesFresh(reload)
+  const taskIds = useMemo(
+    () => new Set(value.flatMap((n) => (n.taskId ? [n.taskId] : []))),
+    [value]
+  )
+  useNotesFresh(reload, taskIds)
   return { notes: value, loading, error, reload }
 }
 
 // useNotesFresh reloads on every notes change: one made here, or (note
 // rows fold into the board's changes) board:changed for a note written,
 // edited or removed, here or synced.
-function useNotesFresh(reload: () => Promise<void>) {
+//
+// Only a note, or a card a note names (its source, for "Still true?"), wakes
+// it (card #1152). A path: tag's file has no event, so the files are checked
+// again when the window shows and gets focus (focus: at most once a minute).
+function useNotesFresh(reload: () => Promise<void>, taskIds: Set<string>) {
+  const ids = useRef(taskIds)
+  useEffect(() => {
+    ids.current = taskIds
+  })
   useEffect(() => {
     void reload()
     listeners.add(reloadFn)
@@ -304,11 +318,24 @@ function useNotesFresh(reload: () => Promise<void>) {
       void reload()
     }
     const off = inWails()
-      ? onChange(EventBoardChanged, () => void reload())
+      ? onChange(
+          EventBoardChanged,
+          (n) => {
+            if (notesWake(n, ids.current)) void reload()
+          },
+          { follow: Follows.notes, focus: true }
+        )
       : () => {}
+    // Shown again: the files may have moved, with no event.
+    const page = inWails() ? appPage() : null
+    const onShow = () => {
+      if (!page?.hidden) void reload()
+    }
+    page?.addEventListener("visibilitychange", onShow)
     return () => {
       listeners.delete(reloadFn)
       off()
+      page?.removeEventListener("visibilitychange", onShow)
     }
   }, [reload])
 }

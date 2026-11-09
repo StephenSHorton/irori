@@ -18,6 +18,8 @@ export type AgentsSettings = B.AgentsSettings
 export type AnswerResult = B.AnswerResult
 export type Ask = B.Ask
 export type AskRepo = B.AskRepo
+export type AssistantAskPrepared = B.AssistantAskPrepared
+export type AssistantAskSent = B.AssistantAskSent
 export type AssistantChatAct = B.AssistantChatAct
 export type AssistantChatActIn = B.AssistantChatActIn
 export type AssistantChatDraft = B.AssistantChatDraft
@@ -296,6 +298,16 @@ export function Ask(p: Partial<B.Ask> = {}): B.Ask {
 /** AskRepo with Go's zero values for every field left out. */
 export function AskRepo(p: Partial<B.AskRepo> = {}): B.AskRepo {
   return { "repoKey": "", "label": "", ...p } as B.AskRepo
+}
+
+/** AssistantAskPrepared with Go's zero values for every field left out. */
+export function AssistantAskPrepared(p: Partial<B.AssistantAskPrepared> = {}): B.AssistantAskPrepared {
+  return { "space": "", "spaceName": "", "person": "", "name": "", "text": "", "held": "", ...p } as B.AssistantAskPrepared
+}
+
+/** AssistantAskSent with Go's zero values for every field left out. */
+export function AssistantAskSent(p: Partial<B.AssistantAskSent> = {}): B.AssistantAskSent {
+  return { "postId": "", "conv": "", "space": "", "text": "", ...p } as B.AssistantAskSent
 }
 
 /** AssistantChatAct with Go's zero values for every field left out. */
@@ -905,7 +917,7 @@ export function Notification(p: Partial<B.Notification> = {}): B.Notification {
 
 /** NotificationAsk with Go's zero values for every field left out. */
 export function NotificationAsk(p: Partial<B.NotificationAsk> = {}): B.NotificationAsk {
-  return { "open": false, "actions": [], "choice": "", "answered": false, "until": "", ...p } as B.NotificationAsk
+  return { "id": "", "open": false, "actions": [], "choice": "", "answered": false, "until": "", ...p } as B.NotificationAsk
 }
 
 /** NotificationCard with Go's zero values for every field left out. */

@@ -2388,3 +2388,85 @@ fn huddle_note_is_refused_under_ask_me() {
         &["Nothing on the canvas"],
     );
 }
+
+/// Card #1150: the rows of named conversations are the full list's rows for
+/// those ids, whoever the reader is; a conversation with no row (an unknown
+/// id, one the reader isn't on) has none; the thread flag leaves the thread
+/// rows out of both.
+#[test]
+fn conversations_by_id_equal_the_full_lists_rows() {
+    let h = new_harness();
+    let a = call_a();
+    h.b.talk
+        .create_channel(USER, "general", "anything goes")
+        .unwrap();
+    h.okj(&a, "talk_join", json!({"conv": "#general"}));
+    h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": "#general", "text": "@gamma can you look at the ports?"}),
+    );
+    h.send_to(&a, KEY_C, "the ports clash on 8080");
+    h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": "@beta", "text": "got a minute?"}),
+    );
+    let (t, _) =
+        h.b.co
+            .post_ask(
+                USER,
+                coord::NewAsk {
+                    text: "why is the build slow?".into(),
+                    thread: true,
+                    ..Default::default()
+                },
+                &[],
+            )
+            .unwrap();
+
+    for reader in [USER, KEY_A, KEY_B, KEY_C] {
+        for threads in [true, false] {
+            let full = tools::talk::conversations_with(&*h.b, reader, threads).unwrap();
+            assert!(!full.is_empty(), "{reader} sees something");
+            assert_eq!(
+                full.iter().any(|x| x.kind == "thread"),
+                threads && reader == USER,
+                "the thread flag, for {reader}"
+            );
+            // Every id at once, and each id alone, with an unknown id too.
+            let mut ids: Vec<String> = full.iter().map(|x| x.conv_id.clone()).collect();
+            ids.push("no-such-conv".into());
+            ids.push(t.id.clone());
+            let all = tools::talk::conversations_by_id(&*h.b, reader, &ids, threads).unwrap();
+            assert_eq!(all, full, "all ids, {reader}, threads {threads}");
+            for x in &full {
+                let one = tools::talk::conversations_by_id(
+                    &*h.b,
+                    reader,
+                    std::slice::from_ref(&x.conv_id),
+                    threads,
+                )
+                .unwrap();
+                assert_eq!(one, vec![x.clone()], "{}", x.conv_id);
+            }
+        }
+    }
+    // Only the ids named come back.
+    let dm = ct::dm_id(KEY_A, KEY_C);
+    let only =
+        tools::talk::conversations_by_id(&*h.b, USER, std::slice::from_ref(&dm), true).unwrap();
+    assert_eq!(only.len(), 1);
+    assert_eq!(only[0].conv_id, dm);
+    assert!(
+        tools::talk::conversations_by_id(&*h.b, USER, &[], true)
+            .unwrap()
+            .is_empty()
+    );
+    // A thread id with the thread flag off has no row.
+    assert!(
+        tools::talk::conversations_by_id(&*h.b, USER, std::slice::from_ref(&t.id), false)
+            .unwrap()
+            .is_empty()
+    );
+}

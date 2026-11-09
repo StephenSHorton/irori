@@ -189,6 +189,14 @@ fn stored_returned_rows_never_show_a_key() {
         r.w.notifications().len() == rows.len()
     });
     let ns = r.w.notifications();
+    // Card #1151: by key gives the same rows, in the order asked, and
+    // leaves out a key nothing is kept under.
+    let want = [ns[2].key.clone(), "nope".to_string(), ns[0].key.clone()];
+    assert_eq!(
+        r.w.notifications_by_key(&want),
+        vec![ns[2].clone(), ns[0].clone()]
+    );
+    assert!(r.w.notifications_by_key(&[]).is_empty());
     for n in &ns {
         assert!(!n.body.contains('/'), "{n:?}");
         if let Some(f) = &n.from {
@@ -955,7 +963,7 @@ fn talk_through_the_window() {
     assert_eq!(tp[1].post_id, cid);
     assert_eq!(w.core.coord().comments(&t.id).unwrap().len(), 1);
 
-    let cs = w.talk_conversations().unwrap();
+    let cs = w.talk_conversations(true).unwrap();
     for (id, kind) in [(&ch, "channel"), (&dm, "dm"), (&t.id, "thread")] {
         let c = cs.iter().find(|c| &c.conv_id == id).expect(kind);
         assert_eq!(c.kind, kind);
@@ -1055,7 +1063,7 @@ fn talk_through_the_window() {
     let sc = w
         .talk_channel_create("general", None, Some(&space))
         .unwrap();
-    let cs = w.talk_conversations().unwrap();
+    let cs = w.talk_conversations(true).unwrap();
     let s = cs.iter().find(|c| c.conv_id == sc).expect("space channel");
     assert_eq!(s.space_id, space);
     let sj = j(s);
