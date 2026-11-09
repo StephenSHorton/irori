@@ -666,7 +666,11 @@ fn test_another_devices_resting_agent() {
     eventually("a2 rests", || {
         status(&r, A2).is_some_and(|s| s.0 == roster::RESTING)
     });
-    assert_eq!(status(&r, A2).unwrap().2, 41000, "its last context rides on the rest");
+    assert_eq!(
+        status(&r, A2).unwrap().2,
+        41000,
+        "its last context rides on the rest"
+    );
     // A status its exiting process wrote after the rest doesn't wake it.
     g.row(
         "dev2",

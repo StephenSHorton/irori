@@ -237,8 +237,10 @@ fn wait_rested(s: &Setup, n: usize, what: &str) {
         if s.fake.stopped.lock().unwrap().contains(&sess(n)) {
             return true;
         }
-        s.skew
-            .fetch_add(irori_core::spawn::HANDOFF_WAIT.as_secs() as i64, Ordering::SeqCst);
+        s.skew.fetch_add(
+            irori_core::spawn::HANDOFF_WAIT.as_secs() as i64,
+            Ordering::SeqCst,
+        );
         s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
         std::thread::sleep(Duration::from_millis(200));
         false
@@ -1455,14 +1457,19 @@ fn a_quiet_day_retires_a_resting_agent() {
         ended(&s, 1)
     });
     let r = rows_about(&s, store::kinds::AGENT_RETIRE, &k);
-    let inbox: Vec<(String, String, String)> = s
-        .r
-        .core
-        .inbox()
-        .for_agent(&k, true, 0)
-        .into_iter()
-        .map(|d| (d.mode, d.message.reason, d.message.text.chars().take(80).collect()))
-        .collect();
+    let inbox: Vec<(String, String, String)> =
+        s.r.core
+            .inbox()
+            .for_agent(&k, true, 0)
+            .into_iter()
+            .map(|d| {
+                (
+                    d.mode,
+                    d.message.reason,
+                    d.message.text.chars().take(80).collect(),
+                )
+            })
+            .collect();
     assert_eq!(r.len(), 1, "{r:?}");
     assert_eq!(r[0]["reason"], coord::roster::RETIRE_QUIET, "{inbox:?}");
     assert_eq!(gone_rows(&s, &k), 1);

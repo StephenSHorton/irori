@@ -111,9 +111,7 @@ impl Fold {
             .held
             .values()
             .filter(|l| {
-                l.lease.holder == key
-                    && gotime::after(&l.lease.until, &now)
-                    && self.lease_local(l)
+                l.lease.holder == key && gotime::after(&l.lease.until, &now) && self.lease_local(l)
             })
             .map(|l| (l.lease.resource.clone(), l.lease.holder.clone()))
             .collect();

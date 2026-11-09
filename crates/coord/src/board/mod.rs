@@ -100,8 +100,8 @@ pub use error::{Error, ErrorKind, Result};
 pub use fold::blocker_gist;
 pub use fold::card_refs;
 pub use fold::{
-    FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_PARKED, LEFT_REMOVED, LEFT_RESTED, MADE_KIND,
-    REASON_CONFLICT, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN,
+    FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_PARKED, LEFT_REMOVED, LEFT_RESTED,
+    MADE_KIND, REASON_CONFLICT, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN,
     SUB_BUFFER, followed, offer_files_in,
 };
 pub use links::{MAX_LINKS, link_label, parse_link, pr_link};

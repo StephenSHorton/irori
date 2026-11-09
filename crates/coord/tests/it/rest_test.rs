@@ -64,9 +64,8 @@ fn a_resting_agent_lets_its_card_and_leases_go_and_nobody_is_told() {
     let rs = rig(&mut e);
     // Made by an agent that is still live: a plain holder going would send
     // it "Nobody is on X any more".
-    let t = e
-        .c
-        .create_task(
+    let t =
+        e.c.create_task(
             BOB,
             NewTask {
                 title: "Fix the save".into(),
@@ -100,10 +99,7 @@ fn a_resting_agent_lets_its_card_and_leases_go_and_nobody_is_told() {
     let mut told = e.c.sweep_notices().unwrap();
     e.clk.add(HOLDER_GRACE + secs(1));
     told.extend(e.c.sweep_notices().unwrap());
-    assert!(
-        told.iter().all(|n| n.kind != NOTICE_RETURNED),
-        "{told:?}"
-    );
+    assert!(told.iter().all(|n| n.kind != NOTICE_RETURNED), "{told:?}");
     assert!(!e.c.key_gone(SPAWNED));
     assert!(e.c.spawned_live(SPAWNED));
     // Even before the roster lists it again (a restart).
@@ -117,9 +113,8 @@ fn a_resting_agent_lets_its_card_and_leases_go_and_nobody_is_told() {
 fn a_resting_agent_at_its_done_check_leaves_the_check_with_the_person() {
     let mut e = Env::new();
     let rs = rig(&mut e);
-    let t = e
-        .c
-        .create_task(
+    let t =
+        e.c.create_task(
             USER,
             NewTask {
                 title: "Ship it".into(),
@@ -161,7 +156,10 @@ fn a_thread_whose_replier_rests_opens_again_for_a_fresh_agent() {
     e.c.sweep_asks(&[]).unwrap();
     e.clk.add(mins(10));
     e.c.sweep_asks(&[]).unwrap();
-    assert!(e.c.cards_to_spawn().is_empty(), "quiet: it waits for the person");
+    assert!(
+        e.c.cards_to_spawn().is_empty(),
+        "quiet: it waits for the person"
+    );
     // The person follows up: nothing is sent to the resting replier, and
     // the thread goes out again so a fresh agent answers.
     e.clk.add(mins(1));
@@ -216,9 +214,8 @@ fn an_ask_whose_agent_rests_waits_for_the_person() {
 fn a_resting_creator_isnt_the_answerer_of_its_card() {
     let mut e = Env::new();
     let rs = rig(&mut e);
-    let t = e
-        .c
-        .create_task(
+    let t =
+        e.c.create_task(
             SPAWNED,
             NewTask {
                 title: "A card the agent made".into(),

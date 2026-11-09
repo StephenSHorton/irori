@@ -3351,7 +3351,12 @@ fn edit_on_thread(
 fn in_turn(status: &str) -> bool {
     !matches!(
         status,
-        "" | "idle" | "gone" | "person" | "irori" | coord::roster::NOT_ANSWERING | coord::roster::RESTING
+        "" | "idle"
+            | "gone"
+            | "person"
+            | "irori"
+            | coord::roster::NOT_ANSWERING
+            | coord::roster::RESTING
     )
 }
 

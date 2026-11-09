@@ -23,9 +23,8 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use coord::roster::{
-    AgentCard, REST_DROPPED, REST_IDLE, REST_SLOT, RESTING, RETIRE_BUDGET,
-    RETIRE_COMPACTED, RETIRE_CROWDED, RETIRE_ENDED, RETIRE_QUIET, RETIRE_WOKEN, RestRow,
-    RetireRow,
+    AgentCard, REST_DROPPED, REST_IDLE, REST_SLOT, RESTING, RETIRE_BUDGET, RETIRE_COMPACTED,
+    RETIRE_CROWDED, RETIRE_ENDED, RETIRE_QUIET, RETIRE_WOKEN, RestRow, RetireRow,
 };
 use coord::{Notice, Task};
 use gocompat::time::GoTime;
@@ -314,7 +313,12 @@ impl Services {
     /// without a hand-off" line when it gave none, everything it holds let
     /// go, `agent.rest`, then `claude stop` alone. Rows first, so the
     /// presence drop that follows the stop is never recorded as a crash.
-    pub(crate) fn rest_now(&self, key: &str, given: bool, reason: &'static str) -> Result<(), String> {
+    pub(crate) fn rest_now(
+        &self,
+        key: &str,
+        given: bool,
+        reason: &'static str,
+    ) -> Result<(), String> {
         let _g = self
             .spawn
             .rest_lock
@@ -500,7 +504,12 @@ impl Services {
 
     /// Retires awake agent `key` once its hand-off is in (or the wait ran
     /// out): `agent.retire`, then today's end.
-    pub(crate) fn retire_now(&self, key: &str, given: bool, reason: &'static str) -> Result<(), String> {
+    pub(crate) fn retire_now(
+        &self,
+        key: &str,
+        given: bool,
+        reason: &'static str,
+    ) -> Result<(), String> {
         {
             let _g = self
                 .spawn
@@ -803,13 +812,8 @@ impl Services {
     /// presence thread): their cards, takes and leases, and the "rested
     /// without a hand-off" line on their items.
     fn let_go_dropped(&self) {
-        let keys: Vec<String> = std::mem::take(
-            &mut *self
-                .spawn
-                .dropped
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()),
-        );
+        let keys: Vec<String> =
+            std::mem::take(&mut *self.spawn.dropped.lock().unwrap_or_else(|e| e.into_inner()));
         for k in keys {
             let _g = self
                 .spawn
@@ -840,9 +844,9 @@ impl Services {
             }
             for id in on {
                 if self.coord.get_task(&id).is_some()
-                    && let Err(e) =
-                        self.coord
-                            .add_comment(SWEEPER, &id, DROPPED_NO_HANDOFF, false)
+                    && let Err(e) = self
+                        .coord
+                        .add_comment(SWEEPER, &id, DROPPED_NO_HANDOFF, false)
                 {
                     logf(format_args!("spawn rest {k}: {e}"));
                 }
@@ -884,9 +888,10 @@ impl Services {
         let rested_by = t.rested.as_ref().map(|r| r.was.clone()).unwrap_or_default();
         for (k, _) in self.resting_keys() {
             let served = k == rested_by
-                || self.coord.spawned(&k).is_some_and(|m| {
-                    m.serves(&t.id) || (!t.from.is_empty() && m.serves(&t.from))
-                });
+                || self
+                    .coord
+                    .spawned(&k)
+                    .is_some_and(|m| m.serves(&t.id) || (!t.from.is_empty() && m.serves(&t.from)));
             if served && let Err(e) = self.retire_resting(&k, RETIRE_WOKEN) {
                 logf(format_args!("spawn retire {k}: {e}"));
             }
@@ -1013,7 +1018,10 @@ mod tests {
             .map(|i| (format!("dev/k{i:02}"), at(1000 - i)))
             .collect();
         // 23 resting, 20 kept: the three quiet longest (the lowest times).
-        assert_eq!(crowded(&v, MAX_RESTING), vec!["dev/k22", "dev/k21", "dev/k20"]);
+        assert_eq!(
+            crowded(&v, MAX_RESTING),
+            vec!["dev/k22", "dev/k21", "dev/k20"]
+        );
         assert!(crowded(&v[..20], MAX_RESTING).is_empty());
         // A tie goes by key.
         let tie = vec![
