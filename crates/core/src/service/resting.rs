@@ -714,13 +714,15 @@ impl Services {
     }
 
     /// Whether a drop of `key` rests: a spawned agent of this device's own
-    /// log, not being ended, that was idle, had begun a turn, and that
-    /// nothing waits on (no submitted or working card of its, no take).
+    /// log, not being ended, that was idle and that nothing waits on (no
+    /// submitted or working card of its, no take). An agent whose prompt
+    /// never got in (card #677) still holds its card assigned and
+    /// submitted, or its ask's take, so it stays a crash.
     fn dropped_rests(&self, key: &str, was: Option<&presence::AgentCard>) -> bool {
         let Some(was) = was else {
             return false;
         };
-        if was.status != "idle" || was.last_activity.is_zero() {
+        if was.status != "idle" {
             return false;
         }
         if irori_identity::owner::device_of(key) != self.device.id {

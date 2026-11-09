@@ -47,6 +47,7 @@ mod names_test;
 mod not_answering_test;
 mod notes_test;
 mod offer_opt_in_test;
+mod rest_test;
 mod reusable_test;
 mod offers_test;
 mod order_test;

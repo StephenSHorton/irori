@@ -638,3 +638,75 @@ fn test_agent_status_carries_the_context_measure() {
         "{json}"
     );
 }
+
+/// Card #1215: another device's resting agent shows as resting here, keeps
+/// its card across that device's restart, ignores a late status from its
+/// exiting process, and goes on its retire. A rest about a key the device
+/// doesn't own is ignored, and one for a card this roster never saw comes
+/// back from the row's name.
+#[test]
+fn test_another_devices_resting_agent() {
+    let mut g = Rig::new();
+    g.card("dev2", card(A2, "sorrel", "idle"));
+    g.card("dev2", card(B2, "quill", "busy"));
+    let r = Roster::start(g.opts()).unwrap();
+    assert_eq!(r.remote().len(), 2);
+    let status = |r: &Roster, k: &str| {
+        r.remote()
+            .into_iter()
+            .find(|c| c.key == k)
+            .map(|c| (c.status, c.name, c.ctx))
+    };
+    g.row(
+        "dev2",
+        kinds::AGENT_REST,
+        format!(r#"{{"key":"{A2}","life":1,"at":"2026-11-09T20:00:00Z","reason":"idle","ctx":41000,"name":"sorrel","by":"irori"}}"#)
+            .into_bytes(),
+    );
+    eventually("a2 rests", || {
+        status(&r, A2).is_some_and(|s| s.0 == roster::RESTING)
+    });
+    assert_eq!(status(&r, A2).unwrap().2, 41000, "its last context rides on the rest");
+    // A status its exiting process wrote after the rest doesn't wake it.
+    g.row(
+        "dev2",
+        kinds::AGENT_STATUS,
+        format!(r#"{{"key":"{A2}","status":"idle","name":"sorrel"}}"#).into_bytes(),
+    );
+    // dev2 restarts: its live session goes, its resting agent stays.
+    g.row("dev2", kinds::DEVICE_STARTED, b"{}".to_vec());
+    eventually("b2 retired by the restart", || r.remote().len() == 1);
+    assert_eq!(status(&r, A2).unwrap().0, roster::RESTING);
+    // dev3 can't rest dev2's agent.
+    g.row(
+        "dev3",
+        kinds::AGENT_REST,
+        format!(r#"{{"key":"{B2}","life":1,"reason":"idle","by":"irori"}}"#).into_bytes(),
+    );
+    // A rest for a card never seen here comes back from the row.
+    g.row(
+        "dev3",
+        kinds::AGENT_REST,
+        format!(r#"{{"key":"{A3}","life":1,"reason":"dropped","name":"tansy","by":"irori"}}"#)
+            .into_bytes(),
+    );
+    eventually("a3 shows from its rest row", || status(&r, A3).is_some());
+    assert_eq!(
+        status(&r, A3).unwrap(),
+        (roster::RESTING.to_string(), "tansy".to_string(), 0)
+    );
+    assert!(status(&r, B2).is_none());
+    // The retire removes it; the agent.gone after it is a no-op.
+    g.row(
+        "dev2",
+        kinds::AGENT_RETIRE,
+        format!(r#"{{"key":"{A2}","life":1,"reason":"quiet","by":"irori"}}"#).into_bytes(),
+    );
+    eventually("a2 retired", || status(&r, A2).is_none());
+    // A rebuild folds the same.
+    let again = Roster::new(g.opts()).unwrap();
+    assert_eq!(keys(&again.remote()), [A3]);
+    // And a device's own resting set comes from the same fold.
+    let own = roster::resting_of(&g.st, "dev3").unwrap();
+    assert_eq!(own.keys().cloned().collect::<Vec<_>>(), [A3]);
+}

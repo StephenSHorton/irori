@@ -27,6 +27,8 @@ fn sess(n: usize) -> String {
 struct Fake {
     started: Mutex<Vec<SpawnReq>>,
     ended: Mutex<Vec<String>>,
+    /// Sessions stopped to rest (card #1215): `claude stop` alone.
+    stopped: Mutex<Vec<String>>,
     /// How many more ends fail (card #474), as `claude rm` did.
     fail: std::sync::atomic::AtomicUsize,
     /// What a successful end says (`rm`'s output).
@@ -34,8 +36,9 @@ struct Fake {
 }
 
 fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
-    let (a, b) = (f.clone(), f.clone());
+    let (a, b, c) = (f.clone(), f.clone(), f.clone());
     let s2 = sessions.clone();
+    let s3 = sessions.clone();
     Spawner {
         ready: None,
         spawn: Arc::new(move |r: &SpawnReq| {
@@ -72,7 +75,14 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
         }),
         trusted: Arc::new(|_| true),
         list: None,
-        stop: None,
+        // A rest's `claude stop`: the session goes, its job stays.
+        stop: Some(Arc::new(move |s: &str| {
+            c.stopped.lock().unwrap().push(s.to_string());
+            if let Some(n) = s.rsplit('-').next().and_then(|x| x.parse::<usize>().ok()) {
+                let _ = std::fs::remove_file(s3.join(format!("9100{n:02}.json")));
+            }
+            Ok(format!("stopped {s}"))
+        })),
     }
 }
 
@@ -1164,4 +1174,369 @@ fn done_on_the_first_try_is_tallied() {
         (tally[0].runs, tally[0].first_try, tally[0].sent_back),
         (1, 1, 0)
     );
+}
+
+// ---- Rest instead of end (agent-continuity 6, 9, A.4; card #1215) ----
+
+fn stopped(s: &Setup, n: usize) -> bool {
+    s.fake.stopped.lock().unwrap().contains(&sess(n))
+}
+
+/// The payloads of `kind` rows about agent `key`.
+fn rows_about(s: &Setup, kind: &str, key: &str) -> Vec<serde_json::Value> {
+    s.r.core
+        .events(&store::Filter {
+            kinds: vec![kind.into()],
+            limit: store::MAX_LIST_LIMIT,
+            ..store::Filter::default()
+        })
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| serde_json::from_slice::<serde_json::Value>(&e.payload).ok())
+        .filter(|p| p["key"] == key)
+        .collect()
+}
+
+/// Every `agent.gone` row about `key`, whatever its reason.
+fn any_gone(s: &Setup, key: &str) -> usize {
+    rows_about(s, store::kinds::AGENT_GONE, key).len()
+}
+
+/// The roster status of `key` on this device.
+fn roster_status(s: &Setup, key: &str) -> String {
+    s.r.core
+        .roster()
+        .agents()
+        .into_iter()
+        .find(|a| a.key == key)
+        .map(|a| a.status)
+        .unwrap_or_default()
+}
+
+fn rest_asked(s: &Setup, key: &str) -> bool {
+    s.r.notices_to(key)
+        .iter()
+        .any(|d| d.message.text.contains("Irori is letting you rest"))
+}
+
+/// The bound agent's done check is past its grace; it is asked for its
+/// hand-off, writes it in the shape the rest asks for, and rests.
+fn rested_with_hand_off() -> Setup {
+    let s = at_done_check();
+    past_grace(&s);
+    let k = s.first();
+    wait_for(60, "the rest asked for its hand-off", || rest_asked(&s, &k));
+    s.r.core
+        .coord()
+        .add_comment(
+            &k,
+            &s.t.id,
+            "Done: the save, pushed.\nLearned: nothing new\nOpen: nothing",
+            false,
+        )
+        .unwrap();
+    wait_for(60, "the agent rested", || {
+        s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+        stopped(&s, 1) && roster_status(&s, &k) == coord::roster::RESTING
+    });
+    s
+}
+
+/// Done-when: a rest writes the hand-off and no `agent.gone`. The agent
+/// lets its card go as resting (no crash, nobody told), `agent.rest` is
+/// written once for its first life, its job is stopped and never removed,
+/// and the roster shows it resting, not gone.
+#[test]
+fn a_settled_agent_rests_with_its_hand_off_and_no_agent_gone() {
+    let s = rested_with_hand_off();
+    let k = s.first();
+    let co = s.r.core.coord();
+    // The presence drop after the stop writes nothing either.
+    wait_for(60, "presence lost the session", || {
+        !s.r.core.local_agents().iter().any(|a| a.key == k)
+    });
+    std::thread::sleep(Duration::from_millis(800));
+    let rests = rows_about(&s, store::kinds::AGENT_REST, &k);
+    assert_eq!(rests.len(), 1, "{rests:?}");
+    assert_eq!(rests[0]["reason"], coord::roster::REST_IDLE);
+    assert_eq!(rests[0]["life"], 1);
+    assert_eq!(any_gone(&s, &k), 0, "a rest writes no agent.gone");
+    assert!(rows_about(&s, store::kinds::AGENT_RETIRE, &k).is_empty());
+    assert!(!ended(&s, 1), "a rest never runs rm");
+    assert!(!co.ended_by_irori(&k));
+    assert!(s.r.core.resting(&k));
+    let t = co.get_task(&s.t.id).unwrap();
+    assert!(t.holders.is_empty(), "it let its card go: {:?}", t.holders);
+    assert_eq!(t.spawn_crashes, 0);
+    assert!(t.returned.is_none(), "nobody is told it went away");
+    assert_eq!(t.rested.as_ref().map(|r| r.was.as_str()), Some(k.as_str()));
+    let cs = co.comments(&s.t.id).unwrap_or_default();
+    assert!(
+        !cs.iter()
+            .any(|c| c.text == irori_core::resting::RESTED_NO_HANDOFF),
+        "it gave its hand-off: {cs:?}"
+    );
+    // Its mark stays: it keeps its name and its items.
+    assert!(co.spawned(&k).is_some());
+    // Its slot is free.
+    assert_eq!(s.r.core.spawn_queue().running, 0);
+}
+
+/// A rest whose hand-off never comes still rests after the wait, and says
+/// so on its item.
+#[test]
+fn a_rest_without_a_hand_off_says_so() {
+    let s = at_done_check();
+    let k = s.first();
+    past_grace(&s);
+    wait_for(60, "the rest asked for its hand-off", || rest_asked(&s, &k));
+    wait_for(60, "it rested after the wait", || {
+        skew_by(&s, irori_core::spawn::HANDOFF_WAIT);
+        stopped(&s, 1)
+    });
+    let cs = s.r.core.coord().comments(&s.t.id).unwrap_or_default();
+    assert!(
+        cs.iter()
+            .any(|c| c.text == irori_core::resting::RESTED_NO_HANDOFF),
+        "{cs:?}"
+    );
+    assert_eq!(any_gone(&s, &k), 0);
+}
+
+/// Done-when: Claude Code dropping an idle agent nothing waits on (its
+/// done check is with the person) is a rest, not a crash: `agent.rest`
+/// "dropped", the "rested without a hand-off" line, no crash count.
+#[test]
+fn an_idle_drop_off_is_a_rest_not_a_crash() {
+    let s = at_done_check();
+    let k = s.first();
+    let co = s.r.core.coord();
+    std::fs::remove_file(s.r.claude.join("sessions").join("910001.json")).unwrap();
+    wait_for(60, "the drop rested", || {
+        s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+        co.get_task(&s.t.id).is_some_and(|t| t.holders.is_empty())
+    });
+    let rests = rows_about(&s, store::kinds::AGENT_REST, &k);
+    assert_eq!(rests.len(), 1, "{rests:?}");
+    assert_eq!(rests[0]["reason"], coord::roster::REST_DROPPED);
+    assert_eq!(any_gone(&s, &k), 0, "no crash row");
+    assert_eq!(roster_status(&s, &k), coord::roster::RESTING);
+    let t = co.get_task(&s.t.id).unwrap();
+    assert_eq!(t.spawn_crashes, 0);
+    assert!(
+        t.blockers
+            .iter()
+            .all(|b| b.question != coord::CRASHED_QUESTION),
+        "{:?}",
+        t.blockers
+    );
+    let cs = co.comments(&s.t.id).unwrap_or_default();
+    assert!(
+        cs.iter()
+            .any(|c| c.text == irori_core::resting::DROPPED_NO_HANDOFF),
+        "{cs:?}"
+    );
+}
+
+/// Done-when: a drop-off while busy is still a crash, as before.
+#[test]
+fn a_busy_drop_off_is_still_a_crash() {
+    let s = at_done_check();
+    let k = s.first();
+    let f = s.r.claude.join("sessions").join("910001.json");
+    let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&f).unwrap()).unwrap();
+    v["status"] = "busy".into();
+    std::fs::write(&f, serde_json::to_vec(&v).unwrap()).unwrap();
+    wait_for(60, "presence sees it busy", || {
+        s.r.core
+            .local_agents()
+            .iter()
+            .any(|a| a.key == k && a.status == "busy")
+    });
+    std::fs::remove_file(&f).unwrap();
+    wait_for(60, "the drop recorded as gone", || any_gone(&s, &k) >= 1);
+    assert!(rows_about(&s, store::kinds::AGENT_REST, &k).is_empty());
+    assert!(!s.r.core.resting(&k));
+}
+
+/// Done-when: an Irori restart keeps resting agents. A restarted Core
+/// folds its resting agent back from its own rows, and the cleanup after
+/// a start leaves that agent's stopped job alone: still resting, nothing
+/// retired.
+#[test]
+fn an_irori_restart_keeps_resting_agents() {
+    let s = rested_with_hand_off();
+    let k = s.first();
+    let Setup {
+        r,
+        fake,
+        skew,
+        person,
+        t,
+        _work,
+    } = s;
+    let sk = skew.clone();
+    let r = r.restarted(move |o| {
+        o.now = Some(Arc::new(move || {
+            let d = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap();
+            GoTime::unix(
+                d.as_secs() as i64 + sk.load(Ordering::SeqCst),
+                i64::from(d.subsec_nanos()),
+            )
+        }));
+    });
+    let s = Setup {
+        r,
+        fake,
+        skew,
+        person,
+        t,
+        _work,
+    };
+    assert!(s.r.core.resting(&k), "the restarted Core folds it back");
+    assert_eq!(roster_status(&s, &k), coord::roster::RESTING);
+    // Claude Code lists the stopped job, not running.
+    let gone = sess(1);
+    let mut sp = spawner(&s.fake, s.r.claude.join("sessions"));
+    sp.list = Some(Arc::new(move || {
+        Ok(vec![ClaudeAgent {
+            session_id: gone.clone(),
+            live: false,
+            ..ClaudeAgent::default()
+        }])
+    }));
+    s.r.core.set_spawner(Some(sp));
+    s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+    std::thread::sleep(Duration::from_millis(2000));
+    assert!(!ended(&s, 1), "the cleanup retired a resting agent");
+    assert!(s.r.core.resting(&k));
+    assert_eq!(any_gone(&s, &k), 0);
+    let cs = s.r.core.coord().comments(&s.t.id).unwrap_or_default();
+    assert!(!cs.iter().any(|c| c.text == RESTARTED), "{cs:?}");
+}
+
+/// Done-when: a resting agent nothing came for in a day retires: its
+/// `agent.retire` "quiet", then the `agent.gone` "finished" every reader
+/// keeps, and its job is removed.
+#[test]
+fn a_quiet_day_retires_a_resting_agent() {
+    let s = rested_with_hand_off();
+    let k = s.first();
+    wait_for(60, "it retired after a quiet day", || {
+        skew_by(&s, irori_core::resting::QUIET_FOR);
+        ended(&s, 1)
+    });
+    let r = rows_about(&s, store::kinds::AGENT_RETIRE, &k);
+    assert_eq!(r.len(), 1, "{r:?}");
+    assert_eq!(r[0]["reason"], coord::roster::RETIRE_QUIET);
+    assert_eq!(gone_rows(&s, &k), 1);
+    assert!(s.r.core.coord().ended_by_irori(&k));
+    assert!(!s.r.core.resting(&k));
+    assert_eq!(roster_status(&s, &k), "");
+}
+
+/// Done-when: Stop here retires a resting agent; it never stays resting.
+#[test]
+fn stop_here_retires_a_resting_agent() {
+    let s = rested_with_hand_off();
+    let k = s.first();
+    s.r.core.set_agents_paused(true).unwrap();
+    wait_for(60, "Stop here retired it", || {
+        s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+        ended(&s, 1)
+    });
+    let r = rows_about(&s, store::kinds::AGENT_RETIRE, &k);
+    assert_eq!(r[0]["reason"], coord::roster::RETIRE_ENDED);
+    assert_eq!(gone_rows(&s, &k), 1);
+}
+
+/// The person's End on a resting agent retires it at once, with no notice:
+/// its hand-off was written when it rested.
+#[test]
+fn end_on_a_resting_agent_retires_it_at_once() {
+    let s = rested_with_hand_off();
+    let k = s.first();
+    let before = s.r.notices_to(&k).len();
+    s.r.core.end_spawned(&k).unwrap();
+    assert!(ended(&s, 1));
+    let r = rows_about(&s, store::kinds::AGENT_RETIRE, &k);
+    assert_eq!(r[0]["reason"], coord::roster::RETIRE_ENDED);
+    assert_eq!(
+        s.r.notices_to(&k).len(),
+        before,
+        "no notice to a resting agent"
+    );
+}
+
+/// Done-when: the cap ignores resting agents. With a cap of one, the next
+/// card starts as soon as the first card's agent rests.
+#[test]
+fn the_cap_ignores_resting_agents() {
+    let s = at_done_check();
+    s.r.core.set_spawn_cap(1).unwrap();
+    let co = s.r.core.coord();
+    co.create_task(
+        &s.person,
+        NewTask {
+            title: "Fix the load".into(),
+            ..NewTask::default()
+        },
+    )
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(s.fake.started.lock().unwrap().len(), 1, "the cap holds it");
+    past_grace(&s);
+    wait_for(60, "the second card started past the resting agent", || {
+        skew_by(&s, irori_core::spawn::HANDOFF_WAIT);
+        s.r.core.set_spawn_cap(1).unwrap();
+        s.fake.started.lock().unwrap().len() == 2
+    });
+    assert!(stopped(&s, 1) && !ended(&s, 1), "it rests, not retired");
+    assert!(s.r.core.resting(&s.first()));
+}
+
+/// §7's fallback, until agents can be woken (card #1216): the person's
+/// late Not done brings the card back, a fresh agent starts for it, and
+/// the resting agent it was left by retires ("woken"): its successor has
+/// the work now.
+#[test]
+fn a_late_not_done_retires_the_resting_agent_and_starts_a_successor() {
+    let s = rested_with_hand_off();
+    let k = s.first();
+    not_done(&s, "the save still 500s");
+    wait_for(60, "a successor started", || {
+        s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+        s.fake.started.lock().unwrap().len() == 2
+    });
+    wait_for(60, "the resting agent retired", || ended(&s, 1));
+    let r = rows_about(&s, store::kinds::AGENT_RETIRE, &k);
+    assert_eq!(r[0]["reason"], coord::roster::RETIRE_WOKEN);
+}
+
+/// §7's fallback: the person's message to a resting agent retires it, and
+/// the message takes the path of one to an agent that finished.
+#[test]
+fn a_message_from_the_person_retires_a_resting_agent() {
+    let s = rested_with_hand_off();
+    let k = s.first();
+    s.r.core
+        .inbox()
+        .send_with(
+            &s.r.core.user_sender(),
+            &inbox::Address::new(inbox::addr::AGENT, &k),
+            "one more thing on the save",
+            inbox::SendOptions {
+                mode: inbox::mode::WAKE.into(),
+                ..inbox::SendOptions::default()
+            },
+        )
+        .unwrap();
+    wait_for(60, "the message retired it", || {
+        s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+        ended(&s, 1)
+    });
+    let r = rows_about(&s, store::kinds::AGENT_RETIRE, &k);
+    assert_eq!(r[0]["reason"], coord::roster::RETIRE_WOKEN);
 }
