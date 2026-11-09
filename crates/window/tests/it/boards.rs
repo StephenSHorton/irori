@@ -1434,12 +1434,13 @@ fn decide_count_matches_the_grid_across_private_shared_and_threads() {
     };
     // Private: one waiting, one not.
     let pco = w.core.coord();
-    let quiet = create(&r, "private, quiet");
+    let _quiet = create(&r, "private, quiet");
     let waiting = create(&r, "private, waiting");
     ask(pco, &r.key_a, &waiting.id, "private q?");
     assert_eq!(w.decide_count(), 1);
     // A private thread raises no blocker (it is an ask), so adds nothing.
-    w.start_thread("thread about nothing", &[], &[], "").unwrap();
+    w.start_thread("thread about nothing", &[], &[], "")
+        .unwrap();
     assert_eq!(w.decide_count(), 1);
     // Shared board: one waiting, one not.
     let bco = w.core.board_coord(&b.board_id).unwrap();
@@ -1458,12 +1459,13 @@ fn decide_count_matches_the_grid_across_private_shared_and_threads() {
         )
         .unwrap()
     };
-    let bq = mk("board, quiet");
+    let _bq = mk("board, quiet");
     let bw = mk("board, waiting");
     ask(&bco, &alpha, &bw.id, "board q?");
     assert_eq!(w.decide_count(), 2, "a shared card with a blocker");
     // A shared thread is the Threads panel's, not counted.
-    w.start_thread("shared thread", &[], &[], &b.board_id).unwrap();
+    w.start_thread("shared thread", &[], &[], &b.board_id)
+        .unwrap();
     assert_eq!(w.decide_count(), 2, "a board's thread is not counted");
     // The same as the grid's own rows say.
     let grid = w
