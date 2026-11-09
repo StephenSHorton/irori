@@ -2394,6 +2394,43 @@ impl Core {
         self.s.call_title_set(call_id, title, false)
     }
 
+    /// Huddle `call_id`'s canvas, each item with the names it is shown by
+    /// (card #1051).
+    pub fn call_canvas(&self, call_id: &str) -> Vec<super::huddle_canvas::CanvasEntry> {
+        self.s.call_canvas(call_id)
+    }
+
+    /// A person adds an item (`question`, `answer`, `decision`, `task`,
+    /// `note` or `summary`) to huddle `call_id`'s canvas (card #1051).
+    /// `status` is "" for open. `carded` is refused while the huddle is
+    /// live.
+    pub fn huddle_item_add(
+        &self,
+        call_id: &str,
+        kind: &str,
+        text: &str,
+        status: &str,
+    ) -> Result<coord::talk::CanvasItem, String> {
+        self.s.huddle_item_add(call_id, kind, text, status)
+    }
+
+    /// A person changes a canvas item: its text (their own), status,
+    /// position or card. `carded` and a card are refused while the huddle
+    /// is live.
+    pub fn huddle_item_set(
+        &self,
+        call_id: &str,
+        set: coord::talk::NewItemSet,
+    ) -> Result<coord::talk::CanvasItem, String> {
+        self.s.huddle_item_set(call_id, set)
+    }
+
+    /// The Ask box: puts `text` to this person's assistant as a question
+    /// item and gives it a look (card #1051).
+    pub fn huddle_ask(&self, call_id: &str, text: &str) -> Result<coord::talk::CanvasItem, String> {
+        self.s.huddle_ask(call_id, text)
+    }
+
     /// Stops ringing for `call_id` here.
     pub fn call_dismiss(&self, call_id: &str) {
         self.s.call_dismiss(call_id)

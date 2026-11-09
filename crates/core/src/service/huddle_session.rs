@@ -42,8 +42,8 @@ macro_rules! logf {
 pub const RESTART_AT: u64 = 60_000;
 
 /// What the held session's system prompt says, after the assistant's name.
-/// The block forms are §7's output; the block parser comes with the canvas
-/// (card 8).
+/// The block forms are §7's output; `huddle_canvas::parse_blocks` reads them
+/// (card #1051).
 pub const SYSTEM: &str = "You are a person's Office Assistant in Irori, connected to a live huddle (a voice call) in their workspace. People in the call talk; their words reach you as transcript lines. You take notes on the huddle's shared canvas, which everyone in the space can see.\n\
 \n\
 What you get:\n\
@@ -61,7 +61,9 @@ How you write: put blocks in your reply. Anything outside a block is ignored, so
 <<item kind=\"note\">>Two cards cover the same sync bug: mlg#401 and mlg#415.<</item>>\n\
 <<title>>Release planning and the call canvas<</title>>\n\
 \n\
-Kinds: question, answer, decision, task, note. A task is proposed, not a card. Answer only from the packet and the call; if they don't say, write nothing rather than guess. Use card refs (mlg#412) exactly as the packet gives them.";
+Kinds: question, answer, decision, task, note. A task is proposed, not a card. Answer only from the packet and the call; if they don't say, write nothing rather than guess. Use card refs (mlg#412) exactly as the packet gives them.\n\
+\
+The canvas is listed one item per line as `id \u{b7} kind \u{b7} status \u{b7} who: text`. When you reply to an item, put that item's exact id in reply=\"...\"; ITEM-ID above only stands for it, so never write it. A block has no status: you can't settle, drop or move anything.";
 
 /// What the priming turn asks for: its reply is ignored.
 pub const PRIMING_ASK: &str = "This is the start of your session. Reply with only: OK";
@@ -232,6 +234,8 @@ impl Services {
         } else {
             seed.title.as_str()
         };
+        // What this session is shown, so a look carries only what changed.
+        self.huddle_note_shown(&seed.call_id, &p);
         Ok(huddle_packet::render(&p, title, &seed.canvas))
     }
 

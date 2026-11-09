@@ -2412,3 +2412,526 @@ fn call_assist_rows_fold_newest_per_device() {
     t.write_assist(&c.id, "call_1", "dev-a", true, USER)
         .unwrap();
 }
+
+// ---- a huddle's canvas rows (card #1051) -------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+fn item_row(
+    dev: &str,
+    seq: i64,
+    at: u64,
+    conv: &str,
+    id: &str,
+    kind: &str,
+    status: &str,
+    by: &str,
+    assistant: bool,
+) -> store::Event {
+    row(
+        dev,
+        seq,
+        at,
+        "user",
+        kinds::CALL_ITEM,
+        &serde_json::json!({
+            "itemId": id, "callId": "call_1", "convId": conv, "kind": kind,
+            "text": format!("text of {id}"), "status": status,
+            "assistant": assistant, "by": by,
+        }),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn set_row(
+    dev: &str,
+    seq: i64,
+    at: u64,
+    conv: &str,
+    id: &str,
+    by: &str,
+    assistant: bool,
+    fields: serde_json::Value,
+) -> store::Event {
+    let mut p = serde_json::json!({
+        "itemId": id, "callId": "call_1", "convId": conv,
+        "assistant": assistant, "by": by,
+    });
+    p.as_object_mut()
+        .unwrap()
+        .extend(fields.as_object().unwrap().clone());
+    row(dev, seq, at, "user", kinds::CALL_ITEM_SET, &p)
+}
+
+fn item<'a>(v: &'a [talk::CanvasItem], id: &str) -> &'a talk::CanvasItem {
+    v.iter().find(|i| i.item_id == id).expect(id)
+}
+
+/// An assistant's or an agent's status is ignored (the item reads open), a
+/// person's own is kept, and `summary` and `note` have none.
+#[test]
+fn call_item_status_counts_only_from_a_person_without_the_assistant_flag() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    line(&t, &c.id, 0, 0, "hello").unwrap();
+    let t0 = hlc_at(fixed_now());
+    let rows = [
+        item_row(
+            "dev-b",
+            1,
+            t0 + 1,
+            &c.id,
+            "mine",
+            "task",
+            "settled",
+            PEER,
+            false,
+        ),
+        item_row(
+            "dev-b",
+            2,
+            t0 + 2,
+            &c.id,
+            "asst",
+            "task",
+            "settled",
+            PEER,
+            true,
+        ),
+        item_row(
+            "dev-b",
+            3,
+            t0 + 3,
+            &c.id,
+            "agent",
+            "task",
+            "settled",
+            "board:x/agent:y",
+            false,
+        ),
+        item_row(
+            "dev-b",
+            4,
+            t0 + 4,
+            &c.id,
+            "sum",
+            "summary",
+            "settled",
+            PEER,
+            true,
+        ),
+        item_row(
+            "dev-b",
+            5,
+            t0 + 5,
+            &c.id,
+            "note",
+            "note",
+            "settled",
+            PEER,
+            false,
+        ),
+        item_row(
+            "dev-b",
+            6,
+            t0 + 6,
+            &c.id,
+            "junk",
+            "task",
+            "bogus",
+            PEER,
+            false,
+        ),
+    ];
+    for r in &rows {
+        assert!(t.apply(r));
+    }
+    let v = t.call_items("call_1");
+    assert_eq!(v.len(), 6);
+    assert_eq!(item(&v, "mine").status, "settled");
+    assert_eq!(item(&v, "asst").status, "open");
+    assert!(item(&v, "asst").assistant && !item(&v, "mine").assistant);
+    assert_eq!(item(&v, "agent").status, "open");
+    assert!(
+        !item(&v, "agent").assistant,
+        "an agent isn't a person's assistant"
+    );
+    assert_eq!(item(&v, "sum").status, "");
+    assert_eq!(item(&v, "note").status, "");
+    assert_eq!(item(&v, "junk").status, "open");
+}
+
+/// Sets fold per field, newest wins, whichever order they arrive in; an
+/// assistant's or an agent's status, card and position are dropped; text
+/// only from the writer's person; `carded` is honoured with no liveness
+/// check.
+#[test]
+fn call_item_sets_fold_per_field_and_drop_what_does_not_count() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    line(&t, &c.id, 0, 0, "hello").unwrap();
+    let t0 = hlc_at(fixed_now());
+    // A set may arrive before its item.
+    let early = set_row(
+        "dev-a",
+        1,
+        t0 + 12,
+        &c.id,
+        "q1",
+        PEER,
+        false,
+        serde_json::json!({"status": "settled", "x": 10.0, "y": 20.0}),
+    );
+    t.apply(&early);
+    assert!(t.call_items("call_1").is_empty());
+    t.apply(&item_row(
+        "dev-b",
+        1,
+        t0 + 1,
+        &c.id,
+        "q1",
+        "question",
+        "",
+        PEER,
+        true,
+    ));
+    let v = t.call_items("call_1");
+    assert_eq!(item(&v, "q1").status, "settled", "a person's set counts");
+    assert_eq!(
+        (item(&v, "q1").x, item(&v, "q1").y),
+        (Some(10.0), Some(20.0))
+    );
+
+    // An assistant's set: status, card and position dropped; its own item's
+    // text counts. Another person's text edit doesn't.
+    t.apply(&set_row(
+        "dev-b", 2, t0 + 13, &c.id, "q1", PEER, true,
+        serde_json::json!({"status": "dropped", "x": 99.0, "card": "mlg#1", "text": "better words"}),
+    ));
+    t.apply(&set_row(
+        "dev-c",
+        1,
+        t0 + 14,
+        &c.id,
+        "q1",
+        "person:zed",
+        false,
+        serde_json::json!({"text": "zed rewrote it"}),
+    ));
+    let v = t.call_items("call_1");
+    let q = item(&v, "q1");
+    assert_eq!(q.status, "settled");
+    assert_eq!(q.x, Some(10.0));
+    assert_eq!(q.card, "");
+    assert_eq!(q.text, "better words");
+
+    // An agent's set doesn't exist.
+    assert!(!t.apply(&set_row(
+        "dev-d",
+        1,
+        t0 + 15,
+        &c.id,
+        "q1",
+        "board:x/agent:y",
+        false,
+        serde_json::json!({"status": "dropped"}),
+    )));
+
+    // A person's assistant can't edit a person's own item's text.
+    t.apply(&item_row(
+        "dev-b",
+        3,
+        t0 + 20,
+        &c.id,
+        "p1",
+        "decision",
+        "",
+        PEER,
+        false,
+    ));
+    t.apply(&set_row(
+        "dev-b",
+        4,
+        t0 + 21,
+        &c.id,
+        "p1",
+        PEER,
+        true,
+        serde_json::json!({"text": "assistant edit"}),
+    ));
+    assert_eq!(item(&t.call_items("call_1"), "p1").text, "text of p1");
+    t.apply(&set_row(
+        "dev-b",
+        5,
+        t0 + 22,
+        &c.id,
+        "p1",
+        PEER,
+        false,
+        serde_json::json!({"text": "their own edit", "card": "mlg#7", "status": "carded"}),
+    ));
+    let v = t.call_items("call_1");
+    assert_eq!(item(&v, "p1").text, "their own edit");
+    assert_eq!(
+        item(&v, "p1").status,
+        "carded",
+        "no liveness check in the fold"
+    );
+    assert_eq!(item(&v, "p1").card, "mlg#7");
+
+    // Newest wins per field, whichever order they arrive in.
+    t.apply(&set_row(
+        "dev-b",
+        7,
+        t0 + 40,
+        &c.id,
+        "p1",
+        PEER,
+        false,
+        serde_json::json!({"x": 5.0}),
+    ));
+    t.apply(&set_row(
+        "dev-b",
+        6,
+        t0 + 30,
+        &c.id,
+        "p1",
+        PEER,
+        false,
+        serde_json::json!({"x": 1.0, "y": 2.0}),
+    ));
+    let v = t.call_items("call_1");
+    assert_eq!((item(&v, "p1").x, item(&v, "p1").y), (Some(5.0), Some(2.0)));
+
+    // A note takes no status.
+    t.apply(&item_row(
+        "dev-b",
+        8,
+        t0 + 50,
+        &c.id,
+        "n1",
+        "note",
+        "",
+        PEER,
+        false,
+    ));
+    t.apply(&set_row(
+        "dev-b",
+        9,
+        t0 + 51,
+        &c.id,
+        "n1",
+        PEER,
+        false,
+        serde_json::json!({"status": "settled"}),
+    ));
+    assert_eq!(item(&t.call_items("call_1"), "n1").status, "");
+}
+
+/// A `call.*` row whose `convId` isn't the huddle's is dropped, not bound.
+#[test]
+fn call_item_rows_naming_another_conversation_are_not_the_huddles() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    let other = t.create_channel(USER, "other", "").unwrap();
+    line(&t, &c.id, 0, 0, "hello").unwrap();
+    let t0 = hlc_at(fixed_now());
+    t.apply(&item_row(
+        "dev-b",
+        1,
+        t0 + 1,
+        &other.id,
+        "bad",
+        "task",
+        "",
+        PEER,
+        false,
+    ));
+    t.apply(&item_row(
+        "dev-b",
+        2,
+        t0 + 2,
+        &c.id,
+        "ok",
+        "task",
+        "",
+        PEER,
+        false,
+    ));
+    t.apply(&set_row(
+        "dev-b",
+        3,
+        t0 + 3,
+        &other.id,
+        "ok",
+        PEER,
+        false,
+        serde_json::json!({"status": "dropped"}),
+    ));
+    let v = t.call_items("call_1");
+    assert_eq!(v.len(), 1);
+    assert_eq!(item(&v, "ok").status, "open");
+    // A huddle this device has no line of yet has no canvas.
+    assert!(t.call_items("call_9").is_empty());
+    // Bad rows: no kind, empty, too long.
+    assert!(!t.apply(&item_row(
+        "dev-b",
+        4,
+        t0 + 4,
+        &c.id,
+        "k",
+        "chat",
+        "",
+        PEER,
+        false
+    )));
+    let long = "x".repeat(talk::MAX_ITEM + 1);
+    let mut r = item_row("dev-b", 5, t0 + 5, &c.id, "long", "note", "", PEER, false);
+    r.payload = serde_json::to_vec(&serde_json::json!({
+        "itemId": "long", "callId": "call_1", "convId": c.id, "kind": "note",
+        "text": long, "by": PEER,
+    }))
+    .unwrap();
+    assert!(!t.apply(&r));
+}
+
+/// The write path: a person adds and changes; an agent adds but never sets;
+/// a wrong conversation, a duplicate id and an unknown item are refused.
+#[test]
+fn call_item_write_path() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    let other = t.create_channel(USER, "other", "").unwrap();
+    line(&t, &c.id, 0, 0, "hello").unwrap();
+    let new = |kind: &str, text: &str| talk::NewItem {
+        kind: kind.into(),
+        text: text.into(),
+        ..talk::NewItem::default()
+    };
+
+    let a = t
+        .write_item(
+            &c.id,
+            "call_1",
+            new("question", " who is on signing? "),
+            USER,
+        )
+        .unwrap();
+    assert_eq!(a.text, "who is on signing?");
+    assert_eq!(a.status, "open");
+    let b = t
+        .write_item(
+            &c.id,
+            "call_1",
+            talk::NewItem {
+                status: "settled".into(),
+                ..new("decision", "ship it")
+            },
+            USER,
+        )
+        .unwrap();
+    assert_eq!(b.status, "settled", "a person's own status is kept");
+    // An assistant's status is not kept.
+    let s = t
+        .write_item(
+            &c.id,
+            "call_1",
+            talk::NewItem {
+                status: "settled".into(),
+                assistant: true,
+                asker: Some("person:alice".into()),
+                why: Some("name".into()),
+                ..new("answer", "Addam has #412")
+            },
+            USER,
+        )
+        .unwrap();
+    assert!(s.assistant);
+    assert_eq!(s.status, "open");
+    assert_eq!(s.asker.as_deref(), Some("person:alice"));
+    // An agent writes an open item and is no assistant.
+    let g = t
+        .write_item(
+            &c.id,
+            "call_1",
+            talk::NewItem {
+                assistant: true,
+                ..new("note", "agent note")
+            },
+            "board:x/agent:y",
+        )
+        .unwrap();
+    assert!(!g.assistant);
+
+    for bad in [
+        new("chat", "x"),
+        new("note", "  "),
+        new("note", &"y".repeat(talk::MAX_ITEM + 1)),
+    ] {
+        want(t.write_item(&c.id, "call_1", bad, USER), ErrorKind::Invalid);
+    }
+    want(
+        t.write_item(&other.id, "call_1", new("note", "x"), USER),
+        ErrorKind::Invalid,
+    );
+    want(
+        t.write_item(
+            &c.id,
+            "call_1",
+            talk::NewItem {
+                item_id: a.item_id.clone(),
+                ..new("note", "dup")
+            },
+            USER,
+        ),
+        ErrorKind::Invalid,
+    );
+
+    let set = |id: &str| talk::NewItemSet {
+        item_id: id.into(),
+        status: Some("settled".into()),
+        ..talk::NewItemSet::default()
+    };
+    let r = t
+        .write_item_set(&c.id, "call_1", set(&a.item_id), USER)
+        .unwrap();
+    assert_eq!(r.status, "settled");
+    want(
+        t.write_item_set(&c.id, "call_1", set(&a.item_id), "board:x/agent:y"),
+        ErrorKind::NotAllowed,
+    );
+    want(
+        t.write_item_set(&c.id, "call_1", set("nope"), USER),
+        ErrorKind::NotFound,
+    );
+    want(
+        t.write_item_set(&other.id, "call_1", set(&a.item_id), USER),
+        ErrorKind::Invalid,
+    );
+    // A note has no status to set.
+    want(
+        t.write_item_set(&c.id, "call_1", set(&g.item_id), USER),
+        ErrorKind::Invalid,
+    );
+    let moved = t
+        .write_item_set(
+            &c.id,
+            "call_1",
+            talk::NewItemSet {
+                item_id: a.item_id.clone(),
+                x: Some(3.0),
+                y: Some(4.0),
+                ..Default::default()
+            },
+            USER,
+        )
+        .unwrap();
+    assert_eq!((moved.x, moved.y), (Some(3.0), Some(4.0)));
+    // Refolded from the store: the same canvas.
+    let t2 = talk(&e);
+    assert_eq!(t2.call_items("call_1").len(), 4);
+    assert_eq!(item(&t2.call_items("call_1"), &a.item_id).x, Some(3.0));
+}

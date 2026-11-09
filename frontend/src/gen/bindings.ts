@@ -384,6 +384,17 @@ export const commands = {
 	talkHuddles: () => __TAURI_INVOKE<TalkHuddle[]>("talk_huddles"),
 	/**  Sets a huddle's title (card #1044); returns the title it now shows. */
 	talkCallTitleSet: (callId: string, title: string) => __TAURI_INVOKE<string>("talk_call_title_set", { callId, title }),
+	/**
+	 *  Sets a huddle's title (card #1051): the same write as
+	 *  `talk_call_title_set`, a person's title.
+	 */
+	huddleTitleSet: (callId: string, title: string) => __TAURI_INVOKE<string>("huddle_title_set", { callId, title }),
+	/**  Adds an item to a huddle's canvas (card #1051). */
+	huddleItemAdd: (callId: string, kind: string, text: string) => __TAURI_INVOKE<TalkCanvasItem>("huddle_item_add", { callId, kind, text }),
+	/**  Changes a canvas item (card #1051): text, status or place. */
+	huddleItemSet: (callId: string, itemId: string, text: string | null, status: string | null, x: number | null, y: number | null) => __TAURI_INVOKE<TalkCanvasItem>("huddle_item_set", { callId, itemId, text, status, x, y }),
+	/**  Asks the person's assistant a question in a live huddle (card #1051). */
+	huddleAsk: (callId: string, text: string) => __TAURI_INVOKE<TalkCanvasItem>("huddle_ask", { callId, text }),
 	/**  What this device can share: displays, then windows. */
 	shareSources: () => __TAURI_INVOKE<ShareSourceView[]>("share_sources"),
 	/**  Shares a window or display (an id from share_sources) in the huddle. */
@@ -3248,6 +3259,42 @@ export type TalkCall = {
 	title: string,
 };
 
+/**  One item on a huddle's canvas (card #1051), with the names it shows by. */
+export type TalkCanvasItem = {
+	itemId: string,
+	/**  `question`, `answer`, `decision`, `task`, `note` or `summary`. */
+	kind: string,
+	text: string,
+	/**  `open`, `settled`, `dropped` or `carded`; empty for a note or summary. */
+	status: string,
+	/**  The item this answers, when it names one. */
+	reply: string,
+	/**  The items a summary judges answered or superseded. */
+	refs: string[],
+	/**
+	 *  What woke the look that wrote it (`name`, `own`, `digest`, `routed`,
+	 *  `end`, `ask`), else empty.
+	 */
+	why: string,
+	/**  Written by a person's assistant: never shown as the person's words. */
+	assistant: boolean,
+	/**  Who signed it. */
+	byName: string,
+	/**  "Juno \u{b7} Addam's assistant" for an assistant's item, else empty. */
+	label: string,
+	/**  Who asked, when the item says; empty groups it under the signer. */
+	askerName: string,
+	/**  The signer is this person. */
+	mine: boolean,
+	/**  The asker is this person. */
+	askerMine: boolean,
+	atMs: number,
+	x: number | null,
+	y: number | null,
+	/**  The ref of the card it became, once a person divided the canvas. */
+	card: string,
+};
+
 /**  One conversation in Talk's list. */
 export type TalkConversation = {
 	convId: string,
@@ -3444,6 +3491,8 @@ export type TalkTranscript = {
 	 *  reconnecting or not connected. Empty once it is over.
 	 */
 	assistants: TalkAssistant[],
+	/**  The canvas (card #1051), oldest first. */
+	canvas: TalkCanvasItem[],
 	/**  What was said, oldest first. */
 	lines: TalkTranscriptLine[],
 };

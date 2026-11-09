@@ -35,7 +35,8 @@ use crate::meters::MetersSample;
 use crate::roster::{GoneSession, RosterChange};
 use crate::settings::{CardLook, NotifyOptions, Target};
 use crate::talk::{
-    TalkConversation, TalkHuddle, TalkMemberRef, TalkPerson, TalkPost, TalkTranscript,
+    TalkCanvasItem, TalkConversation, TalkHuddle, TalkMemberRef, TalkPerson, TalkPost,
+    TalkTranscript,
 };
 use crate::ts::{self, Typed};
 use crate::update::UpdateStatus;
@@ -1837,6 +1838,51 @@ pub async fn talk_call_title_set(w: W<'_>, call_id: String, title: String) -> R<
     blocking(&w, move |w| w.talk_call_title_set(&call_id, &title)).await
 }
 
+/// Sets a huddle's title (card #1051): the same write as
+/// `talk_call_title_set`, a person's title.
+#[tauri::command]
+#[specta::specta]
+pub async fn huddle_title_set(w: W<'_>, call_id: String, title: String) -> R<String> {
+    blocking(&w, move |w| w.talk_call_title_set(&call_id, &title)).await
+}
+
+/// Adds an item to a huddle's canvas (card #1051).
+#[tauri::command]
+#[specta::specta]
+pub async fn huddle_item_add(
+    w: W<'_>,
+    call_id: String,
+    kind: String,
+    text: String,
+) -> R<TalkCanvasItem> {
+    blocking(&w, move |w| w.huddle_item_add(&call_id, &kind, &text)).await
+}
+
+/// Changes a canvas item (card #1051): text, status or place.
+#[tauri::command]
+#[specta::specta]
+pub async fn huddle_item_set(
+    w: W<'_>,
+    call_id: String,
+    item_id: String,
+    text: Option<String>,
+    status: Option<String>,
+    x: Option<f64>,
+    y: Option<f64>,
+) -> R<TalkCanvasItem> {
+    blocking(&w, move |w| {
+        w.huddle_item_set(&call_id, &item_id, text, status, x, y)
+    })
+    .await
+}
+
+/// Asks the person's assistant a question in a live huddle (card #1051).
+#[tauri::command]
+#[specta::specta]
+pub async fn huddle_ask(w: W<'_>, call_id: String, text: String) -> R<TalkCanvasItem> {
+    blocking(&w, move |w| w.huddle_ask(&call_id, &text)).await
+}
+
 /// A huddle's transcript (#656): every line, named.
 #[tauri::command]
 #[specta::specta]
@@ -2479,6 +2525,10 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             talk_call_transcript,
             talk_huddles,
             talk_call_title_set,
+            huddle_title_set,
+            huddle_item_add,
+            huddle_item_set,
+            huddle_ask,
             share_sources,
             share_start,
             share_stop,
