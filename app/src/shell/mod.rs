@@ -971,6 +971,8 @@ fn spawner() -> irori_core::spawn::Spawner {
             })
         }),
         end: Arc::new(|id: &str| spawn::end(id)),
+        // A resting agent's stop keeps its job (card #1215).
+        stop: Some(Arc::new(|id: &str| spawn::stop(id))),
         trusted: Arc::new(|p: &std::path::Path| spawn::trust_ok(p)),
         list: Some(Arc::new(|| {
             spawn::list_agents().map(|v| {

@@ -3047,7 +3047,9 @@ impl super::Core {
 /// when the session is gone from the roster.
 pub(crate) fn card_status(presence: Option<&str>) -> &'static str {
     match presence {
-        None | Some("gone") => "gone",
+        // A resting agent (card #1215) is not there for a board's members:
+        // only its own person's Irori can wake it.
+        None | Some("gone") | Some(coord::roster::RESTING) => "gone",
         // Not answering (#110) stays idle on a shared board: §2.4 has no
         // word for it yet.
         Some("idle") | Some(coord::roster::NOT_ANSWERING) => "idle",

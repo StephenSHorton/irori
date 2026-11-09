@@ -166,6 +166,12 @@ impl Window {
             },
         };
         for a in agents {
+            // A resting agent has nothing to wind down: its device's sweep
+            // retires it under the Stop (card #1215), and a wind-down to it
+            // would only count as something that came for it.
+            if a.status == coord::roster::RESTING {
+                continue;
+            }
             let to = self.core.private_key(&a.key);
             let mut r = WindDownRow {
                 key: to.clone(),

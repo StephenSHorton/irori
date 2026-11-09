@@ -2125,6 +2125,11 @@ export type CardSummary = {
 	holder: CardHolder,
 	updatedAt: string,
 	returned?: AgentRef | null,
+	/**
+	 *  The agent Irori started for it let it go as it rested (card #1215):
+	 *  nobody holds it, and nothing went wrong.
+	 */
+	rested?: AgentRef | null,
 	stale?: boolean,
 	devices: string[],
 	accent?: string,

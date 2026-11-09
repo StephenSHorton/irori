@@ -3576,10 +3576,22 @@ impl Core {
         self.s.spawned_today()
     }
 
-    /// The person's End on an agent Irori started: its hand-off, then
-    /// stop and rm.
+    /// The person's End on an agent Irori started: it retires (card
+    /// #1215), with its hand-off asked first unless it rests.
     pub fn end_spawned(&self, key: &str) -> Result<(), String> {
         self.s.end_spawned(key)
+    }
+
+    /// Whether spawned agent `key` of this device rests (card #1215).
+    pub fn resting(&self, key: &str) -> bool {
+        self.s.resting(key)
+    }
+
+    /// The `<card>-<generation>` stems of the brief and settings files of
+    /// this device's spawned agents that run or rest (card #1215): a plain
+    /// wake reads the settings file again, so Storage keeps them.
+    pub fn kept_brief_stems(&self) -> std::collections::HashSet<String> {
+        self.s.kept_brief_stems()
     }
 
     /// The person asks for an agent on card `id` now, with `note` (their

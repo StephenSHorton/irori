@@ -42,6 +42,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
         end: Arc::new(move |_: &str| Ok(String::new())),
         trusted: Arc::new(|_| true),
         list: None,
+        stop: None,
     }
 }
 

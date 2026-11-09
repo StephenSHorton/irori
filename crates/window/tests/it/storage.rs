@@ -412,6 +412,7 @@ fn a_kept_worktree_says_why_and_a_canceled_one_deletes_anyway() {
         trusted: std::sync::Arc::new(|_| true),
         list: Some(std::sync::Arc::new(|| Ok(Vec::new()))),
         ready: None,
+        stop: None,
     }));
     let got = items(&r, storage::BUILDS);
     let of = |name: &str| got.iter().find(|i| i.name == name).unwrap().clone();

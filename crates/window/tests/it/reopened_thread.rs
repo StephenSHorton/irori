@@ -83,6 +83,7 @@ fn a_reopened_thread_says_its_new_agent_is_starting() {
         trusted: Arc::new(|_: &Path| true),
         list: None,
         ready: None,
+        stop: None,
     }));
 
     // Answered by an agent that has gone since, then resolved.

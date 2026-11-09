@@ -50,6 +50,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
         }),
         trusted: Arc::new(|_| true),
         list: None,
+        stop: None,
     }
 }
 
@@ -1084,6 +1085,7 @@ fn a_session_started_for_a_card_held_meanwhile_is_ended() {
         trusted: Arc::new(|_| true),
         list: None,
         ready: None,
+        stop: None,
     }));
     r.core
         .set_spawn_setting(SpawnSetting {

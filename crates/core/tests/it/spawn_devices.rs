@@ -81,6 +81,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf, sess: &'static str) -> Spawner {
         }),
         trusted: Arc::new(move |_| !c.untrusted.load(Ordering::SeqCst)),
         list: None,
+        stop: None,
     }
 }
 

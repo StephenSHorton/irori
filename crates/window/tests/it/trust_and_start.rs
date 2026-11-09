@@ -47,6 +47,7 @@ fn an_untrusted_repo_waits_on_the_person_then_starts() {
             claude_trust::is_trusted(&f2, &trust_folder(&dir.to_string_lossy()))
         }),
         list: None,
+        stop: None,
     }));
     w.core
         .set_spawn_setting(SpawnSetting {
@@ -203,6 +204,7 @@ fn untrusted() -> Untrusted {
             claude_trust::is_trusted(&f2, &trust_folder(&dir.to_string_lossy()))
         }),
         list: None,
+        stop: None,
     }));
     r.w.core
         .set_spawn_setting(SpawnSetting {
