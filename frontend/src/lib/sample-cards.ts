@@ -415,6 +415,122 @@ export function sampleCards(now: Date): CardDetail[] {
   // agent working a card Irori started it for (End on its page, "for #64"
   // in its hover), one starting, one waiting on the cap, one that can't
   // start (PREVIEW.md).
+  const spencer = AgentRef({
+    key: "person:spencer",
+    name: "Spencer",
+    status: "person",
+  })
+  const blake = AgentRef({
+    key: "person:blake",
+    name: "Blake",
+    status: "person",
+  })
+  // Decision 69: ?given=batch shows two givers' blocks in Needs you: one
+  // batch of 4 from Spencer, one card from Blake (PREVIEW.md).
+  const gw = (level: string) => ({
+    level,
+    setBy: "person",
+    byName: "you",
+    model: "",
+    effort: "",
+    at: at(60),
+  })
+  const givenAsk = (id: string) =>
+    CardBlocker({
+      id: `b-${id}`,
+      question: "OK to start an agent on this?",
+      context: "",
+      raisedBy: AgentRef({ key: "irori", name: "Irori", status: "person" }),
+      at: at(5),
+      options: ["Start an agent", "Not now"].map((answer) =>
+        CardOption({
+          answer,
+          by: AgentRef({ key: "irori", name: "Irori", status: "person" }),
+          at: at(5),
+        })
+      ),
+      resolved: null,
+      state: "open",
+    })
+  const givenCard = (
+    n: number,
+    title: string,
+    goal: string,
+    by: AgentRef,
+    batch: string,
+    rank: number,
+    extra: Partial<CardDetail> = {}
+  ) =>
+    card({
+      id: `sample-card-given-${n}`,
+      short: String(n),
+      title,
+      goal,
+      scope: "board",
+      scopeLabel: "MLG",
+      board: "sample-board-mlg",
+      ours: true,
+      working: [],
+      givenBy: by,
+      givenBatch: batch,
+      givenRank: rank,
+      givenQuestion: `b-sample-card-given-${n}`,
+      weight: gw("normal"),
+      blockers: [givenAsk(`sample-card-given-${n}`)],
+      updatedAt: at(5 - (rank % 4)),
+      ...extra,
+    })
+  const givenBatch =
+    new URLSearchParams(window.location.search).get("given") === "batch"
+      ? [
+          givenCard(
+            80,
+            "Add a retry to the upload step",
+            "Uploads over 50 MB retry twice before failing.",
+            spencer,
+            "batch-1",
+            1,
+            {
+              givenNote: "Four small ones for this week. Start with the retry.",
+            }
+          ),
+          givenCard(
+            81,
+            "Show upload progress in the status bar",
+            "A percentage and the file name while an upload runs.",
+            spencer,
+            "batch-1",
+            2
+          ),
+          givenCard(
+            82,
+            "Fix the clip counter after a cancelled upload",
+            "The counter drops back by one when an upload is cancelled.",
+            spencer,
+            "batch-1",
+            3,
+            { givenSaid: "notnow", blockers: [], givenQuestion: "" }
+          ),
+          givenCard(
+            83,
+            "Reword the upload error with a very long title so it has to wrap on a phone-width screen",
+            "The message names the file and says what to do next.",
+            spencer,
+            "batch-1",
+            4,
+            { weight: gw("light") }
+          ),
+          givenCard(
+            90,
+            "Rename Highlights to Reels in the menu",
+            "Menu label and the page title only; the URL stays.",
+            blake,
+            "",
+            5,
+            { givenViaAssistant: true, weight: gw("light") }
+          ),
+        ]
+      : []
   const spawn =
     new URLSearchParams(window.location.search).get("spawn") === "states"
       ? [
@@ -611,6 +727,9 @@ export function sampleCards(now: Date): CardDetail[] {
             board: "sample-board-mlg",
             ours: true,
             working: [],
+            givenBy: spencer,
+            givenRank: 1,
+            givenQuestion: "b-given",
             blockers: [
               CardBlocker({
                 id: "b-given",
@@ -871,6 +990,7 @@ export function sampleCards(now: Date): CardDetail[] {
   return [
     ...longRefs,
     ...spawn,
+    ...givenBatch,
     ...loop,
     ...later,
     ...gone,

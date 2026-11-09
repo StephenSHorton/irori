@@ -268,6 +268,18 @@ export const BoardService = {
   // "Start an agent with this" (card #452).
   StartAgent: (id: string, note: string) =>
     done(commands.boardStartAgent(id, note)),
+  // Needs you's given cards (decision 69).
+  SayGiven: (id: string, say: string) => done(commands.boardSayGiven(id, say)),
+  GiveBack: (id: string, reason: string) =>
+    done(commands.boardGiveBack(id, reason)),
+  GiveBatch: (
+    space: string,
+    board: string,
+    to: string,
+    tasks: B.GiveTask[],
+    cards: string[],
+    note: string
+  ) => call(commands.boardGiveBatch(space, board, to, tasks, cards, note)),
   HandOn: (id: string) => call(commands.boardHandOn(id)),
   AskRepos: () => call(commands.boardAskRepos()),
   CloseAsk: (id: string, note: string) =>

@@ -42,6 +42,7 @@ mod deskwatch;
 mod dm_people;
 mod expiry;
 mod five_cores;
+mod given_follow;
 mod helpertree;
 mod huddle;
 mod huddle_canvas;

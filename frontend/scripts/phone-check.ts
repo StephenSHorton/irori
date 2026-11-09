@@ -48,6 +48,8 @@ const out =
 const PAGES: Array<[name: string, query: string]> = [
   ["home", ""],
   ["home-spawn", "?spawn=states"],
+  // Decision 69: the cards other people gave, one block per giver.
+  ["home-given", "?given=batch"],
   // Card #682: a permission prompt's command and buttons.
   ["card-perm", "?spawn=states&open=board:task:sample-card-spawn-perm"],
   ["card-1", "?open=board:task:sample-card-1"],
