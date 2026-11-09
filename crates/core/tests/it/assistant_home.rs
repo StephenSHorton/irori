@@ -294,6 +294,71 @@ fn a_core_that_is_not_caught_up_does_not_claim() {
     pc.core.close().unwrap();
 }
 
+/// `d`'s newest `spawn.host` row in `c`'s log says it can hold the
+/// assistant.
+fn says_able(c: &Core, d: &str) -> bool {
+    c.store()
+        .list(&Filter {
+            kinds: vec![kinds::SPAWN_HOST.into()],
+            device_id: d.to_string(),
+            desc: true,
+            limit: 1,
+            ..Filter::default()
+        })
+        .unwrap()
+        .first()
+        .and_then(|e| serde_json::from_slice::<SpawnHost>(&e.payload).ok())
+        .is_some_and(|h| h.assistant_turn && h.assistant_chat)
+}
+
+/// A computer doesn't claim while another one that could have claimed is
+/// still about (its rows reached here within 10 minutes) but has no
+/// session with it: that one's claim may not have arrived. Once the other
+/// has been offline for real, it claims.
+#[test]
+fn a_core_does_not_claim_while_an_able_computer_is_recent() {
+    let (skew_mac, skew_pc) = (Arc::new(AtomicI64::new(0)), Arc::new(AtomicI64::new(0)));
+    let sks = [skew_mac.clone(), skew_pc.clone()];
+    let mut devs = person_with("stephen", 2, |i| Some(skewed(sks[i].clone())));
+    let (pc, mac) = (devs.pop().unwrap(), devs.pop().unwrap());
+    // The Mac's clock runs five minutes ahead: the PC holds the Mac's rows
+    // back, so it never catches up and never claims, while its own rows
+    // still reach the Mac.
+    skew_mac.store(300, Ordering::SeqCst);
+    let held = serde_json::json!({"key": format!("{}/held", id(&mac)), "agent": "claude"});
+    mac.core
+        .store()
+        .append("irori", kinds::AGENT_SEEN, &held)
+        .unwrap();
+    wait_for(WAIT, "the PC is behind the Mac", || {
+        !pc.core.mesh().caught_up()
+    });
+    let _rp = able(&pc);
+    wait_for(WAIT, "the Mac holds the PC's able spawn.host", || {
+        says_able(&mac.core, &id(&pc))
+    });
+    assert!(home_rows(&mac.core).is_empty(), "nobody claimed yet");
+    let pc_id = id(&pc);
+    pc.core.close().unwrap();
+    wait_for(WAIT, "the PC reads recent on the Mac", || {
+        mac.core
+            .mesh()
+            .devices(false)
+            .iter()
+            .any(|r| r.device_id == pc_id && r.state == "recent")
+    });
+    let _rm = able(&mac);
+    holds_for(12, "the Mac claimed while the PC was recent", || {
+        home_rows(&mac.core).is_empty() && !mac.core.is_assistant_home()
+    });
+    // Twelve minutes on, the PC is offline: the Mac claims.
+    skew_mac.store(300 + 720, Ordering::SeqCst);
+    wait_for(WAIT, "the Mac claims once the PC is offline", || {
+        home_is(&mac, &id(&mac))
+    });
+    mac.core.close().unwrap();
+}
+
 /// The status of an assistant's computer that doesn't exist yet reads the
 /// `spawn.host` rows: hand-written here, `assistantChat` included.
 #[test]

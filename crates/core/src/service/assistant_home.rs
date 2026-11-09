@@ -130,6 +130,8 @@ pub(crate) struct HomeState {
     /// overwrites a newer answer (the kind loop, the sweep and the chat
     /// worker all fold).
     fold: Mutex<()>,
+    /// The computer the last claim held off for, so the log says it once.
+    waiting_on: Mutex<Option<String>>,
 }
 
 impl HomeState {
@@ -324,10 +326,37 @@ impl Services {
         Ok(())
     }
 
+    /// Another of the person's computers that could hold the assistant and
+    /// is still about, but has no session with this one: its rows reached
+    /// here within the last 10 minutes (`recent`), or it is on a shared
+    /// board's connection. A claim from here could race one it already
+    /// made, so the claim waits for the session or for it to go offline.
+    /// A `connected` one is left to the ranking both computers share.
+    fn able_peer_without_session(&self) -> Option<String> {
+        let me = self.device.id.as_str();
+        let rows = self.mesh.node.devices(false);
+        let on_boards: std::collections::HashSet<String> = self
+            .mesh
+            .board_list()
+            .iter()
+            .flat_map(|m| m.peers().into_iter().map(|(_, d)| d))
+            .collect();
+        rows.into_iter()
+            .filter(|r| !r.this && r.device_id != me && !r.revoked && r.state != "connected")
+            .filter(|r| r.state == "recent" || on_boards.contains(&r.device_id))
+            .find(|r| {
+                self.host_of(&r.device_id)
+                    .is_some_and(|h| h.assistant_turn && h.assistant_chat)
+            })
+            .map(|r| r.device_id)
+    }
+
     /// A computer that can run the assistant claims itself when nothing is
     /// recorded: it says `assistantTurn` and `assistantChat` (card 3). It
     /// only ever names itself, and writes nothing while there is a
-    /// recorded computer, even one that has been offline for days.
+    /// recorded computer, even one that has been offline for days, or
+    /// while another computer that could claim is about but not connected
+    /// ([`Services::able_peer_without_session`]).
     pub(crate) fn claim_assistant_home(&self) {
         if self.assistant_home().is_some() {
             return;
@@ -357,6 +386,29 @@ impl Services {
         }
         // Not before the existing claim could have reached this device.
         if !self.mesh.node.caught_up() {
+            return;
+        }
+        // Nor while another computer that could have claimed is about with
+        // no session to bring its claim: `caught_up` is true with no
+        // session at all.
+        let waiting = self.able_peer_without_session();
+        {
+            let mut last = self
+                .assistant_home
+                .waiting_on
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(d) = &waiting
+                && last.as_deref() != Some(d.as_str())
+            {
+                logf(format_args!(
+                    "assistant home: no claim yet: {} is about but not connected",
+                    &d[..d.len().min(8)]
+                ));
+            }
+            *last = waiting.clone();
+        }
+        if waiting.is_some() {
             return;
         }
         let _w = self
