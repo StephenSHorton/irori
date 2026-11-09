@@ -187,7 +187,8 @@ impl Inner {
                             .get(d)
                             .filter(|l| !l.is_empty())
                             .cloned()
-                            .unwrap_or_else(|| d.chars().take(8).collect())
+                            // A removed device has no label (card #1240).
+                            .unwrap_or_else(|| "another device".into())
                     })
                     .collect();
                 format!(

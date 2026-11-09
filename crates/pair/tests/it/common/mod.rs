@@ -186,6 +186,7 @@ fn open(
         trust_any_peer: false,
         ignored: None,
         assistant_turns: None,
+        on_settled: None,
         logf: Some(Arc::new(move |m: &str| eprintln!("{n}: {m}"))),
         now: None,
     });

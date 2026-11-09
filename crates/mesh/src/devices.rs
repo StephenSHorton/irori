@@ -280,8 +280,17 @@ impl Node {
         if st.state == STATE_ON && st.topics == 0 && !st.detail.is_empty() {
             st.state = STATE_ERROR.into();
         }
-        let devices = self.o.chain.devices();
-        for d in &devices {
+        // A removed device is forgotten once its removal settled (card
+        // #1240): it has no row. Until then it shows as "Removal pending".
+        let settled = self.lock().settled.clone();
+        let devices: Vec<_> = self
+            .o
+            .chain
+            .devices()
+            .into_iter()
+            .filter(|d| !(d.revoked && settled.contains(&d.cert.device_id)))
+            .collect();
+        for d in devices.iter().filter(|d| !d.revoked) {
             self.seed_rows(&d.cert.device_id);
         }
         let (known, rows, ahead) = {
@@ -330,6 +339,10 @@ impl Node {
             };
             if d.revoked {
                 (ps.pending, ps.remaining, ps.holdouts) = self.removal_seen(&id, &known);
+                if ps.pending >= ps.remaining {
+                    // Settled, not yet recorded: settle_removals does that.
+                    continue;
+                }
             }
             for s in &sessions {
                 if s.conn.id() == id && s.hello_done() {
@@ -340,7 +353,7 @@ impl Node {
             }
             let p = read_of(now, &k, &heard, !ps.path.is_empty(), d.revoked);
             ps.state = p.state.into();
-            ps.via = p.via;
+            ps.via = self.via_kept(p.via);
             peers.push(ps);
         }
         if !peers.is_empty() {
@@ -349,12 +362,26 @@ impl Node {
         st
     }
 
-    /// Device `dev` as this one reads it ([`read_of`]).
+    /// A via that names no removed device (card #1240): "" for one.
+    fn via_kept(&self, via: String) -> String {
+        if !via.is_empty() && self.o.chain.cut(&via).is_some() {
+            return String::new();
+        }
+        via
+    }
+
+    /// Device `dev` as this one reads it ([`read_of`]). A removed device
+    /// reads offline and never seen (card #1240).
     pub fn device_read(&self, dev: &str) -> DeviceRead {
+        if self.o.chain.cut(dev).is_some() {
+            return DeviceRead {
+                state: "offline",
+                ..DeviceRead::default()
+            };
+        }
         self.seed_rows(dev);
         let now = self.now();
         let up = self.connected_to(dev);
-        let revoked = self.o.chain.cut(dev).is_some();
         let (k, rows) = {
             let g = self.lock();
             (
@@ -362,7 +389,9 @@ impl Node {
                 g.rows.get(dev).cloned().unwrap_or_default(),
             )
         };
-        read_of(now, &k, &rows, up, revoked)
+        let mut r = read_of(now, &k, &rows, up, false);
+        r.via = self.via_kept(r.via);
+        r
     }
 
     /// Go `Liveness`: [`Node::device_read`]'s state.
@@ -520,8 +549,6 @@ impl Node {
                     r.warning
                         .push_str(&format!(" Waiting on {}.", names.join(", ")));
                 }
-            } else if p.revoked {
-                r.warning = "Removed.".into();
             } else if !p.stopped.is_empty() {
                 r.warning = format!("It {}. Remove it.", p.stopped);
                 r.action = "remove".into();

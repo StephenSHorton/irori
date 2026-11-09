@@ -53,6 +53,32 @@ pub fn peers_file_bytes(peers: &BTreeMap<String, PeerEpoch>) -> Vec<u8> {
     json::marshal_indent(peers, "", "  ").expect("peers always marshal")
 }
 
+/// The removals this device has seen settle (card #1240): every
+/// remaining device had the revoke. A sorted JSON array of device ids.
+/// Device-local and Rust's own (Go has no such file). The Devices list
+/// leaves these out for good, even after a restart (which empties the
+/// in-memory vectors the settle test reads) or a new pairing (one more
+/// device that hasn't said it has the revoke yet).
+pub const REMOVED_FILE: &str = "mesh-removed.json";
+
+/// The settled removals; an unreadable or missing file is none.
+pub fn load_removed(dir: Option<&Path>) -> std::collections::BTreeSet<String> {
+    dir.and_then(|d| std::fs::read(d.join(REMOVED_FILE)).ok())
+        .and_then(|raw| serde_json::from_slice::<Vec<String>>(&raw).ok())
+        .map(|v| v.into_iter().collect())
+        .unwrap_or_default()
+}
+
+/// Writes the settled removals, best effort: the caller logs a failure.
+pub fn save_removed(
+    dir: &Path,
+    ids: &std::collections::BTreeSet<String>,
+) -> std::io::Result<()> {
+    let ids: Vec<&String> = ids.iter().collect();
+    let raw = serde_json::to_vec_pretty(&ids).expect("ids always marshal");
+    crate::fsutil::write_replace(&dir.join(REMOVED_FILE), &raw)
+}
+
 /// Go `savePeers`' write: best effort, the caller logs a failure.
 pub fn save_peers(dir: &Path, peers: &BTreeMap<String, PeerEpoch>) -> std::io::Result<()> {
     crate::fsutil::write_replace(&dir.join(PEERS_FILE), &peers_file_bytes(peers))
