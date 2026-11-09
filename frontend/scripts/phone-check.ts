@@ -57,6 +57,8 @@ const PAGES: Array<[name: string, query: string]> = [
   ["card-12", "?open=board:task:sample-card-12"],
   ["card-shared", "?open=board:task:sample-board-1"],
   ["notes", "?notes"],
+  // Card #1080: a claimed PR with related agents, on the merge desk.
+  ["desk", "#desk/remote:github.com/you/game-repo"],
   ["notifications", "#notifications"],
   ["held", "?open=held"],
   ["held-msg", "?open=inbox:sample-delivery-1"],

@@ -72,6 +72,7 @@ pub(crate) mod calls;
 mod calls_over;
 pub(crate) mod calls_share;
 pub mod card_weights;
+mod desk_review;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
@@ -679,6 +680,9 @@ impl tools::TaskRouter for ToolsView {
         reason: &str,
     ) -> Result<tools::ClaimAnswer, String> {
         self.0.review_claim(key, pr, action, reason)
+    }
+    fn pr_reviews(&self, repo: &str) -> Vec<tools::PrReviewLine> {
+        self.0.pr_review_lines(repo)
     }
     fn comment_coord(&self, id: &str) -> Option<Arc<Coord>> {
         // Not a hidden DM space's (card #538): no agent works there.
@@ -3686,6 +3690,12 @@ impl Core {
         self.s.desk_verdicts(repo_key)
     }
 
+    /// Each person's open and 14-day review claims across the spaces this
+    /// device shows (merge desk §12.9, card #1080).
+    pub fn desk_claim_counts(&self) -> Vec<crate::deskmap::ClaimCount> {
+        self.s.claim_counts_all()
+    }
+
     /// The inbox sweep (every [`inbox::SWEEP_INTERVAL`]).
     pub fn sweep_inbox(&self) -> inbox::Result<()> {
         self.s.inbox.sweep()
@@ -4674,8 +4684,9 @@ impl Services {
                 };
                 match judge(&PrRef::of(&repo, p), &tasks, &author, &trust) {
                     Verdict::NotOurs => return None,
-                    Verdict::NewCard(_) => {}
+                    Verdict::NewCard(_) => a.review = self.pr_review(repo_key, p),
                     Verdict::Card(m) => {
+                        a.review = self.pr_review(repo_key, p);
                         if let Some(t) = tasks.iter().find(|t| t.id == m.task_id) {
                             if a.agent.is_empty() {
                                 a.agent = t.holders.first().cloned().unwrap_or_default();

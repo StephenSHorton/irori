@@ -71,8 +71,35 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
       ? { at: ago(now, 1), unreachableSince: ago(now, 6), device: "pc" }
       : { at: ago(now, 1), device: "pc" },
     authors: {
-      212: { card: "c41", cardRef: "#41", agent: "primrose", name: "primrose" },
-      218: { card: "c49", cardRef: "#49", agent: "scabious", name: "scabious" },
+      212: {
+        card: "c41",
+        cardRef: "#41",
+        agent: "primrose",
+        name: "primrose",
+        review: {
+          pick: "claimed",
+          review: "REVIEW_REQUIRED",
+          claimer: {
+            agent: "fern",
+            person: "Maya",
+            until: ago(now, -45),
+          },
+          related: [
+            { agent: "kestrel", person: "Kit", why: "same files" },
+            { agent: "wren", person: "Maya", why: "commented" },
+          ],
+        },
+      },
+      218: {
+        card: "c49",
+        cardRef: "#49",
+        agent: "scabious",
+        name: "scabious",
+        review: {
+          pick: "waiting",
+          whyNone: "nobody in the space is free to review this PR yet",
+        },
+      },
       219: { card: "c52", cardRef: "#52", name: "Blake" },
       220: { card: "c53", cardRef: "#53", agent: "primrose", name: "primrose" },
       215: { card: "c44", cardRef: "#44", agent: "kestrel", name: "kestrel" },
@@ -80,6 +107,10 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
       217: { card: "c45", cardRef: "#45", agent: "kestrel", name: "kestrel" },
       221: { card: "c50", cardRef: "#50", agent: "nutmeg", name: "nutmeg" },
     },
+    claimCounts: [
+      { person: "Maya", open: 1, recent: 4 },
+      { person: "Kit", open: 0, recent: 2 },
+    ],
     merged: [
       {
         pr: 210,

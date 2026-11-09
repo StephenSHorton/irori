@@ -30,6 +30,7 @@ mod desk_merged;
 mod desk_opened;
 mod desk_ours;
 mod desk_posts;
+mod desk_review;
 mod deskmap;
 mod deskmap_live;
 mod deskwatch;
