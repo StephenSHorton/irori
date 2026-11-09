@@ -3520,6 +3520,7 @@ fn a_request_from_before_the_give_can_never_bind_my_agent() {
                 by: P2.into(),
                 at: b.clk.now(),
                 note: String::new(),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -4246,4 +4247,501 @@ fn an_agent_given_a_given_card_closes_its_question() {
         );
         assert_ne!(got.state, coord::BLOCKED);
     }
+}
+
+// Decision 69 (card #1221, S1): the action set for given cards.
+
+fn blocker_named(t: &Task, q: &str) -> Option<Blocker> {
+    t.blockers.iter().find(|b| b.question == q).cloned()
+}
+
+/// p1 on dev-a gives `n` new cards to p2 as one batch.
+fn batch_of(a: &Side, b: &Side, n: usize, note: &str) -> Vec<Task> {
+    let items = (0..n).map(|i| nt(&format!("Batch card {i}"), "")).collect();
+    let got =
+        a.c.give_batch(P1, "", P2, GiveItems::Tasks(items), note, false)
+            .unwrap();
+    sync(a, b);
+    got
+}
+
+/// Whether the author's side (b, p2) would offer or spawn card `id`.
+fn shows_up(b: &Side, id: &str) -> bool {
+    if b.c.cards_to_spawn().iter().any(|t| t.id == id) {
+        return true;
+    }
+    let (_, r) = b.c.sweep_asks_partial(&roster(&[CARD2]));
+    r.unwrap();
+    b.c.get_task(id).unwrap().live_offer().is_some()
+}
+
+/// Folds each of a's rows b lacks on b, one at a time, calling `each`
+/// after every one.
+fn one_by_one(a: &Side, b: &Side, mut each: impl FnMut(usize)) {
+    let rows = a.st.missing(&b.st.vector().unwrap(), 1000).unwrap();
+    for (i, row) in rows.iter().enumerate() {
+        let (_, r) = b.st.insert_batch(std::slice::from_ref(row));
+        r.unwrap();
+        b.c.fold_live(std::slice::from_ref(row));
+        each(i);
+    }
+}
+
+#[test]
+fn a_batch_of_four_gives_four_cards_with_one_batch_id_and_the_note() {
+    let (a, b) = two_people_shared();
+    let got = batch_of(&a, &b, 4, "Please take these");
+    assert_eq!(got.len(), 4);
+    let ids: std::collections::HashSet<String> = got
+        .iter()
+        .map(|t| t.given.as_ref().unwrap().batch.clone())
+        .collect();
+    assert_eq!(ids.len(), 1, "{ids:?}");
+    assert!(!ids.iter().next().unwrap().is_empty());
+    for t in &got {
+        let g = b.c.get_task(&t.id).unwrap().given.unwrap();
+        assert_eq!(g.key, P2);
+        assert_eq!(g.note, "Please take these");
+        assert_eq!(g.by_person, "p1");
+        assert!(!g.assistant);
+    }
+    assert_eq!(b.c.given_to(P2).len(), 4);
+}
+
+#[test]
+fn one_bad_item_refuses_the_whole_batch_and_writes_no_row() {
+    let (a, b) = two_people_shared();
+    let ok = a.c.create_task(P1, nt("Fine", "")).unwrap();
+    let split = a.c.create_task(P1, nt("Split", "")).unwrap();
+    a.c.split(
+        P1,
+        &split.id,
+        vec![NewSubtask {
+            title: "part".into(),
+            ..NewSubtask::default()
+        }],
+        Vec::new(),
+    )
+    .unwrap();
+    let theirs = b.c.create_task(P2, nt("Theirs", "")).unwrap();
+    let given_already = a.c.create_task(P1, nt("Given already", "")).unwrap();
+    a.c.assign(P1, &given_already.id, P2).unwrap();
+    sync(&a, &b);
+    let before = a.st.vector().unwrap();
+    for (what, items) in [
+        ("split", vec![ok.id.clone(), split.id.clone()]),
+        ("already theirs", vec![ok.id.clone(), theirs.id.clone()]),
+        ("twice", vec![ok.id.clone(), ok.id.clone()]),
+        (
+            "already given",
+            vec![ok.id.clone(), given_already.id.clone()],
+        ),
+    ] {
+        let r =
+            a.c.give_batch(P1, "", P2, GiveItems::Cards(items), "", false);
+        assert!(r.is_err(), "{what}");
+        assert_eq!(a.st.vector().unwrap(), before, "{what}: wrote a row");
+    }
+    let bad_weight = vec![
+        nt("Good", ""),
+        NewTask {
+            weight: "enormous".into(),
+            ..nt("Bad", "")
+        },
+    ];
+    assert!(
+        a.c.give_batch(P1, "", P2, GiveItems::Tasks(bad_weight), "", false)
+            .is_err()
+    );
+    assert_eq!(a.st.vector().unwrap(), before, "weight: wrote a row");
+    let _ = b;
+}
+
+#[test]
+fn a_give_by_an_agent_writes_its_watch_rows() {
+    let (a, b) = two_people_shared();
+    let items = vec![nt("One", ""), nt("Two", "")];
+    let got =
+        a.c.give_batch(CARD1, "", P2, GiveItems::Tasks(items), "", false)
+            .unwrap();
+    sync(&a, &b);
+    assert_eq!(got.len(), 2);
+    for t in got {
+        let seen = b.c.get_task(&t.id).unwrap();
+        assert!(
+            seen.watchers.iter().any(|w| w == CARD1),
+            "{:?}",
+            seen.watchers
+        );
+        assert_eq!(
+            seen.given.unwrap().by_person,
+            "p1",
+            "an agent's give is p1's"
+        );
+    }
+}
+
+/// p2 (dev-b) gives a card to p1 (dev-a); p1 gives it back with a reason.
+fn given_back(a: &Side, b: &Side) -> Task {
+    let t = given(a, b);
+    a.c.give_back(P1, &t.id, "too big").unwrap();
+    sync(a, b);
+    t
+}
+
+#[test]
+fn giving_back_clears_given_and_the_author_serves_it_again() {
+    let (a, b) = two_people_shared();
+    let t = given(&a, &b);
+    let batch = b.c.get_task(&t.id).unwrap().given.unwrap().batch;
+    let got = a.c.give_back(P1, &t.id, "too big").unwrap();
+    assert!(got.given.is_none());
+    sync(&a, &b);
+    let got = b.c.get_task(&t.id).unwrap();
+    assert!(got.given.is_none() && got.given_said.is_none());
+    assert!(b.c.mine_to_serve(&got), "back with its author");
+    let item = blocker_named(&got, GIVEN_BACK_QUESTION).expect("the give-back item");
+    assert!(item.open() && item.given_back);
+    assert_eq!(item.batch, batch);
+    assert_eq!(item.on.as_ref().unwrap().reference, P2, "for the owner");
+    assert!(item.context.contains("too big"), "{}", item.context);
+    assert_eq!(got.state, BLOCKED);
+    assert!(item.options.iter().any(|o| o.answer == GIVEN_BACK_CANCEL));
+}
+
+#[test]
+fn the_two_give_back_rows_never_free_the_card_on_the_authors_device() {
+    let (a, b) = two_people_shared();
+    let t = given(&a, &b);
+    sync(&a, &b);
+    a.c.give_back(P1, &t.id, "no").unwrap();
+    let mut rows = 0;
+    one_by_one(&a, &b, |_| {
+        rows += 1;
+        assert!(
+            b.c.cards_to_spawn().iter().all(|c| c.id != t.id),
+            "spawnable after row {rows}"
+        );
+        assert!(!shows_up(&b, &t.id), "offered after row {rows}");
+    });
+    assert!(rows >= 2, "{rows}");
+}
+
+#[test]
+fn the_same_rows_in_the_wrong_order_show_the_card_after_the_first() {
+    let (a, b) = two_people_shared();
+    let t = given(&a, &b);
+    sync(&a, &b);
+    // The task.left alone: what the wrong order would fold first.
+    forge(
+        &a,
+        P1,
+        kinds::TASK_LEFT,
+        &coord::rows::TaskMemberRow {
+            task_id: t.id.clone(),
+            who: P1.into(),
+            by: P1.into(),
+            at: a.clk.now(),
+            ..Default::default()
+        },
+    );
+    one_by_one(&a, &b, |_| {});
+    assert!(shows_up(&b, &t.id), "the card shows after task.left alone");
+}
+
+#[test]
+fn giving_back_is_refused_with_an_agent_on_the_card_or_starting() {
+    let (a, b) = two_people_shared();
+    let t = given(&a, &b);
+    say(&a, P1, &t, 1);
+    sync(&a, &b);
+    let before = a.st.vector().unwrap();
+    // A request is pending.
+    let g =
+        a.c.request_spawn("irori", spawn_ask(&t.id, "dev-a"))
+            .unwrap()
+            .expect("the yes lets it through");
+    let pending = a.st.vector().unwrap();
+    assert_ne!(before, pending);
+    let e = a.c.give_back(P1, &t.id, "").unwrap_err();
+    assert!(e.to_string().contains("has an agent on it"), "{e}");
+    assert_eq!(a.st.vector().unwrap(), pending, "wrote a row");
+    // The agent is bound.
+    assert!(a.c.bind_spawn(&t.id, g, CARD1).unwrap());
+    let bound = a.st.vector().unwrap();
+    let e = a.c.give_back(P1, &t.id, "").unwrap_err();
+    assert!(e.to_string().contains("has an agent on it"), "{e}");
+    assert_eq!(a.st.vector().unwrap(), bound, "wrote a row");
+}
+
+#[test]
+fn only_the_given_person_gives_a_card_back() {
+    let (a, b) = two_people_shared();
+    let t = given(&a, &b);
+    let before = b.st.vector().unwrap();
+    for by in [P2, CARD1, CARD2] {
+        assert!(b.c.give_back(by, &t.id, "").is_err(), "{by}");
+        assert!(a.c.give_back(by, &t.id, "").is_err(), "{by} on dev-a");
+    }
+    assert_eq!(b.st.vector().unwrap(), before);
+}
+
+/// `maker` makes a card on `ms`, hands its ownership to `other`, then
+/// gives it to `other`, who gives it back: the item for the owner.
+fn handed_over_then_given_back(
+    ms: &Side,
+    os: &Side,
+    maker: &str,
+    other: &str,
+    op: &str,
+) -> Blocker {
+    let t = ms.c.create_task(maker, nt("Handed", "")).unwrap();
+    sync(ms, os);
+    ms.c.transfer_owner(maker, &t.id, op).unwrap();
+    sync(ms, os);
+    let item =
+        os.c.get_task(&t.id)
+            .unwrap()
+            .blockers
+            .into_iter()
+            .find(|x| x.open() && x.transfer)
+            .expect("the offer");
+    pick(os, other, &t.id, &item.id, 1).unwrap();
+    sync(ms, os);
+    ms.c.assign(maker, &t.id, other).unwrap();
+    sync(ms, os);
+    os.c.ask_given(other, &t.id, "gave you this card.").unwrap();
+    os.c.give_back(other, &t.id, "").unwrap();
+    sync(ms, os);
+    blocker_named(&ms.c.get_task(&t.id).unwrap(), GIVEN_BACK_QUESTION).expect("item")
+}
+
+#[test]
+fn a_handed_over_card_gives_back_to_its_owner() {
+    // The owner (p1) may cancel it here: p1 owns the board.
+    let (a, b) = two_people_shared();
+    let item = handed_over_then_given_back(&b, &a, P2, P1, "p1");
+    assert_eq!(
+        item.on.as_ref().unwrap().reference,
+        P1,
+        "the owner, not the giver"
+    );
+    assert!(item.options.iter().any(|o| o.answer == GIVEN_BACK_CANCEL));
+    // The owner (p2) may not cancel p1's card: only Keep it is offered.
+    let (a, b) = two_people_shared();
+    let item = handed_over_then_given_back(&a, &b, P1, P2, "p2");
+    assert_eq!(item.on.as_ref().unwrap().reference, P2);
+    let answers: Vec<&str> = item.options.iter().map(|o| o.answer.as_str()).collect();
+    assert_eq!(answers, vec![GIVEN_BACK_KEEP_ONLY]);
+}
+
+#[test]
+fn keep_it_lets_the_card_go_out_again() {
+    let (a, b) = two_people_shared();
+    let t = given_back(&a, &b);
+    let item = blocker_named(&b.c.get_task(&t.id).unwrap(), GIVEN_BACK_QUESTION).unwrap();
+    let keep = item
+        .options
+        .iter()
+        .position(|o| o.answer == GIVEN_BACK_KEEP || o.answer == GIVEN_BACK_KEEP_ONLY)
+        .unwrap() as i64
+        + 1;
+    b.c.answer(
+        P2,
+        &t.id,
+        &item.id,
+        BlockerAnswer {
+            pick: keep,
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    let got = b.c.get_task(&t.id).unwrap();
+    assert_eq!(got.state, SUBMITTED);
+    assert!(b.c.cards_to_spawn().iter().any(|c| c.id == t.id) || shows_up(&b, &t.id));
+}
+
+#[test]
+fn cancel_it_closes_the_card() {
+    let (a, b) = two_people_shared();
+    let t = given_back(&a, &b);
+    let item = blocker_named(&b.c.get_task(&t.id).unwrap(), GIVEN_BACK_QUESTION).unwrap();
+    let cancel = item
+        .options
+        .iter()
+        .position(|o| o.answer == GIVEN_BACK_CANCEL)
+        .expect("p2 made it, so p2 may cancel") as i64
+        + 1;
+    b.c.answer(
+        P2,
+        &t.id,
+        &item.id,
+        BlockerAnswer {
+            pick: cancel,
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    let got = b.c.get_task(&t.id).unwrap();
+    assert_eq!(got.state, CANCELED);
+    assert!(got.blockers.iter().all(|x| !x.open()));
+}
+
+#[test]
+fn only_the_named_person_picks_on_a_give_back() {
+    let (a, b) = two_people_shared();
+    let t = given_back(&a, &b);
+    let item = blocker_named(&a.c.get_task(&t.id).unwrap(), GIVEN_BACK_QUESTION).unwrap();
+    for by in [P1, CARD1] {
+        let e =
+            a.c.answer(
+                by,
+                &t.id,
+                &item.id,
+                BlockerAnswer {
+                    pick: 1,
+                    resolve: true,
+                    ..BlockerAnswer::default()
+                },
+            )
+            .unwrap_err();
+        assert_eq!(e.kind(), ErrorKind::NotAllowed, "{by}: {e}");
+    }
+    assert!(
+        blocker_named(&a.c.get_task(&t.id).unwrap(), GIVEN_BACK_QUESTION)
+            .unwrap()
+            .open()
+    );
+}
+
+#[test]
+fn say_given_start_gives_one_yes_and_one_agent() {
+    let (a, b) = two_people_shared();
+    let t = given(&a, &b);
+    let got = a.c.say_given(P1, &t.id, GivenSay::Start).unwrap();
+    assert!(got.given_said.as_ref().is_some_and(|s| s.yes));
+    sync(&a, &b);
+    assert_eq!(a.c.given_to_spawn().len(), 1, "one agent to start");
+    assert!(
+        a.c.say_given(P1, &t.id, GivenSay::Start).is_err(),
+        "no second yes"
+    );
+}
+
+#[test]
+fn say_given_not_now_works() {
+    let (a, b) = two_people_shared();
+    let t = given(&a, &b);
+    let got = a.c.say_given(P1, &t.id, GivenSay::NotNow).unwrap();
+    assert!(got.given_said.as_ref().is_some_and(|s| !s.yes));
+    sync(&a, &b);
+    assert!(a.c.given_to_spawn().is_empty());
+    assert!(a.c.given_to_ask().is_empty(), "Not now stands");
+}
+
+#[test]
+fn each_refusal_state_of_say_given_writes_no_row() {
+    let (a, b) = two_people_shared();
+    // Never asked.
+    let t = b.c.create_task(P2, nt("Fresh", "")).unwrap();
+    b.c.assign(P2, &t.id, P1).unwrap();
+    sync(&a, &b);
+    let before = a.st.vector().unwrap();
+    let e = a.c.say_given(P1, &t.id, GivenSay::Start).unwrap_err();
+    assert!(e.to_string().contains("hasn't been asked yet"), "{e}");
+    assert_eq!(a.st.vector().unwrap(), before);
+    // Already has an agent.
+    let (a, b) = two_people_shared();
+    let t2 = given(&a, &b);
+    a.c.say_given(P1, &t2.id, GivenSay::Start).unwrap();
+    sync(&a, &b);
+    let g =
+        a.c.request_spawn("irori", spawn_ask(&t2.id, "dev-a"))
+            .unwrap()
+            .unwrap();
+    assert!(a.c.bind_spawn(&t2.id, g, CARD1).unwrap());
+    let before = a.st.vector().unwrap();
+    let e = a.c.say_given(P1, &t2.id, GivenSay::NotNow).unwrap_err();
+    assert!(e.to_string().contains("already has an agent"), "{e}");
+    assert_eq!(a.st.vector().unwrap(), before);
+}
+
+#[test]
+fn an_unknown_extra_key_on_a_give_row_still_folds_as_a_give() {
+    let (a, b) = two_people_shared();
+    let t = b.c.create_task(P2, nt("Plain", "")).unwrap();
+    sync(&a, &b);
+    let at = b.clk.now();
+    let payload = format!(
+        r#"{{"taskId":"{}","to":"{P1}","by":"{P2}","at":{},"batchV2":"x"}}"#,
+        t.id,
+        serde_json::to_string(&at).unwrap()
+    );
+    let ev =
+        b.st.append(P2, kinds::TASK_ASSIGNED, &raw(&payload))
+            .unwrap();
+    b.c.fold_live(&[ev]);
+    let g = b.c.get_task(&t.id).unwrap().given.expect("a give");
+    assert_eq!(g.key, P1);
+    assert!(g.batch.is_empty());
+}
+
+#[test]
+fn a_row_with_no_batch_serializes_with_no_batch_key() {
+    let row = coord::rows::TaskAssignedRow {
+        task_id: "t".into(),
+        to: P1.into(),
+        by: P2.into(),
+        ..Default::default()
+    };
+    let s = serde_json::to_string(&row).unwrap();
+    assert!(!s.contains("batch") && !s.contains("assistant"), "{s}");
+    let with = coord::rows::TaskAssignedRow {
+        batch: "b1".into(),
+        assistant: true,
+        ..row
+    };
+    let s = serde_json::to_string(&with).unwrap();
+    assert!(
+        s.contains(r#""batch":"b1""#) && s.contains(r#""assistant":true"#),
+        "{s}"
+    );
+}
+
+#[test]
+fn given_to_lists_in_a_fixed_order() {
+    let (a, b) = two_people_shared();
+    // Two batches from p2 and one single give, made out of order.
+    let first = batch_of_from(&b, &a, 2);
+    let second = batch_of_from(&b, &a, 2);
+    let single = b.c.create_task(P2, nt("Single", "")).unwrap();
+    b.c.assign(P2, &single.id, P1).unwrap();
+    sync(&a, &b);
+    // Touch the oldest card so updatedAt would reorder a sort by it.
+    a.c.say_given(P1, &first[0].id, GivenSay::NotNow).ok();
+    let list: Vec<(String, String)> =
+        a.c.given_to(P1)
+            .into_iter()
+            .map(|i| (i.batch.clone(), i.task.short.clone()))
+            .collect();
+    let mut want = list.clone();
+    want.sort();
+    assert_eq!(list.len(), 5);
+    assert_eq!(list, want, "batch then ref");
+    let again: Vec<String> = a.c.given_to(P1).into_iter().map(|i| i.task.id).collect();
+    let once: Vec<String> = b.c.given_to(P1).into_iter().map(|i| i.task.id).collect();
+    assert_eq!(again, once, "both devices list alike");
+    let _ = second;
+}
+
+/// p2 on dev-b gives `n` new cards to p1.
+fn batch_of_from(b: &Side, a: &Side, n: usize) -> Vec<Task> {
+    let items = (0..n).map(|i| nt(&format!("From p2 {i}"), "")).collect();
+    let got =
+        b.c.give_batch(P2, "", P1, GiveItems::Tasks(items), "", false)
+            .unwrap();
+    sync(a, b);
+    got
 }
