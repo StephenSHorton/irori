@@ -239,6 +239,8 @@ fn stop_here_and_stop_everywhere_say_so_and_lift_the_old_pause_all() {
     let r = Rig::new();
     switch(&r, true);
     r.core.set_spawner(Some(idle_spawner()));
+    // No sweep tries it meanwhile: a try here would fail on no copy.
+    r.core.set_spawn_cap(0).unwrap();
     let t = card(&r, "A card");
     let why = || {
         r.core
@@ -250,7 +252,10 @@ fn stop_here_and_stop_everywhere_say_so_and_lift_the_old_pause_all() {
     r.core.set_agents_paused(true).unwrap();
     assert!(why().starts_with("Stop here is on for "), "{}", why());
     r.core.set_agents_paused(false).unwrap();
-    r.core.wind_down_pause(&[]).unwrap();
+    // As the window's Stop everywhere: this device paused with the rest.
+    let me = r.core.device_id().to_string();
+    r.core.wind_down_pause(std::slice::from_ref(&me)).unwrap();
+    assert!(r.core.agents_pause().on);
     assert!(
         why().starts_with("Stop everywhere is on (since "),
         "{}",
@@ -266,10 +271,13 @@ fn stop_here_and_stop_everywhere_say_so_and_lift_the_old_pause_all() {
     assert!(!r.core.agents_pause().on);
     r.core.set_agents_paused(false).unwrap();
     assert!(!r.core.inbox().policy().paused, "Stop here off lifts it");
-    assert!(!why().contains("Resume wakes"), "{}", why());
+    match r.core.why_no_agent(&t.id, false) {
+        Some(Why::AtCap { .. }) => {}
+        other => panic!("{other:?}"),
+    }
 }
 
-/// Card #1196: a start lifts the old Pause all, which has no switch now.
+/// Card #1196: a start lifts the old Pause all, which has no way on now.
 #[test]
 fn a_start_lifts_the_old_pause_all() {
     let (d, c) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());

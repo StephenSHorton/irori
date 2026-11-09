@@ -26,6 +26,7 @@ use irori_identity::objects::ROLE_DESKTOP;
 use super::Services;
 use super::spawn::NOT_TRUSTED_PREFIX;
 use super::spawn_boards::SpawnLog;
+use super::spawn_pause::EVERYWHERE;
 use super::spawn_remote::not_trusted_folder;
 use super::spawn_stop::{no_folder_reason, no_folder_words};
 
@@ -40,8 +41,8 @@ pub enum Why {
     OthersCard { person: String },
     /// The board's switch for started agents is off.
     SwitchOff,
-    /// The old inbox Pause all, still on where it would start: its switch
-    /// is gone (card #787), and Resume wakes on the Dashboard lifts it, as
+    /// The old inbox Pause all, still on where it would start: it left the
+    /// app with card #787, and Resume wakes on the Dashboard lifts it, as
     /// Stop here off, Start everywhere and a restart do (card #1196).
     Paused { device: String },
     /// Stop here (card #665's Pause agents) on the device that would start
@@ -158,7 +159,7 @@ impl fmt::Display for Why {
             ),
             Why::AgentsPaused { device, since, .. } => write!(
                 f,
-                "Stop here is on for {device} (since {since}); it starts once the person turns it off"
+                "Stop here is on for {device} (since {since}); it starts once the person chooses Start here"
             ),
             Why::CantRun { device } => write!(f, "{device} can't run agents"),
             Why::NoComputer(line) => write!(f, "{line}"),
@@ -349,12 +350,15 @@ impl Services {
         }
         // Stop here or Stop everywhere (cards #665, #787), and no other
         // device takes it.
+        // Stop everywhere pauses this device too, and hides Stop here while
+        // it is on, so its own row says which one the person lifts.
         let pause = self.pause_holding(&self.device.id);
         if pause.on && self.spawn_device(t).is_none() {
+            let all = self.agents_pause_on(EVERYWHERE);
             return Why::AgentsPaused {
                 device: self.this_device_name(),
-                since: pause.since.format_rfc3339(),
-                everywhere: !self.agents_pause().on,
+                since: if all.on { all.since } else { pause.since }.format_rfc3339(),
+                everywhere: all.on,
             };
         }
         let spawner = self

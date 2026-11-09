@@ -1853,7 +1853,7 @@ impl Core {
             terms: Arc::new(term::Terms::new()),
             closed: AtomicBool::new(false),
         };
-        // The old Pause all has no switch now (card #1196): a start lifts
+        // The old Pause all has no way on now (card #1196): a start lifts
         // it, before catch_up decides the queued deliveries' holds.
         s.lift_old_pause_all("start");
         // Other devices' queued deliveries get this device's own hold

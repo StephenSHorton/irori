@@ -243,7 +243,8 @@ impl Services {
     }
 
     /// Lifts the old inbox Pause all on this device (card #1196, GitHub
-    /// #305). Its switch is gone (card #787) and old Wind downs turned it
+    /// #305). It left the app with card #787 (and the mod's `/irori pause`
+    /// and the API's way on with this card), but old Wind downs turned it
     /// on when they finished, so a device could keep it with nothing in
     /// the top bar saying so: no agent started or was woken here, and the
     /// card's line pointed at a switch the person no longer has. Stop here
