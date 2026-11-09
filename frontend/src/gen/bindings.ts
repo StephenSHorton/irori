@@ -1139,6 +1139,11 @@ export type AssistantHomeStatus = {
 	 *  "" otherwise.
 	 */
 	none: string,
+	/**
+	 *  The computers that can run the assistant (they say `assistantTurn`
+	 *  and `assistantChat`), this one first.
+	 */
+	candidates: HomeCandidate[],
 };
 
 /**  What an old follow-up line lets the person do. */
@@ -2606,6 +2611,17 @@ export type Holding = "nobody" | "person" | "waiting" | "assigned" | "active" | 
 export type HoldoutView = {
 	deviceId: string,
 	name: string,
+};
+
+/**  One computer the assistant can run on. */
+export type HomeCandidate = {
+	device: string,
+	name: string,
+	here: boolean,
+	/**  `connected`, `recent` or `offline`. */
+	state: string,
+	/**  Unix ms; 0 for never. */
+	lastSeenMs: number,
 };
 
 /**  The Home server section of Devices. */

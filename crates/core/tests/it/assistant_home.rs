@@ -324,9 +324,16 @@ fn the_status_with_no_computer_reads_the_host_rows() {
     assert_eq!(none(&d), "no_claude");
     host(true, false);
     assert_eq!(none(&d), "needs_update");
+    assert!(d.core.assistant_home_status().candidates.is_empty());
     host(true, true);
     assert_eq!(none(&d), "setting_up");
+    // The computer that says both is offered to Use PC instead and to
+    // Settings' picker; one that lacks either is not.
+    let cands = d.core.assistant_home_status().candidates;
+    assert_eq!(cands.len(), 1);
+    assert!(cands[0].here && cands[0].device == me);
     host(false, true);
+    assert!(d.core.assistant_home_status().candidates.is_empty());
     assert_eq!(none(&d), "no_claude");
     let st = d.core.assistant_home_status();
     assert!(st.device.is_empty() && !st.here);

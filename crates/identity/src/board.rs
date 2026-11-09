@@ -1035,6 +1035,32 @@ impl BoardVerifier {
             .unwrap_or_default()
     }
 
+    /// The active members whose counted member.profile names GitHub
+    /// `login` (any case), by person id (card #1155). A profile's login is
+    /// its member's own claim: a PR card stands for a login only when one
+    /// member claims it, so a member who claims another's login can stop
+    /// it naming anyone, never take it.
+    pub fn github_login_people(&self, login: &str) -> Vec<String> {
+        let want = login.trim();
+        if want.is_empty() {
+            return Vec::new();
+        }
+        let st = self.lock();
+        st.members
+            .iter()
+            .filter(|(id, m)| {
+                m.profile && m.github_login.eq_ignore_ascii_case(want) && st.ms.active(id)
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    /// Whether a person is an active member, without copying the
+    /// membership (card #1155).
+    pub fn member_active(&self, person_id: &str) -> bool {
+        self.lock().ms.active(person_id)
+    }
+
     /// The assistant card id on a member's counted member.profile, "" when
     /// none. The member's own claim, like the GitHub login.
     pub fn profile_assistant_card(&self, person_id: &str) -> String {

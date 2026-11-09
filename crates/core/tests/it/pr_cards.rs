@@ -664,3 +664,73 @@ fn a_solo_space_gets_no_pr_card() {
     assert_eq!(own.len(), 1, "today's private PR card");
     assert_eq!(gh.views(), 0, "nothing was read for a PR with no card");
 }
+
+/// Card #1155: Bob's device (a modified client) makes a PR card for
+/// Alice's PR before she has one. Her device doesn't follow it or let it
+/// stop her: she makes her own, and on both sides hers stands, since her
+/// profile names the PR's author and Bob's doesn't.
+#[test]
+fn another_members_card_for_your_pr_never_stands_for_yours() {
+    let s = scene();
+    let (a, b, board) = (&s.alice, &s.bob, s.board.clone());
+    logins_cross(&s);
+    space_works_in_repo(&s);
+    let bco = b.core.board_coord(&board).unwrap();
+    let forged = bco
+        .create_task(
+            &b.person_actor(),
+            NewTask {
+                title: "PR #1: Loader rewrite 1".into(),
+                repo_key: REPO.into(),
+                links: vec![url(1)],
+                pr_card: Some(coord::PrCard {
+                    pr: url(1),
+                    author: ALICE.into(),
+                }),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    b.core.kick_board(&board);
+    wait_for(WAIT, "alice hears bob's card", || {
+        pr_cards(a, &board).iter().any(|t| t.id == forged.id)
+    });
+    wait_for(WAIT, "alice's own PR card", || {
+        poll(a);
+        pr_cards(a, &board)
+            .iter()
+            .any(|t| t.created_by == a.person_actor())
+    });
+    let mine = pr_cards(a, &board)
+        .into_iter()
+        .find(|t| t.created_by == a.person_actor())
+        .unwrap();
+    assert!(forged.id < mine.id, "bob's card has the lower id");
+    a.core.kick_board(&board);
+    for d in [a, b] {
+        let co = d.core.board_coord(&board).unwrap();
+        wait_for(WAIT, "alice's card stands on every side", || {
+            co.pr_card_for(&url(1)).is_some_and(|t| t.id == mine.id)
+        });
+        assert_eq!(co.review_phase(&forged.id), coord::ReviewPhase::Off);
+    }
+    // Her desk has nothing to say about it, and Bob's card is left alone:
+    // only its maker may close it.
+    let note = a
+        .core
+        .desk_verdicts(REPO)
+        .into_iter()
+        .find(|v| v.pr == 1)
+        .map(|v| v.review_note)
+        .unwrap_or_default();
+    assert_eq!(note, "");
+    assert!(!coord::is_terminal(
+        &a.core
+            .board_coord(&board)
+            .unwrap()
+            .get_task(&forged.id)
+            .unwrap()
+            .state
+    ));
+    close([s.alice, s.bob]);
+}

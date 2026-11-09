@@ -329,6 +329,59 @@ export type AssistantState = {
 let state: AssistantState | null = null
 const subs = new Set<() => void>()
 
+const sampleCandidates = [
+  {
+    device: "mac",
+    name: "Mac",
+    here: false,
+    state: "offline",
+    lastSeenMs: Date.now() - 2 * 3600_000,
+  },
+  {
+    device: "pc",
+    name: "PC",
+    here: true,
+    state: "connected",
+    lastSeenMs: 0,
+  },
+]
+
+const sampleMac = {
+  device: "mac",
+  name: "Mac",
+  here: false,
+  state: "offline",
+  lastSeenMs: Date.now() - 2 * 3600_000,
+  claude: true,
+  chat: true,
+  none: "",
+  candidates: sampleCandidates,
+}
+
+const sampleNone = {
+  device: "",
+  name: "",
+  here: false,
+  state: "",
+  lastSeenMs: 0,
+  claude: false,
+  chat: false,
+  candidates: [] as typeof sampleCandidates,
+}
+
+const sampleAway: Record<string, AssistantHomeStatus> = {
+  away: sampleMac,
+  "away-claude": { ...sampleMac, state: "connected", claude: false },
+  "away-update": { ...sampleMac, state: "connected", chat: false },
+  setup: {
+    ...sampleNone,
+    none: "setting_up",
+    candidates: sampleCandidates.slice(0, 1),
+  },
+  "none-update": { ...sampleNone, none: "needs_update" },
+  "none-claude": { ...sampleNone, none: "no_claude" },
+}
+
 // The preview's ?assistant=open starts the panel open on a sample chat,
 // ?assistant=busy with a reply half written (lib/preview.ts).
 function initial(): AssistantState {
@@ -429,7 +482,43 @@ function initial(): AssistantState {
         claude: true,
         chat: true,
         none: "",
+        candidates: sampleCandidates,
       },
+    }
+  // ?assistant=away, away-claude, away-update, setup, none-update,
+  // none-claude: the states of design §6's table, on a sample chat.
+  // ?assistant=settings: the chat closed, the Mac away (Settings' picker).
+  if (flag === "settings") return { ...base, home: sampleMac }
+  const away = sampleAway[flag ?? ""]
+  if (away)
+    return {
+      ...base,
+      open: true,
+      entries: [
+        ...sampleHistory,
+        {
+          id: "q:away1",
+          role: "person",
+          text: "What needs me?",
+          turn: "away1",
+          pending: true,
+        },
+        {
+          id: "q:away0",
+          role: "person",
+          text: "Is the release blocked?",
+          turn: "away0",
+        },
+        {
+          id: "e:away0",
+          role: "assistant",
+          text: "Mac didn't get to this. Ask again to send it now.",
+          note: true,
+          turn: "away0",
+          retry: true,
+        },
+      ],
+      home: away,
     }
   if (flag === "draft")
     return {
@@ -757,6 +846,39 @@ export async function refreshHome(): Promise<void> {
   } catch {
     // Not readable now: the line keeps what it had.
   }
+}
+
+// usePc makes the person's pick the assistant's computer (Use PC instead,
+// Settings): a how:"person" row, from any device. The status is read again
+// at once; assistant:home says the same when the fold moves.
+export async function setHome(device: string): Promise<string> {
+  if (!inWails()) {
+    // The preview: the pick lands on the sample status.
+    const h = assistantState().home
+    const c = h?.candidates.find((x) => x.device === device)
+    if (h && c)
+      set({
+        home: {
+          ...h,
+          device,
+          name: c.name,
+          here: c.here,
+          state: c.here ? "connected" : c.state,
+          lastSeenMs: c.lastSeenMs,
+          claude: true,
+          chat: true,
+          none: "",
+        },
+      })
+    return ""
+  }
+  try {
+    await AssistantService.HomeSet(device)
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e)
+  }
+  await refreshHome()
+  return ""
 }
 
 // ---- the streamed reply --------------------------------------------------------

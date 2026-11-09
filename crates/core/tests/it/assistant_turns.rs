@@ -927,3 +927,60 @@ fn a_turn_cut_off_by_closing_is_answered_after_the_restart() {
     assert!(r.error.is_empty());
     core.close().unwrap();
 }
+
+/// One-assistant card 5: the status the chat's away line reads. With the
+/// assistant's computer stopped, the other computer sees it not connected
+/// and offers itself (Use PC instead); the pick writes a person's row, and
+/// the question that waited is answered there.
+#[test]
+fn use_the_other_computer_instead_answers_what_waited() {
+    let mut devs = person("stephen", 2);
+    let (b, a) = (devs.pop().unwrap(), devs.pop().unwrap());
+    let (fa, fb) = (Fake::new(), Fake::new());
+    for (d, f) in [(&a, &fa), (&b, &fb)] {
+        d.core.set_chat_turn(Some(f.turn()));
+        d.core
+            .set_spawner(Some(spawner(&Arc::new(AtomicBool::new(true)))));
+    }
+    wait_for(WAIT, "both agree on the assistant's computer", || {
+        let h = a.core.assistant_home();
+        h.is_some() && h == b.core.assistant_home()
+    });
+    let (home, other) = if a.core.is_assistant_home() {
+        (a, b)
+    } else {
+        (b, a)
+    };
+    let home_id = home.core.device_id().to_string();
+    let other_id = other.core.device_id().to_string();
+    wait_for(WAIT, "both computers say they can answer", || {
+        other.core.assistant_home_status().candidates.len() == 2
+    });
+    let st = other.core.assistant_home_status();
+    assert_eq!(st.device, home_id);
+    assert!(!st.here && st.claude && st.chat);
+    assert_eq!(st.state, "connected");
+    home.core.close().unwrap();
+    wait_for(WAIT, "the other computer sees it isn't connected", || {
+        other.core.assistant_home_status().state != "connected"
+    });
+    let st = other.core.assistant_home_status();
+    assert_eq!(st.device, home_id, "it stays the assistant's computer");
+    // What Use PC instead picks from: another computer, connected now.
+    let take = st
+        .candidates
+        .iter()
+        .find(|c| c.device != st.device && c.state == "connected")
+        .expect("this computer is offered");
+    assert_eq!(take.device, other_id);
+    let turn = ask(&other.core, "is anything waiting on me?");
+    holds_for(4, "nothing answers while the computer is away", || {
+        said(&other.core, &turn).is_none()
+    });
+    other.core.set_assistant_home(&take.device).unwrap();
+    let r = wait_said(&other.core, &turn, "this computer answers what waited");
+    assert_eq!(r.text, "re: is anything waiting on me?");
+    let st = other.core.assistant_home_status();
+    assert!(st.here && st.device == other_id);
+    other.core.close().unwrap();
+}
