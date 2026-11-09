@@ -1348,6 +1348,7 @@ impl Services {
                     verifier: Some(v.clone()),
                     now: Some(Arc::new(wall) as store::WallFn),
                     board: true,
+                    durable: !self.fast_writes,
                     ..Default::default()
                 },
             )

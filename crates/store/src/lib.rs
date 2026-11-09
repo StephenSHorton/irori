@@ -193,6 +193,10 @@ pub struct OpenOptions {
     pub now: Option<WallFn>,
     /// Open a shared board's log (`boards/<boardId>.db`).
     pub board: bool,
+    /// Sync each commit to the disk, so a power cut can't lose a row this
+    /// device signed and a peer may already hold (card #1256). The Core
+    /// sets it; tests and tools that never send rows leave it off.
+    pub durable: bool,
 }
 
 impl std::fmt::Debug for OpenOptions {
@@ -203,6 +207,7 @@ impl std::fmt::Debug for OpenOptions {
             .field("max_ahead", &self.max_ahead)
             .field("now", &self.now.is_some())
             .field("board", &self.board)
+            .field("durable", &self.durable)
             .finish()
     }
 }

@@ -4,7 +4,8 @@
 //! notification (Go `writeMu`), so subscribers see rows in commit order and
 //! own seqs follow own HLCs. Reads use a small pool of other connections.
 //! Every connection gets `busy_timeout(5000)`, `journal_mode=WAL` and
-//! `synchronous=NORMAL`; every write transaction is `BEGIN IMMEDIATE`.
+//! `synchronous=NORMAL`; a durable store's write connection then syncs every
+//! commit to the disk ([`durable_writes`]). Every write transaction is `BEGIN IMMEDIATE`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -184,6 +185,20 @@ fn connect(path: &Path) -> Result<Connection> {
     let _mode: String = c.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))?;
     c.execute_batch("PRAGMA synchronous=NORMAL")?;
     Ok(c)
+}
+
+/// Makes the write connection's commits survive a power cut, not only a
+/// crash (card #1256). A row this device signs can reach a peer as soon as
+/// it commits; under `synchronous=NORMAL` a power cut could still lose it
+/// here, and the next start would sign a different row at the same seq: a
+/// fork, which stops this device's stream on every peer. `FULL` syncs the
+/// WAL at each commit, and `fullfsync` makes that sync reach the disk on
+/// macOS, where a plain fsync can sit in the drive's cache (it does nothing
+/// elsewhere). About 4 ms a commit on a Mac, at a few hundred rows an hour.
+/// Only when the store is opened `durable` (the Core's logs).
+fn durable_writes(c: &Connection) -> Result<()> {
+    c.execute_batch("PRAGMA synchronous=FULL; PRAGMA fullfsync=ON")?;
+    Ok(())
 }
 
 /// Bytes of a payload or sig column: NULL is empty; TEXT and BLOB are their
@@ -530,6 +545,9 @@ impl Store {
         let mut conn = connect(path)?;
         backup_v03(&conn, path)?;
         migrate(&mut conn, device_id, o.signer.as_deref())?;
+        if o.durable {
+            durable_writes(&conn)?;
+        }
         if o.signer.is_some() {
             let n: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM events WHERE device_id = ?1 AND sig IS NULL",
@@ -1780,6 +1798,42 @@ impl Inner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Card #1256: a row this device signed and sent must not be lost to a
+    /// power cut, so a durable store's write connection syncs each commit
+    /// to the disk. Otherwise it keeps the cheap setting.
+    #[test]
+    fn a_durable_stores_writes_sync_each_commit_to_the_disk() {
+        let pragmas = |s: &Store| -> (i64, i64) {
+            let w = lock(&s.inner.writer);
+            let c = w.conn.as_ref().unwrap();
+            let q = |p: &str| -> i64 { c.query_row(p, [], |r| r.get(0)).unwrap() };
+            (q("PRAGMA synchronous"), q("PRAGMA fullfsync"))
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let open = |name: &str, durable: bool| {
+            Store::open_with(
+                dir.path().join(name),
+                "dev",
+                Arc::new(hlc::Clock::new()),
+                OpenOptions {
+                    durable,
+                    ..OpenOptions::default()
+                },
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            pragmas(&open("durable.db", true)),
+            (2, 1),
+            "synchronous FULL, fullfsync on"
+        );
+        assert_eq!(
+            pragmas(&open("plain.db", false)),
+            (1, 0),
+            "synchronous NORMAL"
+        );
+    }
 
     #[test]
     fn only_a_keyed_read_of_one_device_orders_by_seq() {

@@ -99,6 +99,7 @@ impl Rig {
                 version: "0.2.0-test".into(),
                 headless: true,
                 keystore: Some(Box::new(irori_identity::keystore::FileKeystore)),
+                fast_writes: true,
                 ..Options::default()
             };
             edit(&mut o);

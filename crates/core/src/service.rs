@@ -143,6 +143,10 @@ pub struct Options {
     pub claude_dir: PathBuf,
     pub version: String,
     pub headless: bool,
+    /// Commit the logs without syncing each commit to the disk (tests): the
+    /// app syncs them, so a power cut can't lose a row a peer already holds
+    /// (card #1256).
+    pub fast_writes: bool,
     /// Seals the person and device keys; `None` is the OS default (DPAPI,
     /// the Keychain). Tests pass a file keystore.
     pub keystore: Option<Box<dyn Keystore + Send + Sync>>,
@@ -285,6 +289,8 @@ struct Services {
     data_dir: PathBuf,
     version: String,
     headless: bool,
+    /// [`Options::fast_writes`]: board logs open as the main log does.
+    fast_writes: bool,
     now: NowFn,
     device: DeviceJson,
     ident: Arc<Identity>,
@@ -1155,6 +1161,7 @@ impl Core {
                     signer: Some(ident.clone()),
                     verifier: Some(chain.clone()),
                     now: opts.now.as_ref().map(|_| Arc::new(wall) as store::WallFn),
+                    durable: !opts.fast_writes,
                     ..Default::default()
                 },
             )
@@ -1771,6 +1778,7 @@ impl Core {
             data_dir: dir,
             version: opts.version.clone(),
             headless: opts.headless,
+            fast_writes: opts.fast_writes,
             now,
             device,
             ident,

@@ -78,6 +78,7 @@ fn dev(edit: impl FnOnce(&Path, &mut Options)) -> Dev {
         version: "0.6.0-test".into(),
         headless: true,
         keystore: Some(Box::new(irori_identity::keystore::FileKeystore)),
+        fast_writes: true,
         no_home: true,
         ..Options::default()
     };

@@ -68,6 +68,7 @@ impl Rig {
             version: "0.6.0-test".into(),
             headless: false,
             keystore: Some(Box::new(irori_identity::keystore::FileKeystore)),
+            fast_writes: true,
             // The home server never runs in these tests.
             no_home: true,
             ..Options::default()

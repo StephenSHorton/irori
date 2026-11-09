@@ -237,6 +237,7 @@ async fn the_mods_spawn_against_a_rust_core() {
                 version: "0.2.0-test".into(),
                 headless: true,
                 keystore: Some(Box::new(irori_identity::keystore::FileKeystore)),
+                fast_writes: true,
                 ..irori_core::Options::default()
             })
         })
@@ -406,6 +407,7 @@ async fn a_standby_copy_takes_over_when_the_holder_is_killed() {
                 version: "0.2.0-test".into(),
                 headless: true,
                 keystore: Some(Box::new(irori_identity::keystore::FileKeystore)),
+                fast_writes: true,
                 ..irori_core::Options::default()
             })
         })

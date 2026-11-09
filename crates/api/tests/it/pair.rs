@@ -71,6 +71,7 @@ impl HCore {
             version: "0.4.2-test".into(),
             headless: true,
             keystore: Some(Box::new(irori_identity::keystore::FileKeystore)),
+            fast_writes: true,
             runtime: Some(rt.handle().clone()),
             no_home: true,
             pair_window: window,

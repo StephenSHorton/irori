@@ -96,6 +96,7 @@ pub(crate) fn dev(lan: SocketAddr, to: Vec<SocketAddr>, home: bool) -> Dev {
         version: "0.6.0-test".into(),
         headless: true,
         keystore: Some(Box::new(irori_identity::keystore::FileKeystore)),
+        fast_writes: true,
         no_home: !home,
         ..Options::default()
     };
