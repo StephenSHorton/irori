@@ -609,7 +609,7 @@ const CALLER_READS: [&str; 10] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 71] = [
+    let list: [(&'static str, Handler); 72] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
