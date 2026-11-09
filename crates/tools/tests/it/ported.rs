@@ -783,6 +783,59 @@ fn test_agents_lists_devices() {
     );
 }
 
+/// Many long agents fill the result past its cap: the devices come
+/// first, so the clip falls on the agents, not on them.
+#[test]
+fn test_agents_devices_survive_the_clip() {
+    let h = new_harness();
+    let a = call_a();
+    *h.b.own_devices.lock().unwrap() = vec![
+        tools::OwnDevice {
+            id: "dev1".into(),
+            name: "Mac".into(),
+            this: true,
+            ..Default::default()
+        },
+        tools::OwnDevice {
+            id: "pc1".into(),
+            name: "DESKTOP-STEPHEN".into(),
+            state: "connected".into(),
+            seen: h.clk.now(),
+            stopped: true,
+            ..Default::default()
+        },
+    ];
+    for i in 0..30 {
+        let mut c = card(
+            &format!("dev1/aaaaaaaa-0000-4000-8000-{i:012}"),
+            &format!("worker{i:02}"),
+            "remote:github.com/acme/app",
+            "bypassPermissions",
+        );
+        c.title = "t".repeat(200);
+        c.last_text = "x".repeat(400);
+        h.b.roster.put(c);
+    }
+    let out = h.ok(&a, "agents", "");
+    assert!(
+        out.len() > tools::MAX_RESULT - 200,
+        "the agents did not fill the result: {} bytes",
+        out.len()
+    );
+    has(
+        &out,
+        &[
+            "The person's devices",
+            "- Mac: online, this device, Stop here off, ",
+            "- DESKTOP-STEPHEN: online, Stop here on, 0 agents",
+            "The person's agents:",
+        ],
+    );
+    let devs = out.find("The person's devices").unwrap();
+    let agents = out.find("The person's agents:").unwrap();
+    assert!(devs < agents, "devices after the agents:\n{out}");
+}
+
 #[test]
 fn test_events_redacts_text() {
     let h = new_harness();

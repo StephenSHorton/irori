@@ -86,7 +86,8 @@ pub(crate) fn agents(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         );
     }
     // Each of the person's devices, whatever the filter: a device with no
-    // agents is not offline, and Stop here shows only here.
+    // agents is not offline, and Stop here shows only here. It goes before
+    // the agents: it is short, and a long agent list is what gets clipped.
     let devs = devices_section(&s.b.own_devices(), &cards, &now);
     if shown + oshown == 0 {
         if devs.is_empty() {
@@ -100,8 +101,14 @@ pub(crate) fn agents(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             "\nOther people's agents (in shared spaces; mention them on a card there):\n{ob}"
         );
     }
+    // Each agent block starts with a blank line.
+    let agents_head = if devs.is_empty() || shown == 0 {
+        ""
+    } else {
+        "\nThe person's agents:"
+    };
     format!(
-        "{head} Message one with send (to = its name or key). {}\n{b}{devs}",
+        "{head} Message one with send (to = its name or key). {}\n{devs}{agents_head}{b}",
         untrusted()
     )
 }
