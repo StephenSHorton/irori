@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test"
 
 import {
+  claimCountsLine,
   deskQueue,
+  reviewParts,
   deskShown,
   inputsOf as inputsOfDesk,
   queueCount,
@@ -230,5 +232,90 @@ describe("which desks are listed (card #625)", () => {
     expect(
       deskShown(one({ prs, settings: { ...desk, takesPrs: false } }))
     ).toBe(false)
+  })
+})
+
+describe("a PR's review on the line (card #1080)", () => {
+  test("an empty review shows nothing", () => {
+    expect(reviewParts(undefined)).toEqual({ related: [] })
+    expect(reviewParts({ pick: "none" })).toEqual({ related: [] })
+    expect(reviewParts({ pick: "off", related: [] })).toEqual({ related: [] })
+  })
+
+  test("each field, full", () => {
+    const r = reviewParts({
+      pick: "claimed",
+      review: "CHANGES_REQUESTED",
+      claimer: { agent: "fern", person: "Maya", until: "2026-11-08T15:00:00Z" },
+      related: [
+        { agent: "kestrel", person: "Kit", why: "same files" },
+        { agent: "wren", why: "commented" },
+      ],
+    })
+    expect(r.github).toBe("Changes requested")
+    expect(r.claimer).toBe("fern (Maya)")
+    expect(r.until).toBe("2026-11-08T15:00:00Z")
+    expect(r.pick).toBeUndefined()
+    expect(r.related).toEqual([
+      "kestrel (Kit) · same files",
+      "wren · commented",
+    ])
+  })
+
+  test("the pick state without a claimer", () => {
+    expect(reviewParts({ pick: "asked", asked: "wren" }).pick).toBe(
+      "Asked wren"
+    )
+    expect(reviewParts({ pick: "asked" }).pick).toBe("Asked an agent")
+    expect(reviewParts({ pick: "waiting" }).pick).toBe("Nobody picked yet")
+    expect(reviewParts({ pick: "reviewed", review: "APPROVED" })).toEqual({
+      pick: "Reviewed",
+      github: "Approved",
+      related: [],
+    })
+  })
+
+  test("a claimer with no person or name is still named", () => {
+    expect(
+      reviewParts({ pick: "claimed", claimer: { agent: "" } }).claimer
+    ).toBe("an agent")
+  })
+
+  test("both why-lines pass through as the viewer's host wrote them", () => {
+    const author =
+      "kept to you: no shared space works in this repo, or the space is on Ask me"
+    const other = "the author isn't in a space with you"
+    expect(reviewParts({ pick: "none", whyNone: author }).why).toBe(author)
+    expect(reviewParts({ pick: "none", whyNone: other }).why).toBe(other)
+  })
+
+  test("the review's why replaces the desk's review note on the line", () => {
+    const p = pr()
+    const why = "nobody in the space is free to review this PR yet"
+    const l = deskQueue({
+      desk,
+      snapshot: { repoKey: REPO, at: "t", truncated: false, prs: [p] },
+      authors: {
+        [p.number]: {
+          card: "c",
+          reviewNote: why,
+          review: { pick: "waiting", whyNone: why },
+        },
+      },
+    })[0]
+    expect(l.note).toBe("ready for review")
+    expect(l.author.review?.whyNone).toBe(why)
+  })
+
+  test("claim counts: empty and full", () => {
+    expect(claimCountsLine(undefined)).toBe("")
+    expect(claimCountsLine([])).toBe("")
+    expect(claimCountsLine([{ person: "Maya", open: 0, recent: 0 }])).toBe("")
+    expect(
+      claimCountsLine([
+        { person: "Maya", open: 1, recent: 4 },
+        { person: "Kit", open: 0, recent: 2 },
+      ])
+    ).toBe("Maya 1 open · 4 in 14 days · Kit 0 open · 2 in 14 days")
   })
 })

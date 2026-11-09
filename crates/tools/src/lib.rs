@@ -228,6 +228,14 @@ pub trait TaskRouter: Send + Sync {
         let _ = (key, pr, action, reason);
         Err("review claims need a shared space with a card for this PR.".into())
     }
+    /// Where each PR's review stands in `repo` (`owner/name`) on the
+    /// shared boards (merge desk §12.9, card #1080): who claims it,
+    /// who is related, GitHub's review state and why nothing is picked.
+    /// Needs no capture.
+    fn pr_reviews(&self, repo: &str) -> Vec<PrReviewLine> {
+        let _ = repo;
+        Vec::new()
+    }
     /// The shared board's coord holding comment `id`, or `None` when no
     /// shared board has it (card #189: show reads a shared card's comments
     /// from its board's log, which capture doesn't index).
@@ -235,6 +243,26 @@ pub trait TaskRouter: Send + Sync {
         let _ = id;
         None
     }
+}
+
+/// One PR's review as `prs` words it (merge desk §12.9).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PrReviewLine {
+    pub number: i64,
+    pub url: String,
+    /// `none`, `off`, `waiting`, `asked`, `claimed` or `reviewed`.
+    pub pick: String,
+    /// GitHub's review decision, "" none.
+    pub review: String,
+    /// The agent asked, while `pick` is `asked`.
+    pub asked: String,
+    /// `agent (person)`, "" none.
+    pub claimer: String,
+    /// When the claim lapses, RFC 3339.
+    pub until: String,
+    /// `agent (person): why` for each related agent.
+    pub related: Vec<String>,
+    pub why_none: String,
 }
 
 /// What a `review_claim` came to.
