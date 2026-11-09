@@ -359,6 +359,7 @@ impl Window {
             }
         };
         let mut cmd = std::process::Command::new(bin);
+        no_autoupdate(&mut cmd);
         cmd.args(["--bg", "--resume", id])
             .current_dir(&c.cwd)
             .stdin(std::process::Stdio::null())
@@ -487,7 +488,19 @@ pub(crate) fn find_claude() -> Result<PathBuf, String> {
             }
         }
     }
-    Err("can't find the claude command on PATH".into())
+    Err(CLAUDE_MISSING.into())
+}
+
+/// Said when [`find_claude`] finds nothing. Several sessions starting at once
+/// can race Claude Code's own updater on the global npm install, and npm's
+/// rollback then removes the package (GitHub #321), so say so.
+pub(crate) const CLAUDE_MISSING: &str = "can't find the claude command on PATH. Claude Code may have been removed by a failed update (several sessions starting at once can race the updater): reinstall it with `npm install -g @anthropic-ai/claude-code`, then try again";
+
+/// Keeps Claude Code's own auto-updater from running in a process Irori
+/// starts: sessions started together race it on the global install and npm's
+/// rollback can remove Claude Code (GitHub #321).
+pub(crate) fn no_autoupdate(cmd: &mut std::process::Command) {
+    cmd.env("DISABLE_AUTOUPDATER", "1");
 }
 
 /// Keeps a console child of the GUI from flashing a window on Windows.
