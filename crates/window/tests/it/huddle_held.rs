@@ -266,6 +266,7 @@ fn live_held_session_numbers() {
             timeout: LOOK_TIMEOUT,
             tools: false,
             look: String::new(),
+            no_settings: false,
         };
         let bin = which_claude();
         let pool = HeldPool::new();
