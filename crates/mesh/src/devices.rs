@@ -602,7 +602,7 @@ impl Node {
     /// Go `removalSeen`: the remaining devices (certified, unrevoked, this
     /// one included) whose last vector holds a revoke of `dev`, of how
     /// many there are.
-    fn removal_seen(
+    pub(crate) fn removal_seen(
         &self,
         dev: &str,
         known: &BTreeMap<String, PeerInfo>,

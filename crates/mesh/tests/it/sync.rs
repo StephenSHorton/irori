@@ -621,6 +621,16 @@ async fn revoke_converges_and_rotates_the_key() {
     r.close();
 }
 
+/// Whether `dev` has a row in `on`'s Devices list.
+fn listed(on: &Dev, dev: &str) -> bool {
+    on.node().devices(false).iter().any(|r| r.device_id == dev)
+}
+
+/// Whether `file` in `on`'s data dir names `dev`.
+fn file_names(on: &Dev, file: &str, dev: &str) -> bool {
+    std::fs::read_to_string(on.dir.join(file)).is_ok_and(|s| s.contains(dev))
+}
+
 fn mac_row(pc: &Dev, mac: &str) -> DeviceRow {
     pc.node()
         .devices(false)
@@ -687,8 +697,10 @@ async fn an_offline_device_gets_the_new_key_on_the_previous_topic() {
         "Removal pending: seen by 1 of 2 devices. Waiting on node."
     );
     nd.start();
-    eventually("the removal is seen by both", || {
-        mac_row(&pc, &mac.id()).warning == "Removed."
+    // Seen by both, the removal settles and the Mac is forgotten: no
+    // "Removed." row (card #1240).
+    eventually("the removal settles and the Mac's row goes", || {
+        !listed(&pc, &mac.id())
     })
     .await;
     eventually("the node adopts epoch 2", || nd.ident.current().epoch == 2).await;
@@ -722,11 +734,53 @@ async fn a_pending_removal_names_the_holdout_and_removing_it_clears_the_line() {
     assert_eq!(row.holdouts[0].device_id, nd.id());
     assert!(row.warning.contains(&row.holdouts[0].name));
     pc.node().revoke(&nd.id(), "gone for good").await.unwrap();
-    eventually("the line clears", || {
-        let r = mac_row(&pc, &mac.id());
-        r.warning == "Removed." && r.holdouts.is_empty()
+    eventually("the line clears: both rows go", || {
+        !listed(&pc, &mac.id()) && !listed(&pc, &nd.id())
     })
     .await;
+}
+
+/// Card #1240: once every remaining device has the removal, the removed
+/// device is forgotten here for good. It has no row, `mesh-peers.json` no
+/// longer names it, and `mesh-removed.json` keeps it settled across a
+/// restart, while the node, which would be a holdout again with no vector
+/// heard yet, is offline.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_settled_removal_stays_forgotten_after_a_restart() {
+    let net = FakeNet::new();
+    let (mut pc, mut mac, mut nd) = trio(&net).await;
+    let mac_id = mac.id();
+    mac.stop().await;
+    eventually("the PC has saved the Mac's epoch", || {
+        file_names(&pc, mesh::PEERS_FILE, &mac_id)
+    })
+    .await;
+    pc.node().revoke(&mac_id, "lost").await.unwrap();
+    eventually("the removal settles on the PC", || {
+        !listed(&pc, &mac_id) && pc.node().removal_settled(&mac_id)
+    })
+    .await;
+    eventually("and on the node", || !listed(&nd, &mac_id)).await;
+    assert!(
+        file_names(&pc, mesh::REMOVED_FILE, &mac_id),
+        "the PC records the settled removal"
+    );
+    eventually("the PC's peers file forgets the Mac", || {
+        !file_names(&pc, mesh::PEERS_FILE, &mac_id)
+    })
+    .await;
+    assert!(
+        pc.node().status().peer_list().iter().all(|p| p.device_id != mac_id),
+        "no status peer for the Mac"
+    );
+    nd.stop().await;
+    pc.reopen().await;
+    pc.start();
+    never("the Mac's row comes back after a restart", || {
+        listed(&pc, &mac_id)
+    })
+    .await;
+    assert!(listed(&pc, &nd.id()), "the node still has its row");
 }
 
 /// The PC and the node can't reach each other, and the person removes the
