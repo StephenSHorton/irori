@@ -23,6 +23,7 @@ pub mod filepath;
 pub mod flag;
 pub mod fnv;
 pub mod json;
+pub mod lockwatch;
 pub mod pathmatch;
 pub mod quote;
 pub mod regex;

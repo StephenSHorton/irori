@@ -209,6 +209,57 @@ impl Probe {
 impl Probe {
     /// Watches `<file>.show`, `<file>.eval` and `<file>.shot` (see the
     /// module docs), in the order they are listed, every 100 ms.
+    /// Logs how late the main thread, the async runtime and the blocking
+    /// pool start a job handed to them, when 300 ms or later, and keeps the
+    /// per-minute lock and read totals (card #1234): a window read waits
+    /// on all three before and after the Core's part.
+    pub fn watch_lag(&self, app: &tauri::AppHandle) {
+        if !self.on() {
+            return;
+        }
+        // And the per-minute lock and read totals beside the lists line.
+        gocompat::lockwatch::keep_totals();
+        let app = app.clone();
+        std::thread::spawn(move || {
+            use std::sync::mpsc;
+            use std::time::{Duration, Instant};
+            let late = |what: &str, rx: mpsc::Receiver<Duration>, t: Instant| {
+                let lag = rx
+                    .recv_timeout(Duration::from_secs(120))
+                    .unwrap_or(t.elapsed());
+                if lag >= Duration::from_millis(300) {
+                    irori_core::log(&format!("lag: {what} {} ms", lag.as_millis()));
+                }
+            };
+            loop {
+                std::thread::sleep(Duration::from_millis(500));
+                let (tx, rx) = mpsc::channel();
+                let t = Instant::now();
+                if app
+                    .run_on_main_thread(move || {
+                        let _ = tx.send(t.elapsed());
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+                late("main thread", rx, t);
+                let (tx, rx) = mpsc::channel();
+                let t = Instant::now();
+                tauri::async_runtime::spawn(async move {
+                    let _ = tx.send(t.elapsed());
+                });
+                late("runtime", rx, t);
+                let (tx, rx) = mpsc::channel();
+                let t = Instant::now();
+                tauri::async_runtime::spawn_blocking(move || {
+                    let _ = tx.send(t.elapsed());
+                });
+                late("blocking pool", rx, t);
+            }
+        });
+    }
+
     pub fn watch_window(&self, app: &tauri::AppHandle) {
         let (Some(show), Some(eval), Some(shot)) = (
             self.beside("show"),
