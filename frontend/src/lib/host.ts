@@ -764,7 +764,10 @@ export const AssistantService = {
   ChatStop: (turn: string) => done(commands.assistantChatStop(turn)),
   // The reply of a turn this computer runs, as it streams: what it has said
   // so far, then each event until it ends.
-  ChatWatch(turn: string, onEvent: (ev: B.AssistantEvent) => void): Promise<void> {
+  ChatWatch(
+    turn: string,
+    onEvent: (ev: B.AssistantEvent) => void
+  ): Promise<void> {
     const on = new Channel<B.AssistantEvent>()
     on.onmessage = onEvent
     return done(commands.assistantChatWatch(turn, on))
