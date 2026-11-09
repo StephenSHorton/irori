@@ -274,6 +274,8 @@ pub struct Fold {
     pub(crate) agent_devices: Option<super::AgentDevicesFn>,
     /// See [`super::Options::offers`].
     pub(crate) offers: Option<super::OffersFn>,
+    /// See [`super::Options::reusable`].
+    pub(crate) reusable: Option<super::ReusableFn>,
     /// See [`super::Options::crash_limit`].
     pub(crate) crash_limit: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
     /// See [`super::Options::outside_leases`].
@@ -520,6 +522,7 @@ impl Fold {
             spawning: o.spawning,
             agent_devices: o.agent_devices,
             offers: o.offers,
+            reusable: o.reusable,
             crash_limit: o.crash_limit,
             outside_leases: o.outside_leases,
             device_version: o.device_version,

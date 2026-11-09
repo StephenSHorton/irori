@@ -310,6 +310,33 @@ impl Fold {
         self.spawned_for(key).is_none() && self.offers.as_ref().is_none_or(|f| f(key))
     }
 
+    /// Whether agent `key` may take another item (agent-continuity §5, A.2):
+    /// the context of its last call is at or under the person's budget, it
+    /// never compacted, and that call was under 55 minutes ago by this
+    /// fold's own clock, so its cache is warm. -1 is "always fresh". An
+    /// agent with no figure yet, or no function wired, is reusable.
+    pub(crate) fn reusable(&self, key: &str) -> bool {
+        let Some(r) = self.reusable.as_ref().and_then(|f| f(key)) else {
+            return true;
+        };
+        if r.budget < 0 || r.compacted {
+            return false;
+        }
+        let budget = if r.budget == 0 {
+            super::DEFAULT_CTX_BUDGET
+        } else {
+            r.budget as u64
+        };
+        if r.ctx > budget {
+            return false;
+        }
+        if r.ctx_at.is_zero() {
+            return true;
+        }
+        let ago = (self.stamp().unix_nano() - r.ctx_at.unix_nano()) / 1_000_000_000;
+        ago < super::WARM_FOR_SECS
+    }
+
     /// Whether Irori may hand card t to agent `key`: a spawned agent only
     /// its own card and its subtasks, any other agent per
     /// [`Fold::takes_handout`].

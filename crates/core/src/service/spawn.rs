@@ -309,6 +309,12 @@ pub struct SpawnSetting {
     /// hands off and goes. 0 is [`IDLE_LIMIT`].
     #[serde(default, skip_serializing_if = "is_zero")]
     pub idle_mins: i64,
+    /// "Retire an agent past" (agent-continuity §5, card #1213), in
+    /// thousands of tokens of context, the private board's row per device:
+    /// one of [`CTX_BUDGETS_K`]. 0 is [`CTX_BUDGET_K`], -1 always starts a
+    /// fresh agent.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ctx_budget_k: i64,
     /// The model spawned agents start with (`--model`): one of
     /// [`MODELS`]; `""` means [`DEFAULT_MODEL`] (card #448, decision 9).
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -354,10 +360,25 @@ fn is_zero(n: &i64) -> bool {
     *n == 0
 }
 
+/// The default context budget in thousands of tokens (agent-continuity §5).
+pub const CTX_BUDGET_K: i64 = 200;
+/// The budgets Settings › Agents offers; -1 is "always start a fresh agent".
+pub const CTX_BUDGETS_K: [i64; 5] = [80, 120, 200, 300, -1];
+
 /// The default idle limit (§2 "Stuck on a blocker", card #447).
 pub const IDLE_LIMIT: Duration = Duration::from_secs(30 * 60);
 
 impl SpawnSetting {
+    /// The context budget in tokens for [`coord::Reuse::budget`]: -1 is
+    /// "always fresh".
+    pub fn ctx_budget(&self) -> i64 {
+        match self.ctx_budget_k {
+            0 => CTX_BUDGET_K * 1000,
+            -1 => -1,
+            k => k * 1000,
+        }
+    }
+
     /// The board's idle limit.
     pub fn idle_limit(&self) -> Duration {
         if self.idle_mins > 0 {
@@ -534,6 +555,12 @@ impl SpawnSetting {
     /// Refuses a model or effort Settings › Agents doesn't offer, so a bad
     /// row never reaches `claude`'s command line.
     pub fn check(&self) -> Result<(), String> {
+        if self.ctx_budget_k != 0 && !CTX_BUDGETS_K.contains(&self.ctx_budget_k) {
+            return Err(format!(
+                "unknown context budget {}k: pick 80, 120, 200, 300 or -1",
+                self.ctx_budget_k
+            ));
+        }
         for n in [self.crash_limit, self.start_tries] {
             if !(0..=MAX_TRIES).contains(&n) {
                 return Err(format!("tries are 1 to {MAX_TRIES}, not {n}"));
@@ -1573,6 +1600,10 @@ pub(crate) struct SpawnState {
     /// agent is handed work only when this is on. Read by the coords'
     /// hand-out under their locks.
     pub offers: Arc<RwLock<HashMap<String, bool>>>,
+    /// Each local agent's context figure with this device's budget (card
+    /// #1213), filled off the coord's lock by [`Core::refresh_reuse`] and
+    /// read by the coord's `reusable`.
+    pub reuse: Arc<RwLock<HashMap<String, coord::Reuse>>>,
     /// Spawned agents being ended: when they were asked for the hand-off.
     pub ending: Mutex<HashMap<String, GoTime>>,
     /// Ends whose `claude stop`/`rm` failed (card #474): how many times,
@@ -2191,6 +2222,7 @@ impl Services {
     /// one such card at a time: a second waits for it or a fresh agent,
     /// which keeps the agent's context small.
     fn route_to_thread_agents(&self) {
+        self.refresh_reuse();
         let me = self.device.id.as_str();
         let open = self.open_cards();
         for t in self.coord.cards_to_spawn() {
@@ -2237,8 +2269,34 @@ impl Services {
     /// Whether a thread's agent may take a card made from its thread
     /// (card #1208). For now it is free of other cards (done by the
     /// caller); the context budget slots in here (#1209).
-    fn thread_agent_reusable(&self, _key: &str) -> bool {
-        true
+    fn thread_agent_reusable(&self, key: &str) -> bool {
+        self.coord.reusable(key)
+    }
+
+    /// Fills the map the coord's `reusable` reads: every agent on this
+    /// device with a context figure, and the budget as it stands now.
+    pub(crate) fn refresh_reuse(&self) {
+        let budget = self.spawn.setting("").ctx_budget();
+        let me = self.device.id.as_str();
+        let map: HashMap<String, coord::Reuse> = self
+            .roster
+            .agents()
+            .into_iter()
+            .filter(|a| irori_identity::owner::device_of(&a.key) == me)
+            .filter(|a| a.ctx > 0 || a.compacted)
+            .map(|a| {
+                (
+                    a.key,
+                    coord::Reuse {
+                        ctx: a.ctx.max(0) as u64,
+                        ctx_at: a.ctx_at,
+                        compacted: a.compacted,
+                        budget,
+                    },
+                )
+            })
+            .collect();
+        *self.spawn.reuse.write().unwrap_or_else(|e| e.into_inner()) = map;
     }
 
     /// An open ask here whose agents crashed up to the crash limit (card
