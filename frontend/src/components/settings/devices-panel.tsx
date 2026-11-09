@@ -28,6 +28,7 @@ import {
 } from "@/lib/devices"
 import { parseTime, plainLine, relativeTime, useNow } from "@/lib/irori"
 import { isMac } from "@/lib/commands"
+import { previewFlag } from "@/lib/preview"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
@@ -41,12 +42,14 @@ const roleChoices = [
 // at most one warning line and Remove; then Pair a device (the code, then
 // the words the new device shows, typed here, then this device's key typed
 // there) and Join with a code (the words to type on the other device, and
-// its key typed here; from outside the home, the server's address too).
+// its key typed here; when this device can't find the other one, the
+// server's address too, typed on the form or while it looks, card #1261).
 // The Home server section sits above them (§7.1). Paths and counters stay
 // in GET /v1/devices?detail=1.
 export function DevicesPanel({ open }: { open: boolean }) {
   const { devices, error, loading, reload } = useDevices(open, true)
   const { status, setStatus } = usePairing(open)
+  const [rejoin, setRejoin] = useState<Rejoin | null>(null)
   const now = useNow(5000)
 
   return (
@@ -71,9 +74,27 @@ export function DevicesPanel({ open }: { open: boolean }) {
             </ul>
             {error && <p className="text-xs text-destructive">{error}</p>}
             {status?.state ? (
-              <Pairing status={status} onDone={() => setStatus(null)} />
+              <Pairing
+                status={status}
+                onDone={() => {
+                  actions.forgetJoin()
+                  setStatus(null)
+                }}
+                onRetried={setStatus}
+                onRetryFailed={(r) => {
+                  setRejoin(r)
+                  setStatus(null)
+                }}
+              />
             ) : (
-              <Start onStarted={setStatus} />
+              <Start
+                key={rejoin ? "rejoin" : "start"}
+                rejoin={rejoin}
+                onStarted={(s) => {
+                  setRejoin(null)
+                  setStatus(s)
+                }}
+              />
             )}
             <Sides
               open={open}
@@ -547,15 +568,42 @@ function HomeServer({ open }: { open: boolean }) {
   )
 }
 
+// Rejoin is a join whose retry with an address failed: the Join form opens
+// again with its code, the address and why.
+export type Rejoin = { code: string; server: string; error: string }
+
+// AddressLink opens the Join form's address box. It once read "Joining from
+// outside your home?", which kept it from someone at home whose devices
+// can't see each other (card #1261).
+export const AddressLink = "Can't find it? Enter the other device's address"
+
+// AddressPlaceholder is the address box's example: a home network's.
+const AddressPlaceholder = "Server address, like 192.168.1.20:25817"
+
+// LookingAskMs is how long the joining device looks by itself before the
+// Looking view offers the address box.
+export const LookingAskMs = 15_000
+
 // Start offers Pair a device and Join with a code.
-function Start({ onStarted }: { onStarted: (s: PairStatus) => void }) {
+export function Start({
+  onStarted,
+  rejoin,
+  join,
+}: {
+  onStarted: (s: PairStatus) => void
+  rejoin?: Rejoin | null
+  // join opens on the Join form (tests; ?pair=join in the preview).
+  join?: boolean
+}) {
   const [role, setRole] = useState("desktop")
-  const [joining, setJoining] = useState(false)
-  const [code, setCode] = useState("")
-  const [away, setAway] = useState(false)
-  const [server, setServer] = useState("")
+  const [joining, setJoining] = useState(
+    () => !!join || !!rejoin || previewFlag("pair") === "join"
+  )
+  const [code, setCode] = useState(rejoin?.code ?? "")
+  const [withAddr, setWithAddr] = useState(!!rejoin)
+  const [server, setServer] = useState(rejoin?.server ?? "")
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(rejoin?.error ?? null)
 
   const run = async (fn: () => Promise<PairStatus>) => {
     setBusy(true)
@@ -572,7 +620,7 @@ function Start({ onStarted }: { onStarted: (s: PairStatus) => void }) {
   const submitCode = (e: FormEvent) => {
     e.preventDefault()
     if (code.trim())
-      void run(() => actions.join(code.trim(), away ? server.trim() : ""))
+      void run(() => actions.join(code.trim(), withAddr ? server.trim() : ""))
   }
 
   return (
@@ -602,10 +650,10 @@ function Start({ onStarted }: { onStarted: (s: PairStatus) => void }) {
               Back
             </Button>
           </div>
-          {away ? (
+          {withAddr ? (
             <Input
-              aria-label="Home server address"
-              placeholder="Home server address, like 203.0.113.7:24817"
+              aria-label="Server address"
+              placeholder={AddressPlaceholder}
               value={server}
               spellCheck={false}
               autoComplete="off"
@@ -616,9 +664,9 @@ function Start({ onStarted }: { onStarted: (s: PairStatus) => void }) {
             <button
               type="button"
               className="justify-self-start text-xs text-muted-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-1 focus-visible:ring-ring"
-              onClick={() => setAway(true)}
+              onClick={() => setWithAddr(true)}
             >
-              Joining from outside your home?
+              {AddressLink}
             </button>
           )}
         </form>
@@ -665,9 +713,13 @@ function Start({ onStarted }: { onStarted: (s: PairStatus) => void }) {
 function Pairing({
   status: s,
   onDone,
+  onRetried,
+  onRetryFailed,
 }: {
   status: PairStatus
   onDone: () => void
+  onRetried: (s: PairStatus) => void
+  onRetryFailed: (r: Rejoin) => void
 }) {
   const cancel = (
     <Button size="sm" variant="ghost" onClick={() => void actions.cancel()}>
@@ -714,13 +766,113 @@ function Pairing({
   }
   if (s.state === PairState.Words)
     return <ReadWords status={s} cancel={cancel} />
+  const code = actions.keptJoinCode()
   return (
+    <Looking
+      status={s}
+      cancel={cancel}
+      canRetry={s.mode === "join" && code !== ""}
+      askAfterMs={previewFlag("pair") === "address" ? 0 : LookingAskMs}
+      onRetry={async (server) => {
+        try {
+          onRetried(await actions.retryJoin(server))
+        } catch (err) {
+          onRetryFailed({ code, server, error: errorText(err) })
+        }
+      }}
+    />
+  )
+}
+
+// Looking is the joining device finding the other one. When that takes a
+// while (devices on a network that keeps them from seeing each other, or
+// on different networks), it offers the address box right here: Try again
+// joins again with the code typed before, so it isn't typed twice
+// (card #1261).
+export function Looking({
+  status: s,
+  cancel,
+  canRetry,
+  askAfterMs = LookingAskMs,
+  onRetry,
+}: {
+  status: PairStatus
+  cancel: ReactNode
+  canRetry: boolean
+  askAfterMs?: number
+  onRetry: (server: string) => Promise<void>
+}) {
+  const [asking, setAsking] = useState(askAfterMs <= 0)
+  const [server, setServer] = useState(s.via ?? "")
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (asking || s.mode !== "join") return
+    const t = window.setTimeout(() => setAsking(true), askAfterMs)
+    return () => window.clearTimeout(t)
+  }, [asking, askAfterMs, s.mode])
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!server.trim()) return
+    setBusy(true)
+    try {
+      await onRetry(server.trim())
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const looking = (
     <div className="flex items-center justify-between gap-2">
       <span className="text-[13px] text-muted-foreground">
-        Looking for the other device…
+        {s.via ? (
+          <>
+            Looking for the other device through{" "}
+            <span className="font-mono">{plainLine(s.via)}</span>…
+          </>
+        ) : (
+          "Looking for the other device…"
+        )}
       </span>
       {cancel}
     </div>
+  )
+  if (!asking || s.mode !== "join") return looking
+  if (!canRetry)
+    return (
+      <div className="grid gap-2">
+        {looking}
+        <p className="text-xs text-muted-foreground">
+          Can&apos;t find it? Cancel, then join again with the code and the
+          other device&apos;s address.
+        </p>
+      </div>
+    )
+  return (
+    <form className="grid gap-2" onSubmit={(e) => void submit(e)}>
+      {looking}
+      <p className="text-xs text-muted-foreground">
+        Can&apos;t find it? Enter the server address shown under the code on the
+        other device. Your code is kept.
+      </p>
+      <div className="flex gap-2">
+        <Input
+          autoFocus
+          aria-label="Server address"
+          placeholder={AddressPlaceholder}
+          value={server}
+          disabled={busy}
+          spellCheck={false}
+          autoComplete="off"
+          className="font-mono"
+          onChange={(e) => setServer(e.target.value)}
+        />
+        <Button type="submit" size="sm" disabled={busy || !server.trim()}>
+          Try again
+        </Button>
+      </div>
+    </form>
   )
 }
 

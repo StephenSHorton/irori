@@ -494,3 +494,45 @@ async fn wrong_key_twice_leaves_no_cert() {
     );
     pair_up(&a, &b).await;
 }
+
+/// Card #1261: the joining device couldn't find the other one, so the person
+/// types its address in the Looking view. The window cancels the open join
+/// and joins again with the same code and the address: the second join must
+/// not hear Busy, must carry the address, and must still pair.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_join_canceled_and_retried_with_an_address_still_pairs() {
+    let net = FakeNet::new();
+    let (a, b) = (Dev::new(&net, "pc", Z), Dev::new(&net, "mac", Z));
+    net.partition(&a.id(), &b.id());
+    let st = a.pair.add(irori_identity::ROLE_DESKTOP).await.unwrap();
+    b.pair.join(&st.code).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(b.state(), STATE_WAITING, "b found a through the cut");
+    assert_eq!(a.state(), STATE_WAITING, "a heard from b through the cut");
+
+    b.pair.cancel();
+    assert_eq!(b.state(), STATE_CANCELED);
+    net.heal(&a.id(), &b.id());
+    let again = b
+        .pair
+        .join_via(&st.code, "10.0.0.227:25817")
+        .await
+        .unwrap();
+    assert_eq!(again.state, STATE_WAITING);
+    assert_eq!(again.via, "10.0.0.227:25817");
+    assert_eq!(a.state(), STATE_WAITING, "b's cancel closed a's window");
+
+    eventually("b shows words", || b.state() == STATE_WORDS).await;
+    eventually("a asks for the words", || a.state() == STATE_CONFIRM).await;
+    a.pair
+        .confirm(&b.pair.status().words.join(" "))
+        .await
+        .unwrap();
+    eventually("a waits for its key on b", || a.state() == STATE_GRANTED).await;
+    b.pair
+        .confirm_key(&a.pair.status().fingerprint)
+        .await
+        .unwrap();
+    eventually("a done", || a.state() == STATE_DONE).await;
+    eventually("b done", || b.state() == STATE_DONE).await;
+}

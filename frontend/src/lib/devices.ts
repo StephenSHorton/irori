@@ -15,6 +15,7 @@ import {
   PairStatus,
 } from "./models"
 import { EventDevicesChanged, EventRosterChanged, inWails } from "./irori"
+import { previewFlag } from "./preview"
 import { createStore, rosterWatch } from "./small-lists"
 import { appPage } from "./visibility"
 
@@ -55,6 +56,20 @@ export function isOpen(s: PairStatus | null): boolean {
 const SampleWords = ["sample", "words", "for", "this", "browser"]
 const SampleCode = "K7QM-2XWD-9RTF-HB4P"
 const SampleKey = "3f9a 0c21 77de 41b0"
+
+// joinCode is the code of the join this window started, kept in memory
+// only (never stored) for retryJoin.
+let joinCode = ""
+
+// retryUntil is when a retryJoin's own "canceled" stops being skipped.
+let retryUntil = 0
+const RetryQuietMs = 2000
+
+// skipPairing says whether a pairing status is the canceled one a
+// retryJoin passes through, which the dialog never shows.
+export function skipPairing(s: PairStatus, now = Date.now()): boolean {
+  return s.state === PairState.Canceled && now < retryUntil
+}
 
 let sampleDevices: DeviceView[] | null = null
 let samplePair = PairStatus({ mode: "", state: "" })
@@ -134,6 +149,25 @@ function setSamplePair(s: Partial<PairStatus>) {
   for (const fn of sampleListeners) fn()
 }
 
+// sampleStuck is the preview's join that finds the other device only with
+// an address (?pair=looking or ?pair=address, card #1261).
+function sampleStuck(): boolean {
+  const p = previewFlag("pair")
+  return p === "looking" || p === "address"
+}
+
+// samplePreview opens the preview's join on its first read: the Looking
+// view, its code kept as if typed here.
+let samplePreviewed = false
+function samplePreview() {
+  if (samplePreviewed) return
+  samplePreviewed = true
+  if (sampleStuck() && !isOpen(samplePair)) {
+    sample.join("")
+    joinCode = "SAMP-LECO-DE12-3456"
+  }
+}
+
 // sampleJoined is the new device typing this one's key: it joins the list.
 function sampleJoined(name: string) {
   sampleList().push(
@@ -185,6 +219,9 @@ const sample = {
       state: PairState.Waiting,
       via: server || undefined,
     })
+    // ?pair=looking (or address): the other device is only found through
+    // a typed address, as on a network whose devices can't see each other.
+    if (!server && sampleStuck()) return samplePair
     sampleLater(() =>
       setSamplePair({
         state: PairState.Words,
@@ -297,10 +334,39 @@ export const devices = {
     return sample.add(role)
   },
   // join enters a code shown on another device; server is the home
-  // server's address, typed only when joining from outside the home.
+  // server's address, typed when this device can't find the other one by
+  // itself (another network, or one whose devices can't see each other).
+  // The code stays in memory here, so retryJoin can try an address without
+  // the person typing it again (card #1261).
   async join(code: string, server = ""): Promise<PairStatus> {
-    if (inWails()) return DevicesService.JoinWithCode(code, server)
-    return sample.join(server)
+    const s = inWails()
+      ? await DevicesService.JoinWithCode(code, server)
+      : sample.join(server)
+    joinCode = code
+    return s
+  },
+  // keptJoinCode is the open join's code while this window holds it ("" after
+  // a reload, or for a join started elsewhere).
+  keptJoinCode(): string {
+    return joinCode
+  },
+  // retryJoin closes the open join and joins again with the same code and
+  // the address typed in the Looking view. usePairing skips the canceled
+  // status that passes through on the way. On a failure the code stays
+  // kept, for the Join form to show again.
+  async retryJoin(server: string): Promise<PairStatus> {
+    const code = joinCode
+    if (!code) throw new Error("Type the code again to join.")
+    retryUntil = Date.now() + RetryQuietMs
+    try {
+      if (inWails()) await DevicesService.CancelPairing()
+      else sample.cancel()
+      return await devices.join(code, server)
+    } finally {
+      // The host sends each change on its own task, so the canceled one
+      // can land just after the new join's answer.
+      retryUntil = Date.now() + RetryQuietMs
+    }
   },
   // confirm takes the words the new device shows, typed here.
   async confirm(words: string): Promise<void> {
@@ -314,8 +380,14 @@ export const devices = {
     sample.confirmKey(key)
   },
   async cancel(): Promise<void> {
+    joinCode = ""
+    retryUntil = 0
     if (inWails()) return DevicesService.CancelPairing()
     sample.cancel()
+  },
+  // forgetJoin drops the kept code once the pairing has ended.
+  forgetJoin() {
+    joinCode = ""
   },
   // reset makes this device a new one (its log, id and keys move aside;
   // settings stay). Irori quits, and opening it again finishes it.
@@ -636,13 +708,14 @@ export function usePairing(active: boolean): {
   useEffect(() => {
     if (!active) return
     let live = true
+    if (!inWails()) samplePreview()
     const first = inWails()
       ? DevicesService.PairingStatus()
       : Promise.resolve(samplePair)
     void first
       .then((s) => live && setStatus(isOpen(s) ? s : null))
       .catch(() => live && setStatus(null))
-    const off = onPairing((s) => live && setStatus(s))
+    const off = onPairing((s) => live && !skipPairing(s) && setStatus(s))
     return () => {
       live = false
       off()

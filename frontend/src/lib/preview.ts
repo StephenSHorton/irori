@@ -6,6 +6,10 @@
 //                   devices, people, agents, desks or app
 //   ?storage[=<kind>] opens Storage (card #728), or one kind's page
 //   ?devices        opens Settings at Devices and connections
+//   ?pair=join      there, the Join with a code form (card #1261);
+//                   looking: a join still looking for the other device,
+//                   found only through an address; address: the same with
+//                   the address box shown at once, not after 15 s
 //   ?boards         opens New or join a space (card #689)
 //   ?share=<card>   opens Share to board on that card's page
 //   ?transfer=<card> opens Transfer ownership (or Ask to own it) there
