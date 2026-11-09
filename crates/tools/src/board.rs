@@ -603,7 +603,7 @@ fn ask_open(t: &Task) -> bool {
 
 // --- board ---
 
-const BOARD_ARGS: &[(&str, Ty)] = &[("repo", Ty::Str), ("done", Ty::Bool)];
+const BOARD_ARGS: &[(&str, Ty)] = &[("repo", Ty::Str), ("done", Ty::Bool), ("space", Ty::Str)];
 
 pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let a = match decode(raw, BOARD_ARGS) {
@@ -611,17 +611,32 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Err(e) => return e,
     };
     let done = a.bool("done");
+    // Card #1198: one space's cards, by its name or any of its boards' tags.
+    let space = match s.space_named(trim(a.str("space"))) {
+        Ok(sp) => sp,
+        Err(m) => return m,
+    };
     let mut repo = coord::canonical_repo_key(trim(a.str("repo")));
     match repo.as_str() {
         "*" | "all" => repo.clear(),
         "" => repo = s.caller_repo(c),
         _ => {}
     }
-    let done_limit = if done { coord::DEFAULT_DONE_CARD } else { 1 };
+    let done_limit = match (&space, done) {
+        // Counted after the filter, so read them all.
+        (Some(_), _) => coord::MAX_DONE_CARD,
+        (None, true) => coord::DEFAULT_DONE_CARD,
+        (None, false) => 1,
+    };
     let me = &c.sender.key;
     let mut v = s.board_view(&repo, me, done_limit);
+    if let Some(sp) = &space {
+        sp.keep(&mut v);
+        v.done_total = v.done.len() as i64;
+        v.done.truncate(coord::DEFAULT_DONE_CARD as usize);
+    }
     let (mut asks, mut took) = ask_groups(&mut v, me, &repo);
-    if !repo.is_empty() {
+    if !repo.is_empty() && space.is_none() {
         // Asks from every repo: one with no repo is for anyone.
         let mut all = s.b.coord().board(&BoardFilter {
             repo_key: String::new(),
@@ -630,11 +645,14 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         });
         (asks, took) = ask_groups(&mut all, me, &repo);
     }
-    let where_ = if repo.is_empty() {
+    let mut where_ = if repo.is_empty() {
         "every repo".to_string()
     } else {
         one_line(&repo, 160)
     };
+    if let Some(sp) = &space {
+        where_ = format!("{} ({where_})", sp.label);
+    }
     let open = asks.len()
         + took.len()
         + v.needs_you.len()
@@ -657,7 +675,12 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         let _ = writeln!(b, "{}", v.side_line);
     }
     const HINT_ROOM: usize = 200;
-    let budget = MAX_RESULT - HINT_ROOM;
+    // The list of spaces that follows the cards (around_board) must
+    // survive the clip: it is how a caller finds another space (#1198).
+    let tail = s
+        .boards_section(c)
+        .map_or(0, |t| (t.len() + 1).min(MAX_RESULT / 3));
+    let budget = MAX_RESULT - HINT_ROOM - tail;
     let mut cut = 0;
     // Card #570: where each card sits in its order, found once.
     let order = Order::of(
@@ -806,7 +829,7 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     if cut > 0 {
         let _ = write!(
             b,
-            "\n({cut} more lines not shown; narrow with repo, or search kinds=[\"task\"] with words from the card)\n"
+            "\n({cut} more lines not shown; narrow with repo or space, or search kinds=[\"task\"] with words from the card)\n"
         );
     }
     if !done && v.done_total > 0 {

@@ -122,6 +122,18 @@ impl Capture {
         }
     }
 
+    /// The first `n` hits for `q` from its start (its offset is ignored),
+    /// past [`Capture::search`]'s cap: for a caller that merges them with
+    /// hits from elsewhere and pages the merged list itself (card #1198).
+    pub fn search_first(&self, q: &Query, n: i64) -> Result<Vec<Hit>, Error> {
+        let mut q = q.clone();
+        q.offset = 0;
+        q.limit = n.max(1);
+        self.inner.ready.wait();
+        self.pull();
+        self.inner.idx.search(&q).map_err(Error::Other)
+    }
+
     /// How many docs the index holds (tools and tests).
     pub fn index_size(&self) -> usize {
         self.inner.ready.wait();
@@ -405,4 +417,20 @@ mod tests {
         assert_eq!(es[0].url, "u1");
         assert_eq!(es[1].role, ledger::Role::REVIEWER);
     }
+}
+
+/// The first `n` hits for `q` among `docs` alone (its offset is ignored),
+/// ranked as the capture index ranks its own: for docs capture doesn't
+/// index, such as the cards and comments in a shared space's own log
+/// (card #1198). Builds a throwaway index in memory each call.
+pub fn search_docs(docs: &[Doc], q: &Query, n: i64) -> Result<Vec<Hit>, Error> {
+    let idx = crate::index::Index::open().map_err(Error::Other)?;
+    idx.defer();
+    for d in docs {
+        idx.put(d).map_err(Error::Other)?;
+    }
+    let mut q = q.clone();
+    q.offset = 0;
+    q.limit = n.max(1);
+    idx.search(&q).map_err(Error::Other)
 }
