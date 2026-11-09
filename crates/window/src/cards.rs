@@ -2349,30 +2349,46 @@ impl Window {
     }
 
     /// The cards waiting on a decision (the tray's number).
+    ///
+    /// Runs on every board batch while the tray listens, so it builds only
+    /// what the count reads (a summary's open blockers, the merge wait, the
+    /// gone wait) and never the grid's pipeline ([`Self::board_cards`]).
+    /// A private card counts, thread or not; a board card does not when it
+    /// is withdrawn or a thread (its Threads panel's, card #134).
     pub fn decide_count(&self) -> usize {
         let p = People::default();
-        let co = self.core.coord();
         // Card #509: a wait on a PR's merge is the person's too, and card
         // #520: a wait on an agent that is gone.
-        let private = co
-            .list_tasks(&coord::TaskFilter {
-                open: true,
-                ..Default::default()
-            })
+        let waits = |co: &coord::Coord, t: &Task| {
+            card_summary(t, &p).open_blockers > 0
+                || merge_pr(co, t).is_some()
+                || !co.gone_waits(&t.id).is_empty()
+        };
+        let co = self.core.coord();
+        let open = || coord::TaskFilter {
+            open: true,
+            ..Default::default()
+        };
+        let mut n = co
+            .list_tasks(&open())
             .iter()
-            .filter(|t| {
-                card_summary(t, &p).open_blockers > 0
-                    || merge_pr(co, t).is_some()
-                    || !co.gone_waits(&t.id).is_empty()
-            })
+            .filter(|t| waits(co, t))
             .count();
-        private
-            + self
-                .board_cards(&p, self.now_ms(), None)
-                .0
-                .iter()
-                .filter(|s| s.open_blockers > 0 || s.merge_pr.is_some() || s.gone_wait.is_some())
-                .count()
+        for s in self.core.board_list() {
+            if !s.ready {
+                continue;
+            }
+            let Ok(bc) = self.core.board_coord(&s.board_id) else {
+                continue;
+            };
+            n += bc
+                .list_tasks(&open())
+                .into_iter()
+                .filter(|t| !t.withdrawn && !crate::threads::is_thread(t))
+                .filter(|t| waits(&bc, &self.priv_task(t.clone())))
+                .count();
+        }
+        n
     }
 
     /// The live cards of every board this device holds (or only board

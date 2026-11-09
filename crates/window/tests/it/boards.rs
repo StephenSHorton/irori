@@ -1411,3 +1411,65 @@ fn a_space_channel_posts_file_goes_with_the_space() {
     let e = w.attachment_info(&sha).unwrap_err();
     assert_eq!(e, irori_window::attachments::NO_ATTACHMENT);
 }
+
+/// Card #1143: the tray's count is built from each card's summary and its
+/// waits alone, and counts what the grid's own pipeline would: a private
+/// card (a thread too) and a shared board's card with an open blocker, but
+/// not a board's thread, which shows in its Threads panel.
+#[test]
+fn decide_count_matches_the_grid_across_private_shared_and_threads() {
+    let r = Rig::new();
+    let w = &r.w;
+    let b = w.boards_create("Horton", "horton").unwrap();
+    let ask = |co: &coord::Coord, key: &str, id: &str, q: &str| {
+        co.raise(
+            key,
+            id,
+            coord::NewBlocker {
+                question: q.into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    };
+    // Private: one waiting, one not.
+    let pco = w.core.coord();
+    let quiet = create(&r, "private, quiet");
+    let waiting = create(&r, "private, waiting");
+    ask(pco, &r.key_a, &waiting.id, "private q?");
+    assert_eq!(w.decide_count(), 1);
+    // A private thread raises no blocker (it is an ask), so adds nothing.
+    w.start_thread("thread about nothing", &[], &[], "").unwrap();
+    assert_eq!(w.decide_count(), 1);
+    // Shared board: one waiting, one not.
+    let bco = w.core.board_coord(&b.board_id).unwrap();
+    let me = w
+        .core
+        .board_key(&b.board_id, &w.core.user_sender().key)
+        .unwrap();
+    let alpha = w.core.board_key(&b.board_id, &r.key_a).unwrap();
+    let mk = |title: &str| {
+        bco.create_task(
+            &me,
+            coord::NewTask {
+                title: title.into(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let bq = mk("board, quiet");
+    let bw = mk("board, waiting");
+    ask(&bco, &alpha, &bw.id, "board q?");
+    assert_eq!(w.decide_count(), 2, "a shared card with a blocker");
+    // A shared thread is the Threads panel's, not counted.
+    w.start_thread("shared thread", &[], &[], &b.board_id).unwrap();
+    assert_eq!(w.decide_count(), 2, "a board's thread is not counted");
+    // The same as the grid's own rows say.
+    let grid = w
+        .cards()
+        .iter()
+        .filter(|s| s.open_blockers > 0 || s.merge_pr.is_some() || s.gone_wait.is_some())
+        .count();
+    assert_eq!(grid, 2);
+}
