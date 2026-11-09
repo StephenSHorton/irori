@@ -210,7 +210,11 @@ impl crate::Window {
         core.set_assistant_screen(&job.screen);
         let run = core.assistant_grants().begin(job.grants.clone());
         let files = self.chat_file_bytes(&job.files);
+        // The seed for a new held session, and the message for the held
+        // one (card 8); a job with no message always seeds.
         let line = stream_json_line(&chat_content_blocks(&job.prompt, &files));
+        let message = (!job.message.trim().is_empty())
+            .then(|| stream_json_line(&chat_content_blocks(&job.message, &files)));
         let mut j = Job::assistant(core, line);
         if let Ok(j) = j.as_mut() {
             j.look = screen_label(&job.screen);
@@ -218,8 +222,11 @@ impl crate::Window {
         self.chat_watch_start(&job.turn);
         let (tx, rx) = mpsc::channel::<AssistantEvent>();
         let sink: Sink = Box::new(move |e| tx.send(e).is_ok());
-        // The runner may end it before it returns (no `claude`).
-        let id = self.assistant.start_with(bin, j, sink);
+        // Every chat question goes through the held session (#1064's
+        // owner's-OK turn, when it comes, picks its own path by `kind`).
+        // It may end the turn before it returns (no `claude`).
+        self.held_chat
+            .start_turn(bin, j, job.session, message, sink);
         let mut text = String::new();
         let mut looked = false;
         let mut stopping = false;
@@ -228,7 +235,7 @@ impl crate::Window {
         while end.is_none() {
             if !stopping && job.cancel.load(Ordering::SeqCst) {
                 stopping = true;
-                self.assistant.stop(id);
+                self.held_chat.stop();
             }
             let ev = match rx.recv_timeout(POLL) {
                 Ok(ev) => ev,
@@ -263,7 +270,7 @@ impl crate::Window {
             self.chat_watch_send(&job.turn, &ev);
             if !go_on && !stopping {
                 stopping = true;
-                self.assistant.stop(id);
+                self.held_chat.stop();
             }
             if ev.ends() {
                 end = Some(ev);
@@ -293,6 +300,18 @@ impl crate::Window {
             done.posted = self.chat_post(&job.turn, &text);
         }
         done
+    }
+
+    /// Ends the chat's held session: this computer is no longer the
+    /// assistant's (installed on the Core's home listener).
+    pub fn chat_held_end(&self) {
+        self.held_chat.end();
+    }
+
+    /// How many held chat processes have started (tests).
+    #[doc(hidden)]
+    pub fn chat_held_starts(&self) -> u64 {
+        self.held_chat.starts()
     }
 
     /// Posts the reply's thread, after checking again that this is the

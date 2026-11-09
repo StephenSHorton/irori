@@ -1349,7 +1349,7 @@ impl Run {
 /// runs as `cmd.exe`, which starts `node.exe` (and that `irori mcp`):
 /// killing `cmd.exe` alone leaves them running, holding stdout open, so
 /// the run would never end. `taskkill /T` ends the whole tree first.
-fn kill_tree(c: &mut Child) {
+pub(crate) fn kill_tree(c: &mut Child) {
     #[cfg(windows)]
     {
         let mut k = Command::new("taskkill");
@@ -1373,7 +1373,7 @@ pub struct Runner {
 }
 
 /// How much of stderr is kept for an error.
-const STDERR_CAP: usize = 16 << 10;
+pub(crate) const STDERR_CAP: usize = 16 << 10;
 
 impl Runner {
     pub fn new() -> Runner {
@@ -2238,6 +2238,7 @@ impl crate::Window {
 
     /// Ends the assistant's runs as the app quits.
     pub fn assistant_shutdown(&self) {
+        self.held_chat.shutdown();
         self.assistant.shutdown();
         self.names.shutdown();
         self.weighs.shutdown();

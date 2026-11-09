@@ -24,7 +24,7 @@
 //! No tool writes these rows, and the events tool and `/v1/events` leave
 //! their text out (`tools::observe::redact`, `api::redact`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
@@ -95,6 +95,15 @@ pub struct ChatJob {
     /// The files that came with the question: the window reads them from
     /// its store, fetching from the device that holds them if need be.
     pub files: Vec<AskedFile>,
+    /// The question as the held session gets it (card 8, §8): what it
+    /// hasn't seen since its last message ("Since we last spoke:"), then
+    /// the question alone. [`Self::prompt`] seeds a new session instead.
+    pub message: String,
+    /// The held session this question belongs to: the window keeps its
+    /// `claude` only while this stays the same, and seeds a new one from
+    /// [`Self::prompt`] when it changes (New chat, another computer, a
+    /// failed or stopped turn).
+    pub session: u64,
 }
 
 /// How a run ended.
@@ -722,6 +731,10 @@ pub const EARLIER_CAP: usize = 50;
 /// The header of a run of follow-up lines in the history (`historyFor`).
 pub const UPDATES_HEAD: &str = "(The chat's own lines on the work it follows:)";
 
+/// The head of what a held session hasn't seen since its last message
+/// (card 8, §8).
+pub const SINCE_HEAD: &str = "Since we last spoke:";
+
 /// A turn as the worker reads it: where its question sits, whether New
 /// chat hides it, and the turn.
 #[derive(Debug, Clone)]
@@ -818,6 +831,61 @@ impl Fold {
             .collect()
     }
 
+    /// What a held session hasn't seen (card 8, §8), one line each, oldest
+    /// first: the entries after the question at `from` and before the one
+    /// at `at` that the session didn't write (follow-up lines, and turns
+    /// another computer answered), then the threads posted from its own
+    /// replies (`mine`) that it wasn't told of (`told`). Returns the lines
+    /// and the turns whose threads they tell.
+    pub(crate) fn since(
+        &self,
+        from: &Order,
+        at: &Order,
+        mine: &HashSet<String>,
+        told: &HashSet<String>,
+    ) -> (Vec<String>, Vec<String>) {
+        let (lo, hi) = (Place::new(false, from), Place::new(false, at));
+        let mut lines = Vec::new();
+        let mut posted = Vec::new();
+        for (place, entry) in self.shown() {
+            match entry {
+                ChatEntry::Turn(t) => {
+                    if mine.contains(&t.asked.turn) {
+                        if let Some(p) = t.posted.as_ref().filter(|_| !told.contains(&t.asked.turn)) {
+                            lines.push(format!(
+                                "- Your draft in reply to \"{}\" was posted as thread {}#{}.",
+                                short_line(&t.asked.text),
+                                p.tag,
+                                p.short
+                            ));
+                            posted.push(t.asked.turn.clone());
+                        }
+                        continue;
+                    }
+                    if place <= lo || place >= hi {
+                        continue;
+                    }
+                    let Some(said) = t.said.as_ref() else {
+                        continue;
+                    };
+                    if said.skipped || !said.error.is_empty() {
+                        continue;
+                    }
+                    lines.push(format!(
+                        "- The person asked: {}\n  The reply: {}",
+                        with_files(&t.asked),
+                        reply_text(&said.text, t.posted.as_ref()).trim()
+                    ));
+                }
+                ChatEntry::Update(u) if place > lo && place < hi => {
+                    lines.push(format!("- {}", u.text.trim()));
+                }
+                _ => {}
+            }
+        }
+        (lines, posted)
+    }
+
     /// The conversation before the question at `at`, as history turns
     /// (`true`: the assistant's), the port of the chat's `historyFor`:
     /// each answered turn as the person's words and the reply, a posted
@@ -862,6 +930,16 @@ impl Fold {
         out.drain(..skip);
         out
     }
+}
+
+/// A question cut to one short line, for a since line.
+fn short_line(text: &str) -> String {
+    let one = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if one.chars().count() <= 80 {
+        return one;
+    }
+    let cut: String = one.chars().take(79).collect();
+    format!("{}\u{2026}", cut.trim_end())
 }
 
 /// A question's words for the history, with a line naming its files, those

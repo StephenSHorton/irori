@@ -71,6 +71,8 @@ fn job(turn: &str) -> ChatJob {
         cancel: Arc::new(AtomicBool::new(false)),
         kind: ChatKind::Chat,
         files: Vec::new(),
+        message: String::new(),
+        session: 0,
     }
 }
 

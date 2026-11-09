@@ -36,7 +36,7 @@ use store::{Event, Vector};
 use super::Services;
 use super::assistant_chat::{
     ASKED, Asked, CLEARED, ChatJob, ChatKind, ChatRow, ChatTurnFn, EARLIER_CAP, HISTORY_TURNS,
-    Order, STOP, STOPPED, Said, Stop, actor_of,
+    Order, SINCE_HEAD, STOP, STOPPED, Said, Stop, TurnAt, actor_of,
 };
 use crate::events::CoreEvent;
 use crate::logf;
@@ -94,6 +94,19 @@ pub(crate) enum Why {
     Sweep = 3,
 }
 
+/// What the held session has seen (card 8, §8): its key, the question it
+/// last answered, the turns it answered and the posted threads it was told
+/// of. A new key seeds a new session from the rows.
+#[derive(Default)]
+struct Session {
+    key: u64,
+    /// The place and turn of the last question it answered; `None`: the
+    /// next question starts a new session.
+    through: Option<(Order, String)>,
+    mine: HashSet<String>,
+    told: HashSet<String>,
+}
+
 #[derive(Default)]
 struct Queue {
     pending: BTreeMap<Order, Pending>,
@@ -117,6 +130,7 @@ pub(crate) struct ChatQueue {
     started: Instant,
     /// Questions each kind of scan queued (tests), by [`Why`].
     scanned: [AtomicU64; 4],
+    session: Mutex<Session>,
 }
 
 impl ChatQueue {
@@ -131,6 +145,7 @@ impl ChatQueue {
             ever: AtomicBool::new(false),
             started: Instant::now(),
             scanned: Default::default(),
+            session: Mutex::new(Session::default()),
         }
     }
 }
@@ -581,6 +596,60 @@ impl Services {
 
     /// Takes one question: waits until caught up, checks it against the
     /// fold as it is now, and runs it.
+    /// The next question starts a new held session (card 8): the
+    /// assistant's computer changed, so another may have answered between.
+    pub(crate) fn chat_session_reset(&self) {
+        lock(&self.chat.session).through = None;
+    }
+
+    /// The held session's key and message for the question `t` (card 8,
+    /// §8). It goes on with the session when the session's last question
+    /// is still shown (no New chat since) and comes before this one; the
+    /// message then starts with what it hasn't seen. Otherwise the key
+    /// changes, and the window seeds a new session from the prompt.
+    fn chat_session_message(&self, t: &TurnAt, question: String) -> (u64, String, Vec<String>) {
+        let mut s = lock(&self.chat.session);
+        let goes_on = s.through.as_ref().is_some_and(|(at, turn)| {
+            *at < t.at
+                && self
+                    .assistant_chat
+                    .turn_at(turn)
+                    .is_some_and(|x| !x.hidden)
+        });
+        if !goes_on {
+            s.key += 1;
+            s.through = None;
+            s.mine.clear();
+            s.told.clear();
+            return (s.key, question, Vec::new());
+        }
+        let from = s.through.as_ref().map(|(at, _)| at.clone()).unwrap_or_default();
+        let (lines, told) = self.assistant_chat.since(&from, &t.at, &s.mine, &s.told);
+        let message = if lines.is_empty() {
+            question
+        } else {
+            format!("{SINCE_HEAD}\n{}\n\n{question}", lines.join("\n"))
+        };
+        (s.key, message, told)
+    }
+
+    /// Notes how the held session's question `turn` (at `at`, under `key`)
+    /// ended: answered, it is the session's latest; otherwise the next
+    /// question starts a new session (the window ended this one).
+    fn chat_session_after(&self, key: u64, at: &Order, turn: &str, told: Vec<String>, ok: bool) {
+        let mut s = lock(&self.chat.session);
+        if s.key != key {
+            return;
+        }
+        if !ok {
+            s.through = None;
+            return;
+        }
+        s.through = Some((at.clone(), turn.to_string()));
+        s.mine.insert(turn.to_string());
+        s.told.extend(told);
+    }
+
     fn chat_take(&self, p: &Pending, cancel: &Arc<AtomicBool>) {
         if !self.chat_ready(cancel) {
             return;
@@ -638,6 +707,12 @@ impl Services {
             self.huddle_divide_context(&turn.asked.call_id)
                 .unwrap_or_else(|e| format!("(The huddle can't be shown here: {e}.)"))
         });
+        // A held session gets the question alone, after what it hasn't
+        // seen; a new one is seeded with the history (card 8).
+        let (session, message, told) = self.chat_session_message(
+            &t,
+            chat_prompt(&[], &turn.asked.text, note.as_deref(), huddle.as_deref()),
+        );
         let job = ChatJob {
             turn: p.turn.clone(),
             prompt: chat_prompt(
@@ -651,6 +726,8 @@ impl Services {
             cancel: cancel.clone(),
             kind: ChatKind::Chat,
             files: turn.asked.files.clone(),
+            message,
+            session,
         };
         let c = cancel.clone();
         let done = hook(&job, &move |_| !c.load(Ordering::SeqCst));
@@ -660,13 +737,20 @@ impl Services {
             .turn_at(&p.turn)
             .is_some_and(|t| t.turn.stopped || t.hidden);
         let closing = done.later || (self.chat.kick.is_closed() && !by_person);
+        let stopped = closing || cancel.load(Ordering::SeqCst);
+        self.chat_session_after(
+            session,
+            &t.at,
+            &p.turn,
+            told,
+            !stopped && done.error.is_empty(),
+        );
         if closing && done.changed.is_empty() {
             // Irori is closing: the next start's scan answers it.
             return;
         }
         // A run cut off after it changed something says what it changed;
         // Ask again is there for the rest.
-        let stopped = closing || cancel.load(Ordering::SeqCst);
         self.chat_said(
             &p.turn,
             Said {

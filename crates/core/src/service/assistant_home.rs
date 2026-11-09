@@ -264,6 +264,9 @@ impl Services {
         if !changed {
             return;
         }
+        // Another computer may have answered meanwhile: the next question
+        // here starts a new held session (card 8).
+        self.chat_session_reset();
         let l = self
             .assistant_home
             .listener
