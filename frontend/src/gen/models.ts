@@ -987,7 +987,7 @@ export function TalkCall(p: Partial<B.TalkCall> = {}): B.TalkCall {
 
 /** TalkCanvasItem with Go's zero values for every field left out. */
 export function TalkCanvasItem(p: Partial<B.TalkCanvasItem> = {}): B.TalkCanvasItem {
-  return { "itemId": "", "kind": "", "text": "", "status": "", "reply": "", "refs": [], "why": "", "assistant": false, "byName": "", "label": "", "askerName": "", "mine": false, "askerMine": false, "atMs": 0, "x": null, "y": null, "card": "", ...p } as B.TalkCanvasItem
+  return { "itemId": "", "kind": "", "text": "", "status": "", "reply": "", "refs": [], "why": "", "assistant": false, "byName": "", "label": "", "askerName": "", "mine": false, "askerMine": false, "atMs": 0, "x": null, "y": null, "card": "", "cardByName": "", "cardMine": false, ...p } as B.TalkCanvasItem
 }
 
 /** TalkConversation with Go's zero values for every field left out. */

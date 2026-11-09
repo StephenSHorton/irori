@@ -29,6 +29,14 @@ import {
 } from "./assistant-follow"
 import { cards, threads } from "./cards"
 import { goesByItself, splitGo, type GoTarget } from "./goto"
+import { sampleDivideReply } from "./sample-huddle"
+import {
+  divideNow,
+  stopDivide,
+  takeDrafts,
+  type CardDraft,
+  type SettleDraft,
+} from "./huddle-divide"
 import { screenLabel, screenSnapshot, StatusHead } from "./assistant-screen"
 import { AssistantService } from "./host"
 import { inWails } from "./irori"
@@ -490,6 +498,8 @@ export function setAssistantOpen(open: boolean) {
 // threads it posted are no longer followed.
 export function newChat() {
   stopAsking()
+  // A new chat is no longer on the huddle it was dividing (card #1054).
+  stopDivide()
   set({ entries: [], reply: null, work: {}, autoFailed: new Map() })
   follower?.poke()
 }
@@ -640,6 +650,10 @@ export async function ask(
   }
   try {
     screen = await screenSnapshot().catch(() => "")
+    // Divide (card #1054): while the chat is on a huddle (divideNow()),
+    // the question must carry its callId, which only the rows-based ask
+    // does (AssistantService.ChatAsk, one-assistant card 4): the
+    // assistant's computer puts the huddle in the prompt.
     const id = inWails()
       ? await AssistantService.Ask(history, body, files, screen, onEvent)
       : sampleAsk(body, files, onEvent, screen)
@@ -759,17 +773,24 @@ export function postsByItself(r: Reply): boolean {
   )
 }
 
-// splitReply splits a reply as the chat shows it: its drafted thread
-// (splitDraft) and its go line (card #784, lib/goto.ts), taken only from
-// the text outside the draft, so the draft posts exactly as shown.
+// splitReply splits a reply as the chat shows it: the card and settle
+// drafts of a huddle's Divide (card #1054, lib/huddle-divide.ts), its
+// drafted thread (splitDraft) and its go line (card #784, lib/goto.ts),
+// taken only from the text outside the blocks, in that order, so a go line
+// inside a block never fires and a draft posts exactly as shown.
 // writing: the reply is still being written.
 export function splitReply(
   raw: string,
   writing = false
-): Split & { go: GoTarget | null } {
-  const d = splitDraft(raw)
+): Split & {
+  go: GoTarget | null
+  cards: CardDraft[]
+  settle: SettleDraft | null
+} {
+  const k = takeDrafts(raw)
+  const d = splitDraft(k.text)
   const g = splitGo(d.text, writing)
-  return { ...d, text: g.text, go: g.go }
+  return { ...d, text: g.text, go: g.go, cards: k.cards, settle: k.settle }
 }
 
 // postDraft posts the draft of the chat's message at index as a thread,
@@ -1169,9 +1190,16 @@ function sampleAsk(
   screen = ""
 ): number {
   const id = ++sampleIds
-  const { tools, text } = files.length
-    ? sampleFiles(q, files)
-    : sampleAnswer(q, screen)
+  // Divide (card #1054): the chat is on a huddle.
+  const dividing = divideNow()
+  const { tools, text } = dividing
+    ? {
+        tools: ["Reading the canvas"],
+        text: sampleDivideReply(dividing.callId),
+      }
+    : files.length
+      ? sampleFiles(q, files)
+      : sampleAnswer(q, screen)
   const timers: ReturnType<typeof setTimeout>[] = []
   let at = 150
   const after = (ms: number, ev: AssistantEvent) => {

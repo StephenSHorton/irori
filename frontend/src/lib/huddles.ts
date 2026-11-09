@@ -232,11 +232,18 @@ export async function addCanvasItem(
 }
 
 // setCanvasItem changes an item: its text (your own), its status
-// (`settled`, `dropped`, `open`) or its place.
+// (`settled`, `dropped`, `open`) or its place. After the call (card #1054)
+// also `carded` with the ref of the card it became.
 export async function setCanvasItem(
   callId: string,
   itemId: string,
-  change: { text?: string; status?: string; x?: number; y?: number }
+  change: {
+    text?: string
+    status?: string
+    x?: number
+    y?: number
+    card?: string
+  }
 ): Promise<TalkCanvasItem> {
   const c = (v: number | string | undefined) => (v === undefined ? null : v)
   if (!inWails())
@@ -246,7 +253,8 @@ export async function setCanvasItem(
       c(change.text) as string | null,
       c(change.status) as string | null,
       c(change.x) as number | null,
-      c(change.y) as number | null
+      c(change.y) as number | null,
+      c(change.card) as string | null
     )
   return TalkService.HuddleItemSet(
     callId,
@@ -254,7 +262,8 @@ export async function setCanvasItem(
     c(change.text) as string | null,
     c(change.status) as string | null,
     c(change.x) as number | null,
-    c(change.y) as number | null
+    c(change.y) as number | null,
+    c(change.card) as string | null
   )
 }
 

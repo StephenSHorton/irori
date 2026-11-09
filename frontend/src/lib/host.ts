@@ -349,8 +349,9 @@ export const TalkService = {
     text: string | null,
     status: string | null,
     x: number | null,
-    y: number | null
-  ) => call(commands.huddleItemSet(callId, itemId, text, status, x, y)),
+    y: number | null,
+    card: string | null = null
+  ) => call(commands.huddleItemSet(callId, itemId, text, status, x, y, card)),
   HuddleAsk: (callId: string, text: string) =>
     call(commands.huddleAsk(callId, text)),
   Posts: (convId: string, before: string | null, limit: number) =>
@@ -758,8 +759,12 @@ export const AssistantService = {
   // Asks the one assistant (one-assistant card 3): writes the question's
   // row and returns its turn; the assistant's computer answers it, wherever
   // it is. again is the turn Ask again repeats.
-  ChatAsk: (text: string, screen: string, again?: string) =>
-    call(commands.assistantChatAsk(text, screen, again ?? null)),
+  // callId is the huddle it is asked from (Divide, card #1054): the
+  // assistant's computer puts it in the prompt.
+  ChatAsk: (text: string, screen: string, again?: string, callId?: string) =>
+    call(
+      commands.assistantChatAsk(text, screen, again ?? null, callId ?? null)
+    ),
   // Stops a question, from any device.
   ChatStop: (turn: string) => done(commands.assistantChatStop(turn)),
   // The reply of a turn this computer runs, as it streams: what it has said
