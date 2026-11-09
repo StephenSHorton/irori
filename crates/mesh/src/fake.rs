@@ -141,6 +141,16 @@ impl FakeNet {
         }
     }
 
+    /// The open connections between a and b go quiet: they stay up, and
+    /// whatever either end sends is lost, as when one side's session died
+    /// but the connection under it lives on. New connections work.
+    pub fn stall(&self, a: &str, b: &str) {
+        let g = self.lock();
+        for c in g.conns.get(&pair_key(a, b)).into_iter().flatten() {
+            c.stalled.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
     /// Whether a and b have a live connection.
     pub fn connected(&self, a: &str, b: &str) -> bool {
         self.lock()
@@ -385,6 +395,8 @@ pub struct FakeConn {
     streams: Mutex<Streams>,
     done: CancellationToken,
     err: Mutex<Option<ConnError>>,
+    /// [`FakeNet::stall`]: sends are dropped.
+    stalled: std::sync::atomic::AtomicBool,
 }
 
 fn new_pair(net: &FakeNet, a: &FakeRoom, b: &FakeRoom) -> (Arc<FakeConn>, Arc<FakeConn>) {
@@ -414,6 +426,7 @@ fn new_pair(net: &FakeNet, a: &FakeRoom, b: &FakeRoom) -> (Arc<FakeConn>, Arc<Fa
         streams: Mutex::new(Streams::default()),
         done: CancellationToken::new(),
         err: Mutex::new(None),
+        stalled: std::sync::atomic::AtomicBool::new(false),
     });
     let y = Arc::new(FakeConn {
         net: net.clone(),
@@ -429,6 +442,7 @@ fn new_pair(net: &FakeNet, a: &FakeRoom, b: &FakeRoom) -> (Arc<FakeConn>, Arc<Fa
         streams: Mutex::new(Streams::default()),
         done: CancellationToken::new(),
         err: Mutex::new(None),
+        stalled: std::sync::atomic::AtomicBool::new(false),
     });
     *x.other.lock().unwrap() = Arc::downgrade(&y);
     *y.other.lock().unwrap() = Arc::downgrade(&x);
@@ -514,6 +528,9 @@ impl Conn for FakeConn {
         Box::pin(async move {
             if self.is_down() {
                 return Err(self.down_err());
+            }
+            if self.stalled.load(std::sync::atomic::Ordering::SeqCst) {
+                return Ok(());
             }
             self.net.lock().frames += 1;
             let other_done = self.other().map(|o| o.done.clone()).unwrap_or_default();
