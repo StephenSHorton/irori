@@ -1600,3 +1600,65 @@ fn a_message_from_the_person_retires_a_resting_agent() {
     let r = rows_about(&s, store::kinds::AGENT_RETIRE, &k);
     assert_eq!(r[0]["reason"], coord::roster::RETIRE_WOKEN);
 }
+
+/// Review of card #1215: the person's End while a rest waits for its
+/// hand-off retires the agent; the End isn't lost to the rest.
+#[test]
+fn end_during_a_rests_hand_off_wait_retires() {
+    let s = at_done_check();
+    let k = s.first();
+    past_grace(&s);
+    wait_for(60, "the rest asked for its hand-off", || rest_asked(&s, &k));
+    s.r.core.end_spawned(&k).unwrap();
+    wait_for(60, "it retired", || {
+        skew_by(&s, irori_core::spawn::HANDOFF_WAIT);
+        ended(&s, 1)
+    });
+    let r = rows_about(&s, store::kinds::AGENT_RETIRE, &k);
+    assert_eq!(r[0]["reason"], coord::roster::RETIRE_ENDED, "{r:?}");
+    assert!(rows_about(&s, store::kinds::AGENT_REST, &k).is_empty());
+    assert!(!s.r.core.resting(&k));
+}
+
+/// Review of card #1215: the rested life's own process showing again (a
+/// restart came before its stop took) stays resting and is stopped again;
+/// a session started after the rest (the person's Revive) ends the rest.
+#[test]
+fn an_old_process_stays_resting_and_a_revive_ends_the_rest() {
+    let s = rested_with_hand_off();
+    let k = s.first();
+    let sessions = s.r.claude.join("sessions");
+    wait_for(60, "presence lost the session", || {
+        !s.r.core.local_agents().iter().any(|a| a.key == k)
+    });
+    // Its own process, started before the rest, is listed again.
+    write_session(
+        &sessions,
+        "910001.json",
+        &sess(1),
+        "old",
+        s._work.path(),
+    );
+    wait_for(60, "stopped again", || {
+        s.fake.stopped.lock().unwrap().len() >= 2
+    });
+    assert!(s.r.core.resting(&k), "its old process doesn't wake it");
+    assert_eq!(roster_status(&s, &k), coord::roster::RESTING);
+    // The person's Revive: a process started after the rest.
+    wait_for(60, "presence lost the old process", || {
+        !s.r.core.local_agents().iter().any(|a| a.key == k)
+    });
+    let f = sessions.join("910001.json");
+    write_session(&sessions, "910001.json", &sess(1), "revived", s._work.path());
+    let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&f).unwrap()).unwrap();
+    let later = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        + s.skew.load(Ordering::SeqCst)
+        + 600)
+        * 1000;
+    v["startedAt"] = later.into();
+    std::fs::write(&f, serde_json::to_vec(&v).unwrap()).unwrap();
+    wait_for(60, "the revive ended the rest", || !s.r.core.resting(&k));
+}

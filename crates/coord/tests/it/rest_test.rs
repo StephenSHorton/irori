@@ -234,3 +234,43 @@ fn a_resting_creator_isnt_the_answerer_of_its_card() {
         "{ns:?}"
     );
 }
+
+/// Review of card #1215: after a resting agent retires (woken, quiet), a
+/// word the person wrote while it rested still starts the next agent: the
+/// let-go is when it rested, not when it retired.
+#[test]
+fn a_word_written_while_it_rested_starts_the_next_agent_after_its_retire() {
+    let mut e = Env::new();
+    let rs = rig(&mut e);
+    let (tk, _) =
+        e.c.post_ask(
+            USER,
+            NewAsk {
+                text: "Should we drop Windows 10?".into(),
+                ..NewAsk::default()
+            },
+            &[],
+        )
+        .unwrap();
+    e.ros.set(SPAWNED, "idle");
+    bound(&e, &tk.id);
+    e.c.sweep_asks(&[]).unwrap();
+    rest(&e, &rs);
+    e.c.mark_rested(SPAWNED, e.clk.now());
+    e.c.sweep_asks(&[]).unwrap();
+    // The person writes while it rests: nothing goes to it.
+    e.clk.add(mins(1));
+    let (_, ns) =
+        e.c.person_comment(USER, &tk.id, "Look at the numbers.", true, &[], None)
+            .unwrap();
+    assert!(
+        ns.iter().all(|n| !n.to.iter().any(|k| k == SPAWNED)),
+        "{ns:?}"
+    );
+    // It retires later (that came for it, or a quiet day).
+    e.clk.add(mins(1));
+    rs.write().unwrap().remove(SPAWNED);
+    e.ros.set(SPAWNED, "");
+    e.c.mark_ended(SPAWNED, e.clk.now());
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
+}

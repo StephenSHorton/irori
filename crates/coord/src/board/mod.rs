@@ -1849,6 +1849,12 @@ impl Coord {
     }
     /// Whether agent `key` may take another item (agent-continuity §5):
     /// under the person's context budget, never compacted, and warm.
+    /// Spawned agent `key` of this device rested at `at` (card #1215): the
+    /// moment it let its asks go, kept after it retires.
+    pub fn mark_rested(&self, key: &str, at: gocompat::time::GoTime) {
+        self.lock().rest_times.insert(key.to_string(), at);
+    }
+
     pub fn reusable(&self, key: &str) -> bool {
         self.lock().reusable(key)
     }

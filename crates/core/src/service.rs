@@ -5737,9 +5737,10 @@ impl Services {
                     last.insert(key.clone(), card.clone());
                     self.names_kick.kick();
                     // A resting agent's session is back (Revive, a resume by
-                    // hand): it no longer rests (card #1215).
-                    if self.resting(&key) {
-                        self.rest_ended_by_session(&key);
+                    // hand): it no longer rests. Its own old process, still
+                    // exiting, writes nothing and stays resting (card #1215).
+                    if self.resting(&key) && !self.rest_ended_by_session(&card, true) {
+                        continue;
                     }
                     let r = self
                         .store
@@ -5752,9 +5753,13 @@ impl Services {
                 presence::ChangeKind::Updated => {
                     let prev = last.insert(key.clone(), card.clone());
                     // A resting agent's process, still exiting: nothing it
-                    // says now wakes it on another device (card #1215).
+                    // says now wakes it on another device (card #1215). A
+                    // session started after the rest (a Revive) ends it.
                     if self.resting(&key) {
-                        continue;
+                        if !self.rest_ended_by_session(&card, false) {
+                            continue;
+                        }
+                        written.remove(&key);
                     }
                     if let Some(p) = &prev
                         && (p.name != card.name || p.name_source != card.name_source)

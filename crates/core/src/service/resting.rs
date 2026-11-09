@@ -186,6 +186,10 @@ impl Services {
         if m.contains_key(key) {
             return false;
         }
+        // A retire asked a moment ago (End, a lift) wins over a rest.
+        if matches!(self.ending_kind(key), Some(Ending::Retire(_))) {
+            return false;
+        }
         m.insert(key.to_string(), now);
         self.spawn
             .end_kind
@@ -270,13 +274,17 @@ impl Services {
             return;
         }
         {
-            let ending = self.spawn.ending.lock().unwrap_or_else(|e| e.into_inner());
-            if !ending.contains_key(key) {
-                self.spawn
-                    .end_kind
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .insert(key.to_string(), Ending::Retire(reason));
+            // Under `ending`'s lock, as set_ending is. A rest still waiting
+            // for its hand-off becomes this retire (the person's End or a
+            // lift during it): its wait goes on, and it retires instead.
+            let _ending = self.spawn.ending.lock().unwrap_or_else(|e| e.into_inner());
+            let mut kinds = self
+                .spawn
+                .end_kind
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if !matches!(kinds.get(key), Some(Ending::Retire(_))) {
+                kinds.insert(key.to_string(), Ending::Retire(reason));
             }
         }
         self.begin_end(key);
@@ -326,6 +334,11 @@ impl Services {
             .unwrap_or_else(|e| e.into_inner());
         if self.resting(key) || self.coord.ended_by_irori(key) {
             return Ok(());
+        }
+        // Turned into a retire after the sweep read it.
+        if let Some(Ending::Retire(r)) = self.ending_kind(key) {
+            drop(_g);
+            return self.retire_now(key, given, r);
         }
         let live = self.presence.snapshot().into_iter().find(|a| a.key == key);
         self.rest_rows(key, live.map(super::roster_card), reason, given)?;
@@ -405,6 +418,7 @@ impl Services {
                 .remove(key);
             return Err(e.to_string());
         }
+        self.coord.mark_rested(key, now);
         self.hub.publish(crate::events::CoreEvent::Roster);
         Ok(())
     }
@@ -510,15 +524,15 @@ impl Services {
         given: bool,
         reason: &'static str,
     ) -> Result<(), String> {
-        {
-            let _g = self
-                .spawn
-                .rest_lock
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            if !self.coord.ended_by_irori(key) {
-                self.retire_row(key, reason)?;
-            }
+        // The row and the end under one lock, so two sweeps never write
+        // either twice.
+        let _g = self
+            .spawn
+            .rest_lock
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if !self.coord.ended_by_irori(key) {
+            self.retire_row(key, reason)?;
         }
         self.end_now(key, given)
     }
@@ -595,6 +609,7 @@ impl Services {
     /// presence can't see (a resting agent has no session): Stop, what
     /// came for it (§7's fallback), a quiet day, too many resting.
     pub(crate) fn sweep_resting(&self) {
+        self.reconcile_resting();
         self.let_go_dropped();
         self.confirm_stops();
         let keys = self.resting_keys();
@@ -690,6 +705,28 @@ impl Services {
             }
         }
         last
+    }
+
+    /// Once per run: everything a resting agent still holds is let go. A
+    /// dropped rest queues its let-go in memory, and Irori may quit before
+    /// the sweep writes it; nothing else takes cards from a resting agent,
+    /// since it is never gone. A no-op for one that let go already.
+    fn reconcile_resting(&self) {
+        use std::sync::atomic::Ordering;
+        if self.spawn.rest_reconciled.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        for (k, _) in self.resting_keys() {
+            let _g = self
+                .spawn
+                .rest_lock
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Err(e) = self.coord.rest_leave(&k) {
+                logf(format_args!("spawn rest {k}: let go after a start: {e}"));
+                self.spawn.rest_reconciled.store(false, Ordering::SeqCst);
+            }
+        }
     }
 
     /// Whether Removed key `key` is a rest, decided on the presence thread
@@ -799,6 +836,7 @@ impl Services {
                 .remove(key);
             return Err(e.to_string());
         }
+        self.coord.mark_rested(key, now);
         self.spawn
             .dropped
             .lock()
@@ -855,26 +893,43 @@ impl Services {
         }
     }
 
-    /// A session presence lists again under a resting key: the person's
-    /// Revive, or a `claude --resume` by hand. Its process is back, so it
-    /// no longer rests (the `agent.seen` its Added writes says so on every
-    /// device).
-    pub(crate) fn rest_ended_by_session(&self, key: &str) {
+    /// A session presence lists under a resting key. One that started after
+    /// the rest is the person's Revive or a `claude --resume` by hand: its
+    /// process is back, so it no longer rests (the `agent.seen` its Added
+    /// writes says so on every device), and this returns true. One that
+    /// started before is the rested life's own process, still exiting (a
+    /// restart came before its stop took): it is stopped again and stays
+    /// resting, and this returns false.
+    pub(crate) fn rest_ended_by_session(&self, card: &presence::AgentCard, stop_old: bool) -> bool {
         let _g = self
             .spawn
             .rest_lock
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        if self
+        let rested = self
             .spawn
+            .resting
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&card.key)
+            .map(|c| c.status_since);
+        let Some(at) = rested else {
+            return true;
+        };
+        if card.started_at.is_zero() || card.started_at.unix_nano() <= at.unix_nano() {
+            drop(_g);
+            if stop_old {
+                self.stop_job(&card.key);
+            }
+            return false;
+        }
+        self.spawn
             .resting
             .write()
             .unwrap_or_else(|e| e.into_inner())
-            .remove(key)
-            .is_some()
-        {
-            self.hub.publish(crate::events::CoreEvent::Roster);
-        }
+            .remove(&card.key);
+        self.hub.publish(crate::events::CoreEvent::Roster);
+        true
     }
 
     /// §7's fallback, while resting agents can't be woken: a fresh agent

@@ -181,6 +181,8 @@ fn cut_off(s: &Inner, c: &presence::AgentCard) -> bool {
     c.agent == "claude"
         && c.device_state.is_empty()
         && c.status != "gone"
+        // A resting agent has no process to attach (card #1215).
+        && c.status != coord::roster::RESTING
         && s.b.attached(&c.key) == Some(false)
 }
 

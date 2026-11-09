@@ -802,7 +802,7 @@ impl Fold {
             answer = a
                 .heard
                 .iter()
-                .filter(|k| **k != by && around.is_none_or(|f| f(k)))
+                .filter(|k| **k != by && around.is_none_or(|f| f(k)) && self.here_now(k))
                 .cloned()
                 .collect();
             watch.clear();

@@ -2106,7 +2106,13 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
     if let Some(r) = &t.rested
         && t.holders.is_empty()
     {
-        s.rested = Some(p.ref_(&r.was));
+        // Resting while it still rests; once it retired, it finished.
+        let who = p.ref_(&r.was);
+        if who.status == coord::roster::RESTING {
+            s.rested = Some(who);
+        } else if s.returned.is_none() {
+            s.returned = Some(who);
+        }
     }
     s
 }

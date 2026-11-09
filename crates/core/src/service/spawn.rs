@@ -1625,6 +1625,9 @@ pub(crate) struct SpawnState {
     pub dropped: Mutex<Vec<String>>,
     /// Held around every rest and retire, whichever thread writes it.
     pub rest_lock: Mutex<()>,
+    /// The let-go of every resting agent was made sure of once in this run
+    /// (a drop-off's is queued in memory, and Irori may quit before it).
+    pub rest_reconciled: std::sync::atomic::AtomicBool,
     /// Ends whose `claude stop`/`rm` failed (card #474): how many times,
     /// and when last. Tried again after [`END_RETRY`], at most
     /// [`END_TRIES`] times; `agent.gone` is never written again.
@@ -3756,7 +3759,8 @@ impl Services {
     /// wait ran out.
     fn sweep_ending(&self) {
         let now = (self.now)();
-        let due: Vec<(String, bool)> = {
+        type Due = (String, bool, Option<super::resting::Ending>);
+        let due: Vec<Due> = {
             let m = self.spawn.ending.lock().unwrap_or_else(|e| e.into_inner());
             let tries = self
                 .spawn
@@ -3771,7 +3775,8 @@ impl Services {
                 })
                 .filter_map(|(k, at)| {
                     // A rest asks for a hand-off since it began (card #1215).
-                    let given = match self.ending_kind(k) {
+                    let kind = self.ending_kind(k);
+                    let given = match kind {
                         Some(super::resting::Ending::Rest(_)) => self.rested_handoff(k, at),
                         _ => self.handed_off(k, &now),
                     };
@@ -3779,12 +3784,25 @@ impl Services {
                     // still owes the person its "wound down", so it is
                     // ended once it replied, or after the wait.
                     let ready = given && !self.winding_down(k);
-                    (ready || at_least(&now, at, HANDOFF_WAIT)).then(|| (k.clone(), given))
+                    (ready || at_least(&now, at, HANDOFF_WAIT)).then(|| (k.clone(), given, kind))
                 })
                 .collect()
         };
-        for (k, given) in due {
-            let kind = self.ending_kind(&k);
+        for (k, given, seen) in due {
+            // Another sweep (the person's End runs one off the sweep thread)
+            // may have finished it since: never end what it rested.
+            if !self
+                .spawn
+                .ending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(&k)
+            {
+                continue;
+            }
+            // A rest turned into a retire since (End, a lift) is read again;
+            // a kind cleared under us keeps the one seen.
+            let kind = self.ending_kind(&k).or(seen);
             let res = match kind {
                 Some(super::resting::Ending::Rest(r)) => self.rest_now(&k, given, r),
                 Some(super::resting::Ending::Retire(r)) => self.retire_now(&k, given, r),

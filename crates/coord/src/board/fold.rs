@@ -330,6 +330,9 @@ pub struct Fold {
     /// went before the Core restarted counts as absent since then, not
     /// since the restart (card #110; #81 stayed held across restarts).
     pub(crate) gone_rows: HashMap<String, GoTime>,
+    /// When each of this device's spawned agents last rested (card #1215),
+    /// kept after it retires: what it let go of, it let go of then.
+    pub(crate) rest_times: HashMap<String, GoTime>,
     /// The spawned_for mark (card #446): the card each spawned agent was
     /// started for, kept after it goes.
     pub(crate) spawned: HashMap<String, super::spawn::Spawned>,
@@ -560,6 +563,7 @@ impl Fold {
             held: BTreeMap::new(),
             first_absent: HashMap::new(),
             gone_rows: HashMap::new(),
+            rest_times: HashMap::new(),
             spawned: HashMap::new(),
             spawned_keys: Arc::new(RwLock::new(HashSet::new())),
             ended_by_irori: HashSet::new(),
@@ -671,8 +675,13 @@ impl Fold {
     /// later `agent.seen`) into [`Fold::gone_rows`].
     fn replay_gone(&mut self, st: &Store) -> Result<()> {
         self.gone_rows.clear();
+        self.rest_times.clear();
         let mut f = store::Filter {
-            kinds: vec![kinds::AGENT_GONE.to_string(), kinds::AGENT_SEEN.to_string()],
+            kinds: vec![
+                kinds::AGENT_GONE.to_string(),
+                kinds::AGENT_SEEN.to_string(),
+                kinds::AGENT_REST.to_string(),
+            ],
             limit: store::MAX_LIST_LIMIT,
             ..store::Filter::default()
         };
@@ -698,9 +707,13 @@ impl Fold {
                     self.ended_by_irori.insert(k.clone());
                     self.usage_limited.insert(k.clone());
                 }
-                if ev.kind == kinds::AGENT_GONE {
+                if ev.kind == kinds::AGENT_REST {
+                    self.rest_times.insert(k, gotime::hlc_wall(ev.hlc));
+                } else if ev.kind == kinds::AGENT_GONE {
                     self.gone_rows.insert(k, gotime::hlc_wall(ev.hlc));
                 } else {
+                    // A new process: its earlier rest is no let-go of now.
+                    self.rest_times.remove(&k);
                     self.gone_rows.remove(&k);
                 }
             }

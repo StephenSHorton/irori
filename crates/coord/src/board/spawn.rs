@@ -1137,7 +1137,11 @@ impl Fold {
         // it, never before the request. A word the person wrote while it
         // worked was its to answer, so it starts no other (and a quiet
         // retire after a rest doesn't either).
-        let let_go = rested.or_else(|| self.gone_rows.get(&s.key).copied());
+        // After a retire its rest still counts: a word the person wrote
+        // while it rested starts the next agent.
+        let let_go = rested
+            .or_else(|| self.rest_times.get(&s.key).copied())
+            .or_else(|| self.gone_rows.get(&s.key).copied());
         let since = match let_go {
             Some(at) if gotime::before(&s.at, &at) => at,
             _ => s.at,

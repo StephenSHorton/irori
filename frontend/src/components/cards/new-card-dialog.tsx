@@ -110,7 +110,12 @@ export function NewCardDialog({
   const [error, setError] = useState<string | null>(null)
   const attach = useFileAttach(busy, "", draft?.files)
   const agents = useMentionCandidates(open).filter(
-    (c) => c.who.live && !c.board && !spawned?.has(c.who.key)
+    // A resting agent Irori started is never offered (card #1215).
+    (c) =>
+      c.who.live &&
+      c.who.status !== "resting" &&
+      !c.board &&
+      !spawned?.has(c.who.key)
   )
   // Each space has its own switch, off by default (card #573). The other
   // members can be given the card: their Irori asks them first.
