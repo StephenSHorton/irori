@@ -281,11 +281,17 @@ impl Reader {
 
     /// The bytes to feed for `raw`: bare LFs become CRLF (no PTY, so no
     /// ONLCR), and a tail that started mid-file drops its partial line.
+    /// A CR ends that line too: a progress bar redraws with bare CRs, and
+    /// 2 MB of one would otherwise show nothing until its next LF.
     fn convert(&mut self, mut raw: &[u8]) -> Vec<u8> {
         if self.skip_line {
-            match raw.iter().position(|&b| b == b'\n') {
+            match raw.iter().position(|&b| b == b'\n' || b == b'\r') {
                 Some(i) => {
-                    raw = &raw[i + 1..];
+                    let crlf = raw[i] == b'\r' && raw.get(i + 1) == Some(&b'\n');
+                    // A CR that ends the chunk: an LF that follows it in
+                    // the next chunk is already a CRLF.
+                    self.cr = raw[i] == b'\r' && !crlf;
+                    raw = &raw[i + 1 + usize::from(crlf)..];
                     self.skip_line = false;
                 }
                 None => return Vec::new(),
@@ -526,5 +532,22 @@ mod tests {
         assert_eq!(r.convert(b"half"), b"");
         assert_eq!(r.convert(b" line\nwhole\n"), b"whole\r\n");
         assert_eq!(r.total, 6);
+    }
+
+    #[test]
+    fn a_tail_from_mid_file_also_stops_skipping_at_a_cr() {
+        // A progress bar that only ever redraws with CR.
+        let mut r = Reader::new();
+        r.skip_line = true;
+        assert_eq!(r.convert(b"ss 41%\rbar 42%\rbar 43%"), b"bar 42%\rbar 43%");
+        // A CRLF ends the partial line in one go.
+        let mut r = Reader::new();
+        r.skip_line = true;
+        assert_eq!(r.convert(b"half\r\nwhole\n"), b"whole\r\n");
+        // A CR that ends the chunk keeps the next chunk's LF bare.
+        let mut r = Reader::new();
+        r.skip_line = true;
+        assert_eq!(r.convert(b"half\r"), b"");
+        assert_eq!(r.convert(b"\nwhole\n"), b"\nwhole\r\n");
     }
 }
