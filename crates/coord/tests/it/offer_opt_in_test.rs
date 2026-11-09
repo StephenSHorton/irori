@@ -230,3 +230,40 @@ fn the_persons_start_skips_a_failed_spawns_wait() {
         .unwrap();
     assert!(e.c.cards_to_spawn().is_empty());
 }
+
+/// Card #1144 (list-signals.md §3.2): the person's start changes the card's
+/// "can't start" words, so spawn_now notes the card once; asking again
+/// while it is already asked for is quiet. The request that clears the
+/// ask notes the card too (its own row would as well, so that last check
+/// only shows nothing is lost).
+#[test]
+fn spawn_now_notes_the_card_once() {
+    let mut e = Env::new();
+    e.c = e.reopen_with(Options {
+        spawning: Some(Arc::new(|| true)),
+        ..e.opts()
+    });
+    let t = e.c.create_task(USER, nt("Trust and start")).unwrap();
+    let g =
+        e.c.request_spawn("irori", spawn_ask(&t.id))
+            .unwrap()
+            .unwrap();
+    e.c.end_spawn("irori", &t.id, g, SPAWN_FAILED, "not trusted")
+        .unwrap();
+    let q = e.c.subscribe();
+    e.c.spawn_now(&t.id);
+    assert_eq!(
+        drain_changes(&q),
+        vec![Change {
+            kind: TASK_CHANGED.into(),
+            task_id: t.id.clone(),
+            ..Change::default()
+        }]
+    );
+    e.c.spawn_now(&t.id);
+    assert!(drain_changes(&q).is_empty(), "already asked for");
+    e.c.request_spawn("irori", spawn_ask(&t.id))
+        .unwrap()
+        .unwrap();
+    assert!(task_changed_ids(&drain_changes(&q)).contains(&t.id));
+}

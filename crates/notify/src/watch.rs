@@ -335,6 +335,8 @@ async fn run(
                 return;
             }
             Ev::Ask(None) => ach = None,
+            // An empty id is every ask: a re-fold, or ids this reader lost.
+            Ev::Ask(Some(id)) if id.is_empty() => w.asks_all(),
             Ev::Ask(Some(id)) => w.ask(&id),
             Ev::Inbox(None) => ich = None,
             Ev::Inbox(Some(c)) => {
@@ -607,6 +609,24 @@ impl State {
         self.needs = needs;
         self.unclaimed = unclaimed;
         self.returned = returned;
+    }
+
+    /// Brings every ask's card in line: the ones shown (cleared when gone
+    /// or resolved) and every open one.
+    fn asks_all(&mut self) {
+        let Some(asks) = self.s.asks.clone() else {
+            return;
+        };
+        for id in self.asks.clone() {
+            if asks.get(&id).is_none() && self.asks.remove(&id) {
+                self.n.clear(&ask_id(&id));
+            }
+        }
+        let mut ids: Vec<String> = self.asks.iter().cloned().collect();
+        ids.extend(asks.open().into_iter().map(|a| a.id));
+        for id in ids {
+            self.ask(&id);
+        }
     }
 
     /// Brings one ask's card in line: posted while it waits for an answer,

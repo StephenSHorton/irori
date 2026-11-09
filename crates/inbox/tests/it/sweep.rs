@@ -168,6 +168,44 @@ fn sweep_moves_unengaged_repo_work_once() {
     h.want_state(&nd.id, st::DELIVERED);
 }
 
+/// A sweep move writes a new delivery for the new recipient, marked
+/// `created` (Talk shows it as a new DM), and the old one's MovedAway is
+/// not (card #1144, list-signals.md §3.2).
+#[test]
+fn a_move_marks_only_the_new_delivery_created() {
+    let h = Harness::new();
+    h.abc();
+    h.ib.set_reachable(KEY_A, path::MOD, true);
+    h.clk.advance(secs(1));
+    h.ib.set_reachable(KEY_B, path::MOD, true);
+    let (_, d) = h.send(&claude(KEY_C, "gamma"), &to_repo("repo1"), "review");
+    assert_eq!(d.to, KEY_A);
+    let w = h.wake(KEY_A);
+    h.ib.mark_delivered(KEY_A, &w.token).unwrap();
+    let sub = h.ib.subscribe();
+    h.clk.advance(UNENGAGED_LIMIT + secs(1));
+    h.sweep();
+    assert_eq!(h.want_state(&d.id, st::MOVED).moved_to, KEY_B);
+    let open = h.ib.for_agent(KEY_B, false, 0);
+    assert!(open.len() == 1 && open[0].message_id == d.message_id);
+    let nd = open[0].id.clone();
+    let cs = sub.drain();
+    let old: Vec<_> = cs.iter().filter(|c| c.delivery_id == d.id).collect();
+    assert!(
+        old.len() == 1
+            && old[0].kind == ChangeKind::MovedAway
+            && old[0].to == KEY_A
+            && !old[0].created,
+        "{cs:?}"
+    );
+    let new: Vec<_> = cs.iter().filter(|c| c.delivery_id == nd).collect();
+    assert!(
+        new.len() == 1 && new[0].created && new[0].to == KEY_B,
+        "{cs:?}"
+    );
+    assert_eq!(cs.iter().filter(|c| c.created).count(), 1, "{cs:?}");
+}
+
 #[test]
 fn sweep_gone_holder() {
     let on_card = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -539,4 +577,33 @@ fn sweep_assigns_held_policy_on_arrival() {
     h.sweep();
     let got = h.want_state(&d.id, st::HELD);
     assert!(got.hold == hold::BLOCKED && got.to == KEY_A);
+}
+
+/// Card #1144 (list-signals.md §3.2): repo work nobody could take yet,
+/// handed out once an agent comes (the sweep's assign), names who it was
+/// to before (nobody), so Talk shows its message in the new DM. Only that
+/// row says so.
+#[test]
+fn an_assign_names_the_recipient_it_had() {
+    let h = Harness::new();
+    h.abc();
+    h.ib.set_reachable(KEY_A, path::MOD, true);
+    let (_, d) = h.send(&claude(KEY_A, "alpha"), &to_repo("repo2"), "local work");
+    assert_eq!(d.to, "");
+    let sub = h.ib.subscribe();
+    h.ib.set_reachable(KEY_C, path::MOD, true);
+    h.sweep();
+    assert_eq!(h.state(&d.id).to, KEY_C);
+    let cs = sub.drain();
+    let mine: Vec<_> = cs.iter().filter(|c| c.delivery_id == d.id).collect();
+    assert!(
+        mine.iter()
+            .any(|c| c.was_to.as_deref() == Some("") && c.to == KEY_C && !c.created),
+        "{cs:?}"
+    );
+    assert_eq!(
+        cs.iter().filter(|c| c.was_to.is_some()).count(),
+        1,
+        "{cs:?}"
+    );
 }

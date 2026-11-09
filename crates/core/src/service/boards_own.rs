@@ -663,7 +663,9 @@ impl Services {
         // Its channels leave Talk now (card #461); after the threads
         // stop, so no late row folds them back.
         if self.talk.drop_space(id) {
-            self.hub.publish(crate::events::CoreEvent::Talk);
+            self.hub.publish(crate::events::CoreEvent::Talk(
+                crate::events::TalkChange::all(),
+            ));
         }
     }
 
