@@ -29,6 +29,8 @@ mod notify_android;
 mod probe;
 #[cfg(target_os = "macos")]
 mod quit_mac;
+#[cfg(desktop)]
+mod relaunch;
 mod shot;
 mod sync_out;
 // No tray on a phone (card #226): the same API with nothing behind it.
@@ -69,6 +71,13 @@ fn context() -> tauri::Context<tauri::Wry> {
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
+    // Card #1095: the copy a Reset started waits for the old one to exit,
+    // before the lockfile test below would hand the launch to it.
+    // SAFETY: first thing in the window role, before any thread is spawned.
+    #[cfg(desktop)]
+    unsafe {
+        relaunch::wait_if_relaunched()
+    };
     let launched = std::time::Instant::now();
     // Opened from Finder, the Dock or at login, the app has launchd's PATH:
     // take the login shell's before anything starts claude, git or gh.
@@ -605,7 +614,7 @@ fn start_core(
     core.set_spawn_default_on(true);
     app.manage(core.clone());
     app.manage(window.clone());
-    wire_window(app, &window);
+    wire_window(app, &window, &s.updater);
     wire_opener(app, &s.notifier);
     let keep_stop = s.pumps_stop.clone();
     irori_window::events::start(window.clone(), s.pumps_stop);
@@ -823,8 +832,8 @@ fn header(req: &tauri::http::Request<Vec<u8>>, name: &str) -> String {
 }
 
 /// The window's hooks into the app: events, the OS opener, and Reset
-/// quitting the app.
-fn wire_window(app: &AppHandle, window: &Arc<Window>) {
+/// quitting the app and opening it again (card #1095).
+fn wire_window(app: &AppHandle, window: &Arc<Window>, updater: &Arc<::update::Updater>) {
     let h = app.clone();
     window.set_emitter(move |name, payload| {
         let _ = h.emit(name, payload);
@@ -836,15 +845,56 @@ fn wire_window(app: &AppHandle, window: &Arc<Window>) {
             .map_err(|e| e.to_string())
     });
     let h = app.clone();
+    #[cfg_attr(mobile, allow(unused_variables))]
+    let updater = updater.clone();
     window.set_on_reset(move || {
         let h = h.clone();
+        #[cfg_attr(mobile, allow(unused_variables))]
+        let updater = updater.clone();
         // The call returns to the window first.
         sync_out::skip();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(300));
+            // A phone can't start itself again: it just quits.
+            #[cfg(desktop)]
+            reopen_after_reset(&updater);
             h.exit(0);
         });
     });
+}
+
+/// Reset's way back (card #1095): the next start finishes the Reset, so
+/// something must start Irori again. With an update ready, quitting would
+/// install it (`install_on_exit`) and swap the app under a copy started
+/// here, so the updater's own restart installs it and opens the new
+/// version instead. Otherwise a copy of this exe waits for this one to exit
+/// ([`relaunch`]). Either failing leaves the old behaviour: Irori quits and
+/// the Reset finishes when it is opened by hand.
+#[cfg(desktop)]
+fn reopen_after_reset(updater: &::update::Updater) {
+    match updater.restart_to_update() {
+        Ok(()) => {
+            irori_core::log("irori: Reset: installing the ready update, which opens Irori again");
+            return;
+        }
+        // Ready but its launch failed: quitting tries the install again,
+        // so no copy of this version may start.
+        Err(e) if updater.status().phase == ::update::PHASE_READY => {
+            irori_core::log(&format!(
+                "irori: Reset: {e}; open Irori again by hand to finish the Reset"
+            ));
+            return;
+        }
+        Err(_) => {}
+    }
+    match relaunch::spawn_after_exit() {
+        Ok(pid) => irori_core::log(&format!(
+            "irori: Reset: quitting; pid {pid} opens Irori again"
+        )),
+        Err(e) => irori_core::log(&format!(
+            "irori: Reset: could not open Irori again ({e}); open it by hand to finish the Reset"
+        )),
+    }
 }
 
 /// A card's Open (Go `notifier.SetOpener`): show the window, then tell

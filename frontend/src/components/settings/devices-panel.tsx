@@ -28,6 +28,7 @@ import {
 } from "@/lib/devices"
 import { parseTime, plainLine, relativeTime, useNow } from "@/lib/irori"
 import { isMac } from "@/lib/commands"
+import { isAndroid } from "@/updater/android"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
@@ -302,12 +303,14 @@ function DeviceRow({
             <ConfirmButton
               label="Reset"
               variant="destructive"
-              confirmLabel="Reset and quit"
+              confirmLabel={isAndroid() ? "Reset and quit" : "Reset and restart"}
               question={
                 <>
                   Reset this device? Its event log, device id and keys move
-                  aside (nothing is deleted) and only the settings stay. Irori
-                  quits; open it again to pair this device as a new one.
+                  aside (nothing is deleted) and only the settings stay.{" "}
+                  {isAndroid()
+                    ? "Irori quits; open it again to pair this device as a new one."
+                    : "Irori restarts as a new device, ready to pair."}
                 </>
               }
               onConfirm={() => actions.reset()}

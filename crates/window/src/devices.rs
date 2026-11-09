@@ -316,7 +316,8 @@ impl Window {
     }
 
     /// DevicesService.ResetDevice: marks the Reset for the next start; the
-    /// app quits after the call returns (the app's `on_reset`).
+    /// app quits after the call returns and, on a desktop, opens again to
+    /// finish it (the app's `on_reset`, card #1095).
     pub fn reset_device(&self) -> Result<(), String> {
         self.core.request_reset().map_err(|e| e.to_string())?;
         if let Some(f) = self.on_reset.get() {
