@@ -25,8 +25,8 @@ use store::{Filter, Store, kinds};
 
 use super::Services;
 use super::spawn_agents::{
-    AGENT_STARTS_CEILING, AGENT_STARTS_ON, AGENT_STARTS_ROW, AgentAsk, AgentStarts, REVIEWS_ON,
-    REVIEWS_ROW,
+    AGENT_STARTS_CEILING, AGENT_STARTS_ON, AGENT_STARTS_ROW, AgentAsk, AgentStarts,
+    REVIEW_STARTS_ON, REVIEW_STARTS_ROW, REVIEWS_ON, REVIEWS_ROW,
 };
 use crate::logf;
 
@@ -1550,6 +1550,9 @@ pub(crate) struct SpawnState {
     /// (merge-desk §12.8): `false` only when they turned it off, so no row
     /// means on.
     pub reviews_off: std::sync::atomic::AtomicBool,
+    /// "Start a reviewer on this machine when nobody else fits" (merge-desk
+    /// §12.10): `false` only when the person turned it off.
+    pub review_starts_off: std::sync::atomic::AtomicBool,
     /// Pause agents (card #665), by device: no start there while on.
     pub agents_pause: RwLock<HashMap<String, super::spawn_pause::AgentsPause>>,
     /// Cards an agent asked for an agent on, until the request is written.
@@ -1720,6 +1723,7 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
     let mut offers = HashMap::new();
     let mut starts = None;
     let mut reviews = REVIEWS_ON;
+    let mut review_starts = REVIEW_STARTS_ON;
     let mut pause = super::spawn_pause::PauseFold::default();
     for ev in evs {
         if ev.actor != "user" {
@@ -1770,6 +1774,10 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
                 // The person's switch for reviews without asking
                 // (merge-desk §12.8): on unless a row says off.
                 reviews = r.on.unwrap_or(REVIEWS_ON);
+            } else if r.device == REVIEW_STARTS_ROW {
+                // Their switch for a reviewer started on this machine
+                // (merge-desk §12.10): on unless a row says off.
+                review_starts = r.on.unwrap_or(REVIEW_STARTS_ON);
             } else if r.device == AGENT_STARTS_ROW {
                 starts = Some(AgentStarts {
                     on: r.on.unwrap_or(AGENT_STARTS_ON),
@@ -1810,6 +1818,8 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
     *s.agent_starts.write().unwrap_or_else(|e| e.into_inner()) = starts.unwrap_or_default();
     s.reviews_off
         .store(!reviews, std::sync::atomic::Ordering::SeqCst);
+    s.review_starts_off
+        .store(!review_starts, std::sync::atomic::Ordering::SeqCst);
     *s.offers.write().unwrap_or_else(|e| e.into_inner()) = offers;
     *s.agents_pause.write().unwrap_or_else(|e| e.into_inner()) = pause.done();
 }

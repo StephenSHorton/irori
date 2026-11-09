@@ -3387,6 +3387,17 @@ impl Core {
         self.s.set_reviews_unasked(on)
     }
 
+    /// "Start a reviewer on this machine when nobody else fits"
+    /// (merge-desk §12.10): on unless the person turned it off.
+    pub fn review_starts(&self) -> bool {
+        self.s.review_starts()
+    }
+
+    /// The person sets it, from the app only: no tool reaches this.
+    pub fn set_review_starts(&self, on: bool) -> Result<(), String> {
+        self.s.set_review_starts(on)
+    }
+
     /// "Transcribe what I say in calls" (card #656): on unless the person
     /// turned it off.
     pub fn call_transcribe(&self) -> bool {

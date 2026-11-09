@@ -453,6 +453,9 @@ export const AgentsService = {
   // "Agents review other people's PRs without asking" (merge-desk §12.8).
   Reviews: () => call(commands.agentsReviews()),
   SetReviews: (on: boolean) => call(commands.agentsReviewsSet(on)),
+  // "Start a reviewer on this machine when nobody else fits" (§12.10).
+  ReviewStarts: () => call(commands.agentsReviewStarts()),
+  SetReviewStarts: (on: boolean) => call(commands.agentsReviewStartsSet(on)),
   // The themes new agents' names come from (card #702), each with a switch.
   NamesThemes: () => call(commands.namesThemes()),
   NamesThemeSet: (id: string, on: boolean) =>
