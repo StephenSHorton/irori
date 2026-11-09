@@ -98,6 +98,9 @@ pub enum Grant {
         /// Their name as the snapshot had it, which the model may send.
         name: String,
         cards: Vec<String>,
+        /// The ids of every card given to the person when the turn began:
+        /// none of them is ever passed on, however it is spelled.
+        shut: Vec<String>,
     },
 }
 
@@ -363,12 +366,33 @@ impl Grants {
         }
         let to = to.trim();
         let mut s = self.lock();
+        // Every card any open give names, by id: a card in two gives is
+        // the person's contradiction, whichever the model spends.
+        let mut named: Vec<String> = vec![];
+        for g in &s.open {
+            if let Grant::Give { cards, .. } = g {
+                for c in cards {
+                    let Some(id) = resolve(c) else {
+                        continue;
+                    };
+                    if named.contains(&id) {
+                        return None;
+                    }
+                    named.push(id);
+                }
+            }
+        }
         let i = s.open.iter().position(|g| match g {
             Grant::Give {
                 to: key,
                 name,
                 cards,
+                shut,
             } => {
+                // A card given to the person is never passed on.
+                if sent.iter().any(|id| shut.contains(id)) {
+                    return false;
+                }
                 let who = *key == to || (!name.is_empty() && name.eq_ignore_ascii_case(to));
                 let mut want: Vec<String> = vec![];
                 for c in cards {

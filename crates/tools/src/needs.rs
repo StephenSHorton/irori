@@ -57,6 +57,13 @@ fn name_of(known: &BTreeMap<String, String>, key: &str) -> String {
         .unwrap_or_else(|| "another person".into())
 }
 
+/// A member's chosen name where Irori's own words are, outside a fence:
+/// quoted and escaped, so it reads as a name and can't open a fence or
+/// pass for Irori's line.
+fn named(name: &str) -> String {
+    crate::format::q(&crate::format::escape(&one_line(name, MAX_NAME)))
+}
+
 fn state_of(co: &coord::Coord, t: &Task) -> ItemState {
     let Some(g) = t.given.as_ref() else {
         return ItemState::NotAsked;
@@ -213,7 +220,7 @@ pub(crate) fn needs_you(s: &Inner, _c: &Caller, raw: &[u8]) -> String {
                     .filter(|x| (&x.giver_key, &x.batch) == (&here.0, &here.1))
                     .count();
                 let via = if r.via_assistant {
-                    format!(" (via {}'s assistant)", r.giver_name)
+                    format!(" (via {}'s assistant)", named(&r.giver_name))
                 } else {
                     String::new()
                 };
@@ -222,7 +229,10 @@ pub(crate) fn needs_you(s: &Inner, _c: &Caller, raw: &[u8]) -> String {
                 } else {
                     format!("{n} tasks")
                 };
-                out.push_str(&format!("\n{} gave you {what}{via}.\n", r.giver_name));
+                out.push_str(&format!(
+                    "\n{} gave you {what}{via}.\n",
+                    named(&r.giver_name)
+                ));
                 let note = r.note.trim();
                 if !note.is_empty() {
                     out.push_str(&format!(
@@ -257,7 +267,7 @@ pub(crate) fn needs_you(s: &Inner, _c: &Caller, raw: &[u8]) -> String {
                 let mut line = format!(
                     "- {}, given back by {}: Keep it or Cancel it",
                     t.short_ref(),
-                    one_line(&who, MAX_NAME),
+                    named(&who),
                 );
                 if why.is_empty() {
                     line.push_str(" (no reason given)");
@@ -379,19 +389,28 @@ pub(crate) fn assistant_give_back(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Ok(v) => v,
         Err(e) => return map_err(e),
     };
-    let giver = co
-        .get_task(&id)
-        .and_then(|t| t.given)
-        .map(|g| format!("{}{}", store::kinds::PERSON_ACTOR_PREFIX, g.by_person))
-        .map(|k| name_of(&s.b.known_names(), &k))
-        .unwrap_or_else(|| "its owner".into());
     match co.give_back(&keys[0], &id, &reason) {
-        Ok(t) if reason.is_empty() => format!("Gave {} back to {giver}.", t.short_ref()),
-        Ok(t) => format!(
-            "Gave {} back to {giver}: \u{201c}{}\u{201d}",
-            t.short_ref(),
-            one_line(&reason, 100)
-        ),
+        Ok(t) => {
+            // It goes to whoever decides on the card, its owner, who may
+            // not be the person who gave it (#432).
+            let owner = t
+                .blockers
+                .iter()
+                .rev()
+                .find(|b| b.given_back && b.open())
+                .and_then(|b| b.on.as_ref())
+                .map(|o| name_of(&s.b.known_names(), &o.reference))
+                .unwrap_or_else(|| "its owner".into());
+            if reason.is_empty() {
+                format!("Gave {} back to {owner}.", t.short_ref())
+            } else {
+                format!(
+                    "Gave {} back to {owner}: \u{201c}{}\u{201d}",
+                    t.short_ref(),
+                    one_line(&reason, 100)
+                )
+            }
+        }
         Err(e) => map_err(e),
     }
 }

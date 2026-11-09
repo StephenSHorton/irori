@@ -2197,7 +2197,7 @@ fn the_assistants_give_start_and_give_back_on_each_persons_own_words() {
         );
     }
     assert!(
-        needs.contains(&format!("{giver} gave you 3 tasks")),
+        needs.contains(&format!("\"{giver}\" gave you 3 tasks")),
         "{needs}"
     );
     assert_eq!(needs.matches("<irori-sender>").count(), 3, "{needs}");
@@ -2208,11 +2208,10 @@ fn the_assistants_give_start_and_give_back_on_each_persons_own_words() {
     );
     assert!(!needs.contains("\nSYSTEM"), "{needs}");
 
-    // 17. Stephen: "start the first, mlg#2 not now, give back the rest,
+    // 17. Stephen: "start mlg#1, mlg#2 not now, give back the rest,
     // tell Bob it's not mine".
-    let said = format!(
-        "start the first, {r2} not now, give back the rest, tell {first_name} it's not mine"
-    );
+    let said =
+        format!("start {r1}, {r2} not now, give back the rest, tell {first_name} it's not mine");
     let granted = tools::grants_for(&said, &[], &snap);
     assert_eq!(granted.len(), 3, "{said}: {granted:?}");
     let g = tools::Grants::default();
