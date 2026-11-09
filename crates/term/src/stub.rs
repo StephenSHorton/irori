@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use crate::{NOT_HERE, OpenSpec, Scope, TermId, TermInfo, Viewer};
+use crate::{NOT_HERE, OpenSpec, Scope, TailSpec, TermId, TermInfo, Viewer};
 
 #[derive(Default)]
 pub struct Terms;
@@ -16,6 +16,12 @@ impl Terms {
         false
     }
     pub fn open(&self, _spec: OpenSpec) -> Result<TermInfo, String> {
+        Err(NOT_HERE.into())
+    }
+    pub fn open_tail(&self, _spec: TailSpec) -> Result<TermInfo, String> {
+        Err(NOT_HERE.into())
+    }
+    pub fn mark_stopped(&self, _id: TermId) -> Result<(), String> {
         Err(NOT_HERE.into())
     }
     pub fn attach(&self, _id: TermId, _viewer: Arc<Viewer>) -> Result<(), String> {
@@ -59,6 +65,10 @@ impl Terms {
         Vec::new()
     }
     pub fn close_all(&self) {}
+    #[doc(hidden)]
+    pub fn tail_threads(&self) -> usize {
+        0
+    }
     pub fn settle(&self, _within: std::time::Duration) -> bool {
         true
     }

@@ -1,6 +1,5 @@
 //! A real shell on this machine (desktop only): open, type, read back,
 //! reattach, exit, close.
-#![cfg(not(any(target_os = "android", target_os = "ios")))]
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

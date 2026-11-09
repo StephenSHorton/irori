@@ -1,7 +1,7 @@
 //! The PTY half, on desktop: rsz-term panes.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
@@ -9,7 +9,11 @@ use base64::Engine as _;
 use parking_lot::Mutex;
 use rsz_term::{Out, Pane, PaneConfig, Sink};
 
-use crate::{NO_TERM, OpenSpec, Scope, TermId, TermInfo, TermMsg, Viewer};
+use crate::tail::{Emit, Tail, TailOut};
+use crate::{NO_TERM, OpenSpec, Scope, TailSpec, TermId, TermInfo, TermMsg, Viewer};
+
+/// What `write` and `paste` answer for a tail (live-tasks.md section 5.1).
+const READ_ONLY: &str = "read only";
 
 /// Every terminal on this device.
 pub struct Terms {
@@ -19,13 +23,24 @@ pub struct Terms {
     /// removes its shell's bootstrap folder (rsz-zdot-*, rsz-bash-* in the
     /// temp dir) only once the shell has exited, on its own thread (#960).
     closing: Mutex<Vec<Arc<Pane>>>,
+    /// Tail threads still running, for tests ([`Terms::tail_threads`]).
+    tail_threads: Arc<AtomicUsize>,
+}
+
+/// What feeds a terminal: a shell's PTY, or a run's output file.
+#[derive(Clone)]
+enum Src {
+    Pty(Arc<Pane>),
+    /// Kept after its run ends: the tab still scrolls and redraws.
+    Tail(Arc<Tail>),
 }
 
 struct Entry {
     scope: Scope,
     cwd: String,
-    /// `None` once the shell exited (or before spawn returns).
-    pane: Option<Arc<Pane>>,
+    /// `None` once the shell exited (or before spawn returns). A tail's
+    /// stays until the terminal is closed.
+    src: Option<Src>,
     viewer: Option<Arc<Viewer>>,
     cache: Cache,
 }
@@ -40,7 +55,7 @@ struct Cache {
     /// Images' bytes by id, pruned on ImageDrop.
     images: Vec<(u32, TermMsg)>,
     placements: Option<TermMsg>,
-    exit: Option<Option<u32>>,
+    exit: Option<Option<i32>>,
 }
 
 impl Default for Terms {
@@ -55,6 +70,7 @@ impl Terms {
             next: AtomicU32::new(0),
             map: Arc::new(Mutex::new(HashMap::new())),
             closing: Mutex::new(Vec::new()),
+            tail_threads: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -81,7 +97,7 @@ impl Terms {
             Entry {
                 scope: spec.scope.clone(),
                 cwd: cwd.clone(),
-                pane: None,
+                src: None,
                 viewer: None,
                 cache: Cache::default(),
             },
@@ -108,8 +124,11 @@ impl Terms {
         let mut map = self.map.lock();
         match map.get_mut(&id) {
             // The shell may already have exited; then the entry keeps no pane.
-            Some(e) if e.cache.exit.is_none() => e.pane = Some(pane),
-            _ => self.closed(vec![pane]),
+            Some(e) if e.cache.exit.is_none() => e.src = Some(Src::Pty(pane)),
+            _ => {
+                drop(map);
+                self.closed(vec![Src::Pty(pane)]);
+            }
         }
         Ok(TermInfo {
             id,
@@ -117,23 +136,97 @@ impl Terms {
             cwd,
             title: String::new(),
             running: true,
+            tail: None,
         })
+    }
+
+    /// Opens a read-only terminal on a run's output file (live-tasks.md
+    /// section 5.1): no PTY, the file fed into the engine as it grows,
+    /// frames as a shell's. It shows the run's end as an `Exit` and stays
+    /// until closed; closing it never touches the run.
+    pub fn open_tail(&self, spec: TailSpec) -> Result<TermInfo, String> {
+        let cwd = spec
+            .path
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
+        self.map.lock().insert(
+            id,
+            Entry {
+                scope: spec.scope.clone(),
+                cwd: cwd.clone(),
+                src: None,
+                viewer: None,
+                cache: Cache::default(),
+            },
+        );
+        let tail = Tail::start(
+            spec.path,
+            spec.label,
+            spec.run,
+            emit(Arc::downgrade(&self.map), id),
+            &self.tail_threads,
+        );
+        let tail = match tail {
+            Ok(t) => Arc::new(t),
+            Err(e) => {
+                self.map.lock().remove(&id);
+                return Err(e);
+            }
+        };
+        let info = {
+            let mut map = self.map.lock();
+            map.get_mut(&id).map(|e| {
+                e.src = Some(Src::Tail(tail.clone()));
+                TermInfo {
+                    id,
+                    scope: spec.scope,
+                    cwd,
+                    title: e.cache.title.clone(),
+                    running: e.cache.exit.is_none(),
+                    tail: Some(tail.info(e.cache.exit)),
+                }
+            })
+        };
+        match info {
+            Some(i) => Ok(i),
+            // Closed before it was even returned.
+            None => {
+                tail.join();
+                Err(NO_TERM.into())
+            }
+        }
+    }
+
+    /// The person pressed Stop on a tail's run: its view says "Stopped"
+    /// whatever end follows (live-tasks.md section 5.1).
+    pub fn mark_stopped(&self, id: TermId) -> Result<(), String> {
+        match self.src(id)? {
+            Src::Tail(t) => {
+                t.mark_stopped();
+                Ok(())
+            }
+            Src::Pty(_) => Err("not a tail".into()),
+        }
     }
 
     /// The view for a terminal: the cached state first, then a full frame.
     /// A second attach replaces the first view (one local view in S1).
     pub fn attach(&self, id: TermId, viewer: Arc<Viewer>) -> Result<(), String> {
-        let (pane, replay) = {
+        let (src, replay) = {
             let mut map = self.map.lock();
             let e = map.get_mut(&id).ok_or(NO_TERM)?;
             e.viewer = Some(viewer.clone());
-            (e.pane.clone(), e.cache.replay())
+            (e.src.clone(), e.cache.replay())
         };
         for m in replay {
             (viewer.msg)(m);
         }
-        if let Some(p) = pane {
-            p.redraw();
+        match src {
+            Some(Src::Pty(p)) => p.redraw(),
+            Some(Src::Tail(t)) => t.redraw(),
+            None => {}
         }
         Ok(())
     }
@@ -145,59 +238,87 @@ impl Terms {
         }
     }
 
+    /// Typing; a tail refuses it.
     pub fn write(&self, id: TermId, data: Vec<u8>) -> Result<(), String> {
-        self.pane(id)?.write(data);
+        match self.src(id)? {
+            Src::Pty(p) => p.write(data),
+            Src::Tail(_) => return Err(READ_ONLY.into()),
+        }
         Ok(())
     }
 
     pub fn paste(&self, id: TermId, text: &str) -> Result<(), String> {
-        self.pane(id)?.paste(text);
+        match self.src(id)? {
+            Src::Pty(p) => p.paste(text),
+            Src::Tail(_) => return Err(READ_ONLY.into()),
+        }
         Ok(())
     }
 
     pub fn resize(&self, id: TermId, cols: u16, rows: u16) -> Result<(), String> {
-        self.pane(id)?.resize(cols, rows);
+        match self.src(id)? {
+            Src::Pty(p) => p.resize(cols, rows),
+            Src::Tail(t) => t.resize(cols, rows),
+        }
         Ok(())
     }
 
     pub fn scroll(&self, id: TermId, delta: i32) -> Result<(), String> {
-        self.pane(id)?.scroll(delta);
+        match self.src(id)? {
+            Src::Pty(p) => p.scroll(delta),
+            Src::Tail(t) => t.scroll(delta),
+        }
         Ok(())
     }
 
+    /// A tail shows no images, so it has no use for the cell size.
     pub fn cell_px(&self, id: TermId, w: u16, h: u16) -> Result<(), String> {
-        self.pane(id)?.set_cell_px(w, h);
+        if let Src::Pty(p) = self.src(id)? {
+            p.set_cell_px(w, h);
+        }
         Ok(())
     }
 
+    /// A tail takes no input, so focus changes nothing.
     pub fn focus(&self, id: TermId, on: bool) -> Result<(), String> {
-        self.pane(id)?.set_focused(on);
+        if let Src::Pty(p) = self.src(id)? {
+            p.set_focused(on);
+        }
         Ok(())
     }
 
     pub fn redraw(&self, id: TermId) -> Result<(), String> {
-        self.pane(id)?.redraw();
+        match self.src(id)? {
+            Src::Pty(p) => p.redraw(),
+            Src::Tail(t) => t.redraw(),
+        }
         Ok(())
     }
 
     /// The local view painted frames up to `seq`.
     pub fn ack(&self, id: TermId, seq: u32) -> Result<(), String> {
         // A view may ack a frame that arrived just before the shell exited.
-        if let Ok(p) = self.pane(id) {
-            p.ack(seq);
+        match self.src(id) {
+            Ok(Src::Pty(p)) => p.ack(seq),
+            Ok(Src::Tail(t)) => t.ack(seq),
+            Err(_) => {}
         }
         Ok(())
     }
 
     /// The visible screen as text.
     pub fn screen_text(&self, id: TermId) -> Result<String, String> {
-        Ok(self.pane(id)?.screen_text())
+        Ok(match self.src(id)? {
+            Src::Pty(p) => p.screen_text(),
+            Src::Tail(t) => t.screen_text(),
+        })
     }
 
-    /// Kills the shell and forgets the terminal.
+    /// Kills the shell and forgets the terminal. A tail's threads stop;
+    /// its run goes on.
     pub fn close(&self, id: TermId) -> Result<(), String> {
         let e = self.map.lock().remove(&id).ok_or(NO_TERM)?;
-        self.closed(e.pane.into_iter().collect());
+        self.closed(e.src.into_iter().collect());
         Ok(())
     }
 
@@ -214,7 +335,11 @@ impl Terms {
                 scope: e.scope.clone(),
                 cwd: e.cwd.clone(),
                 title: e.cache.title.clone(),
-                running: e.pane.is_some(),
+                running: e.running(),
+                tail: match &e.src {
+                    Some(Src::Tail(t)) => Some(t.info(e.cache.exit)),
+                    _ => None,
+                },
             })
             .collect();
         v.sort_by_key(|t| t.id);
@@ -227,23 +352,25 @@ impl Terms {
             .map
             .lock()
             .iter()
-            .map(|(id, e)| (*id, e.scope.clone(), e.pane.is_some()))
+            .map(|(id, e)| (*id, e.scope.clone(), e.running()))
             .collect();
         v.sort_by_key(|t| t.0);
         v
     }
 
-    /// Closes every shell (Irori is quitting). It never joins: a stuck
-    /// shell must not hold up quit (design section 6.3). [`Terms::settle`]
-    /// waits for them, up to a deadline.
+    /// Closes every shell (Irori is quitting). It never joins a shell: a
+    /// stuck shell must not hold up quit (design section 6.3).
+    /// [`Terms::settle`] waits for them, up to a deadline. Tails' threads
+    /// are stopped and joined here (within one 100 ms poll).
     pub fn close_all(&self) {
-        let panes: Vec<_> = self
-            .map
-            .lock()
-            .drain()
-            .filter_map(|(_, e)| e.pane)
-            .collect();
-        self.closed(panes);
+        let srcs: Vec<_> = self.map.lock().drain().filter_map(|(_, e)| e.src).collect();
+        self.closed(srcs);
+    }
+
+    /// Tail threads still running on this device's terminals. For tests.
+    #[doc(hidden)]
+    pub fn tail_threads(&self) -> usize {
+        self.tail_threads.load(Ordering::SeqCst)
     }
 
     /// Waits, at most `within`, for every shell closed so far to be gone:
@@ -268,23 +395,43 @@ impl Terms {
         joined.is_ok() && rx.recv_timeout(within).is_ok()
     }
 
-    /// Closes `panes` and keeps them for [`Terms::settle`], forgetting
-    /// the ones whose shell has already gone.
-    fn closed(&self, panes: Vec<Arc<Pane>>) {
-        for p in &panes {
-            p.close();
+    /// Closes `srcs`: panes are kept for [`Terms::settle`], forgetting the
+    /// ones whose shell has already gone; tails are stopped and joined
+    /// (they have no bootstrap folder to wait on). Never called with the
+    /// map locked: a tail's threads take it to send.
+    fn closed(&self, srcs: Vec<Src>) {
+        let mut panes = Vec::new();
+        for s in srcs {
+            match s {
+                Src::Pty(p) => {
+                    p.close();
+                    panes.push(p);
+                }
+                Src::Tail(t) => t.join(),
+            }
         }
         let mut closing = self.closing.lock();
         closing.retain(|p| p.state() != rsz_term::State::Closed);
         closing.extend(panes);
     }
 
-    fn pane(&self, id: TermId) -> Result<Arc<Pane>, String> {
+    fn src(&self, id: TermId) -> Result<Src, String> {
         let map = self.map.lock();
         let e = map.get(&id).ok_or(NO_TERM)?;
-        e.pane
+        e.src
             .clone()
             .ok_or_else(|| "the shell has exited".to_string())
+    }
+}
+
+impl Entry {
+    /// A shell runs, or a tail's run has not ended.
+    fn running(&self) -> bool {
+        match &self.src {
+            Some(Src::Pty(_)) => true,
+            Some(Src::Tail(_)) => self.cache.exit.is_none(),
+            None => false,
+        }
     }
 }
 
@@ -326,8 +473,8 @@ fn sink(map: Weak<Mutex<HashMap<TermId, Entry>>>, id: TermId) -> Sink {
             Out::NoticeAlive(nid) => {
                 // Always answered, so OSC 99 queries never hang (design
                 // section 3). Irori shows no notices yet: none is live.
-                let p = map.lock().get(&id).and_then(|e| e.pane.clone());
-                if let Some(p) = p {
+                let p = map.lock().get(&id).and_then(|e| e.src.clone());
+                if let Some(Src::Pty(p)) = p {
                     p.reply(rsz_term::protocols::alive_reply(&nid, &[]));
                 }
                 return;
@@ -344,7 +491,11 @@ fn sink(map: Weak<Mutex<HashMap<TermId, Entry>>>, id: TermId) -> Sink {
                 prompts: st.prompts,
             },
             Out::CommandDone { exit, command } => TermMsg::CommandDone { exit, command },
-            Out::Exit(code) => TermMsg::Exit { code },
+            // suzuri's codes are u32; Windows' big ones wrap as they do
+            // in claude's own trailer.
+            Out::Exit(code) => TermMsg::Exit {
+                code: code.map(|c| c as i32),
+            },
             Out::Progress { state, percent } => TermMsg::Progress { state, percent },
             Out::ImageData(d) => TermMsg::Image {
                 id: d.id,
@@ -379,23 +530,59 @@ fn sink(map: Weak<Mutex<HashMap<TermId, Entry>>>, id: TermId) -> Sink {
                     .collect(),
             },
         };
-        let viewer = {
-            let mut m = map.lock();
-            let Some(e) = m.get_mut(&id) else { return };
-            remember(e, &msg);
-            e.viewer.clone()
+        deliver(&map, id, msg);
+    })
+}
+
+/// A tail's sends: the same frames and messages a pane's sink passes on.
+/// Answers false once the terminals are gone or the terminal was closed.
+fn emit(map: Weak<Mutex<HashMap<TermId, Entry>>>, id: TermId) -> Emit {
+    Arc::new(move |o: TailOut| {
+        let Some(map) = map.upgrade() else {
+            return false;
         };
-        if let Some(v) = viewer
-            && !(v.msg)(msg)
-        {
-            forget_viewer(&map, id, &v);
+        match o {
+            TailOut::Frame(b) => {
+                let v = {
+                    let m = map.lock();
+                    let Some(e) = m.get(&id) else { return false };
+                    e.viewer.clone()
+                };
+                if let Some(v) = v
+                    && !(v.frame)(b)
+                {
+                    forget_viewer(&map, id, &v);
+                }
+                true
+            }
+            TailOut::Msg(msg) => deliver(&map, id, msg),
         }
     })
 }
 
-/// Keeps what a later view needs, and drops the pane on Exit: this runs on
-/// rsz-term's actor thread, so the last `Arc<Pane>` may go here, which is
-/// safe because Pane has no joining Drop.
+/// Keeps what a later view needs and passes `msg` to the view. False when
+/// the terminal is gone.
+fn deliver(map: &Mutex<HashMap<TermId, Entry>>, id: TermId, msg: TermMsg) -> bool {
+    let viewer = {
+        let mut m = map.lock();
+        let Some(e) = m.get_mut(&id) else {
+            return false;
+        };
+        remember(e, &msg);
+        e.viewer.clone()
+    };
+    if let Some(v) = viewer
+        && !(v.msg)(msg)
+    {
+        forget_viewer(map, id, &v);
+    }
+    true
+}
+
+/// Keeps what a later view needs, and drops a shell's pane on Exit: this
+/// runs on rsz-term's actor thread, so the last `Arc<Pane>` may go here,
+/// which is safe because Pane has no joining Drop. A tail keeps its engine
+/// after its run ends, so it still scrolls and redraws.
 fn remember(e: &mut Entry, msg: &TermMsg) {
     let c = &mut e.cache;
     match msg {
@@ -410,7 +597,9 @@ fn remember(e: &mut Entry, msg: &TermMsg) {
         TermMsg::Placements { .. } => c.placements = Some(msg.clone()),
         TermMsg::Exit { code } => {
             c.exit = Some(*code);
-            e.pane = None;
+            if matches!(e.src, Some(Src::Pty(_))) {
+                e.src = None;
+            }
         }
         TermMsg::Bell | TermMsg::Clipboard { .. } | TermMsg::CommandDone { .. } => {}
     }

@@ -30,6 +30,9 @@ mod stub;
 pub use stub::Terms;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod tail;
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod replay;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub use replay::replay_text;
@@ -69,7 +72,43 @@ pub struct TermInfo {
     /// The shell's title, as the program last set it.
     pub title: String,
     /// The shell still runs (false: it exited, and the view offers Restart).
+    /// For a tail: its run has not ended yet.
     pub running: bool,
+    /// Set when this terminal is a read-only tail of a run's output file
+    /// (live-tasks.md section 5.1), not a shell.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub tail: Option<TailInfo>,
+}
+
+/// A tail terminal's run (live-tasks.md section 5.1), so a remounted tab
+/// shows how it ended at once.
+#[derive(Clone, Debug, PartialEq, Serialize, Type)]
+pub struct TailInfo {
+    /// The tab's name: the run's command.
+    pub label: String,
+    /// The run's claude task id.
+    pub run: String,
+    /// `None` while the run goes on; then its exit code, `Some(None)` when
+    /// it ended with no code (killed, or its file went away). On the wire
+    /// the field is absent while the run goes on and `null` for no code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub exit: Option<Option<i32>>,
+    /// The person pressed Stop ([`Terms::mark_stopped`]); the view says
+    /// "Stopped" whatever end follows.
+    pub stopped: bool,
+}
+
+/// How a tail terminal is opened ([`Terms::open_tail`]): no PTY, the run's
+/// output file fed into the terminal engine as it grows.
+#[derive(Clone, Debug)]
+pub struct TailSpec {
+    pub scope: Scope,
+    /// The run's `.output` file, as claude reported it.
+    pub path: std::path::PathBuf,
+    pub label: String,
+    pub run: String,
 }
 
 /// How a terminal is opened.
@@ -99,8 +138,10 @@ pub enum TermMsg {
     /// writes the clipboard on its own (design section 5).
     #[serde(rename = "clip")]
     Clipboard { text: String },
+    /// The shell exited, or a tail's run ended (`None`: no code, as when
+    /// a run was killed or its file went away).
     #[serde(rename = "exit")]
-    Exit { code: Option<u32> },
+    Exit { code: Option<i32> },
     #[serde(rename = "shell")]
     Shell {
         integrated: bool,
@@ -171,5 +212,27 @@ mod tests {
         assert_eq!(back, Scope::Device);
         let back: Scope = serde_json::from_str(r#"{"kind":"card","id":"t1"}"#).unwrap();
         assert_eq!(back, Scope::Card("t1".into()));
+    }
+
+    #[test]
+    fn a_tails_end_keeps_running_and_no_code_apart() {
+        let j = |exit| {
+            serde_json::to_string(&super::TailInfo {
+                label: "l".into(),
+                run: "b1".into(),
+                exit,
+                stopped: false,
+            })
+            .unwrap()
+        };
+        assert_eq!(j(None), r#"{"label":"l","run":"b1","stopped":false}"#);
+        assert_eq!(
+            j(Some(None)),
+            r#"{"label":"l","run":"b1","exit":null,"stopped":false}"#
+        );
+        assert_eq!(
+            j(Some(Some(-1))),
+            r#"{"label":"l","run":"b1","exit":-1,"stopped":false}"#
+        );
     }
 }
