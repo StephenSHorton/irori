@@ -1594,6 +1594,14 @@ impl Core {
                             (ib.clone(), co.clone(), asks.clone(), roster.clone());
                         Some(Arc::new(move || ignored_by(&ib, &co, &asks, &roster)))
                     },
+                    assistant_turns: {
+                        let cell = services_cell.clone();
+                        Some(Arc::new(move |turn: &str| {
+                            cell.get()
+                                .and_then(|w| w.upgrade())
+                                .and_then(|s| s.chat.stream_open(turn))
+                        }))
+                    },
                 },
             );
             let mut po =

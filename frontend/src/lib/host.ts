@@ -136,8 +136,8 @@ export const RosterService = {
   Recent: (limit: number) => call(commands.rosterRecent(limit)),
   Gone: (limit: number) => call(commands.rosterGone(limit)),
   Revive: (sessionId: string) => call(commands.rosterRevive(sessionId)),
-  // Check slots (card #437): this device's check.sh runs holding a slot.
-  CheckSlots: () => call(commands.rosterCheckSlots()),
+  // Slots (card #1167): the slots runs on this device hold, in any pool.
+  Slots: () => call(commands.rosterSlots()),
   // Stop (card #207): cuts the agent's running turn; text is its next prompt.
   Stop: (key: string, text: string) => done(commands.agentStop(key, text)),
 }

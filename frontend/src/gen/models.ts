@@ -87,7 +87,6 @@ export type CardWeight = B.CardWeight
 export type CardWhere = B.CardWhere
 export type Change = B.Change
 export type ChangeKind = B.ChangeKind
-export type CheckSlot = B.CheckSlot
 export type ClearedCard = B.ClearedCard
 export type Comment = B.Comment
 export type CommentResult = B.CommentResult
@@ -115,6 +114,7 @@ export type GoneWait = B.GoneWait
 export type HoldReason = B.HoldReason
 export type Holding = B.Holding
 export type HoldoutView = B.HoldoutView
+export type HomeCandidate = B.HomeCandidate
 export type HomeServerView = B.HomeServerView
 export type Identity = B.Identity
 export type IdleReport = B.IdleReport
@@ -169,6 +169,7 @@ export type Sender = B.Sender
 export type SharePreview = B.SharePreview
 export type ShareSourceView = B.ShareSourceView
 export type SharedCopy = B.SharedCopy
+export type SlotHeld = B.SlotHeld
 export type SpaceBoard = B.SpaceBoard
 export type StartedAgent = B.StartedAgent
 export type State = B.State
@@ -353,7 +354,7 @@ export function AssistantFile(p: Partial<B.AssistantFile> = {}): B.AssistantFile
 
 /** AssistantHomeStatus with Go's zero values for every field left out. */
 export function AssistantHomeStatus(p: Partial<B.AssistantHomeStatus> = {}): B.AssistantHomeStatus {
-  return { "device": "", "name": "", "here": false, "state": "", "lastSeenMs": 0, "claude": false, "chat": false, "none": "", ...p } as B.AssistantHomeStatus
+  return { "device": "", "name": "", "here": false, "state": "", "lastSeenMs": 0, "claude": false, "chat": false, "none": "", "candidates": [], ...p } as B.AssistantHomeStatus
 }
 
 /** AssistantImportAct with Go's zero values for every field left out. */
@@ -621,11 +622,6 @@ export function Change(p: Partial<B.Change> = {}): B.Change {
   return { "kind": "", "card": AgentCard(), ...p } as B.Change
 }
 
-/** CheckSlot with Go's zero values for every field left out. */
-export function CheckSlot(p: Partial<B.CheckSlot> = {}): B.CheckSlot {
-  return { "resource": "", "run": "", "until": "", ...p } as B.CheckSlot
-}
-
 /** ClearedCard with Go's zero values for every field left out. */
 export function ClearedCard(p: Partial<B.ClearedCard> = {}): B.ClearedCard {
   return { "id": "", "short": "", "title": "", "board": "", "thread": false, "updatedAt": "", ...p } as B.ClearedCard
@@ -739,6 +735,11 @@ export function GoneWait(p: Partial<B.GoneWait> = {}): B.GoneWait {
 /** HoldoutView with Go's zero values for every field left out. */
 export function HoldoutView(p: Partial<B.HoldoutView> = {}): B.HoldoutView {
   return { "deviceId": "", "name": "", ...p } as B.HoldoutView
+}
+
+/** HomeCandidate with Go's zero values for every field left out. */
+export function HomeCandidate(p: Partial<B.HomeCandidate> = {}): B.HomeCandidate {
+  return { "device": "", "name": "", "here": false, "state": "", "lastSeenMs": 0, ...p } as B.HomeCandidate
 }
 
 /** HomeServerView with Go's zero values for every field left out. */
@@ -984,6 +985,11 @@ export function SharePreview(p: Partial<B.SharePreview> = {}): B.SharePreview {
 /** ShareSourceView with Go's zero values for every field left out. */
 export function ShareSourceView(p: Partial<B.ShareSourceView> = {}): B.ShareSourceView {
   return { "id": "", "kind": "", "title": "", "app": "", "width": 0, "height": 0, ...p } as B.ShareSourceView
+}
+
+/** SlotHeld with Go's zero values for every field left out. */
+export function SlotHeld(p: Partial<B.SlotHeld> = {}): B.SlotHeld {
+  return { "pool": "", "run": "", "slot": 0, "limit": 0, "until": "", ...p } as B.SlotHeld
 }
 
 /** SpaceBoard with Go's zero values for every field left out. */
