@@ -83,7 +83,7 @@ pub use explore::spawned_lines;
 pub use format::{
     MAX_NAME, SENDER_NOTE, SENDER_TAG, clip, clip_mcp, escape, fence_sender, one_line,
 };
-pub use needs::needs_snapshot;
+pub use needs::{needs_snapshot, needs_snapshot_before};
 pub use notes::NotesBackend;
 pub use notify::{Action, Note, Notifier};
 pub use observe::redact;

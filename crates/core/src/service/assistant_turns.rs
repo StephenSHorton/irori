@@ -827,7 +827,7 @@ impl Services {
                 .this
                 .get()
                 .and_then(std::sync::Weak::upgrade)
-                .map(|me| tools::needs_snapshot(&super::ToolsView(me)))
+                .map(|me| tools::needs_snapshot_before(&super::ToolsView(me), asked_ms))
                 .unwrap_or_default();
             tools::grants_for(&turn.asked.text, &earlier, &snap)
         };

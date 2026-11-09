@@ -138,6 +138,8 @@ pub struct SnapItem {
     pub giver_name: String,
     pub batch: String,
     pub state: ItemState,
+    /// When it was given, in ms by the giver's clock.
+    pub given_ms: i64,
 }
 
 /// Someone the person shares a space with.
@@ -457,32 +459,60 @@ const POINTING: &[&str] = &["this", "that", "it"];
 pub fn grants_for(text: &str, earlier: &[&str], snap: &Snapshot) -> Vec<Grant> {
     // A paste or a list isn't a plain instruction, and a hold-back word
     // anywhere ("Close #5. But only if it passes.") takes the whole message.
-    if text.trim().contains('\n') {
+    // Any line break, however it is written, makes it a paste.
+    if text.trim().contains([
+        '\n', '\r', '\u{0b}', '\u{0c}', '\u{85}', '\u{2028}', '\u{2029}',
+    ]) {
         return vec![];
     }
     // The words after "tell ringo" are the person's to say whatever they
     // are, so this reads before the hold-back words do. "tell Spencer
     // it's too big, give back #15" isn't a message, though, when Spencer
-    // gave them cards: there it is the reason for the give-back.
+    // gave them cards: there it is the reason for the give-back, and only
+    // ever that (decision 69).
     let told = message_grant(text);
-    let to_giver = match &told {
-        Some(Grant::Send { to, .. }) => snap.items.iter().any(|it| {
-            let n = it.giver_name.to_lowercase();
-            n == *to || n.split_whitespace().next() == Some(to.as_str())
-        }),
-        _ => false,
+    let giver = match &told {
+        Some(Grant::Send { to, .. }) => snap
+            .items
+            .iter()
+            .find(|it| {
+                let n = it.giver_name.to_lowercase();
+                n == *to || n.split_whitespace().next() == Some(to.as_str())
+            })
+            .map(|it| it.giver_key.clone()),
+        _ => None,
     };
-    if let Some(g) = told.clone().filter(|_| !to_giver) {
-        return vec![g];
-    }
+    let Some(giver) = giver else {
+        if let Some(g) = told {
+            return vec![g];
+        }
+        return match super::assistant_needs::read(text, earlier, snap) {
+            super::assistant_needs::Read::Grants(g) => g,
+            super::assistant_needs::Read::Refused => vec![],
+            super::assistant_needs::Read::Not => close_tick(text, earlier),
+        };
+    };
+    // Told a giver: only give-backs of that giver's cards may follow, so a
+    // member named like the person's agent can't turn a message into
+    // anything else.
     match super::assistant_needs::read(text, earlier, snap) {
-        super::assistant_needs::Read::Grants(g) => return g,
-        super::assistant_needs::Read::Refused => return vec![],
-        super::assistant_needs::Read::Not => {}
+        super::assistant_needs::Read::Grants(g)
+            if g.iter().all(|x| match x {
+                Grant::GiveBack { card, .. } => snap
+                    .items
+                    .iter()
+                    .any(|it| it.id == *card && it.giver_key == giver),
+                _ => false,
+            }) =>
+        {
+            g
+        }
+        _ => vec![],
     }
-    if let Some(g) = told {
-        return vec![g];
-    }
+}
+
+/// Close and tick, as the person's message asks (card #987).
+fn close_tick(text: &str, earlier: &[&str]) -> Vec<Grant> {
     let sentences = sentences(text);
     if sentences
         .iter()
@@ -781,7 +811,7 @@ fn clause(
 /// The longest body either tool sends.
 const MAX_BODY: usize = 4000;
 /// Words that stand where an agent's name should but name nobody.
-const NOT_A_NAME: &[&str] = &[
+pub(crate) const NOT_A_NAME: &[&str] = &[
     "me",
     "you",
     "him",

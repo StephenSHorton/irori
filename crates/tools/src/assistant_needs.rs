@@ -8,10 +8,15 @@
 //! a `#12` written inside a task can't become one. Like the rest of
 //! [`super::assistant_writes`], it is narrow on purpose: a message that
 //! talks about Needs you but says more than this understands grants
-//! nothing, and the assistant offers Do it instead.
+//! nothing, and the assistant asks the person to say it plainly.
+//!
+//! Names in the snapshot are other members' own choice, so a name made of
+//! words the reader knows (a filler, an opener, a hold-back word, a verb,
+//! "the", "me") never matches, and a contraction ("let's", "that's") is
+//! never a possessive.
 
 use super::assistant_writes::{
-    Grant, HOLD_BACK, ItemState, OPENERS, SnapItem, Snapshot, is_ref, norm_ref, opening,
+    Grant, HOLD_BACK, ItemState, NOT_A_NAME, OPENERS, SnapItem, Snapshot, is_ref, norm_ref, opening,
 };
 
 /// What [`read`] made of a message.
@@ -34,22 +39,35 @@ struct Tok {
     stop: Option<char>,
 }
 
+/// Apostrophes as the person's keyboard may type them.
+fn apostrophes(s: &str) -> String {
+    s.replace(['\u{2019}', '\u{2018}', '\u{02bc}', '\u{2032}', '`'], "'")
+}
+
 fn toks(text: &str) -> Vec<Tok> {
     let mut out = vec![];
     let mut at: Option<usize> = None;
     let push = |s: usize, e: usize, out: &mut Vec<Tok>| {
         let raw = &text[s..e];
-        let core = raw.trim_end_matches(|c: char| ")]}\"'*_`\u{201d}\u{2019}".contains(c));
-        let stop = core
+        let core =
+            raw.trim_end_matches(|c: char| ")]}\"'*_`\u{201c}\u{201d}\u{2018}\u{2019}".contains(c));
+        // The run of stops at its end: a '?' anywhere in it makes it a
+        // question ("start #12?!").
+        let tail: String = core
             .chars()
-            .last()
-            .filter(|c| ".!?,;:".contains(*c))
-            // "#12." ends a sentence; "v1.2" doesn't, nor does "...".
-            .filter(|_| !core.ends_with(".."));
-        let w = raw
-            .to_lowercase()
-            .replace('\u{2019}', "'")
-            .trim_matches(|c: char| ",.!?;:()[]{}\"*_`\u{201c}\u{201d}".contains(c))
+            .rev()
+            .take_while(|c| ".!?,;:".contains(*c))
+            .collect();
+        let stop = if tail.contains('?') {
+            Some('?')
+        } else if tail.chars().count() > 1 && tail.chars().all(|c| c == '.') {
+            // "..." trails off; it ends nothing.
+            None
+        } else {
+            tail.chars().next()
+        };
+        let w = apostrophes(&raw.to_lowercase())
+            .trim_matches(|c: char| ",.!?;:()[]{}\"*_\u{201c}\u{201d}".contains(c))
             .to_string();
         if !w.is_empty() || stop.is_some() {
             out.push(Tok { s, e, w, stop });
@@ -116,6 +134,67 @@ const FILLER: &[&str] = &[
     "for", "me", "please", "now", "too", "also", "then", "and", "both", "ok", "okay",
 ];
 
+/// Words that pick cards out by place or by set.
+const SET_WORDS: &[&str] = &[
+    "all",
+    "everything",
+    "first",
+    "last",
+    "rest",
+    "others",
+    "other",
+    "it",
+    "this",
+    "that",
+    "them",
+    "those",
+    "these",
+    "of",
+    "back",
+    "to",
+    "tell",
+    "over",
+    "with",
+    "ahead",
+];
+
+/// Words that never open a possessive, however a member names themselves.
+const CONTRACTIONS: &[&str] = &[
+    "let's",
+    "that's",
+    "it's",
+    "what's",
+    "here's",
+    "there's",
+    "he's",
+    "she's",
+    "who's",
+    "where's",
+    "how's",
+    "when's",
+    "why's",
+    "one's",
+    "everyone's",
+    "someone's",
+];
+
+/// Words in a reason that take the request back or make it conditional:
+/// the whole message grants nothing.
+const REASON_HOLD: &[&str] = &[
+    "wait",
+    "actually",
+    "unless",
+    "until",
+    "if",
+    "maybe",
+    "instead",
+    "nevermind",
+    "cancel",
+];
+
+/// The longest reason a give-back carries (as a message or comment does).
+const MAX_REASON: usize = 4000;
+
 /// A word that is a verb's own start, and how many words it takes.
 fn verb_at(w: &[&str], i: usize) -> Option<(Verb, usize)> {
     let at = |k: usize, s: &str| w.get(k).is_some_and(|x| *x == s);
@@ -131,26 +210,52 @@ fn verb_at(w: &[&str], i: usize) -> Option<(Verb, usize)> {
     })
 }
 
+/// Whether a word of a member's name is one the reader gives a meaning:
+/// such a name never matches.
+fn reserved(part: &str) -> bool {
+    FILLER.contains(&part)
+        || OPENERS.contains(&part)
+        || HOLD_BACK.contains(&part)
+        || NOT_A_NAME.contains(&part)
+        || SET_WORDS.contains(&part)
+        || REASON_HOLD.contains(&part)
+        || CONTRACTIONS.contains(&part)
+        || verb_at(&[part], 0).is_some()
+        || ["not", "now", "because", "since", "later", "park"].contains(&part)
+        || number(part).is_some()
+        || is_ref(part)
+        || !part.chars().any(char::is_alphabetic)
+}
+
+/// A member's name as words the reader can match, or `None` when it holds
+/// a word the reader gives a meaning to.
+fn name_parts(name: &str) -> Option<Vec<String>> {
+    let parts: Vec<String> = apostrophes(&name.to_lowercase())
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
+    (!parts.is_empty() && !parts.iter().any(|p| reserved(p))).then_some(parts)
+}
+
 /// Whether the snapshot's people or givers include `name` as these words
 /// start at `i`: the person's key and how many words the name took. A
-/// first name alone counts when no one else has it.
+/// first name alone counts when no one else has it; a full name beats
+/// another's first name. Two that fit equally are `Err`: which one isn't
+/// known.
 fn name_at(
     w: &[&str],
     i: usize,
     people: &[(String, String)],
     possessive: bool,
 ) -> Option<Result<(String, usize), ()>> {
+    if possessive && w.get(i).is_some_and(|x| CONTRACTIONS.contains(x)) {
+        return None;
+    }
     let mut hits: Vec<(String, usize)> = vec![];
     for (key, name) in people {
-        let parts: Vec<String> = name
-            .to_lowercase()
-            .replace('\u{2019}', "'")
-            .split_whitespace()
-            .map(str::to_string)
-            .collect();
-        if parts.is_empty() {
+        let Some(parts) = name_parts(name) else {
             continue;
-        }
+        };
         let fits = |n: usize| -> bool {
             (0..n).all(|k| {
                 let Some(x) = w.get(i + k) else {
@@ -176,7 +281,6 @@ fn name_at(
         [] => None,
         [one] => Some(Ok(one.clone())),
         _ => {
-            // A full name beats another's first name.
             let best = hits.iter().map(|h| h.1).max().unwrap_or(0);
             let top: Vec<_> = hits.iter().filter(|h| h.1 == best).collect();
             match top.as_slice() {
@@ -187,17 +291,35 @@ fn name_at(
     }
 }
 
+/// Which cards a set word ("all", "the first two", "the rest") counts
+/// over.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Scope {
+    /// Everything given to the person.
+    All,
+    /// What one giver gave ("of Spencer's").
+    Giver(String),
+    /// The cards named last ("of them", "of those").
+    Named,
+}
+
 /// What a clause acts on, before it is resolved.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Target {
     Ref(String),
-    All(Option<String>),
-    First(usize, Option<String>),
-    Last(usize, Option<String>),
-    Rest(Option<String>),
-    Giver(String),
+    All(Scope),
+    First(usize, Scope),
+    Last(usize, Scope),
+    Rest(Scope),
     It,
     Them,
+}
+
+impl Target {
+    /// A set word: it stands alone in its clause.
+    fn is_set(&self) -> bool {
+        !matches!(self, Target::Ref(_) | Target::It | Target::Them)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -265,9 +387,10 @@ impl Reader<'_> {
         false
     }
 
-    /// Splits sentence `t[a..b]` into clauses. A "because", "since", colon
-    /// or dash reason runs to the end of the sentence, so nothing after it
-    /// is a clause; only "tell <giver> …" ends at the next verb.
+    /// Splits sentence `t[a..b]` into clauses. A "because", colon or dash
+    /// reason runs to the end of the sentence, so nothing after it is a
+    /// clause. A "tell <giver> …" reason ends only at a comma or semicolon
+    /// before the next verb.
     fn clauses(&self, t: &[Tok], w: &[&str], a: usize, b: usize) -> Vec<(usize, usize)> {
         let (t, w) = (&t[..b], &w[..b]);
         let mut out = vec![];
@@ -286,7 +409,7 @@ impl Reader<'_> {
             {
                 out.push((from, k + 1));
                 from = k + 1;
-            } else if k > from && w[k] == "and" && self.starts_clause(t, w, k + 1, b) {
+            } else if !tell && k > from && w[k] == "and" && self.starts_clause(t, w, k + 1, b) {
                 out.push((from, k));
                 from = k + 1;
             }
@@ -298,21 +421,22 @@ impl Reader<'_> {
         out
     }
 
-    /// The giver's possessive or a name for "of Spencer's".
+    /// The giver's possessive ("Spencer's").
     fn whose(&self, w: &[&str], j: usize) -> Option<Result<(String, usize), ()>> {
         name_at(w, j, &self.givers, true)
     }
 
-    /// "of them", "of Spencer's" after a target: the giver, and the words.
-    fn of(&self, w: &[&str], j: usize) -> Result<(Option<String>, usize), ()> {
+    /// "of them", "of Spencer's" after a set word: what it counts over,
+    /// and the words that took.
+    fn of(&self, w: &[&str], j: usize) -> Result<(Scope, usize), ()> {
         if w.get(j) != Some(&"of") {
-            return Ok((None, 0));
+            return Ok((Scope::All, 0));
         }
         if matches!(w.get(j + 1), Some(&"them" | &"these" | &"those")) {
-            return Ok((None, 2));
+            return Ok((Scope::Named, 2));
         }
         match self.whose(w, j + 1) {
-            Some(Ok((k, n))) => Ok((Some(k), n + 1)),
+            Some(Ok((k, n))) => Ok((Scope::Giver(k), n + 1)),
             _ => Err(()),
         }
     }
@@ -335,12 +459,8 @@ impl Reader<'_> {
             } else if w.get(r) == Some(&"that") {
                 r += 1;
             }
-            let reason = self.said(t, r, b);
-            if reason.is_empty() || !reason.chars().any(char::is_alphanumeric) {
-                return None;
-            }
             c.tell = Some(key);
-            c.reason = Some(reason);
+            c.reason = Some(self.said(t, r, b));
             return Some(c);
         }
         while j < b {
@@ -370,7 +490,7 @@ impl Reader<'_> {
                 }
                 continue;
             }
-            let colon = t[j].stop == Some(':');
+            let start = j;
             let n = if is_ref(x) {
                 c.targets.push(Target::Ref(norm_ref(x)));
                 1
@@ -382,15 +502,15 @@ impl Reader<'_> {
                 c.to = Some(k);
                 1 + n
             } else if x == "all" || x == "everything" {
-                let (g, n) = match self.of(w, j + 1).ok()? {
-                    (None, 0) => match self.whose(w, j + 1) {
-                        Some(Ok((k, n))) => (Some(k), n),
+                let (scope, n) = match self.of(w, j + 1).ok()? {
+                    (Scope::All, 0) => match self.whose(w, j + 1) {
+                        Some(Ok((k, n))) => (Scope::Giver(k), n),
                         Some(Err(())) => return None,
-                        None => (None, 0),
+                        None => (Scope::All, 0),
                     },
                     v => v,
                 };
-                c.targets.push(Target::All(g));
+                c.targets.push(Target::All(scope));
                 1 + n
             } else if x == "first" || x == "last" {
                 let (count, m) = match w.get(j + 1).and_then(|n| number(n)) {
@@ -400,11 +520,11 @@ impl Reader<'_> {
                 if count == 0 {
                     return None;
                 }
-                let (g, o) = self.of(w, j + 1 + m).ok()?;
+                let (scope, o) = self.of(w, j + 1 + m).ok()?;
                 c.targets.push(if x == "first" {
-                    Target::First(count, g)
+                    Target::First(count, scope)
                 } else {
-                    Target::Last(count, g)
+                    Target::Last(count, scope)
                 });
                 1 + m + o
             } else if x == "rest"
@@ -412,8 +532,8 @@ impl Reader<'_> {
                 || (x == "other" && w.get(j + 1) == Some(&"ones"))
             {
                 let m = usize::from(x == "other");
-                let (g, o) = self.of(w, j + 1 + m).ok()?;
-                c.targets.push(Target::Rest(g));
+                let (scope, o) = self.of(w, j + 1 + m).ok()?;
+                c.targets.push(Target::Rest(scope));
                 1 + m + o
             } else if ["it", "this", "that"].contains(&x) {
                 c.targets.push(Target::It);
@@ -425,7 +545,7 @@ impl Reader<'_> {
                 1
             } else if let Some(r) = self.whose(w, j) {
                 let (k, n) = r.ok()?;
-                c.targets.push(Target::Giver(k));
+                c.targets.push(Target::All(Scope::Giver(k)));
                 n
             } else if c.verb == Some(Verb::Give) && c.to.is_none() {
                 // "give Spencer #12"
@@ -435,12 +555,15 @@ impl Reader<'_> {
             } else {
                 return None;
             };
-            if colon {
-                j += n;
+            j += n;
+            // A colon on the word just read: the rest is the reason.
+            if t[start..j].iter().any(|x| x.stop == Some(':')) {
+                if t[j - 1].stop != Some(':') {
+                    return None;
+                }
                 c.reason = Some(self.said(t, j, b));
                 break;
             }
-            j += n;
         }
         if c.back {
             match c.verb {
@@ -452,7 +575,9 @@ impl Reader<'_> {
         if c.verb.is_none() || c.targets.is_empty() {
             return None;
         }
-        if c.reason.as_deref().is_some_and(str::is_empty) {
+        // A set word stands alone: "Spencer's #12", "#13 first" and "them
+        // all" say two things at once.
+        if c.targets.iter().any(Target::is_set) && c.targets.len() > 1 {
             return None;
         }
         // Only a give-back carries the person's words.
@@ -472,14 +597,31 @@ impl Reader<'_> {
             .collect()
     }
 
-    fn of_giver(&self, g: &Option<String>) -> Vec<usize> {
+    fn of_giver(&self, g: &str) -> Vec<usize> {
         self.snap
             .items
             .iter()
             .enumerate()
-            .filter(|(_, it)| g.as_ref().is_none_or(|k| it.giver_key == *k))
+            .filter(|(_, it)| it.giver_key == g)
             .map(|(i, _)| i)
             .collect()
+    }
+
+    /// Whether `reason` can go to a giver as the person's words: it says
+    /// something, names no card given to them, takes nothing back, and
+    /// isn't too long.
+    fn reason_ok(&self, reason: &str) -> bool {
+        let ws = toks(reason);
+        reason.chars().count() <= MAX_REASON
+            && ws.iter().any(|x| {
+                x.w.chars().any(char::is_alphabetic)
+                    && !is_ref(&x.w)
+                    && !["and", "or", "to"].contains(&x.w.as_str())
+            })
+            && !ws.iter().any(|x| {
+                REASON_HOLD.contains(&x.w.as_str())
+                    || (is_ref(&x.w) && !self.item_refs(&norm_ref(&x.w)).is_empty())
+            })
     }
 }
 
@@ -563,6 +705,16 @@ pub(crate) fn read(text: &str, earlier: &[&str], snap: &Snapshot) -> Read {
     }
 }
 
+/// The cards the person's last message that named any card named; all of
+/// them must be given to them.
+fn earlier_named(r: &Reader, earlier: &[&str]) -> Option<Vec<usize>> {
+    let e = earlier
+        .iter()
+        .rev()
+        .find(|e| toks(e).iter().any(|x| is_ref(&x.w)))?;
+    earlier_items(r, e)
+}
+
 fn parse(r: &Reader, t: &[Tok], w: &[&str], earlier: &[&str]) -> Option<Vec<Grant>> {
     // Sentences: split at '.', '!' and '?'.
     let mut sentences: Vec<(usize, usize, bool)> = vec![];
@@ -581,24 +733,31 @@ fn parse(r: &Reader, t: &[Tok], w: &[&str], earlier: &[&str]) -> Option<Vec<Gran
     let mut gives: Vec<(String, Vec<String>)> = vec![];
     let mut tells: Vec<(String, String)> = vec![];
     let mut last: Vec<usize> = vec![];
-    // The cards a Give named last, for "give it to Spencer".
+    // The one card the last Give named, for "give it to Spencer".
     let mut last_card: Option<String> = None;
     // Where the person's own reasons are: hold-back words there are theirs
     // to say.
     let mut reasons: Vec<(usize, usize)> = vec![];
     for (a, b, question) in sentences {
         let (i, asked) = opening(&w[a..b].iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        // A question in a message about Needs you leaves it unsure:
+        // "start all of Spencer's. Or just the first two?"
+        if question && !asked {
+            return None;
+        }
         // "go ahead with #12": the opening took "go ahead".
         let mut a2 = a + i;
         if w.get(a2) == Some(&"with") && a2 >= 2 && w[a2 - 2] == "go" && w[a2 - 1] == "ahead" {
             a2 -= 2;
         }
-        if question && !asked {
-            continue;
-        }
         for (ca, cb) in r.clauses(t, w, a2, b) {
             let c = r.clause(t, w, ca, cb)?;
             reasons.push((reason_start(t, w, ca, cb, &c), cb));
+            if let Some(why) = &c.reason
+                && !r.reason_ok(why)
+            {
+                return None;
+            }
             if let Some(g) = c.tell {
                 if tells.iter().any(|(k, _)| *k == g) {
                     return None;
@@ -613,11 +772,25 @@ fn parse(r: &Reader, t: &[Tok], w: &[&str], earlier: &[&str]) -> Option<Vec<Gran
                 for tg in &c.targets {
                     match tg {
                         Target::Ref(x) => cards.push(x.clone()),
+                        // "it" is the one card this message last gave, or,
+                        // when it named nothing yet, the earlier one.
                         Target::It => cards.push(match &last_card {
                             Some(x) => x.clone(),
-                            None => earlier_one_ref(earlier)?,
+                            None if last.is_empty() && gives.is_empty() => {
+                                earlier_one_ref(earlier)?
+                            }
+                            None => return None,
                         }),
                         _ => return None,
+                    }
+                }
+                // A card given to them goes back or starts; it is never
+                // passed on, and no card goes to two people.
+                for x in &cards {
+                    if !r.item_refs(x).is_empty()
+                        || gives.iter().any(|(k, v)| *k != to && v.contains(x))
+                    {
+                        return None;
                     }
                 }
                 last_card = cards.last().cloned().filter(|_| cards.len() == 1);
@@ -636,51 +809,55 @@ fn parse(r: &Reader, t: &[Tok], w: &[&str], earlier: &[&str]) -> Option<Vec<Gran
             if c.to.is_some() {
                 return None;
             }
-            let mut now: Vec<usize> = vec![];
             let named: Vec<usize> = said.iter().map(|x| x.0).collect();
+            // What "them", "it" and "of those" point at.
+            let pointed = || -> Option<Vec<usize>> {
+                if last.is_empty() {
+                    earlier_named(r, earlier)
+                } else {
+                    Some(last.clone())
+                }
+            };
+            let scoped = |s: &Scope| -> Option<Vec<usize>> {
+                match s {
+                    Scope::All => Some((0..r.snap.items.len()).collect()),
+                    Scope::Giver(g) => Some(r.of_giver(g)),
+                    Scope::Named => pointed(),
+                }
+            };
+            let mut now: Vec<usize> = vec![];
             for tg in &c.targets {
                 let got: Vec<usize> = match tg {
                     Target::Ref(x) => match r.item_refs(x).as_slice() {
                         [i] => vec![*i],
                         _ => return None,
                     },
-                    Target::All(g) => r.of_giver(g),
-                    Target::Giver(g) => r.of_giver(&Some(g.clone())),
-                    Target::First(n, g) => {
-                        let v = r.of_giver(g);
+                    Target::All(s) => scoped(s)?,
+                    Target::First(n, s) => {
+                        let v = scoped(s)?;
                         if *n > v.len() {
                             return None;
                         }
                         v[..*n].to_vec()
                     }
-                    Target::Last(n, g) => {
-                        let v = r.of_giver(g);
+                    Target::Last(n, s) => {
+                        let v = scoped(s)?;
                         if *n > v.len() {
                             return None;
                         }
                         v[v.len() - n..].to_vec()
                     }
-                    Target::Rest(g) => {
+                    Target::Rest(s) => {
                         if named.is_empty() {
                             return None;
                         }
-                        r.of_giver(g)
+                        scoped(s)?
                             .into_iter()
                             .filter(|i| !named.contains(i))
                             .collect()
                     }
                     Target::It | Target::Them => {
-                        let v = if last.is_empty() {
-                            // The last message that named a card: all of
-                            // what it named must be given to them.
-                            let e = earlier
-                                .iter()
-                                .rev()
-                                .find(|e| toks(e).iter().any(|x| is_ref(&x.w)))?;
-                            earlier_items(r, e)?
-                        } else {
-                            last.clone()
-                        };
+                        let v = pointed()?;
                         if *tg == Target::It && v.len() != 1 {
                             return None;
                         }
@@ -706,8 +883,8 @@ fn parse(r: &Reader, t: &[Tok], w: &[&str], earlier: &[&str]) -> Option<Vec<Gran
             last = now;
         }
     }
-    // A hold-back word anywhere but a reason, questions included, takes
-    // the whole message ("Start #12. Or not?").
+    // A hold-back word anywhere but a reason takes the whole message
+    // ("Start #12. But only if it passes.").
     for (k, x) in w.iter().enumerate() {
         let not_now = *x == "not" && w.get(k + 1) == Some(&"now");
         if HOLD_BACK.contains(x) && !not_now && !reasons.iter().any(|(a, b)| (*a..*b).contains(&k))
@@ -789,8 +966,9 @@ fn reason_start(t: &[Tok], w: &[&str], a: usize, b: usize, c: &Clause) -> usize 
 }
 
 /// A word after which the rest of the clause is the person's reason.
+/// "since" isn't one: "reject everything since Monday" is about when.
 fn is_reason_mark(w: &str) -> bool {
-    ["because", "since", "-", "--", "\u{2014}", "\u{2013}"].contains(&w)
+    ["because", "-", "--", "\u{2014}", "\u{2013}"].contains(&w)
 }
 
 /// The one card the person's earlier messages named last.
@@ -1061,7 +1239,15 @@ mod tests {
         // A reason runs to the end of its sentence: nothing in it acts.
         assert_eq!(
             g("give back #15 because I can't do this and start #14", &s),
-            vec![back("t15", "I can't do this and start #14")]
+            vec![],
+            "a reason that names a card given to them is unclear"
+        );
+        assert_eq!(
+            g(
+                "give back #15 because I can't do this and start it later",
+                &s
+            ),
+            vec![back("t15", "I can't do this and start it later")]
         );
         // A give-back on a card whose agent is starting: stop it first.
         let mut busy = spencers();
@@ -1201,5 +1387,177 @@ mod tests {
         );
         assert_eq!(gs.take_give(BLAKE, &ids(&["#3", "#4"]), &resolve), None);
         gs.end(run);
+    }
+
+    /// The adversarial pass on #1226: each of these once granted more than
+    /// the person plainly said. Each now grants nothing (or only what was
+    /// said).
+    #[test]
+    fn nothing_grants_more_than_the_person_plainly_said() {
+        let s = snap();
+        let sp = (SPENCER, "Spencer");
+        for text in [
+            // A set word mixed with refs, or two set words.
+            "give back Spencer's #15 because it's not mine",
+            "start Spencer's #12",
+            "start Spencer's first two",
+            "start #13 first",
+            "start #13 last",
+            "first start #13 and reject #15",
+            "start all of these: #12 and #13",
+            // A card given to them is never passed on, nor to two people.
+            "start ops#13, give ops#12 to Ann, reject the rest",
+            "start #12 and give #12 to Blake",
+            "give #12 back and give #12 to Blake",
+            "give #3 to Ann, give #3 to Blake",
+            "give #3 and #4 to Ann, give #4 to Blake",
+            // Reasons that take it back, make it conditional, or name cards.
+            "give back #15 - actually no, wait, keep it",
+            "reject #15, tell Spencer it's too big, but wait until Friday",
+            "reject #15 because it's too big, unless Spencer splits it",
+            "reject #13 - #15",
+            "reject everything since Monday",
+            "reject #15, tell Spencer to start #12 himself and #13 later",
+            // Questions and their spellings.
+            "start all of Spencer's. Or just the first two?",
+            "Start #12. Or should I hold off?",
+            "Start #12. Or is it not now?",
+            "Start #12. Or don\u{2018}t?",
+            "start #12?!",
+            // A tell to a giver is a reason, never a Send.
+            "tell Spencer thanks",
+        ] {
+            assert_eq!(g(text, &s), vec![], "{text}");
+        }
+        for sep in ["\r", "\u{2028}", "\u{2029}", "\u{0085}", "\u{000b}"] {
+            assert_eq!(g(&format!("start #12{sep}and #13"), &s), vec![], "{sep:?}");
+            assert_eq!(g(&format!("close #5{sep}and #6"), &s), vec![], "{sep:?}");
+        }
+        let long = format!("give back #15 because {}", "x".repeat(MAX_REASON + 1));
+        assert_eq!(g(&long, &s), vec![]);
+        // "it" in a give is never a card from before when this message
+        // named one.
+        for (text, before) in [
+            ("accept #12 and hand it to Ann", "what's #3?"),
+            ("start #12, then give it to Ann", "what's #3?"),
+            ("start #12 and give it to Ann", "what's #3?"),
+            ("give #3 and #4 to Blake, give it to Ann", "what's #5?"),
+            ("reject them: #13 and #15", "what's #12?"),
+        ] {
+            assert_eq!(grants_for(text, &[before], &s), vec![], "{text}");
+        }
+        // "of them" and "them all" count over the cards named last.
+        let named = ["what are #12 and #13?"];
+        assert_eq!(
+            grants_for("start all of them", &named, &s),
+            vec![start("t12"), start("t13")]
+        );
+        assert_eq!(grants_for("start them all", &named, &s), vec![]);
+        assert_eq!(
+            grants_for(
+                "accept the first two of those",
+                &["what are ops#13, ops#14 and ops#15?"],
+                &s
+            ),
+            vec![start("t13"), start("t14")]
+        );
+
+        // Names other members chose never make a target or a recipient.
+        let with = |extra: Vec<(SnapItem, String)>, people: Vec<(&str, &str)>| {
+            let mut items = vec![
+                item("t12", "ops#12", sp, ItemState::Asked),
+                item("t13", "ops#13", sp, ItemState::Asked),
+            ];
+            items.extend(extra);
+            let mut ps = super::tests::people();
+            for (k, n) in people {
+                ps.push(SnapPerson {
+                    person_key: k.into(),
+                    name: n.into(),
+                });
+            }
+            Snapshot::new(items, ps)
+        };
+        let lets = with(
+            vec![item(
+                "x1",
+                "dev#1",
+                ("person:pLet", "Let"),
+                ItemState::Asked,
+            )],
+            vec![],
+        );
+        assert_eq!(g("let's start ops#13", &lets), vec![]);
+        let that = with(
+            vec![item(
+                "x1",
+                "dev#1",
+                ("person:pThat", "That Guy"),
+                ItemState::Asked,
+            )],
+            vec![],
+        );
+        assert_eq!(g("start #12 and #13, that's all", &that), vec![]);
+        let ringo = with(
+            vec![item(
+                "x1",
+                "dev#1",
+                ("person:pRingo", "Ringo"),
+                ItemState::Asked,
+            )],
+            vec![],
+        );
+        assert_eq!(
+            g("tell ringo I'm done, give back everything", &ringo),
+            vec![]
+        );
+        let spencer_that = Snapshot::new(
+            vec![
+                item("t12", "ops#12", sp, ItemState::Asked),
+                item("t13", "ops#13", sp, ItemState::Asked),
+                item("t14", "ops#14", sp, ItemState::Asked),
+                item("t15", "ops#15", sp, ItemState::Asked),
+                item(
+                    "x1",
+                    "dev#1",
+                    ("person:pM", "Spencer That"),
+                    ItemState::Asked,
+                ),
+            ],
+            people(),
+        );
+        let got = g(
+            "accept the first three, reject the rest, tell Spencer that it's too big",
+            &spencer_that,
+        );
+        assert!(
+            !got.iter().any(|x| matches!(x, Grant::GiveBack { card, reason, .. } if card == "x1" && !reason.is_empty())),
+            "{got:?}"
+        );
+        let names = with(
+            vec![],
+            vec![
+                ("person:pAP", "Ann Please"),
+                ("person:pTeam", "The Team"),
+                ("person:pMe", "Me"),
+                ("person:pSome", "Someone"),
+            ],
+        );
+        let give = |to: &str, name: &str, cards: &[&str]| Grant::Give {
+            to: to.into(),
+            name: name.into(),
+            cards: cards.iter().map(|c| c.to_string()).collect(),
+        };
+        assert_eq!(
+            g("give #3 and #4 to Ann please", &names),
+            vec![give("person:pAnn", "Ann", &["#3", "#4"])]
+        );
+        for text in [
+            "give #3 and #4 to the team",
+            "give #3 to me",
+            "give #3 to someone",
+        ] {
+            assert_eq!(g(text, &names), vec![], "{text}");
+        }
     }
 }

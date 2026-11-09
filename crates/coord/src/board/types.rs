@@ -285,6 +285,11 @@ pub struct Given {
     /// The giving person's id, whoever's key gave it (an agent's give
     /// reads "Spencer gave you…").
     pub by_person: String,
+    /// When it was given, by the giver's clock: the Office Assistant's
+    /// grants act only on cards given before the person typed (decision
+    /// 69). Not part of the card's shape.
+    #[serde(skip)]
+    pub at: GoTime,
 }
 
 /// A person's last say on "OK to start an agent on this?" (card #573).

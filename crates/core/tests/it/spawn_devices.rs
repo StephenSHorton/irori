@@ -2117,7 +2117,8 @@ fn the_assistants_give_start_and_give_back_on_each_persons_own_words() {
     let b_ref = |r: &str| b.core.task_ref(r).ok();
     // The model can't add a card the person didn't name.
     assert!(
-        g.take_give(&stephen.name, &[r1.clone()], &b_ref).is_none(),
+        g.take_give(&stephen.name, std::slice::from_ref(&r1), &b_ref)
+            .is_none(),
         "a give is for exactly the named cards"
     );
     let (to, ids) = g
@@ -2169,6 +2170,13 @@ fn the_assistants_give_start_and_give_back_on_each_persons_own_words() {
     // A card's own words grant nothing: what Stephen typed does.
     let snap = s.core.needs_snapshot();
     assert_eq!(snap.items.len(), 3, "{snap:?}");
+    // A question asked before the give holds none of them: a yes covers
+    // only what was there when the person typed.
+    let given_at = snap.items.iter().map(|i| i.given_ms).min().unwrap();
+    assert!(given_at > 0, "{snap:?}");
+    assert!(s.core.needs_snapshot_before(given_at - 1).items.is_empty());
+    let all_given = snap.items.iter().map(|i| i.given_ms).max().unwrap();
+    assert_eq!(s.core.needs_snapshot_before(all_given).items.len(), 3);
     assert_eq!(
         snap.items.iter().map(|i| i.id.clone()).collect::<Vec<_>>(),
         cards.iter().map(|c| c.id.clone()).collect::<Vec<_>>(),
@@ -2321,7 +2329,7 @@ fn the_assistant_shares_a_personal_card_and_gives_it_in_one_step() {
     let g = tools::Grants::default();
     let run = g.begin(granted);
     let (to, ids) = g
-        .take_give(&stephen.person_key, &[r.clone()], &|x| {
+        .take_give(&stephen.person_key, std::slice::from_ref(&r), &|x| {
             b.core.task_ref(x).ok()
         })
         .expect("the person's own give");

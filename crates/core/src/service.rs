@@ -3612,6 +3612,12 @@ impl Core {
         tools::needs_snapshot(&ToolsView(self.s.clone()))
     }
 
+    /// [`Core::needs_snapshot`] with only the cards given at or before
+    /// `before_ms`, as a turn takes it for the time its question was asked.
+    pub fn needs_snapshot_before(&self, before_ms: i64) -> tools::Snapshot {
+        tools::needs_snapshot_before(&ToolsView(self.s.clone()), before_ms)
+    }
+
     /// Pause agents (card #665): whether this device starts no agents now.
     pub fn agents_pause(&self) -> spawn_pause::AgentsPause {
         self.s.agents_pause()

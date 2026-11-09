@@ -36,6 +36,8 @@ pub(crate) struct GivenRow {
     pub note: String,
     pub via_assistant: bool,
     pub state: ItemState,
+    /// When it was given, in ms.
+    pub given_ms: i64,
     /// Why its agent couldn't start, when it couldn't.
     pub failed: Option<String>,
 }
@@ -105,6 +107,7 @@ pub(crate) fn given_rows(b: &dyn Backend) -> Vec<GivenRow> {
                 note: g.note.clone(),
                 via_assistant: g.assistant,
                 state: state_of(&co, &it.task),
+                given_ms: g.at.unix_milli_value(),
                 failed: coord::Coord::given_failed(&it.task),
                 task: it.task,
             });
@@ -117,8 +120,16 @@ pub(crate) fn given_rows(b: &dyn Backend) -> Vec<GivenRow> {
 /// (§5.1): what a turn's grants resolve against. Core takes it when the
 /// turn worker takes a question.
 pub fn needs_snapshot(b: &dyn Backend) -> Snapshot {
+    needs_snapshot_before(b, i64::MAX)
+}
+
+/// [`needs_snapshot`] with only the cards given at or before `before_ms`:
+/// the person's yes covers what was there when they typed, never a card
+/// given while their question waited.
+pub fn needs_snapshot_before(b: &dyn Backend, before_ms: i64) -> Snapshot {
     let items = given_rows(b)
         .into_iter()
+        .filter(|r| r.given_ms <= before_ms)
         .map(|r| {
             (
                 SnapItem {
@@ -127,6 +138,7 @@ pub fn needs_snapshot(b: &dyn Backend) -> Snapshot {
                     giver_name: r.giver_name,
                     batch: r.batch,
                     state: r.state,
+                    given_ms: r.given_ms,
                     ..SnapItem::default()
                 },
                 r.short,

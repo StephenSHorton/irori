@@ -894,6 +894,7 @@ impl Fold {
                         note: trim_space(&p.note).to_string(),
                         assistant: p.assistant,
                         by_person,
+                        at: p.at,
                     });
                     t.given_said = None;
                 } else if back {
