@@ -96,6 +96,11 @@ crate::go_struct! {
         pub at: GoTime = "at",
         /// The hand-off note (card #85): what's done, where, what's next.
         pub note: String = "note" "omit",
+        /// The batch this give belongs to (decision 69): one id on every
+        /// card of one `give_batch`. Older folds drop the key.
+        pub batch: String = "batch" "omit",
+        /// Whether the person's office assistant made the give.
+        pub assistant: bool = "assistant" "omit",
     }
 }
 
@@ -121,6 +126,11 @@ crate::go_struct! {
         /// An ownership offer or request (card #432). Older folds see a
         /// plain question.
         pub transfer: bool = "transfer" "omit",
+        /// A card given back to its owner (decision 69). Older folds see a
+        /// plain question.
+        pub given_back: bool = "givenBack" "omit",
+        /// The batch the card was given in, on a give-back item.
+        pub batch: String = "batch" "omit",
         /// What brings a held card back (card #570), as `later::Back`
         /// encodes it. Always a string: older folds skip it, and a type
         /// they can't read would fail the whole row.
