@@ -207,6 +207,10 @@ impl Node {
                 log,
             )
             .await;
+        } else if label.starts_with(crate::assistant_stream::ASSISTANT_LABEL_PREFIX)
+            && self.certified(peer)
+        {
+            self.serve_assistant(label, &mut st).await;
         }
         let _ = st.shutdown().await;
     }

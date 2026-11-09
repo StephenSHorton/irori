@@ -635,8 +635,9 @@ export const commands = {
 	assistantChatImport: (entries: AssistantImportEntry[]) => __TAURI_INVOKE<AssistantImported>("assistant_chat_import", { entries }),
 	/**
 	 *  Streams a turn's reply as this computer runs it: from now until the turn
-	 *  ends, starting with what it has said so far. Only the assistant's
-	 *  computer runs turns, so elsewhere nothing comes (card 7 streams there).
+	 *  ends, starting with what it has said so far. On another device the
+	 *  events come over the mesh from the assistant's computer (card 7); if
+	 *  that stream fails, nothing comes and the `said` row is the reply.
 	 */
 	assistantChatWatch: (turn: string, on: Channel<AssistantEvent>) => __TAURI_INVOKE<null>("assistant_chat_watch", { turn, on }),
 };

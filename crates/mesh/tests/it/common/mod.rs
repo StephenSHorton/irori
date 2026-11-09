@@ -137,6 +137,7 @@ impl Dev {
             intervals: fast_intervals(),
             trust_any_peer: self.trust,
             ignored: None,
+            assistant_turns: None,
             logf: Some(Arc::new(move |m: &str| eprintln!("{name}: {m}"))),
             now: Some({
                 let c = self.clk.clone();
