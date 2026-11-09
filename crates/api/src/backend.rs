@@ -104,6 +104,17 @@ pub trait Backend: Send + Sync + 'static {
         let _ = (input, account);
         None
     }
+    /// Takes one report of an attached agent's run (card #1249), for
+    /// `POST /v1/runs`; `key` is the caller's attach key. `Err` is why it
+    /// was refused, `None` (a backend that keeps no runs) answers 503.
+    fn record_run(
+        &self,
+        key: &str,
+        ev: &irori_core::runs::RunReport,
+    ) -> Option<Result<(), String>> {
+        let _ = (key, ev);
+        None
+    }
 
     /// A spawned agent's permission hook reports its prompt and waits for
     /// the person's pick (card #682), for `POST /v1/permission/wait`;
@@ -220,6 +231,13 @@ impl Backend for Core {
         account: Option<&str>,
     ) -> Option<Result<(), String>> {
         Some(Core::record_usage_limits(self, input, account))
+    }
+    fn record_run(
+        &self,
+        key: &str,
+        ev: &irori_core::runs::RunReport,
+    ) -> Option<Result<(), String>> {
+        Some(Core::record_run(self, key, ev))
     }
     fn permission_wait(
         &self,

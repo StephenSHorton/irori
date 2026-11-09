@@ -22,6 +22,7 @@
 //! | [`meshview`] | `home.go`, `attachview.go` | the running mesh as Devices and attachments see it |
 //! | [`attachments`] | `attachments.go` | agents' attach and attachment_get (the tools' attacher) |
 //! | [`usage`] | (card #599) | Claude usage left: the plan's rate-limit windows the mod reports |
+//! | [`runs`] | (card #1249) | live tasks on cards: the runs agents start, from the mod and the tasks folders |
 //!
 //! Loops run on plain threads (every service API is synchronous); presence
 //! runs on the tokio runtime given in [`Options::runtime`], or on a
@@ -92,6 +93,7 @@ pub use crate::service::huddle_session::{
     self as huddle_session, HuddleRunner, HuddleSeed, Look, LookError,
 };
 pub use crate::service::invites::{InviteStatus, InviteWatchFn};
+pub use crate::service::runs;
 pub use crate::service::space_move::{MOVED_FIELD, MoveOpts, SpaceMove};
 pub use crate::service::spaces::{
     BOARD_ROWS_TOLERANT, BoardClosedRow, BoardDescribedRow, CALLS_TOLERANT, CLOSED_BOARD_NOTE,

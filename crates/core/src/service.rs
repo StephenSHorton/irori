@@ -120,6 +120,10 @@ pub mod invites;
 mod talk;
 pub mod talk_replying;
 pub mod trees;
+// Live tasks on cards (card #1249): declared here, in its own folder, so
+// its files see the services as this file's submodules do.
+#[path = "runs/mod.rs"]
+pub mod runs;
 
 use boards::Boards;
 
@@ -301,6 +305,8 @@ struct Services {
     agent_names: Arc<crate::agentnames::AgentNames>,
     /// Claude usage left, as the mod last reported it (card #599).
     usage: crate::usage::Usage,
+    /// The agents' runs (card #1249).
+    runs: runs::Runs,
     /// Card #208: who asks GitHub about PRs, and when each was last asked.
     pr_checker: Option<Arc<dyn crate::prwatch::PrChecker>>,
     pr_watch: crate::prwatch::PrWatch,
@@ -1194,6 +1200,7 @@ impl Core {
         }
         let agent_names = Arc::new(crate::agentnames::AgentNames::new(&dir));
         let usage = crate::usage::Usage::new(&dir);
+        let runs = runs::Runs::new(&dir, now().unix_milli_value());
         // Idle sessions whose wakes go unread show as not answering (#110).
         let answering = Arc::new(crate::answering::Answering::default());
         let mut popts = presence::Options {
@@ -1775,6 +1782,7 @@ impl Core {
             names,
             agent_names,
             usage,
+            runs,
             pr_checker: opts.pr_checker.clone(),
             pr_watch: Default::default(),
             desk_lister: opts.desk_lister.clone(),
@@ -1928,6 +1936,8 @@ impl Core {
                 decisions: decisions_sub,
             },
         );
+        // The runs' scan, sampler and fold (card #1249).
+        runs::start(&core);
         laps.lap("loops");
         // Every notification shown is kept in the history (card #377). Weak:
         // the Notifier lives in the services.
@@ -2858,6 +2868,30 @@ impl Core {
         }
         Ok(())
     }
+    /// Takes one report from the mod (`POST /v1/runs`, card #1249) for
+    /// the attached agent `key`: a run started or ended, or a foreground
+    /// call. The command is scrubbed; times come from the Core's clock
+    /// when the report's are missing or ahead of it. A report that changed
+    /// a row is a [`CoreEvent::Runs`]. `Err` is why it was refused.
+    pub fn record_run(&self, key: &str, rep: &runs::RunReport) -> Result<(), String> {
+        let now = (self.s.now)().unix_milli_value();
+        let scrub = |c: &str| self.s.scrubber.string(c);
+        if self.s.runs.record(key, rep, scrub, now)? {
+            self.s.publish_runs(vec![key.to_string()]);
+        }
+        Ok(())
+    }
+
+    /// `key`'s runs on this device, oldest start first (card #1249).
+    pub fn runs_of(&self, key: &str) -> Vec<runs::LiveRun> {
+        self.s.runs.by_key(key)
+    }
+
+    /// Every run this device keeps (card #1249).
+    pub fn runs(&self) -> Vec<runs::LiveRun> {
+        self.s.runs.all()
+    }
+
     pub fn version(&self) -> &str {
         &self.s.version
     }

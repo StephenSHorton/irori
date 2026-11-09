@@ -24,6 +24,7 @@
 //! | [`board`] | `routes_board.go`, `board.go`, `board_overview.go` | board, tasks, search, show, overview |
 //! | `slots` | (card #437) | slots, slots/release: slot leases for scripts |
 //! | `usage` | (card #599) | usage/limits: the mod's Claude plan rate-limit windows |
+//! | `runs` | (card #1249) | runs: the mod's reports of an agent's runs |
 //! | [`pair`] | `routes_pair.go`, `pairing.go`, `client_pair.go` | pair/{join,status,key,cancel} (the joining side only) |
 //! | [`attach`] | `internal/attach` | the attach wire types, `ModAtLeast` |
 //! | [`redact`] | tools `Redact` | rows as an agent sees them |
@@ -64,6 +65,7 @@ mod http;
 pub mod pair;
 mod permission;
 pub mod redact;
+mod runs;
 pub mod server;
 mod slots;
 mod stream;
