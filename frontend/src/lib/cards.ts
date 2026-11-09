@@ -3203,11 +3203,14 @@ async function readCards(
 }
 
 // cardStore keeps the cards the mounted useCard hooks show and reads them
-// all in one call: on every card change (board:changed, devices:changed),
-// inbox:changed (the open card's "queued for / sent to" lines), focus,
-// and a few seconds after a failed read; a newly watched id is read at
-// once. One read runs at a time; what comes in meanwhile waits for it,
-// then reads again.
+// in one call. A board:changed or inbox:changed notice (the open card's
+// "queued for / sent to" lines) names the cards that moved, and only the
+// watched ones among them are read (card #1148, list-signals.md §6.2); the
+// host names a card's chain too, since its dependency index puts the cards
+// a row reads into the notice. `all` (a devices change, focus, a gap, the
+// first notice) reads every watched id, and so does a few seconds after a
+// failed read; a newly watched id is read at once. One read runs at a
+// time; what comes in meanwhile waits for it, then reads again.
 export const cardStore = createCardStore((ids, have) =>
   timedRead("cardStore", () => readCards(ids, have))
 )
@@ -3217,7 +3220,9 @@ export function createCardStore(
     ids: string[],
     have: ReadonlyMap<string, string>
   ) => Promise<Map<string, CardSlot>>,
-  events: (again: () => void) => () => void = cardEvents,
+  // events calls again() to read every watched card, or again(ids) to read
+  // the watched ones among ids.
+  events: (again: (ids?: readonly string[]) => void) => () => void = cardEvents,
   retryMs = RetryMs,
   pend: Pending = pending
 ) {
@@ -3251,6 +3256,17 @@ export function createCardStore(
     if (id === undefined) all = true
     else want.add(id)
     if (!running) void run()
+  }
+
+  // A notice's ids: only the watched ones are read.
+  function touched(ids: readonly string[]) {
+    let any = false
+    for (const id of ids)
+      if (users.has(id)) {
+        want.add(id)
+        any = true
+      }
+    if (any && !running) void run()
   }
 
   async function run() {
@@ -3320,7 +3336,7 @@ export function createCardStore(
   }
 
   function listen() {
-    const stop = events(() => request())
+    const stop = events((ids) => (ids ? touched(ids) : request()))
     // A change shown or taken back renders the cards it touches.
     offPending = pend.subscribe(() => {
       for (const [id, fns] of users)
@@ -3368,12 +3384,13 @@ export function createCardStore(
   }
 }
 
-// cardEvents is when the card hooks read again: every card change, every
-// inbox change, and focus.
-function cardEvents(again: () => void): () => void {
-  const offCards = subscribe(again, true)
+// cardEvents is when the card hooks read again: a card change or an inbox
+// change for the cards it names, a devices change and focus for all.
+function cardEvents(again: (ids?: readonly string[]) => void): () => void {
+  const hear = (n: Notice) => (n.all ? again() : again(n.ids.cards ?? []))
+  const offCards = subscribeIds(hear, true)
   const offInbox = inWails()
-    ? onChange(EventInboxChanged, () => again())
+    ? onChange(EventInboxChanged, hear, { follow: Follows.cards })
     : () => {}
   return () => {
     offCards()

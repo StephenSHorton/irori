@@ -1076,6 +1076,47 @@ pub struct DonePage {
 
 type OwnerFn = Box<dyn Fn(&str) -> bool>;
 
+/// What one [`Window::cards_by_id`] call builds once and every card of it
+/// reads (card #1148): the roster's people, and per log the order loops
+/// and the followers of its open cards.
+#[derive(Default)]
+struct CardShared {
+    people: std::cell::OnceCell<std::rc::Rc<People>>,
+    /// Keyed by the log's address; the `Arc` is kept so it stays valid.
+    logs: std::cell::RefCell<HashMap<*const coord::Coord, (std::sync::Arc<coord::Coord>, LogRead)>>,
+}
+
+/// A log's order loops and the followers of its open cards.
+type LogRead = std::rc::Rc<(coord::OrderLoops, crate::later::Followers)>;
+
+impl CardShared {
+    fn people(&self, w: &Window) -> std::rc::Rc<People> {
+        self.people
+            .get_or_init(|| {
+                w.people_builds
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                std::rc::Rc::new(w.people())
+            })
+            .clone()
+    }
+
+    fn log(
+        &self,
+        co: &std::sync::Arc<coord::Coord>,
+    ) -> std::rc::Rc<(coord::OrderLoops, crate::later::Followers)> {
+        let mut logs = self.logs.borrow_mut();
+        logs.entry(std::sync::Arc::as_ptr(co))
+            .or_insert_with(|| {
+                (
+                    co.clone(),
+                    std::rc::Rc::new((co.order_loops(), crate::later::Followers::read(co))),
+                )
+            })
+            .1
+            .clone()
+    }
+}
+
 /// Resolves keys against the roster once per call (Go `people`).
 #[derive(Default)]
 pub(crate) struct People {
@@ -2665,8 +2706,10 @@ impl Window {
     /// card hooks (a Notifications row's, a Needs you row's, a thread's,
     /// the open card's) share one read per change instead of one each.
     pub fn cards_by_id(&self, ids: &[String], have: &[CardHave]) -> Vec<CardRead> {
+        // Built once for the call, not once per id (card #1148).
+        let shared = CardShared::default();
         ids.iter()
-            .map(|id| match self.card(id) {
+            .map(|id| match self.card_with(id, &shared) {
                 Ok(c) => {
                     let rev = card_rev(&c);
                     let same = have.iter().any(|h| h.id == *id && h.rev == rev);
@@ -2688,8 +2731,21 @@ impl Window {
             .collect()
     }
 
+    /// How many times a card read has built the people (card #1148), for
+    /// tests: one per `cards_by_id` call, not one per id.
+    pub fn card_people_builds(&self) -> u64 {
+        self.people_builds
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// BoardService.Card: one card opened.
     pub fn card(&self, id: &str) -> Result<CardDetail, String> {
+        self.card_with(id, &CardShared::default())
+    }
+
+    /// [`Window::card`] over what a batch builds once: the people and, per
+    /// log, the order loops and followers (card #1148).
+    fn card_with(&self, id: &str, shared: &CardShared) -> Result<CardDetail, String> {
         let id = crate::trim(id);
         let co = self.read(id);
         let Some(mut t) = co.get_task(id) else {
@@ -2705,9 +2761,10 @@ impl Window {
             comments = self.priv_comments(comments);
             acts = self.priv_activity(acts);
         }
-        let p = self.people();
+        let p = shared.people(self);
+        let p = &*p;
         let mut d = CardDetail {
-            summary: card_summary(&t, &p),
+            summary: card_summary(&t, p),
             goal: t.objective.clone(),
             done_when: t.done_criteria.clone(),
             note: t.note.clone(),
@@ -2717,7 +2774,7 @@ impl Window {
             ..CardDetail::default()
         };
         self.board_detail(&t, &mut d);
-        weigh(&mut d.summary, &t, &p);
+        weigh(&mut d.summary, &t, p);
         d.summary.given_no = raw
             .as_ref()
             .is_some_and(|r| co.mine_to_serve(r) && r.given_said.as_ref().is_some_and(|y| !y.yes));
@@ -2727,8 +2784,8 @@ impl Window {
             let board = d.summary.board.clone();
             self.board_owner(&board, raw, &mut d.summary);
         }
-        let follows = crate::later::Followers::read(&co);
-        family_of(&co, (&co.order_loops(), &follows), &p, &t, &mut d.summary);
+        let log = shared.log(&co);
+        family_of(&co, (&log.0, &log.1), p, &t, &mut d.summary);
         for kid in &t.subtasks {
             let Some(mut k) = co.get_task(kid) else {
                 continue;
@@ -2736,7 +2793,7 @@ impl Window {
             if co.is_board() {
                 k = self.priv_task(k); // whose questions are whose (#264)
             }
-            let ks = card_summary(&k, &p);
+            let ks = card_summary(&k, p);
             d.subtask_list.push(CardSubtask {
                 id: k.id.clone(),
                 short: k.short.clone(),
@@ -2783,8 +2840,8 @@ impl Window {
                 });
             }
         }
-        d.summary.ask = card_ask(&t, &p, Some(&refr));
-        let (thread, mut by_blocker, earlier) = build_thread(&d.comments, &acts, &t, &p);
+        d.summary.ask = card_ask(&t, p, Some(&refr));
+        let (thread, mut by_blocker, earlier) = build_thread(&d.comments, &acts, &t, p);
         d.thread = thread;
         d.thread_earlier = earlier as i64;
         self.held_on_thread(&mut d.thread);
@@ -2843,8 +2900,8 @@ impl Window {
                             && (bl.status.is_empty() || bl.status == coord::BLOCKER_OPEN)
                     })
                     .map(|on| {
-                        let mut w = wait_on_of(&co, &p, on);
-                        if let Some(lead) = part_lead_name(&co, &p, &t, &bl.question, on) {
+                        let mut w = wait_on_of(&co, p, on);
+                        if let Some(lead) = part_lead_name(&co, p, &t, &bl.question, on) {
                             w.gone = false;
                             w.label = lead;
                         }
@@ -2857,7 +2914,7 @@ impl Window {
                 thread: by_blocker.remove(&bl.id).unwrap_or_default(),
                 links: bl.links.clone(),
                 attachments: bl.attachments.clone(),
-                permission: permission_of(&p, bl),
+                permission: permission_of(p, bl),
                 ..CardBlocker::default()
             };
             for o in &bl.options {
@@ -2915,7 +2972,7 @@ impl Window {
             .map(|s| (s.pr.clone(), s))
             .collect();
         for l in &t.links {
-            if let Some(mut pr) = self.card_pr(l, &p) {
+            if let Some(mut pr) = self.card_pr(l, p) {
                 if let Some(s) = heard.get(&l.reference) {
                     pr.state = s.state.clone();
                     pr.review = s.review.clone();
