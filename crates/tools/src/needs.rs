@@ -246,7 +246,7 @@ pub(crate) fn needs_you(s: &Inner, _c: &Caller, raw: &[u8]) -> String {
                 q.on.as_ref()
                     .is_none_or(|o| o.kind == coord::BLOCKED_ON_PERSON);
             if q.given_back {
-                let who = s.roster().who(&q.raised_by);
+                let who = bare_name(&s.roster().who(&q.raised_by));
                 back.push(format!(
                     "- {}, given back by {}: Keep it or Cancel it\n{}",
                     t.short_ref(),
@@ -259,7 +259,7 @@ pub(crate) fn needs_you(s: &Inner, _c: &Caller, raw: &[u8]) -> String {
                     t.short_ref()
                 ));
             } else if on_person && q.question != coord::GIVEN_QUESTION {
-                let who = s.roster().who(&q.raised_by);
+                let who = bare_name(&s.roster().who(&q.raised_by));
                 other.push(format!(
                     "- {} asks:\n{}",
                     t.short_ref(),
@@ -504,4 +504,12 @@ fn gave(given: &[Task], name: &str, b: &BoardInfo, shared: bool) -> String {
         b.visible_to()
     ));
     out
+}
+
+/// A roster name without the key after it: "ringo (abc/def)" is "ringo".
+fn bare_name(who: &str) -> String {
+    match who.split_once(" (") {
+        Some((name, _)) if who.ends_with(')') && !name.trim().is_empty() => name.to_string(),
+        _ => who.to_string(),
+    }
 }
