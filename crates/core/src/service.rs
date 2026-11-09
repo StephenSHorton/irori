@@ -3035,6 +3035,18 @@ impl Core {
         self.s.set_weighs_on(on)
     }
 
+    /// A crashed huddle's end mark check at `now` (tests move the clock).
+    #[doc(hidden)]
+    pub fn huddle_crash_check_at(&self, now: std::time::SystemTime) {
+        self.s.huddle_crash_check_at(now)
+    }
+
+    /// How long a huddle runs before its chair proposes a title (tests).
+    #[doc(hidden)]
+    pub fn set_huddle_title_after(&self, d: std::time::Duration) {
+        self.s.set_huddle_title_after(d)
+    }
+
     /// "Let my assistant add notes from what I say" (card #1053): on unless
     /// the person turned it off.
     pub fn huddle_notes_on(&self) -> bool {

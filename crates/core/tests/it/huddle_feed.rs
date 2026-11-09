@@ -134,12 +134,23 @@ struct Rig {
     alice: Dev,
     bob: Dev,
     runner: Arc<Runner>,
+    /// Bob's computer's runner, installed only by [`rig_two`].
+    runner_b: Arc<Runner>,
     ch: String,
 }
 
 /// Alice (a computer that hosts, named Juno) and Bob in a space's channel;
 /// `alice` and `bob` are what each says (None: silent).
 fn rig(alice: Option<&str>, bob: Option<&str>) -> Rig {
+    rig_with(alice, bob, false)
+}
+
+/// [`rig`] with Bob's computer hosting his assistant too.
+fn rig_two(alice: Option<&str>, bob: Option<&str>) -> Rig {
+    rig_with(alice, bob, true)
+}
+
+fn rig_with(alice: Option<&str>, bob: Option<&str>, bob_hosts: bool) -> Rig {
     let (a, b) = (alice.map(String::from), bob.map(String::from));
     let alice = person_with("alice", 1, move |_| {
         Some(voice(a.is_some(), a.clone().unwrap_or_default()))
@@ -162,6 +173,17 @@ fn rig(alice: Option<&str>, bob: Option<&str>) -> Rig {
     let runner = Arc::new(Runner::default());
     alice.core.set_huddle_runner(Some(runner.clone()));
     alice.core.set_assistant_name("Juno").unwrap();
+    let runner_b = Arc::new(Runner::default());
+    if bob_hosts {
+        bob.core
+            .set_spawn_setting(SpawnSetting {
+                on: true,
+                ..SpawnSetting::default()
+            })
+            .unwrap();
+        bob.core.set_spawner(Some(spawner(bob.claude.join("sessions"))));
+        bob.core.set_huddle_runner(Some(runner_b.clone()));
+    }
     let space = invited(&alice, &bob);
     wait_for(WAIT, "alice hears bob read spaces", || {
         alice.core.space_not_ready(&space).unwrap().is_empty()
@@ -185,6 +207,7 @@ fn rig(alice: Option<&str>, bob: Option<&str>) -> Rig {
         alice,
         bob,
         runner,
+        runner_b,
         ch,
     }
 }
@@ -551,6 +574,422 @@ fn a_look_carries_the_items_added_since_the_last() {
     assert!(
         !m.contains("Addam has #412."),
         "its own items aren't repeated: {m}"
+    );
+    r.close();
+}
+
+// ---- digests, routed questions and the chair (card #1053) --------------------
+
+/// A made-up shared card, held by Alice's agent: what a routed question
+/// matches.
+fn alice_holds(r: &Rig, title: &str) {
+    let space = r.alice.core.talk().channel(&r.ch).unwrap().space_id;
+    let t = r
+        .alice
+        .core
+        .board_coord(&space)
+        .unwrap()
+        .create_task(
+            &r.alice.person_actor(),
+            coord::NewTask {
+                title: title.into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    r.alice.core.kick_board(&space);
+    let out = r.alice.tool(
+        "board_join",
+        serde_json::json!({ "task_id": t.short_ref() }),
+    );
+    assert!(!out.to_lowercase().contains("error"), "{out}");
+    r.alice.core.kick_board(&space);
+}
+
+fn digest_looks(r: &Rig) -> Vec<String> {
+    r.runner
+        .looks()
+        .into_iter()
+        .filter(|m| m.contains("write notes only for what"))
+        .collect()
+}
+
+/// Alice's assistant digests what Alice says: her lines, with Bob's for
+/// context, become items of hers on both devices; nothing is settled.
+#[test]
+fn an_assistant_digests_its_own_persons_lines() {
+    let r = rig(Some("we should move the release"), Some("fine with me"));
+    r.runner.says(|m| {
+        if m.contains("write notes only for what") {
+            "<<item kind=\"decision\">>Move the release.<</item>>".into()
+        } else {
+            String::new()
+        }
+    });
+    let call = r.call();
+    wait_for(WAIT, "a digest look", || !digest_looks(&r).is_empty());
+    let m = digest_looks(&r).remove(0);
+    assert!(m.contains("we should move the release"), "{m}");
+    assert!(m.contains("fine with me"), "Bob's lines are context: {m}");
+    wait_for(WAIT, "the item on both devices", || {
+        [&r.alice, &r.bob]
+            .iter()
+            .all(|d| texts(d, &call).contains(&"Move the release.".to_string()))
+    });
+    for d in [&r.alice, &r.bob] {
+        let i = items(d, &call)
+            .into_iter()
+            .find(|i| i.text == "Move the release.")
+            .unwrap();
+        assert!(i.assistant && i.status == "open" && i.asker.is_none());
+        assert_eq!(i.why.as_deref(), Some("digest"));
+    }
+    r.close();
+}
+
+/// A person who has said nothing has no digest, however much the others
+/// talk.
+#[test]
+fn a_silent_persons_assistant_digests_nothing() {
+    let r = rig(None, Some("we should move the release"));
+    let call = r.call();
+    wait_for(WAIT, "bob's lines reach alice's computer", || {
+        r.lines_of(&r.alice, &call, "we should") >= 10 && r.alice.core.huddle_fed(&call) >= 10
+    });
+    assert!(r.runner.looks().is_empty(), "{:?}", r.runner.looks());
+    r.close();
+}
+
+/// "Let my assistant add notes from what I say" off stops the digest.
+#[test]
+fn the_notes_switch_stops_the_digest() {
+    let r = rig(Some("we should move the release"), Some("fine with me"));
+    r.alice.core.set_huddle_notes_on(false).unwrap();
+    assert!(!r.alice.core.huddle_notes_on());
+    let call = r.call();
+    wait_for(WAIT, "alice's lines reach her computer", || {
+        r.lines_of(&r.alice, &call, "we should") >= 16 && r.alice.core.huddle_fed(&call) >= 16
+    });
+    assert!(digest_looks(&r).is_empty(), "{:?}", r.runner.looks());
+    r.close();
+}
+
+/// A question goes to the assistant whose person holds a matching card,
+/// once; its look may write only an answer, which wakes nothing; a question
+/// that matches no card wakes no one.
+#[test]
+fn a_question_is_routed_to_the_holder_of_a_matching_card() {
+    let r = rig(None, None);
+    alice_holds(&r, "Windows signing for the installer");
+    r.runner.says(|m| {
+        if m.contains("put this question on the canvas") {
+            let id = reply_id(m).unwrap_or_default();
+            format!(
+                "<<item kind=\"answer\" reply=\"{id}\">>Alice has it: the agent is on signing.<</item>>\n\
+                 <<item kind=\"task\">>Alice: nothing.<</item>>\n\
+                 <<item kind=\"question\">>And who else?<</item>>\n\
+                 <<title>>Not mine to set<</title>>"
+            )
+        } else {
+            String::new()
+        }
+    });
+    let call = r.call();
+    let q = r
+        .bob
+        .core
+        .huddle_item_add(&call, "question", "who is working on Windows signing?", "")
+        .unwrap();
+    wait_for(WAIT, "the routed answer on both devices", || {
+        [&r.alice, &r.bob].iter().all(|d| {
+            texts(d, &call)
+                .iter()
+                .any(|t| t.starts_with("Alice has it"))
+        })
+    });
+    for d in [&r.alice, &r.bob] {
+        let v = items(d, &call);
+        let a = v.iter().find(|i| i.text.starts_with("Alice has it")).unwrap();
+        assert_eq!(a.reply.as_deref(), Some(q.item_id.as_str()));
+        assert!(a.assistant && a.status == "open");
+        assert_eq!(a.why.as_deref(), Some("routed"));
+        assert_eq!(v.len(), 2, "the question and its answer, nothing else: {v:?}");
+    }
+    assert_eq!(
+        r.alice.core.talk().call_title(&call),
+        None,
+        "a routed look sets no title"
+    );
+    // The look carried the card, and one question gave one look.
+    let routed = |r: &Rig| {
+        r.runner
+            .looks()
+            .into_iter()
+            .filter(|m| m.contains("put this question on the canvas"))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(routed(&r).len(), 1);
+    assert!(routed(&r)[0].contains("Windows signing for the installer"));
+    // A question that matches no card wakes no one.
+    r.bob
+        .core
+        .huddle_item_add(&call, "question", "what is for lunch today?", "")
+        .unwrap();
+    wait_for(WAIT, "alice has the lunch question", || {
+        texts(&r.alice, &call).contains(&"what is for lunch today?".to_string())
+    });
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    assert_eq!(routed(&r).len(), 1);
+    r.close();
+}
+
+fn assist_rows(d: &Dev, call: &str) -> Vec<coord::talk::AssistInfo> {
+    d.core.talk().call_assists(call)
+}
+
+/// The starter's assistant chairs: its row says so on both devices. It
+/// proposes a title once the huddle has run a while (a person's title beats
+/// it), and at the end writes one summary with action items and `refs`,
+/// changing no status; the chair's session closes when it is done.
+#[test]
+fn the_chair_titles_and_summarises_the_huddle() {
+    let r = rig(None, None);
+    r.alice
+        .core
+        .set_huddle_title_after(std::time::Duration::from_millis(500));
+    let qid = Arc::new(Mutex::new(String::new()));
+    let seen = qid.clone();
+    r.runner.says(move |m| {
+        if m.contains("The huddle is over") {
+            let id = seen.lock().unwrap().clone();
+            format!(
+                "<<item kind=\"summary\" refs=\"{id},not-an-item\">>Moved the release; Alice ships it.<</item>>\n\
+                 <<item kind=\"task\">>Alice: ship the release.<</item>>\n\
+                 <<title>>Release planning<</title>>"
+            )
+        } else if m.contains("no title yet") {
+            "<<title>>First guess<</title>>".into()
+        } else {
+            String::new()
+        }
+    });
+    let call = r.call();
+    wait_for(WAIT, "alice's row says she chairs, on both devices", || {
+        [&r.alice, &r.bob].iter().all(|d| {
+            assist_rows(d, &call)
+                .iter()
+                .any(|a| a.on && a.chair && !a.declines_chair)
+        })
+    });
+    let q = r
+        .bob
+        .core
+        .huddle_item_add(&call, "question", "when do we ship?", "")
+        .unwrap();
+    *qid.lock().unwrap() = q.item_id.clone();
+    wait_for(WAIT, "the chair's title", || {
+        [&r.alice, &r.bob]
+            .iter()
+            .all(|d| d.core.talk().call_title(&call).as_deref() == Some("First guess"))
+    });
+    // A person's title beats the assistant's, now and at the end.
+    r.bob.core.call_title_set(&call, "Bob's title").unwrap();
+    r.bob.core.call_leave().unwrap();
+    r.alice.core.call_leave().unwrap();
+    wait_for(WAIT, "one summary on both devices", || {
+        [&r.alice, &r.bob].iter().all(|d| {
+            items(d, &call)
+                .iter()
+                .any(|i| i.kind == "summary" && i.text.starts_with("Moved the release"))
+        })
+    });
+    for d in [&r.alice, &r.bob] {
+        let v = items(d, &call);
+        let s: Vec<_> = v.iter().filter(|i| i.kind == "summary").collect();
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].refs, vec![q.item_id.clone()], "only a real item");
+        assert_eq!(s[0].why.as_deref(), Some("end"));
+        assert!(s[0].assistant && s[0].status.is_empty());
+        let t = v.iter().find(|i| i.kind == "task").unwrap();
+        assert_eq!((t.status.as_str(), t.why.as_deref()), ("open", Some("end")));
+        let qi = v.iter().find(|i| i.item_id == q.item_id).unwrap();
+        assert_eq!(qi.status, "open", "the end changes no status");
+        assert_eq!(d.core.talk().call_title(&call).as_deref(), Some("Bob's title"));
+    }
+    // It ran once, and the chair's session closes with it.
+    std::thread::sleep(std::time::Duration::from_secs(4));
+    let ends = r
+        .runner
+        .looks()
+        .into_iter()
+        .filter(|m| m.contains("The huddle is over"))
+        .count();
+    assert_eq!(ends, 1);
+    wait_for(WAIT, "the chair's session closes", || {
+        !r.alice.core.huddle_is_open(&call)
+    });
+    r.close();
+}
+
+/// "Let my assistant chair huddles I start" off: nobody chairs the
+/// starter's huddle here, and the row says why; the title and the summary
+/// are not written.
+#[test]
+fn the_chair_switch_passes_the_chair_on() {
+    let r = rig(None, None);
+    r.alice.core.set_huddle_chair_on(false).unwrap();
+    r.alice
+        .core
+        .set_huddle_title_after(std::time::Duration::from_millis(500));
+    r.runner.says(|m| {
+        if m.contains("The huddle is over") || m.contains("no title yet") {
+            "<<title>>Mine<</title>>\n<<item kind=\"summary\">>Done.<</item>>".into()
+        } else {
+            String::new()
+        }
+    });
+    let call = r.call();
+    wait_for(WAIT, "alice's row declines the chair", || {
+        assist_rows(&r.bob, &call)
+            .iter()
+            .any(|a| a.on && a.declines_chair && !a.chair)
+    });
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    r.bob.core.call_leave().unwrap();
+    r.alice.core.call_leave().unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(8));
+    assert!(
+        !items(&r.alice, &call).iter().any(|i| i.kind == "summary"),
+        "{:?}",
+        r.runner.looks()
+    );
+    assert_eq!(r.alice.core.talk().call_title(&call), None);
+    r.close();
+}
+
+/// A huddle that is over with no end mark, and no assistant to write it,
+/// gets one from a member device after three minutes; the fold keeps one.
+#[test]
+fn a_crashed_huddle_gets_one_end_mark() {
+    use crate::common::mesh::person;
+    let alice = person("alice", 1);
+    let bob = person("bob", 1);
+    let (a, b) = (&alice[0], &bob[0]);
+    let space = invited(a, b);
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        a.core.space_not_ready(&space).unwrap().is_empty()
+    });
+    a.core.space_gate(&space).unwrap();
+    let ch = a
+        .core
+        .talk_channel_create_in(&a.user(), "general", "", &space)
+        .unwrap();
+    wait_for(WAIT, "bob holds the channel", || {
+        b.core.talk().channel(&ch.id).is_some()
+    });
+    let call = "0123456789abcdef0123456789abcdef";
+    let old = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+        - 20 * 60 * 1000;
+    a.core
+        .talk()
+        .write_segment(&ch.id, call, 0, old, old + 900, "we were talking", &a.user())
+        .unwrap();
+    wait_for(WAIT, "bob holds the huddle", || {
+        b.core.talk().call_conv(call).is_some()
+    });
+    let ended = |d: &Dev| {
+        d.core
+            .talk()
+            .calls()
+            .into_iter()
+            .find(|c| c.call_id == call)
+            .and_then(|c| c.end)
+    };
+    assert!(a.core.call_over(call));
+    let now = std::time::SystemTime::now();
+    a.core.huddle_crash_check_at(now);
+    assert!(ended(a).is_none(), "not before three minutes");
+    a.core
+        .huddle_crash_check_at(now + std::time::Duration::from_secs(4 * 60));
+    let m = ended(a).expect("the end mark");
+    assert!(m.transcript && m.people.contains(&a.user()), "{m:?}");
+    wait_for(WAIT, "bob sees the end mark", || ended(b).is_some());
+    // Asked again, the first mark stays.
+    a.core
+        .huddle_crash_check_at(now + std::time::Duration::from_secs(5 * 60));
+    assert_eq!(ended(a).unwrap().duration_ms, m.duration_ms);
+    for d in alice.iter().chain(bob.iter()) {
+        d.core.close().unwrap();
+    }
+}
+
+/// Two assistants: the starter's chairs. When she leaves with Bob still in
+/// the call the chair passes to Bob's, whose row says so and hers stands
+/// down; when Bob leaves last, his assistant writes the one summary.
+#[test]
+fn the_chair_passes_on_when_its_person_leaves() {
+    let r = rig_two(None, None);
+    r.runner.says(|m| {
+        if m.contains("The huddle is over") {
+            "<<item kind=\"summary\">>Alice's chair wrote this.<</item>>".into()
+        } else {
+            String::new()
+        }
+    });
+    r.runner_b.says(|m| {
+        if m.contains("The huddle is over") {
+            "<<item kind=\"summary\">>Bob's chair wrote this.<</item>>".into()
+        } else {
+            String::new()
+        }
+    });
+    let call = r.call();
+    wait_for(WAIT, "bob's computer holds a session too", || {
+        r.bob.core.huddle_is_open(&call)
+    });
+    let chair_of = |d: &Dev, who: &str| {
+        assist_rows(d, &call)
+            .iter()
+            .any(|a| a.on && a.chair && a.by == who)
+    };
+    wait_for(WAIT, "the starter chairs, on both devices", || {
+        chair_of(&r.alice, &r.alice.user()) && chair_of(&r.bob, &r.alice.person_actor())
+    });
+    assert!(
+        !assist_rows(&r.bob, &call)
+            .iter()
+            .any(|a| a.on && a.chair && a.by == r.bob.user())
+    );
+    r.alice.core.call_leave().unwrap();
+    wait_for(WAIT, "the chair passes to bob", || {
+        r.bob
+            .core
+            .talk()
+            .call_assists(&call)
+            .iter()
+            .any(|a| a.on && a.chair && a.by == r.bob.user())
+    });
+    wait_for(WAIT, "alice's host closes", || {
+        !r.alice.core.huddle_is_open(&call)
+    });
+    r.bob.core.call_leave().unwrap();
+    wait_for(WAIT, "bob's chair writes the summary", || {
+        items(&r.alice, &call)
+            .iter()
+            .any(|i| i.kind == "summary" && i.text.starts_with("Bob's chair"))
+    });
+    std::thread::sleep(std::time::Duration::from_secs(4));
+    let sums = items(&r.alice, &call)
+        .iter()
+        .filter(|i| i.kind == "summary")
+        .count();
+    assert_eq!(sums, 1);
+    assert!(
+        !r.runner.looks().iter().any(|m| m.contains("The huddle is over")),
+        "the one who left writes nothing"
     );
     r.close();
 }

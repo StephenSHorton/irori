@@ -230,7 +230,10 @@ impl Services {
         };
         let me = self.user_sender().key;
         let has_summary = self.huddle_has_summary(call);
-        let due = due_writer(&starter, &seats, over_for, false) == Writer::Person(me.clone());
+        // A person who turned the chair off for what they started doesn't
+        // write the end of it either.
+        let willing: Vec<Seat> = seats.iter().filter(|s| s.will_chair).cloned().collect();
+        let due = due_writer(&starter, &willing, over_for, false) == Writer::Person(me.clone());
         if due && !has_summary {
             self.huddle_end_look(call, now);
         }
@@ -300,7 +303,11 @@ impl Services {
     /// all, gets its end mark from here (§3 "any member device"). Called
     /// from the calls ticker.
     pub(crate) fn huddle_crash_check(&self) {
-        let now = SystemTime::now();
+        self.huddle_crash_check_at(SystemTime::now());
+    }
+
+    /// [`Services::huddle_crash_check`] at `now` (tests move the clock).
+    pub(crate) fn huddle_crash_check_at(&self, now: SystemTime) {
         for info in self.talk.calls() {
             // Only a recent huddle: an old one that crashed long ago isn't
             // this device's to close now.
@@ -476,6 +483,26 @@ impl Services {
         }
     }
 
+    /// How long a huddle runs before its chair proposes a title.
+    fn huddle_title_after(&self) -> Duration {
+        match self
+            .hosting
+            .title_after_ms
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            0 => TITLE_AFTER,
+            ms => Duration::from_millis(ms),
+        }
+    }
+
+    /// Sets that time (tests shorten it).
+    pub(crate) fn set_huddle_title_after(&self, d: Duration) {
+        self.hosting.title_after_ms.store(
+            d.as_millis() as u64,
+            std::sync::atomic::Ordering::SeqCst,
+        );
+    }
+
     /// Whether the chair should propose a title in a digest: it has none,
     /// and the huddle has run [`TITLE_AFTER`].
     fn huddle_wants_title(&self, call: &str) -> bool {
@@ -483,7 +510,8 @@ impl Services {
             i.title.is_empty()
                 && i.start_at.is_some_and(|t| {
                     let at = UNIX_EPOCH + Duration::from_millis(t.unix_milli_value().max(0) as u64);
-                    SystemTime::now().duration_since(at).unwrap_or_default() >= TITLE_AFTER
+                    SystemTime::now().duration_since(at).unwrap_or_default()
+                        >= self.huddle_title_after()
                 })
         })
     }

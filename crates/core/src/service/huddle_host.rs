@@ -231,6 +231,9 @@ pub(crate) struct Hosting {
     /// When this device first saw each huddle over (card #1053): the clock
     /// of the chair's hand-on and of the end it owes.
     pub(super) over: Mutex<HashMap<String, SystemTime>>,
+    /// How long a huddle runs before its chair proposes a title, in
+    /// milliseconds; 0 is the default (tests shorten it).
+    pub(super) title_after_ms: std::sync::atomic::AtomicU64,
 }
 
 pub(super) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
