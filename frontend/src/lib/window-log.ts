@@ -47,8 +47,22 @@ export function windowTally() {
   let worst = { name: "", n: 0 }
   const inARow = new Map<string, number>()
   let ipc = new Map<string, number>()
+  // The drift check (card #1146, changes.ts/patched.ts): per list, rows
+  // that differed in the compared samples and how many were compared, and
+  // the samples dropped because a notice came during them.
+  let drifts = new Map<string, { rows: number; samples: number }>()
+  let driftDropped = 0
 
   return {
+    // drift notes one compared sample of the list called name.
+    drift(name: string, rows: number) {
+      const d = drifts.get(name) ?? { rows: 0, samples: 0 }
+      drifts.set(name, { rows: d.rows + rows, samples: d.samples + 1 })
+    },
+    // driftDropped notes a sample dropped without comparing.
+    driftDropped() {
+      driftDropped++
+    },
     signal(name: string) {
       signals.set(name, (signals.get(name) ?? 0) + 1)
     },
@@ -83,6 +97,13 @@ export function windowTally() {
           s += `, ${worst.n} in a row on ${worst.name}`
         parts.push(s)
       }
+      if (drifts.size || driftDropped) {
+        const names = [...drifts]
+          .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+          .map(([name, d]) => `${name} ${d.rows} of ${d.samples}`)
+        if (driftDropped) names.push(`dropped ${driftDropped}`)
+        parts.push(`drift ${names.join(", ")}`)
+      }
       if (ipc.size)
         parts.push(
           `ipc: ${[...ipc]
@@ -91,6 +112,8 @@ export function windowTally() {
             .join(", ")}`
         )
       signals = new Map()
+      drifts = new Map()
+      driftDropped = 0
       ipc = new Map()
       reads = reloads = slow = dropped = 0
       slowest = { name: "", ms: 0 }
@@ -105,6 +128,15 @@ const tally = windowTally()
 // noteRead counts a finished read of the list called name.
 export function noteRead(name: string, r: ReadReport) {
   tally.read(name, r)
+}
+
+// noteDrift counts one compared drift sample of the list called name: how
+// many rows differed. noteDriftDropped counts one dropped without comparing.
+export function noteDrift(name: string, rows: number) {
+  tally.drift(name, rows)
+}
+export function noteDriftDropped() {
+  tally.driftDropped()
 }
 
 // timedRead runs a read of the list called name and counts it, one reload

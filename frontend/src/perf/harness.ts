@@ -8,7 +8,7 @@
 // notes_list N notes. The hash picks the page (#notifications).
 
 import { emit } from "@tauri-apps/api/event"
-import { mockIPC } from "@tauri-apps/api/mocks"
+import { mockIPC, mockWindows } from "@tauri-apps/api/mocks"
 
 import bindings from "../gen/bindings.ts?raw"
 import { sampleCards } from "../lib/sample-cards"
@@ -232,8 +232,13 @@ function answer(cmd: string, args: Record<string, unknown>): unknown {
 
 const calls = new Map<string, number>()
 const errors = new Map<string, number>()
+// The window's own state, which visibility.ts (card #1134) asks: a window
+// the person can see. Without a mocked window the page never mounts.
+mockWindows("main")
 mockIPC(
   (cmd, args) => {
+    if (cmd === "plugin:window|is_visible") return true
+    if (cmd.startsWith("plugin:")) return null
     calls.set(cmd, (calls.get(cmd) ?? 0) + 1)
     try {
       return answer(cmd, (args ?? {}) as Record<string, unknown>)

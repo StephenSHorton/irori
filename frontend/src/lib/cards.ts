@@ -14,6 +14,7 @@ import {
 } from "react"
 
 import { agentsNowDefault } from "./agents-now"
+import { onChange } from "./changes"
 import { BoardService, Browser, Events } from "./host"
 import { timedRead } from "./window-log"
 import { checkUploads, uploadOf } from "./uploads"
@@ -1123,7 +1124,8 @@ export function useAllThreads(): {
   // (conversations.ts's EventTalkChanged), not board:changed.
   useEffect(() => {
     if (!inWails()) return
-    return Events.On("talk:changed", () => void reload())
+    // Held while the window is hidden, like the other lists.
+    return onChange("talk:changed", () => void reload())
   }, [reload])
   return { threads: list, loading, error }
 }
@@ -2634,13 +2636,16 @@ export async function cardsById(ids: string[]): Promise<Map<string, CardSlot>> {
   return out
 }
 
-function subscribe(fn: () => void): () => void {
+//
+// focus: also a full read when the window gets focus, at most once a minute
+// (changes.ts). Only one of the two signals carries it.
+function subscribe(fn: () => void, focus = false): () => void {
   if (!inWails()) {
     sampleListeners.add(fn)
     return () => sampleListeners.delete(fn)
   }
-  const offBoard = Events.OnShown(EventBoardChanged, fn)
-  const offDevices = Events.OnShown(EventDevicesChanged, fn)
+  const offBoard = onChange(EventBoardChanged, () => fn(), { focus })
+  const offDevices = onChange(EventDevicesChanged, () => fn())
   return () => {
     offBoard()
     offDevices()
@@ -2659,20 +2664,13 @@ function useFresh(
 ) {
   useEffect(() => {
     void reload()
-    return subscribe(() => void reload())
+    return subscribe(() => void reload(), true)
   }, [reload])
 
   useEffect(() => {
     if (!inbox || !inWails()) return
-    return Events.OnShown(EventInboxChanged, () => void reload())
+    return onChange(EventInboxChanged, () => void reload())
   }, [inbox, reload])
-
-  useEffect(() => {
-    if (!inWails()) return
-    const onFocus = () => void reload()
-    window.addEventListener("focus", onFocus)
-    return () => window.removeEventListener("focus", onFocus)
-  }, [reload])
 
   useEffect(() => {
     if (!error) return
@@ -2908,14 +2906,7 @@ export function useDoneCards(active: boolean, scope = ""): DoneState {
   useEffect(() => {
     if (!active) return
     void reload()
-    const off = subscribe(() => void reload())
-    if (!inWails()) return off
-    const onFocus = () => void reload()
-    window.addEventListener("focus", onFocus)
-    return () => {
-      off()
-      window.removeEventListener("focus", onFocus)
-    }
+    return subscribe(() => void reload(), true)
   }, [active, reload])
 
   useEffect(() => {
@@ -3181,18 +3172,13 @@ export function createCardStore(
 // cardEvents is when the card hooks read again: every card change, every
 // inbox change, and focus.
 function cardEvents(again: () => void): () => void {
-  const offCards = subscribe(again)
+  const offCards = subscribe(again, true)
   const offInbox = inWails()
-    ? Events.OnShown(EventInboxChanged, again)
+    ? onChange(EventInboxChanged, () => again())
     : () => {}
-  const onFocus = () => {
-    if (inWails()) again()
-  }
-  window.addEventListener("focus", onFocus)
   return () => {
     offCards()
     offInbox()
-    window.removeEventListener("focus", onFocus)
   }
 }
 

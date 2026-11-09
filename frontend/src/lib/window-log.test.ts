@@ -85,4 +85,17 @@ describe("the window's line in irori.log (card #551)", () => {
     expect(t.line()).toBe("lists: ipc: devices_devices 1")
     expect(t.line()).toBe("")
   })
+
+  test("drift samples, compared and dropped, go before the IPC counts", () => {
+    const t = windowTally()
+    t.drift("grid", 0)
+    t.drift("grid", 2)
+    t.drift("threads", 0)
+    t.driftDropped()
+    t.call("board_cards")
+    expect(t.line()).toBe(
+      "lists: drift grid 2 of 2, threads 0 of 1, dropped 1; ipc: board_cards 1"
+    )
+    expect(t.line()).toBe("")
+  })
 })

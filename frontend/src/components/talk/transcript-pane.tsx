@@ -18,7 +18,7 @@ import {
   whoCanRead,
   type TalkTranscript,
 } from "@/lib/call"
-import { Events } from "@/lib/host"
+import { onChange } from "@/lib/changes"
 import { inWails } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { onSampleHuddle } from "@/lib/sample-huddle"
@@ -195,7 +195,7 @@ export function useTranscript(
       }
     }
     const off = inWails()
-      ? Events.On("talk:changed", () => void read())
+      ? onChange("talk:changed", () => void read(), { held: false })
       : () => {}
     const timer = inWails() ? 0 : window.setInterval(() => void read(), 3_000)
     // The preview's canvas writes show at once (card #1052).
