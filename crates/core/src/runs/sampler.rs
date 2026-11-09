@@ -190,9 +190,9 @@ pub(crate) fn start(core: &Core) {
         let mut me = me;
         let mut wait = Duration::ZERO;
         loop {
-            match feed.recv_timeout(wait) {
-                Ok(None) => break,
-                Ok(Some(_)) | Err(()) => {}
+            // `Ok(None)`: the Core stopped and the feed closed.
+            if let Ok(None) = feed.recv_timeout(wait) {
+                break;
             }
             // Drain a burst; one pass covers it.
             while feed.try_recv().is_some() {}
