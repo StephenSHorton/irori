@@ -912,9 +912,15 @@ fn test_device_colors() {
     assert!(coord::devcolor::valid(&cs[&me]));
     assert!(r.core.set_device_color(&me, "mauve").is_err());
     assert!(r.core.set_device_color("not-mine", "teal").is_err());
+    // Cards and the header show device colours: a pick tells the window
+    // (list-signals.md §3.2, card #1144).
+    let feed = r.core.feed(&[irori_core::Topic::Devices]);
     r.core.set_device_color(&me, "pink").unwrap();
     wait_for(5, "the pick folded", || {
         r.core.device_colors()[&me] == "pink"
+    });
+    wait_for(5, "devices:changed", || {
+        matches!(feed.try_recv(), Some(CoreEvent::Devices))
     });
 }
 
@@ -1193,9 +1199,12 @@ fn test_talk_survives_a_restart() {
         .core
         .talk_channel_create(&me.key, "general", "the room")
         .unwrap();
-    wait_for(5, "talk:changed", || {
-        matches!(feed.try_recv(), Some(CoreEvent::Talk))
-    });
+    // It names the channel it made (list-signals.md §3.2).
+    wait_for(
+        5,
+        "talk:changed",
+        || matches!(feed.try_recv(), Some(CoreEvent::Talk(t)) if !t.all && t.convs.contains(&ch.id)),
+    );
     let p1 = r
         .core
         .talk_post(&me, &ch.id, "@alpha hello room", &[], true, None, vec![])
@@ -1276,6 +1285,10 @@ fn test_talk_survives_a_restart() {
 /// show as a DM. Board notices (most of what the inbox carries while
 /// agents work) and stops don't, so they no longer make the window
 /// rebuild Talk's list from the whole inbox; an agent's message still does.
+/// It comes from feed-inbox on the delivery's first row and names the DM
+/// (list-signals.md §3.2). If this ever counts 2, check for an inbox
+/// Resync: feed-inbox's 64-slot subscription overflowing during the 22
+/// sends turns into a Talk `all` as well.
 #[test]
 fn test_only_messages_that_show_as_dms_change_talk() {
     let r = Rig::new();
@@ -1311,22 +1324,32 @@ fn test_only_messages_that_show_as_dms_change_talk() {
     // The agent's message is folded after them, so its event comes last.
     ib.send(&a, &to_b, "can you look at #3?", "").unwrap();
     let mut talk = 0;
+    let mut seen = Vec::new();
     wait_for(5, "talk:changed for the agent's message", || {
         while let Some(e) = feed.try_recv() {
-            if matches!(e, CoreEvent::Talk) {
+            if let CoreEvent::Talk(t) = e {
                 talk += 1;
+                seen.push(t);
             }
         }
         talk > 0
     });
     std::thread::sleep(Duration::from_millis(200));
     while let Some(e) = feed.try_recv() {
-        if matches!(e, CoreEvent::Talk) {
+        if let CoreEvent::Talk(t) = e {
             talk += 1;
+            seen.push(t);
         }
     }
     eprintln!("card #468: {NOTICES} notices, a stop and one agent message: {talk} Talk events");
     assert_eq!(talk, 1, "only the agent's message changes Talk");
+    // From feed-inbox, on the delivery's first row: it names the DM
+    // (list-signals.md §3.2).
+    assert_eq!(
+        seen[0],
+        irori_core::TalkChange::convs([coord::talk::dm_id(&r.key_a, &r.key_b)]),
+        "the agent's message names its DM"
+    );
     let convs = r
         .core
         .talk_conversations(&r.core.user_sender().key)

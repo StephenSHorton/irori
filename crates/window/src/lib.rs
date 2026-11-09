@@ -327,6 +327,11 @@ impl Window {
     pub(crate) fn kick_inbox(&self, q: &Arc<gocompat::sub::Queue<CoreEvent>>) {
         self.inbox_kick.set(q.clone());
     }
+
+    /// Whether the inbox was kicked since the pump last asked.
+    pub(crate) fn inbox_kicked(&self) -> bool {
+        self.inbox_kick.take()
+    }
 }
 
 /// Every command, for the app's invoke handler and the bindings export.

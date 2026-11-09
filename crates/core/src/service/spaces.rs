@@ -1618,7 +1618,9 @@ impl Services {
             }
         });
         if changed {
-            self.hub.publish(crate::events::CoreEvent::Talk);
+            self.hub.publish(crate::events::CoreEvent::Talk(
+                crate::events::TalkChange::all(),
+            ));
         }
     }
 

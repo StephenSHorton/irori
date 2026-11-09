@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use common::mesh::{Dev, invited, person, restart};
 use common::wait_for;
+use irori_core::{CoreEvent, Feed, Topic};
 use mesh::boardmesh::{
     BoardReads, BoardServer, KIND_BOARD_HELLO, KIND_BOARD_SERVER, SPACES_PROTOCOL, SavedHello,
     saved_hellos,
@@ -2441,6 +2442,30 @@ fn a_dm_survives_a_restart_with_nothing_in_either_switcher() {
     close([a1, b1]);
 }
 
+/// Drains `f`, a Board feed, into the card ids it names, waiting up to
+/// `wait` for each event (`ZERO`: only what is buffered). A board resync
+/// (a board set changing) or agents.changed names no card and is skipped;
+/// a lost feed (`CoreEvent::Resync`) could have hidden a leaked id, so it
+/// fails (card #1144, list-signals.md §3.1).
+fn drain_card_ids(f: &Feed, heard: &mut Vec<String>, wait: Duration) {
+    loop {
+        let ev = if wait.is_zero() {
+            f.try_recv()
+        } else {
+            f.recv_timeout(wait).ok().flatten()
+        };
+        match ev {
+            None => return,
+            Some(CoreEvent::Board(ch)) if !ch.task_id.is_empty() => heard.push(ch.task_id),
+            Some(CoreEvent::Board(_)) => {}
+            Some(CoreEvent::Resync) => {
+                panic!("the Board feed overflowed, so a hidden id may be lost; heard {heard:?}")
+            }
+            Some(other) => panic!("the Board feed got {other:?}"),
+        }
+    }
+}
+
 /// §5: Bob founds a DM and writes into it all a space can hold: a card, an
 /// ask, a note, his agent's card, a board inside. Alice's and his own
 /// lists, tools, feeds and refs show none of it, though each log holds it.
@@ -2460,7 +2485,10 @@ fn nothing_of_a_dm_space_shows_anywhere() {
     let alice_id = a1.core.person().id.clone();
     let id = b1.core.dm_spaces_with(&alice_id)[0].clone();
     assert!(a1.core.is_dm_space(&id) && b1.core.is_dm_space(&id));
-    let changes = a1.core.subscribe_boards();
+    // Card changes, shared ones too, reach the window on the hub's Board
+    // topic (list-signals.md §3.1).
+    let changes = a1.core.feed(&[Topic::Board]);
+    let mut heard: Vec<String> = Vec::new();
 
     let co = b1.core.board_coord(&id).unwrap();
     let bob_key = b1.person_actor();
@@ -2515,6 +2543,9 @@ fn nothing_of_a_dm_space_shows_anywhere() {
         .unwrap();
     b1.core.kick_board(&id);
     wait_for(WAIT, "alice's log holds all of it", || {
+        // Keep a1's 64-slot feed empty while the hidden rows land: their
+        // summary rows each put a board resync on it.
+        drain_card_ids(&changes, &mut heard, Duration::ZERO);
         b1.core.kick_board(&id);
         card_on(a1, &id, &card.id).is_some()
             && card_on(a1, &id, &ask.id).is_some()
@@ -2535,18 +2566,13 @@ fn nothing_of_a_dm_space_shows_anywhere() {
         .create_task(&bob_key, new_task("SEEN card"))
         .unwrap();
     b1.core.kick_board(&board);
-    let mut heard = Vec::new();
     wait_for(WAIT, "the window hears the shared card", || {
         b1.core.kick_board(&board);
-        while let Ok(Some(ch)) = changes.recv_timeout(Duration::from_millis(100)) {
-            heard.push(ch.task_id);
-        }
+        drain_card_ids(&changes, &mut heard, Duration::from_millis(100));
         heard.contains(&seen.id)
     });
     a1.core.sweep_coord().unwrap();
-    while let Ok(Some(ch)) = changes.recv_timeout(Duration::from_millis(100)) {
-        heard.push(ch.task_id);
-    }
+    drain_card_ids(&changes, &mut heard, Duration::from_millis(100));
     assert!(
         !heard.contains(&card.id) && !heard.contains(&ask.id),
         "{heard:?}"

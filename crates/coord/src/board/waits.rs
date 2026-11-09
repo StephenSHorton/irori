@@ -293,6 +293,32 @@ impl Fold {
 
     // ---- fold ----
 
+    /// A wait shows on the card it waits on and on its waiter's open cards
+    /// (the window's card view, `holders` only): each changed when it is
+    /// made, fires or is canceled (list-signals.md §3.2). A board wait's
+    /// card is the shared card's id.
+    fn note_wait(&mut self, w: &Wait) {
+        if self.replaying {
+            return; // note() keeps nothing then; skip the scan
+        }
+        let mut ids: Vec<String> = Vec::new();
+        if !w.task_id.is_empty() {
+            ids.push(w.task_id.clone());
+        }
+        for t in self.tasks.values() {
+            if !is_terminal(&t.state) && t.holders.contains(&w.by) && t.id != w.task_id {
+                ids.push(t.id.clone());
+            }
+        }
+        for id in ids {
+            self.note(Change {
+                kind: TASK_CHANGED.into(),
+                task_id: id,
+                ..Change::default()
+            });
+        }
+    }
+
     pub(crate) fn fold_wait(&mut self, ev: &Event) {
         match ev.kind.as_str() {
             kinds::WAIT_CREATED => {
@@ -329,11 +355,16 @@ impl Fold {
                 if !w.task_id.is_empty() {
                     self.wait_seen.insert(w.id.clone(), w.from_state.clone());
                 }
+                if self.waits.get(&p.id) != Some(&w) {
+                    self.note_wait(&w);
+                }
                 self.waits.insert(p.id, w);
             }
             kinds::WAIT_FIRED => {
                 if let Some(p) = row::<WaitFiredRow>(&ev.payload) {
-                    self.waits.remove(&p.id);
+                    if let Some(w) = self.waits.remove(&p.id) {
+                        self.note_wait(&w);
+                    }
                     self.wait_seen.remove(&p.id);
                     self.waits_lost.remove(&p.id);
                     self.waits_done.insert(p.id);
@@ -341,7 +372,9 @@ impl Fold {
             }
             kinds::WAIT_CANCELED => {
                 if let Some(p) = row::<WaitCanceledRow>(&ev.payload) {
-                    self.waits.remove(&p.id);
+                    if let Some(w) = self.waits.remove(&p.id) {
+                        self.note_wait(&w);
+                    }
                     self.wait_seen.remove(&p.id);
                     self.waits_lost.remove(&p.id);
                     self.waits_done.insert(p.id);

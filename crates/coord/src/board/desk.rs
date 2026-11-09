@@ -34,6 +34,7 @@ use super::error::{Result, invalid, not_allowed};
 use super::fold::Fold;
 use super::resource::check_repo_key;
 use super::rows::row;
+use super::types::{Change, DESK_CHANGED};
 use super::util::{SWEEPER, caller};
 use crate::gojson::omit;
 use crate::names::trim_space;
@@ -225,6 +226,16 @@ pub fn new_desk(repo_key: &str, poll_device: &str) -> RepoDeskRow {
 }
 
 impl Fold {
+    /// Desk `repo_key` changed what the desk list shows (list-signals.md
+    /// §3.2); empty: every desk.
+    pub(crate) fn note_desk(&mut self, repo_key: &str) {
+        self.note(Change {
+            kind: DESK_CHANGED.into(),
+            resource: repo_key.into(),
+            ..Change::default()
+        });
+    }
+
     pub(crate) fn fold_desk(&mut self, ev: &Event) {
         // The person's rows count only from the person (module doc).
         let person = |f: &Fold, by: &str| !f.on_board && f.is_owner(by);
@@ -244,6 +255,7 @@ impl Fold {
                 d.follow_poll = trim_space(&p.poll_device).is_empty();
                 d.settings = p;
                 d.settle(&k, &revoked);
+                self.note_desk(&k);
             }
             kinds::REPO_SEEN => {
                 // Every GitHub repo an agent works in has a desk, on by
@@ -262,11 +274,20 @@ impl Fold {
                     return;
                 }
                 let revoked = self.revoked_fn();
+                let shown = |f: &Fold| {
+                    f.desks
+                        .get(&k)
+                        .map(|d| (d.settings.clone(), d.seen_on.clone()))
+                };
+                let before = shown(self);
                 let d = self.desks.entry(k.clone()).or_default();
                 let at = d.seen.entry(ev.device_id.clone()).or_default();
                 // Folding a row twice (a resync re-reads them) changes nothing.
                 *at = (*at).max(ev.hlc);
                 d.settle(&k, &revoked);
+                if shown(self) != before {
+                    self.note_desk(&k);
+                }
             }
             kinds::DESK_PRS => {
                 let Some(p) = row::<DeskPrsRow>(&ev.payload) else {
@@ -276,7 +297,8 @@ impl Fold {
                     return;
                 }
                 let k = ledger::canonical_repo_key(&p.repo_key);
-                self.desks.entry(k).or_default().prs = Some(p);
+                self.desks.entry(k.clone()).or_default().prs = Some(p);
+                self.note_desk(&k);
             }
             kinds::DESK_OK => {
                 let Some(p) = row::<DeskOkRow>(&ev.payload) else {
