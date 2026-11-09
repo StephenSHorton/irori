@@ -735,3 +735,35 @@ fn a_refold_keeps_asks_pings_claims_and_declines_once() {
         assert_eq!(s.c.pick_facts(&id).unwrap().claims.len(), 1);
     }
 }
+
+#[test]
+fn a_named_ask_on_a_work_card_is_the_prs_ask() {
+    let (a, b, c, _) = three_people();
+    let id = pr_card(&[&a, &b, &c], 7);
+    // p3's work card links p1's PR and names p2's agent: that is the
+    // PR's ask, so the author's device has nothing to pick.
+    let w =
+        c.c.create_task(
+            P3,
+            NewTask {
+                title: "the loader".into(),
+                repo_key: common::REPO_A.into(),
+                links: vec![pr(7)],
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    let (rs, _) = c.c.request_review(CARD4, &w.id, &pr(7), CARD2).unwrap();
+    assert_eq!(rs.len(), 1);
+    sync_all(&[&a, &b, &c]);
+    for s in [&a, &b, &c] {
+        assert_eq!(asked_to(&s.c.review_phase(&id)), CARD2);
+        let m = s.c.missed_review_asks();
+        assert_eq!(m.len(), 1, "{m:?}");
+        assert_eq!((m[0].card.as_str(), m[0].to.as_str()), (w.id.as_str(), CARD2));
+    }
+    // A pick from the author's device with a stale view writes nothing.
+    assert!(a.c.pick_ask(P1, &id, CARD3, false, None).unwrap().is_none());
+    let f = a.c.pick_facts(&id).unwrap();
+    assert_eq!(f.asks.last().map(|r| r.to.as_str()), Some(CARD2));
+}

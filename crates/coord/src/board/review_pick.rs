@@ -61,7 +61,8 @@ pub enum ReviewPhase {
 }
 
 /// An ask a device may have missed live (merge desk §12.8): the newest
-/// ask on a PR card still asked.
+/// ask for a PR card still asked, on the card it sits on (the PR card,
+/// or a work card that links the PR).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MissedAsk {
     pub card: String,
@@ -227,10 +228,18 @@ impl Fold {
 
     /// The newest ask on the card for the PR `res` names, by row place,
     /// so every device agrees.
-    fn newest_ask(&self, id: &str, res: &str) -> Option<&ReviewRequest> {
-        self.review_asks(id)
-            .filter(|r| !r.to.is_empty() && pr_claim_resource(&r.pr).as_deref() == Some(res))
-            .max_by(|a, b| a.pos.cmp(&b.pos))
+    /// Every ask for the PR `res` names, on any card of the board: an
+    /// agent's board_review naming `to` on a work card that links the PR
+    /// is the PR's ask too, so naming `to` skips the pick (§12.5).
+    fn pr_asks(&self, res: &str) -> impl Iterator<Item = &ReviewRequest> {
+        let res = res.to_string();
+        self.reviews.values().flatten().filter(move |r| {
+            !r.look && !r.to.is_empty() && pr_claim_resource(&r.pr).as_deref() == Some(&res)
+        })
+    }
+
+    fn newest_ask(&self, res: &str) -> Option<&ReviewRequest> {
+        self.pr_asks(res).max_by(|a, b| a.pos.cmp(&b.pos))
     }
 
     /// Where the PR card's review stands, from rows alone (merge desk
@@ -276,7 +285,7 @@ impl Fold {
         if at_head(&[APPROVED, PR_CHANGES_REQUESTED]) {
             return ReviewPhase::Reviewed;
         }
-        if let Some(a) = self.newest_ask(id, &res) {
+        if let Some(a) = self.newest_ask(&res) {
             let declined = self.declined(id).get(&a.to).is_some_and(|p| *p > a.pos);
             let claimed = self
                 .pr_claims
@@ -349,7 +358,7 @@ impl Fold {
             if pinged {
                 return Ok(None);
             }
-        } else if self.newest_ask(card, &res).map(|a| &a.pos) != after.as_ref() {
+        } else if self.newest_ask(&res).map(|a| &a.pos) != after.as_ref() {
             return Ok(None);
         }
         let at = self.stamp();
@@ -407,13 +416,16 @@ impl Fold {
             let ReviewPhase::Asked { ask } = self.review_phase(&t.id) else {
                 continue;
             };
-            let links = t
-                .links
-                .iter()
-                .any(|l| pr_link(l).is_some() && trim_space(&l.reference) == ask.pr);
+            // The ask may sit on a work card that links the PR: it is
+            // delivered from there, as the live bridge did.
+            let links = self.tasks.get(&ask.task_id).is_some_and(|w| {
+                w.links
+                    .iter()
+                    .any(|l| pr_link(l).is_some() && trim_space(&l.reference) == ask.pr)
+            });
             if links {
                 out.push(MissedAsk {
-                    card: t.id.clone(),
+                    card: ask.task_id.clone(),
                     pr: ask.pr,
                     from: ask.from,
                     to: ask.to,
@@ -432,13 +444,7 @@ impl Fold {
         let pr = t.pr_card.as_ref()?.pr.clone();
         let res = pr_claim_resource(&pr)?;
         let now = self.stamp();
-        let mut asks: Vec<ReviewRequest> = self
-            .review_asks(card)
-            .filter(|r| {
-                !r.to.is_empty() && pr_claim_resource(&r.pr).as_deref() == Some(res.as_str())
-            })
-            .cloned()
-            .collect();
+        let mut asks: Vec<ReviewRequest> = self.pr_asks(&res).cloned().collect();
         asks.sort_by(|a, b| a.pos.cmp(&b.pos));
         let pinged = self
             .reviews
