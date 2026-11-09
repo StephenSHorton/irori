@@ -2469,6 +2469,39 @@ mod tests {
         assert!(!SYSTEM.contains("Otherwise you only read"));
     }
 
+    /// Decision 69: the prompt names all eight writes and Needs you's fence,
+    /// starts an agent only on the person's granted yes, and the owner's-OK
+    /// turn never gets needs_you.
+    #[test]
+    fn system_prompt_and_tools_carry_needs_you() {
+        for w in tools::ASSISTANT_WRITE_TOOLS {
+            assert!(SYSTEM.contains(w), "{w}");
+        }
+        assert!(SYSTEM.contains("needs_you lists what waits on the person"));
+        assert!(SYSTEM.contains("<irori-sender>"));
+        assert!(SYSTEM.contains("Never write new tasks for someone"));
+        assert!(!SYSTEM.contains("never start an agent yourself"));
+        assert!(SYSTEM.contains("never start an agent except as the person's own granted yes"));
+        let allowed = read_only_allowed();
+        assert!(!allowed.contains("needs_you"), "{allowed}");
+        assert_eq!(allowed.split(',').count(), tools::ASSISTANT_TOOLS.len() - 1);
+        for w in tools::ASSISTANT_WRITE_TOOLS {
+            assert!(!allowed.contains(w), "{w}");
+        }
+        for (t, want) in [
+            ("needs_you", "Checking what waits on you"),
+            ("assistant_start", "Starting an agent on it"),
+            ("assistant_not_now", "Putting it in Not now"),
+            ("assistant_give_back", "Giving it back"),
+            ("assistant_give", "Giving the cards"),
+        ] {
+            assert_eq!(
+                tool_status(&format!("mcp__irori__irori_{t}"), &serde_json::json!({})),
+                want
+            );
+        }
+    }
+
     #[test]
     fn system_prompt_drafts_only_new_work() {
         assert!(SYSTEM.contains("Write a thread only for a clear new piece of work"));
