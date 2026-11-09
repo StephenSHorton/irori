@@ -2,6 +2,7 @@
 // (board:<board>/<card>, agent:<card>, person:<id>, <device>/<session>) is
 // never a name. Something nothing names reads "unknown agent".
 
+import { assistantLabel } from "@/lib/assistant-label"
 import { plainLine } from "@/lib/irori"
 
 export const unknownAgent = "unknown agent"
@@ -29,7 +30,19 @@ export function nameOr(
 
 // memberName is a Talk member's name: "you" stays as Talk says it, a person
 // nothing names is "another person", an agent "unknown agent".
-export function memberName(m: { kind: string; name?: string | null }): string {
+export function memberName(m: {
+  kind: string
+  name?: string | null
+  owner?: string | null
+  assistant?: boolean
+  assistantName?: string | null
+}): string {
+  // An Office Assistant the backend verified (kind assistant and its
+  // owner's profile points at it): "Juno · Addam's assistant", through the
+  // one label helper. Any other card named like one stays an agent.
+  if (m.assistant && m.owner) {
+    return assistantLabel(m.owner, m.assistantName ?? "")
+  }
   return nameOr(m.name, m.kind === "person" ? unknownPerson : unknownAgent)
 }
 

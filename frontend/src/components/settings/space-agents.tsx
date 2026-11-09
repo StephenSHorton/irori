@@ -7,7 +7,9 @@
 import { useId } from "react"
 import { BotOffIcon } from "lucide-react"
 
+import { ToggleShape } from "@/components/settings/settings-parts"
 import { Button } from "@/components/ui/button"
+import { Loading } from "@/components/ui/loading"
 import { Switch } from "@/components/ui/switch"
 import { useAgents } from "@/lib/agents"
 
@@ -24,7 +26,17 @@ export function SpaceAgentSwitch({
   const { settings: s, error, set } = useAgents(open, boardId)
   const id = useId()
   if (!s)
-    return error ? <p className="text-xs text-destructive">{error}</p> : null
+    return error ? (
+      <p className="text-xs text-destructive">{error}</p>
+    ) : (
+      // Its row keeps its height while the switch is read (card #1007).
+      <Loading loading label={`Loading ${name}`}>
+        <ToggleShape
+          label={name}
+          hint="Off: Irori doesn't start agents for the cards you make here."
+        />
+      </Loading>
+    )
   return (
     <div className="flex items-start justify-between gap-3">
       <span className="flex min-w-0 flex-col">

@@ -232,6 +232,10 @@ impl Inner {
         if t.pinned {
             b += "; pinned by the person";
         }
+        // Its weight (card #963): what its agent runs on.
+        if let Some(w) = &t.weight {
+            b += &format!("; {}", weight_text(w, n));
+        }
         let holders: Vec<String> = t
             .holders
             .iter()
@@ -874,6 +878,7 @@ const CREATE_ARGS: &[(&str, Ty)] = &[
     ("waits_on", Ty::Str),
     ("after", Ty::Strs),
     ("later", Ty::Struct(LATER_FIELDS)),
+    ("weight", Ty::Struct(WEIGHT_FIELDS)),
 ];
 
 /// board_create's later: what brings the card back, and why it waits.
@@ -948,6 +953,20 @@ pub(crate) fn waits_on(s: &Inner, v: &str) -> Result<Option<(String, BlockedBy)>
     Ok(Some((reason, bb)))
 }
 
+/// A new card's weight hint (card #964): board_create's and each
+/// board_split subtask's weight {level, why}, as (level, why); none is
+/// ("", ""), which runs as normal.
+pub(crate) fn new_weight(a: &Args) -> (String, String) {
+    a.object("weight")
+        .map(|w| {
+            (
+                trim(w.str("level")).to_string(),
+                trim(w.str("why")).to_string(),
+            )
+        })
+        .unwrap_or_default()
+}
+
 /// Step arguments as coord's steps.
 pub(crate) fn steps_of(v: &[StepArg]) -> Vec<Step> {
     v.iter()
@@ -1012,6 +1031,12 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let mut personal = None;
     if !board.is_empty() {
         match s.resolve_board(board) {
+            Ok(crate::shared::BoardTarget::Personal(p)) if p.closed => {
+                return err_text(&format!(
+                    "{} on Personal is closed, so it takes no new cards. Reopen it in Irori first, or pick another board (the board tool lists them).",
+                    crate::format::q(&p.name)
+                ));
+            }
             Ok(crate::shared::BoardTarget::Personal(p)) => personal = Some(p),
             Ok(crate::shared::BoardTarget::Space(_)) => {
                 return crate::shared::create_on_board(
@@ -1042,6 +1067,7 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         }
     }
     let private = Arc::ptr_eq(&co, s.b.coord());
+    let weight = new_weight(&a);
     let t = match co.create_task(
         &keys[0],
         NewTask {
@@ -1066,6 +1092,8 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 .map(|p| p.inner().to_string())
                 .unwrap_or_default(),
             board_named: personal.is_some(),
+            weight: weight.0,
+            weight_reason: weight.1,
             ..NewTask::default()
         },
     ) {
@@ -2331,6 +2359,45 @@ pub(crate) fn board_leave(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     )
 }
 
+const MOVE_ARGS: &[(&str, Ty)] = &[
+    ("task_id", Ty::Str),
+    ("direction", Ty::Str),
+    ("why", Ty::Str),
+    ("left_off", Ty::Str),
+];
+
+/// Moves the caller's card one weight up or down and leaves it (card #966):
+/// Irori starts a fresh agent on the new weight from its Left off.
+pub(crate) fn board_move(s: &Inner, c: &Caller, raw: &[u8]) -> String {
+    let a = match decode(raw, MOVE_ARGS) {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
+    let id = match s.task_id(a.str("task_id")) {
+        Ok(id) => id,
+        Err(m) => return m,
+    };
+    let up = match trim(a.str("direction")) {
+        "up" => true,
+        "down" => false,
+        _ => return err_text("give direction: up or down."),
+    };
+    let (co, as_) = match s.on(&id, std::slice::from_ref(&c.sender.key)) {
+        Ok(v) => v,
+        Err(e) => return map_err(e),
+    };
+    let t = match co.move_weight(&as_[0], &id, up, a.str("why"), a.str("left_off")) {
+        Ok(t) => t,
+        Err(e) => return map_err(e),
+    };
+    format!(
+        "{} moved {} and you left it: Irori ends you and starts its next agent from your Left off.\n{}",
+        t.short_ref(),
+        if up { "up" } else { "down" },
+        s.line(&t)
+    )
+}
+
 const ASSIGN_ARGS: &[(&str, Ty)] = &[("task_id", Ty::Str), ("to", Ty::Str), ("note", Ty::Str)];
 
 pub(crate) fn board_assign(s: &Inner, c: &Caller, raw: &[u8]) -> String {
@@ -2466,6 +2533,11 @@ pub(crate) fn board_status(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     } else {
         trim(a.str("note"))
     };
+    // Card #970: a PR last heard open may have just been merged by the
+    // caller; GitHub is asked now, so completed isn't refused on old news.
+    if completing && co.pr_states(&id).iter().any(|p| p.state == coord::PR_OPEN) {
+        s.b.recheck_prs(&co, &c.sender.key, &id);
+    }
     let t = match co.set_task_state_with(
         &as_[0],
         &id,
@@ -2579,7 +2651,12 @@ const EDIT_ARGS: &[(&str, Ty)] = &[
     ("from", Ty::Str),
     ("after", Ty::Strs),
     ("not_after", Ty::Strs),
+    ("weight", Ty::Struct(WEIGHT_FIELDS)),
 ];
+
+/// board_edit's weight (card #963): light, normal or heavy ("" clears
+/// it), and one line on why.
+const WEIGHT_FIELDS: &[(&str, Ty)] = &[("level", Ty::Str), ("why", Ty::Str)];
 
 /// A list of card refs, blanks dropped.
 fn refs_in(v: Vec<String>) -> Vec<String> {
@@ -2609,11 +2686,17 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         from: trim(a.str("from")).into(),
     };
     let (after, not_after) = (refs_in(a.strs("after")), refs_in(a.strs("not_after")));
+    let weight = a.object("weight").map(|w| {
+        (
+            trim(w.str("level")).to_string(),
+            trim(w.str("why")).to_string(),
+        )
+    });
     let words =
         e.title.is_some() || e.objective.is_some() || e.done_when.is_some() || e.repo.is_some();
-    if !words && after.is_empty() && not_after.is_empty() {
+    if !words && after.is_empty() && not_after.is_empty() && weight.is_none() {
         return err_text(
-            "give title, objective, done_when or repo (what the card is for now), or after or not_after (its order).",
+            "give title, objective, done_when or repo (what the card is for now), after or not_after (its order), or weight.",
         );
     }
     let repo_set = e.repo.is_some();
@@ -2652,6 +2735,23 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         match co.remove_after(&as_[0], &id, &not_after) {
             Ok(nt) => {
                 done.push(format!("it no longer comes after {}", ref_list(&not_after)));
+                t = Some(nt);
+            }
+            Err(e) => return format!("{}{}", map_err(e), so_far(&done)),
+        }
+    }
+    // Card #963: its weight. A weight the person set is theirs: the
+    // refusal says so.
+    if let Some((level, why)) = &weight {
+        match co.set_weight(&as_[0], &id, level, why) {
+            Ok((nt, _)) => {
+                done.push(match &nt.weight {
+                    Some(w) => format!(
+                        "it is {}: Irori starts its next agent on the model the board maps that to",
+                        w.level
+                    ),
+                    None => "its weight is cleared: it runs as normal".into(),
+                });
                 t = Some(nt);
             }
             Err(e) => return format!("{}{}", map_err(e), so_far(&done)),
@@ -2696,6 +2796,9 @@ const LEASE_ARGS: &[(&str, Ty)] = &[
     ("base_sha", Ty::Str),
 ];
 
+/// Why `lease` and `release` refuse a `pr/` resource (merge desk §12.3).
+const PR_CLAIM_USE: &str = "pr/ names a PR's review claim: take, check, release or decline it with review_claim, not lease or release.";
+
 pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let a = match decode(raw, LEASE_ARGS) {
         Ok(a) => a,
@@ -2705,6 +2808,9 @@ pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     if res.is_empty() {
         return err_text("give resource: path:<repoKey>:<glob> or a name like gpu/qwen.");
     }
+    if coord::is_pr_claim(&res.to_ascii_lowercase()) {
+        return err_text(PR_CLAIM_USE);
+    }
     let max = (coord::MAX_TTL.as_secs() / 60) as i64;
     let mut ttl = Duration::ZERO;
     if let Some(m) = a.opt_int("ttl_minutes") {
@@ -2712,6 +2818,12 @@ pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             return err_text(&format!("ttl_minutes must be 1 to {max}, not {m}."));
         }
         ttl = Duration::from_secs(m as u64 * 60);
+    }
+    // A device's heavy slots: the base name takes one (device-free §2).
+    if res.to_ascii_lowercase().starts_with("heavy/")
+        && let Some(own) = crate::heavy_family(&s.b.device_id())
+    {
+        return heavy_lease(s, c, res, &own, ttl, a.bool("steal"));
     }
     // A lease in a shared card's repo goes on that board first, where
     // another person's lease refuses it.
@@ -2765,6 +2877,64 @@ pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     out
 }
 
+/// A lease on `heavy/...`: exactly this device's family takes a slot, and
+/// nothing else under `heavy/` is leased at all.
+fn heavy_lease(s: &Inner, c: &Caller, res: &str, own: &str, ttl: Duration, steal: bool) -> String {
+    let said = one_line(res, MAX_FIELD_RUNES);
+    if !res.eq_ignore_ascii_case(own) {
+        let direct = res.to_ascii_lowercase().contains("/slot-");
+        return err_text(&if direct {
+            format!(
+                "{said} is a slot itself: lease the base name {own} and Irori picks a free slot (and renews yours)."
+            )
+        } else {
+            format!("{said} isn't this device's heavy name. This device's is {own}.")
+        });
+    }
+    if steal {
+        return err_text(&format!(
+            "heavy slots can't be stolen: lease {own} again later, or ask a holder to release."
+        ));
+    }
+    match s
+        .b
+        .coord()
+        .acquire_slot(&c.sender.key, own, crate::HEAVY_SLOTS, ttl)
+    {
+        Ok(l) => format!(
+            "Leased {} until {} ({}). Lease again to renew; release when done.",
+            one_line(&l.resource, MAX_FIELD_RUNES),
+            l.until.format_rfc3339(),
+            in_(&s.now(), &l.until)
+        ),
+        Err(e) if e.kind() == coord::ErrorKind::Held => {
+            let n = s.roster();
+            let now = s.now();
+            let prefix = format!("{own}/slot-");
+            let mut held: Vec<String> =
+                s.b.coord()
+                    .leases()
+                    .into_iter()
+                    .filter(|l| l.resource.starts_with(&prefix))
+                    .map(|l| {
+                        format!(
+                            "{} held by {}, expires {}",
+                            one_line(&l.resource, MAX_FIELD_RUNES),
+                            n.who(&l.holder),
+                            in_(&now, &l.until)
+                        )
+                    })
+                    .collect();
+            held.sort();
+            err_text(&format!(
+                "every heavy slot on this device is taken: {}. Message a holder, say on your card what you wait for, and lease {own} again later.",
+                held.join("; ")
+            ))
+        }
+        Err(e) => map_err(e),
+    }
+}
+
 pub(crate) fn leases(s: &Inner, _: &Caller, raw: &[u8]) -> String {
     if let Err(e) = decode(raw, &[]) {
         return e;
@@ -2802,9 +2972,36 @@ pub(crate) fn release(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     if res.is_empty() {
         return err_text("give resource, exactly as the leases tool shows it.");
     }
+    if coord::is_pr_claim(&res.to_ascii_lowercase()) {
+        return err_text(PR_CLAIM_USE);
+    }
     let r = s.b.coord().release(&c.sender.key, res);
     if let Some(rt) = s.b.router() {
         rt.mirror_release(&c.sender.key, res);
+    }
+    if let Err(e) = &r
+        && e.kind() == coord::ErrorKind::NotFound
+    {
+        // Not a lease of its own: the base name of a slot family releases
+        // the caller's slot of it.
+        match s.b.coord().release_slot(&c.sender.key, res) {
+            Ok(true) => return format!("Released {}.", one_line(res, MAX_FIELD_RUNES)),
+            Ok(false) => {
+                let prefix = format!("{}/slot-", res.to_ascii_lowercase());
+                if s.b
+                    .coord()
+                    .leases()
+                    .iter()
+                    .any(|l| l.resource.starts_with(&prefix))
+                {
+                    return err_text(&format!(
+                        "you hold no slot of {}.",
+                        one_line(res, MAX_FIELD_RUNES)
+                    ));
+                }
+            }
+            Err(e) => return map_err(e),
+        }
     }
     if let Err(e) = r {
         // Not yours: another person's lease on a shared board is never
@@ -2847,6 +3044,7 @@ const SUBTASK_FIELDS: &[(&str, Ty)] = &[
     ("steps", Ty::Strs),
     ("assign_to", Ty::Str),
     ("spawn", Ty::Bool),
+    ("weight", Ty::Struct(WEIGHT_FIELDS)),
 ];
 
 const SPLIT_ARGS: &[(&str, Ty)] = &[
@@ -2885,12 +3083,15 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 Err(e) => return map_err(e),
             }
         }
+        let (weight, weight_reason) = new_weight(st);
         subs.push(NewSubtask {
             title: trim(st.str("title")).into(),
             objective: trim(st.str("objective")).into(),
             done_criteria: trim(st.str("done_when")).into(),
             steps: st.strs("steps"),
             spawn: st.bool("spawn"),
+            weight,
+            weight_reason,
         });
     }
     // Subtasks go in the parent's log.
@@ -2918,10 +3119,15 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     for (i, k) in made.iter().enumerate() {
         b += &format!(
-            "\nCreated {} {}{}.",
+            "\nCreated {} {}{}{}.",
             k.short_ref(),
             quoted(&one_line(&k.title, MAX_CARD_TITLE), MAX_CARD_TITLE),
-            if k.spawn { " (spawn)" } else { "" }
+            if k.spawn { " (spawn)" } else { "" },
+            // Its weight (card #964), as the board shows it.
+            k.weight
+                .as_ref()
+                .map(|w| format!("; {}", weight_text(w, &n)))
+                .unwrap_or_default()
         );
         if to.get(i).is_none_or(|t| t.is_empty()) {
             let why = s.no_agent_line(&k.id, true);
@@ -2955,4 +3161,19 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     b += &format!("\n{}", s.card_line(&p, None, &n, &s.now()));
     b
+}
+
+/// A card's weight as the board shows it (card #963): "heavy, set by the
+/// person: planning the split".
+pub(crate) fn weight_text(w: &coord::Weight, n: &Names<'_>) -> String {
+    let by = match w.set_by.as_str() {
+        coord::SET_BY_PERSON => "the person".to_string(),
+        coord::SET_BY_ASSISTANT => "Irori's assistant".to_string(),
+        _ => n.who(&w.by),
+    };
+    let mut out = format!("{}, set by {by}", w.level);
+    if !w.reason.is_empty() {
+        out += &format!(": {}", one_line(&w.reason, coord::MAX_WEIGHT_REASON));
+    }
+    out
 }

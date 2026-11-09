@@ -14,6 +14,7 @@ import { CardPage } from "@/components/cards/card-detail"
 import { HeldDialog, type HeldTab } from "@/components/cards/held-dialog"
 import { NewCardDialog } from "@/components/cards/new-card-dialog"
 import { PhoneTabs, phoneTab } from "@/components/phone-tabs"
+import { AssistantChat } from "@/components/assistant/assistant-chat"
 import { useNarrow } from "@/lib/media"
 import { cn } from "@/lib/utils"
 import { WindDownDialog } from "@/components/wind-down-dialog"
@@ -27,7 +28,7 @@ import {
 import { AgentCards } from "@/components/cards/agent-hover"
 import { AskBox } from "@/components/cards/ask-box"
 import { NeedsYou } from "@/components/cards/needs-you"
-import { nobodyTook, needsOf } from "@/lib/needs"
+import { nobodyTook, needsOf, needsYou as cardNeedsYou } from "@/lib/needs"
 import { cardRef } from "@/components/cards/bits"
 import { idleLine, whyWaiting } from "@/lib/agent-counts"
 import {
@@ -53,6 +54,7 @@ import {
   useDoneCards,
   useIdleReport,
   useAllThreads,
+  wasStarted,
   withLive,
 } from "@/lib/cards"
 import { useBoards, usePersonalBoards } from "@/lib/boards"
@@ -65,10 +67,13 @@ import { nameLookup, SystemKey, useGone, useHeld, useInbox } from "@/lib/talk"
 import { startWindowLog } from "@/lib/window-log"
 import { deskShown, useDesks } from "@/lib/desk"
 import { DeskPage } from "@/components/desk/desk-page"
-import { openSettings } from "@/components/settings/settings-menu"
+import { SettingsPage } from "@/components/settings/settings-page"
 import { SpawnNotice } from "@/components/home/spawn-notice"
 import { HomeFreshness } from "@/components/common/freshness-line"
 import { WindDownLine } from "@/components/home/wind-down-line"
+import { WakesPausedLine } from "@/components/home/wakes-paused-line"
+import { useWindDown } from "@/lib/wind-down"
+import { stopLabels } from "@/lib/stop-labels"
 import { UpdateBanner } from "@/updater"
 import { useBoardView } from "@/components/canvas/switch"
 import { BoardHeaderBar, BoardPage } from "@/components/boards/board-page"
@@ -77,8 +82,9 @@ import {
   PersonalHeaderBar,
   PersonalList,
 } from "@/components/boards/space-boards"
-import { NewBoardDialog, PickSpace } from "@/components/boards/parts"
+import { NewBoardDialog } from "@/components/boards/parts"
 import { NotesPage } from "@/components/notes/notes-page"
+import { StoragePage } from "@/components/storage/storage-page"
 import { ProfilePage } from "@/components/profile/profile-page"
 import { useMe } from "@/lib/profile"
 import {
@@ -87,8 +93,10 @@ import {
   boardsOf,
   cardInSpace,
   convInSpace,
+  spacesOf,
   threadsSpace,
   useSpace,
+  waitingSpaces,
 } from "@/lib/spaces"
 import { NotificationsPage } from "@/components/notifications-page"
 import { useNotifications, useUnreadNotifications } from "@/lib/notifications"
@@ -104,14 +112,31 @@ import {
   sectionFromHash,
   type Section,
 } from "@/lib/nav"
+import { startLeave, stepLeave } from "@/lib/space-leave"
 import {
   CommandPalette,
   PaletteJump,
   paletteOpenKey,
 } from "@/components/command-palette"
 import { isMac, useCommands } from "@/lib/commands"
+import { TerminalPanel } from "@/components/term/terminal-panel"
+import { termsHere } from "@/lib/term"
+import {
+  TerminalShortcut,
+  isTerminalToggle,
+  toggleTermPanel,
+} from "@/lib/term-panel"
+import {
+  dialogs,
+  backShortcut,
+  forwardShortcut,
+  listenAppShortcuts,
+  NewCardShortcut,
+  SectionShortcuts,
+} from "@/lib/app-shortcuts"
 import { spawnedKeys } from "@/lib/roster-groups"
 import { PhoneCallBar, Ringing } from "@/components/talk/huddle"
+import { HuddlePage } from "@/components/talk/huddle-page"
 import { startCallState } from "@/lib/call"
 
 // PageState is the history entry of a card's page. fromGrid: the grid is
@@ -193,18 +218,15 @@ export function App() {
   const idle = useIdleReport(roster.agents)
   const { boards, loaded: boardsLoaded } = useBoards()
   const { boards: personalBoards } = usePersonalBoards()
-  // The space the sidebar's switcher picked (card #393): Home, Talk and
-  // Boards show it. All spaces, the default, is everything.
+  // The space the sidebar's switcher picked (card #393): Talk and Boards
+  // show it. The Dashboard ignores it and always shows every space (card
+  // #1001), so its cards are all of them and its scope is the person's own.
   const [space, setSpace] = useSpace(boards)
-  const shared = space !== AllSpaces && space !== Personal
-  const spaceCards = useMemo(
-    () => cards.filter((c) => cardInSpace(c, space)),
-    [cards, space]
-  )
+  const spaceCards = cards
   // Agents Irori started for a card are never free for other work (§6).
   const spawned = useMemo(() => spawnedKeys(cards), [cards])
-  // Home's own scope: your cards, or a shared space's.
-  const homeScope = shared ? space : ScopeOwn
+  // Home's own scope: your cards, and every space's that your agents hold.
+  const homeScope = ScopeOwn
   const me = useMe()
   // ?filter=done in the browser preview starts on that filter; otherwise
   // Home starts on its remembered board pick (card #199).
@@ -237,6 +259,17 @@ export function App() {
     if (thread) return { kind: "talk", id: thread }
     if (previewFlag("talk") !== null) return { kind: "talk", id: "" }
     if (previewFlag("notes") !== null) return { kind: "notes" }
+    // ?storage starts on Storage, ?storage=<kind> on one kind's page.
+    const storageTab = previewFlag("storage")
+    if (storageTab !== null) return { kind: "storage", tab: storageTab }
+    // ?settings[=<section>] and ?devices start on Settings (card #1007).
+    if (previewFlag("devices") !== null)
+      return { kind: "settings", tab: "devices" }
+    const settingsTab = previewFlag("settings")
+    if (settingsTab !== null)
+      return sectionFromHash(
+        settingsTab ? `#settings/${settingsTab}` : "#settings"
+      )
     return sectionFromHash(window.location.hash)
   })
   // A board page's own tab (All, Needs a decision, Closed).
@@ -296,6 +329,9 @@ export function App() {
   const [newCard, setNewCard] = useState(() => previewFlag("newcard") !== null)
   // Wind down all (card #220): the header's button and the tray's item.
   const [windDown, setWindDown] = useState(false)
+  // Stop everywhere's switch (cards #773, #787; Wind down in the code): one copy
+  // for the header, the dialog, Home's line and the palette.
+  const windDownSwitch = useWindDown()
   // New or join a space (card #689): the space picker's item and the
   // palette's open it; ?boards in the preview starts with it open.
   const [newBoard, setNewBoard] = useState(() => previewFlag("boards") !== null)
@@ -425,12 +461,13 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return
       if (
-        document.querySelector(
-          '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]'
-        )
+        // Ask Irori's panel is non-modal (card #783): it takes its own
+        // Esc, and Esc elsewhere still goes Back.
+        document.querySelector(dialogs)
       )
         return
       const t = e.target instanceof HTMLElement ? e.target : null
+      if (t?.closest("[data-assistant-panel]")) return
       // A terminal's Esc is the program's (vim, less, PSReadLine): it
       // stays in the terminal (card #369).
       if (t?.closest(".rsz-view")) return
@@ -496,21 +533,21 @@ export function App() {
   // Home is your own cards; a board's live on its page (card #96), and
   // its decisions show on Home as one line per board.
   const boardDecide = spaceCards.filter(
-    // Card #509: a wait on a PR's merge is theirs too, as the tray counts it.
-    // Card #520: and a wait no agent will end.
-    (c) =>
-      c.scope === "board" && (c.openBlockers > 0 || !!c.mergePr || !!c.goneWait)
+    // Card #520: a wait no agent will end is theirs too, as the tray counts
+    // it. A wait on a PR is its agent's (card #970).
+    (c) => c.scope === "board" && (c.openBlockers > 0 || !!c.goneWait)
   )
-  // Needs you leads Home (card #261): its cards and held messages. An
-  // agent's message to you is a DM in Talk (card #390). Held ones are
-  // yours, not a shared space's (card #393).
+  // Needs you leads Home (card #261): its cards, held messages and, from
+  // any space, the threads waiting on you (card #1001). An agent's message
+  // to you is a DM in Talk (card #390).
   const needs = useMemo(
     () =>
       needsOf(
         spaceCards.filter((c) => inScope(c, homeScope)),
-        shared ? [] : held.held
+        held.held,
+        allThreads
       ),
-    [spaceCards, homeScope, shared, held.held]
+    [spaceCards, homeScope, held.held, allThreads]
   )
   const needCards = useMemo(
     () =>
@@ -520,7 +557,6 @@ export function App() {
             (n) =>
               n.kind === "check" ||
               n.kind === "decision" ||
-              n.kind === "merge" ||
               n.kind === "gone" ||
               n.kind === "noAgent"
           )
@@ -539,10 +575,9 @@ export function App() {
     () => new Set(homeCards.map((c) => c.id)),
     [homeCards]
   )
-  // Cards nobody took (§6) depend on the time (a card is "nobody's" once it
-  // has waited a while), but must not re-render App to know it: the key is
-  // read off the shared clock every second and changes only when the set
-  // does, so App renders once when a card turns up unclaimed, not once a
+  // Cards nobody took (§6) depend on the time, but must not re-render App to
+  // know it: the key is read off the shared clock and changes only when the
+  // set does, so App renders when a card turns up unclaimed, not once a
   // second (card #1137). Computed at most every 15 s per input.
   const untakenCache = useRef<{
     cards: typeof homeCards
@@ -594,7 +629,7 @@ export function App() {
   // as a card's page instead.
   const openThread = useCallback(
     (id: string) => {
-      if (!allThreads.some((t) => t.id === id)) {
+      if (!allThreads.some((t) => t.id === id) && !wasStarted(id)) {
         openCard(id)
         return
       }
@@ -620,6 +655,24 @@ export function App() {
     window.addEventListener("keydown", onKey, true)
     return () => window.removeEventListener("keydown", onKey, true)
   }, [])
+  // The terminal panel (card #734): Ctrl+` on both platforms, as in VS
+  // Code, from anywhere, a focused terminal included. Capture, so it comes
+  // before the terminal's own keys take it; a phone has no panel.
+  useEffect(() => {
+    if (!termsHere()) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.repeat || !isTerminalToggle(e)) return
+      e.preventDefault()
+      e.stopPropagation()
+      toggleTermPanel()
+    }
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
+  }, [])
+  // The desktop shortcuts (card #733): Back and Forward, Cmd+1..5, Cmd+B,
+  // Cmd+, Cmd+N and Cmd+F run the commands below and the sidebar's,
+  // Settings' and the search box's.
+  useEffect(() => listenAppShortcuts(), [])
   // A jump from the palette closes the Held list and a message left open
   // under it (#218).
   useEffect(() => {
@@ -641,16 +694,16 @@ export function App() {
   )
   // pickSpace is a pick in the space picker (or Profile). Boards show only
   // the picked space's (card #689), so on Boards the page follows the pick,
-  // closing a card open over it. From #boards (pick a space) the space's
-  // page takes its place, so Back doesn't land on #boards and bounce.
+  // closing a card open over it. From #boards the space's page takes its
+  // place, so Back doesn't land on #boards and bounce.
   const pickSpace = useCallback(
     (id: string) => {
       if (id === space) return
       setSpace(id)
       if (section.kind === "boards") replace(boardsFor(id))
-      else if (onBoards(section)) go(boardsFor(id))
+      else if (onBoards(section)) (open ? replace : go)(boardsFor(id))
     },
-    [space, setSpace, section]
+    [space, setSpace, section, open]
   )
   // A known space: Personal, or a shared one the boards list has. Until
   // the list loads, useSpace keeps a stored pick it can't check yet.
@@ -662,11 +715,10 @@ export function App() {
   const syncedPage = useRef("")
   useEffect(() => {
     if (open) return
+    // "#boards" names no space: it opens the picked one's page (card #1001).
     if (
       section.kind === "boards" &&
-      space !== AllSpaces &&
-      boardsLoaded &&
-      knownSpace(space)
+      (space === Personal || (boardsLoaded && knownSpace(space)))
     )
       replace(boardsFor(space))
     if (section.kind !== "board") {
@@ -676,6 +728,26 @@ export function App() {
     if (syncedPage.current === section.id) return
     if (section.id !== space && knownSpace(section.id)) setSpace(section.id)
     if (section.id === Personal || boardsLoaded) syncedPage.current = section.id
+  })
+  // And what's showing follows a change of the pick (card #994): off a
+  // thread or card the new pick doesn't hold, in place of it so Back doesn't
+  // reopen it. A link past the pick still opens: only a change moves it.
+  const leaving = useRef(startLeave(space))
+  useEffect(() => {
+    const { state, to } = stepLeave(leaving.current, {
+      space,
+      spaceKnown: knownSpace(space),
+      section,
+      open,
+      card: cards.find((c) => c.id === open) ?? detail,
+      cardFailed: !!detailError,
+      threads: allThreads,
+      conversations,
+      threadsLoading,
+      conversationsLoading,
+    })
+    leaving.current = state
+    if (to) replace(to)
   })
   const onPaletteBoard = useCallback(
     (id: string) => goTo({ kind: "board", id }),
@@ -701,16 +773,38 @@ export function App() {
             .find((x) => x.boardId === section.board)
   const onList = !open && (section.kind === "home" || section.kind === "board")
   useCommands([
+    // Back and Forward (card #733): the window's history, as the mouse's
+    // side buttons and the browser's own keys move it.
+    {
+      id: "nav.back",
+      title: "Back",
+      group: "Go to",
+      order: 5,
+      shortcut: backShortcut(),
+      keywords: ["previous", "history"],
+      run: () => window.history.back(),
+    },
+    {
+      id: "nav.forward",
+      title: "Forward",
+      group: "Go to",
+      order: 5,
+      shortcut: forwardShortcut(),
+      keywords: ["next", "history"],
+      run: () => window.history.forward(),
+    },
     {
       id: "nav.home",
-      title: "Home",
+      shortcut: SectionShortcuts[0],
+      title: "Dashboard",
       group: "Go to",
       order: 1,
-      keywords: ["my cards", "start"],
+      keywords: ["home", "my cards", "start"],
       run: () => goTo(Home),
     },
     {
       id: "nav.talk",
+      shortcut: SectionShortcuts[1],
       title: "Talk",
       group: "Go to",
       order: 2,
@@ -719,6 +813,7 @@ export function App() {
     },
     {
       id: "nav.notes",
+      shortcut: SectionShortcuts[2],
       title: "Notes",
       group: "Go to",
       order: 2,
@@ -727,6 +822,7 @@ export function App() {
     },
     {
       id: "nav.boards",
+      shortcut: SectionShortcuts[3],
       title: "Boards",
       group: "Go to",
       order: 2,
@@ -734,7 +830,26 @@ export function App() {
       run: () => goTo(boardsFor(space)),
     },
     {
+      id: "nav.storage",
+      title: "Storage",
+      group: "Go to",
+      order: 3,
+      keywords: [
+        "disk",
+        "space",
+        "archive",
+        "maintenance",
+        "clean",
+        "clear",
+        "delete",
+        "attachments",
+        "build output",
+      ],
+      run: () => goTo({ kind: "storage", tab: "" }),
+    },
+    {
       id: "nav.notifications",
+      shortcut: SectionShortcuts[4],
       title: "Notifications",
       group: "Go to",
       order: 3,
@@ -751,6 +866,7 @@ export function App() {
     },
     {
       id: "card.new",
+      shortcut: NewCardShortcut,
       title:
         section.kind === "board" && !open
           ? section.board
@@ -790,16 +906,34 @@ export function App() {
       when: () => !!open,
       run: back,
     },
-    // The header's Wind down (card #220), from the palette (card #228); like
-    // the header's button, not on the sample roster.
     {
-      id: "agents.wind-down",
-      title: "Wind down all agents",
-      order: 3,
-      keywords: ["stop", "pause", "save", "end", "shut down", "quit"],
-      when: () => roster.source !== "sample",
-      run: () => setWindDown(true),
+      id: "term.toggle",
+      title: "Toggle terminal",
+      order: 4,
+      shortcut: TerminalShortcut,
+      keywords: ["shell", "console", "panel", "command line", "show", "hide"],
+      when: termsHere,
+      run: toggleTermPanel,
     },
+    // The header's Stop everywhere (cards #220, #773; Wind down in the
+    // code), from the palette (card #228); like the header's button, not on
+    // the sample roster. While it is on, it starts everywhere (card #787).
+    windDownSwitch.status.on
+      ? {
+          id: "agents.wind-down",
+          title: stopLabels.everywhere.paletteOff,
+          order: 3,
+          keywords: ["resume", "unpause", "wind down", "off"],
+          run: () => void windDownSwitch.off(),
+        }
+      : {
+          id: "agents.wind-down",
+          title: stopLabels.everywhere.palette,
+          order: 3,
+          keywords: ["pause", "wind down", "save", "end", "shut down", "quit"],
+          when: () => roster.source !== "sample",
+          run: () => setWindDown(true),
+        },
   ])
 
   const agentCards = useMemo(
@@ -828,9 +962,12 @@ export function App() {
   if (drawerAt !== where) {
     setDrawerAt(where)
     setDrawer(false)
+    // New card takes its space and board from the page: moved, it would
+    // quietly post somewhere else (card #1007).
+    setNewCard(false)
   }
 
-  // A phone (card #395, mockup talk-5): Home, Talk and Boards are tabs at
+  // A phone (card #395, mockup talk-5): Dashboard, Talk and Boards are tabs at
   // the bottom (Boards the picked space's, card #689), and an open
   // conversation is the whole screen, its own header carrying Back.
   const narrow = useNarrow()
@@ -841,7 +978,31 @@ export function App() {
       conversations.filter((c) => convInSpace(c, space)),
       liveRoster
     )
-  const fullScreen = narrow && !open && section.kind === "talk" && !!section.id
+  // The picker's dots (card #1001): a space with something waiting for the
+  // person, since Talk's count covers only the picked space.
+  const waiting = useMemo(
+    () =>
+      waitingSpaces(
+        spacesOf(boards),
+        (id) =>
+          allThreads.some((t) => convInSpace(t, id) && needsYou(t)) ||
+          talkWaitingIn(
+            conversations.filter((c) => convInSpace(c, id)),
+            liveRoster
+          ) > 0 ||
+          cards.some((c) => cardInSpace(c, id) && cardNeedsYou(c))
+      ),
+    [boards, allThreads, conversations, liveRoster, cards]
+  )
+  // A thread's space by name, for its Needs you row.
+  const spaceName = (id: string) =>
+    id ? boards.find((b) => b.boardId === id)?.name || "A space" : "Personal"
+  // (section "boards", "#boards", renders nothing: it is on its way to the
+  // picked space's page.)
+  const fullScreen =
+    narrow &&
+    !open &&
+    ((section.kind === "talk" && !!section.id) || section.kind === "huddle")
 
   return (
     <AgentCards.Provider value={agentCards}>
@@ -867,6 +1028,7 @@ export function App() {
             space={space}
             onSpace={pickSpace}
             onNewSpace={() => setNewBoard(true)}
+            waiting={waiting}
             me={me}
           />
           <div className="flex min-w-0 flex-1 flex-col">
@@ -883,7 +1045,7 @@ export function App() {
                       ? "Personal"
                       : section.kind === "boards"
                         ? "Boards"
-                        : section.kind === "talk"
+                        : section.kind === "talk" || section.kind === "huddle"
                           ? "Talk"
                           : section.kind === "notes"
                             ? "Notes"
@@ -893,7 +1055,11 @@ export function App() {
                                 ? "Merge desks"
                                 : section.kind === "notifications"
                                   ? "Notifications"
-                                  : "Home"
+                                  : section.kind === "storage"
+                                    ? "Storage"
+                                    : section.kind === "settings"
+                                      ? "Settings"
+                                      : "Dashboard"
                 }
                 bar={
                   !open && section.kind === "board" ? (
@@ -914,6 +1080,7 @@ export function App() {
                 }
                 onNewCard={() => setNewCard(true)}
                 onWindDown={() => setWindDown(true)}
+                windDown={windDownSwitch}
                 section={open ? null : section}
               />
             )}
@@ -950,9 +1117,21 @@ export function App() {
                       gone={gone}
                       onBack={back}
                       onOpen={openCard}
+                      // A thread opened from the Board has its bar too
+                      // (card #780): one view of it, here and in Talk.
+                      thread={allThreads.find((t) => t.id === open)}
                     />
                   </FocusComment.Provider>
                 </Scroll>
+              ) : section.kind === "settings" ? (
+                <SettingsPage tab={section.tab} />
+              ) : section.kind === "huddle" ? (
+                <HuddlePage
+                  key={section.id}
+                  callId={section.id}
+                  onBack={() => go({ kind: "talk", id: "" })}
+                  onOpenConv={(id) => go({ kind: "talk", id })}
+                />
               ) : section.kind === "talk" ? (
                 <TalkPage
                   threads={allThreads}
@@ -966,6 +1145,7 @@ export function App() {
                   }))}
                   open={section.id}
                   onOpen={(id) => go({ kind: "talk", id })}
+                  onOpenHuddle={(id) => go({ kind: "huddle", id })}
                   why={whyWaiting(
                     roster.agents.filter((a) => !spawned.has(a.key))
                   )}
@@ -996,12 +1176,17 @@ export function App() {
                   open={section.repo}
                   onOpen={(repo) => go({ kind: "desk", repo })}
                   onOpenCard={openCard}
-                  onSettings={() => openSettings("desks")}
+                  onSettings={() => go({ kind: "settings", tab: "desks" })}
                   nameOf={name}
                 />
-              ) : section.kind === "boards" ? (
+              ) : section.kind === "boards" ? null : section.kind ===
+                "storage" ? (
                 <Scroll>
-                  <PickSpace boards={boards} onPick={pickSpace} />
+                  <StoragePage
+                    tab={section.tab}
+                    onTab={(tab) => go({ kind: "storage", tab })}
+                    onOpen={openCard}
+                  />
                 </Scroll>
               ) : section.kind === "notifications" ? (
                 <Scroll>
@@ -1078,14 +1263,21 @@ export function App() {
                   header={
                     <>
                       <SpawnNotice />
-                      <WindDownLine onOpen={() => setWindDown(true)} />
+                      <WindDownLine
+                        status={windDownSwitch.status}
+                        onOpen={() => setWindDown(true)}
+                      />
+                      <WakesPausedLine
+                        paused={!!inbox.policy?.paused}
+                        onResumed={() => void inbox.reload()}
+                      />
                       <AskBox
                         onThread={startedThread}
-                        board={threadsSpace(space)}
+                        note="From the Dashboard a thread goes to Personal."
                       />
                       <IdleLine text={idleLine(idle, untaken, homeIds)} />
                       <HomeFreshness
-                        space={space}
+                        space={AllSpaces}
                         names={
                           new Map(
                             boards.map((b) => [b.boardId, b.name || b.tag])
@@ -1097,7 +1289,7 @@ export function App() {
                   lead={
                     // Held messages read apart from the cards: until they
                     // land, "Nothing waits on you" could be false.
-                    !shared && held.loading && needs.length === 0 ? (
+                    held.loading && needs.length === 0 ? (
                       <Loading loading label="Loading what needs you">
                         <NeedsYouShape rows={1} />
                       </Loading>
@@ -1107,6 +1299,8 @@ export function App() {
                         name={name}
                         onOpenCard={openCard}
                         onHeld={() => openHeld("")}
+                        onOpenThread={openThread}
+                        spaceName={spaceName}
                       />
                     )
                   }
@@ -1122,10 +1316,18 @@ export function App() {
                 />
               )}
             </main>
+            <TerminalPanel
+              cardId={open || null}
+              cardLabel={
+                open && cardLabel(`task:${open}`) !== "a card"
+                  ? cardLabel(`task:${open}`)
+                  : undefined
+              }
+            />
             {narrow && (
               <PhoneCallBar
                 here={!open && section.kind === "talk" ? section.id : ""}
-                onOpen={(id) => goTo({ kind: "talk", id })}
+                onOpen={(id) => goTo({ kind: "huddle", id })}
               />
             )}
             {narrow && (
@@ -1139,12 +1341,8 @@ export function App() {
           </div>
           {windDown && (
             <WindDownDialog
-              agents={{
-                here: roster.agents.filter(
-                  (a) => a.deviceId === roster.device?.id
-                ).length,
-                all: roster.agents.length,
-              }}
+              agents={roster.agents.length}
+              windDown={windDownSwitch}
               onClose={() => setWindDown(false)}
             />
           )}
@@ -1158,11 +1356,9 @@ export function App() {
             board={
               section.kind === "board" && !open
                 ? boards.find((b) => b.boardId === section.id)
-                : // Home in a shared space makes its cards there (card #393).
-                  !open && shared && section.kind === "home"
-                  ? boards.find((b) => b.boardId === space)
-                  : undefined
+                : undefined
             }
+            dashboard={!open && section.kind === "home"}
           />
           {heldOpen && (
             <HeldDialog
@@ -1201,6 +1397,8 @@ export function App() {
               onClose={() => setMessage("")}
             />
           )}
+          {/* Ask Irori (card #783): on every page, portalled to <body>. */}
+          <AssistantChat narrow={narrow} at={where} />
         </div>
       </LiveRoster.Provider>
     </AgentCards.Provider>
@@ -1249,10 +1447,11 @@ function IdleLine({ text }: { text: string }) {
 export default App
 
 // Scroll is a page that isn't the Board (a card, Boards, a shared board):
-// it scrolls by itself under the header (card #170).
+// it scrolls by itself under the header (card #170). Its end clears Ask
+// Irori's button in the corner (pb-20, card #783).
 function Scroll({ children }: { children: ReactNode }) {
   return (
-    <div className="-mx-1 grid min-h-0 flex-1 content-start gap-3.5 overflow-y-auto px-1 pb-10 mac:overscroll-none">
+    <div className="-mx-1 grid min-h-0 flex-1 content-start gap-3.5 overflow-y-auto px-1 pb-20 mac:overscroll-none">
       {children}
     </div>
   )

@@ -61,6 +61,11 @@ pub struct ConvMember {
     /// Whose agent it is, when it is another member's ("Spencer"); ""
     /// for the person's own agents.
     pub owner: String,
+    /// Its owner's Office Assistant (kind `assistant` and the owner's
+    /// profile points at it). `name` is then the label, "Juno · Addam's
+    /// assistant"; `assistant_name` is the chosen name, "" for the default.
+    pub assistant: bool,
+    pub assistant_name: String,
 }
 
 /// One conversation in a reader's list.
@@ -180,6 +185,8 @@ struct Book {
     cards: HashMap<String, String>,
     /// Other members' agents, by board card id: name, owner, status.
     board: HashMap<String, (String, String, String)>,
+    /// Verified assistants, by board card id: the chosen name.
+    assistants: HashMap<String, String>,
     known: BTreeMap<String, String>,
 }
 
@@ -218,18 +225,28 @@ pub fn board_agent_name(name: &str, owner: &str) -> String {
 
 impl Book {
     fn new(b: &dyn Backend) -> Book {
+        let agents = b.board_agents();
         Book {
             cards: b
                 .agents()
                 .into_iter()
                 .map(|a| (a.key.clone(), a.name))
                 .collect(),
-            board: b
-                .board_agents()
-                .into_iter()
+            board: agents
+                .iter()
                 .filter_map(|a| {
                     let id = board_card(&a.card.key)?.to_string();
-                    Some((id, (a.card.name, a.person, a.card.status)))
+                    Some((
+                        id,
+                        (a.card.name.clone(), a.person.clone(), a.card.status.clone()),
+                    ))
+                })
+                .collect(),
+            assistants: agents
+                .iter()
+                .filter_map(|a| {
+                    let id = board_card(&a.card.key)?.to_string();
+                    Some((id, a.assistant.clone()?))
                 })
                 .collect(),
             known: b.known_names(),
@@ -258,6 +275,11 @@ impl Book {
         }
         if let Some(id) = board_card(key) {
             let last = || self.known(&format!("{}{id}", store::kinds::AGENT_ACTOR_PREFIX));
+            if let (Some(chosen), Some((_, owner, _))) =
+                (self.assistants.get(id), self.board.get(id))
+            {
+                return coord::assistant_name::label(owner, chosen);
+            }
             if let Some((n, owner, _)) = self.board.get(id) {
                 let n = if n.trim().is_empty() {
                     last().unwrap_or_default()
@@ -276,12 +298,15 @@ impl Book {
             .and_then(|id| self.board.get(id))
             .map(|(_, o, s)| (s.clone(), o.clone()))
             .unwrap_or_default();
+        let chosen = board_card(&m.key).and_then(|id| self.assistants.get(id));
         ConvMember {
             kind: m.kind.clone(),
             key: m.key.clone(),
             name: self.name(&m.key),
             status,
             owner,
+            assistant: chosen.is_some(),
+            assistant_name: chosen.cloned().unwrap_or_default(),
         }
     }
 }
@@ -1018,7 +1043,7 @@ pub fn posts(b: &dyn Backend, reader: &str, conv: &str) -> Result<Vec<Post>, Str
     let conv = trim(conv);
     if let Some(id) = conv.strip_prefix(ct::CALL_PREFIX) {
         call_parent(b, talk, reader, id)?;
-        return Ok(talk.call_posts(id));
+        return Ok(call_lines(talk, reader, id));
     }
     if ct::is_channel(conv) {
         if talk.channel(conv).is_none() {
@@ -1051,13 +1076,24 @@ pub fn posts(b: &dyn Backend, reader: &str, conv: &str) -> Result<Vec<Post>, Str
 }
 
 /// The conversation huddle `id` was in, when `reader` may read its lines:
-/// as they may read that conversation, and never an agent in a person DM.
-fn call_parent(b: &dyn Backend, talk: &Talk, reader: &str, id: &str) -> Result<String, String> {
+/// as they may read that conversation. A person DM's huddle is the one
+/// exception (card #1047, call-agents.md section 10): an agent of either
+/// person reads the lines marked `agents` directly, not the DM's own posts,
+/// and none at all of a huddle no line of which carries the mark.
+pub(crate) fn call_parent(
+    b: &dyn Backend,
+    talk: &Talk,
+    reader: &str,
+    id: &str,
+) -> Result<String, String> {
     let parent = talk
         .call_conv(id)
         .ok_or_else(|| format!("no huddle {}. talk_list shows yours.", one_line(id, 80)))?;
-    if talk.pair_other(&parent).is_some() && !ct::is_person_key(reader) {
-        return Err("a huddle between two people is theirs: agents don't read it".into());
+    if talk.pair_other(&parent).is_some() {
+        if !ct::is_person_key(reader) && !has_agent_lines(&talk.call_posts(id)) {
+            return Err("a huddle between two people is theirs: this one wasn't said under the notice that lets agents read".into());
+        }
+        return Ok(parent);
     }
     if ct::is_channel(&parent) {
         if talk.channel(&parent).is_none() {
@@ -1067,6 +1103,32 @@ fn call_parent(b: &dyn Backend, talk: &Talk, reader: &str, id: &str) -> Result<S
         posts(b, reader, &parent)?;
     }
     Ok(parent)
+}
+
+/// Whether a huddle's lines are readable by agents as a person DM's: it has
+/// none yet (a live one just begun), or some carry the `agents` mark.
+fn has_agent_lines(lines: &[Post]) -> bool {
+    lines.is_empty() || lines.iter().any(|p| p.agents)
+}
+
+/// Huddle `id`'s lines as `reader` may read them: all, except that an
+/// agent reads only the marked lines of a person DM's (card #1047).
+fn call_lines(talk: &Talk, reader: &str, id: &str) -> Vec<Post> {
+    let lines = talk.call_posts(id);
+    let gated = !ct::is_person_key(reader)
+        && talk
+            .call_conv(id)
+            .is_some_and(|c| talk.pair_other(&c).is_some());
+    if gated {
+        lines.into_iter().filter(|p| p.agents).collect()
+    } else {
+        lines
+    }
+}
+
+/// How many lines of huddle `id` `reader` may read (card #1055).
+pub(crate) fn visible_lines(talk: &Talk, reader: &str, id: &str) -> usize {
+    call_lines(talk, reader, id).len()
 }
 
 /// Whether `reader` may read `conv`, by [`posts`]'s rule, without listing
@@ -1419,7 +1481,7 @@ fn tell_mentions(
 
 // ---- the tools ----------------------------------------------------------
 
-fn me(c: &Caller) -> &str {
+pub(crate) fn me(c: &Caller) -> &str {
     &c.sender.key
 }
 
@@ -1501,7 +1563,19 @@ const THREAD_ARGS: &[(&str, Ty)] = &[
     ("conv", Ty::Str),
     ("mention", Ty::Strs),
     ("space", Ty::Str),
+    ("agent", Ty::Str),
+    ("watch", Ty::Bool),
 ];
+
+/// Where talk_thread's `agent` sends the thread (card #1027).
+enum Give {
+    /// Nowhere: the opener holds it (card #631).
+    No,
+    /// To a fresh agent Irori starts for it.
+    New,
+    /// To the named live agent, by its key.
+    To(String),
+}
 
 /// talk_thread (card #631): the agent opens a thread with the person and
 /// holds it. Irori never hands it out or starts another agent for it, even
@@ -1545,6 +1619,42 @@ pub(crate) fn talk_thread(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let text = a.str("text");
     let shared = space != ct::PERSONAL_SPACE
         && b.inbox().threads_mode(&space) != inbox::threads_mode::PRIVATE;
+    // Card #1027: who the thread goes to, checked before anything is made,
+    // so a refusal opens nothing.
+    let watch = a.bool("watch");
+    let agent = trim(a.str("agent"));
+    let give = if agent.is_empty() {
+        Give::No
+    } else if shared {
+        return err_text(
+            "agent is for a thread in Personal or a private space; a thread on a shared space's board has its agents by mention.",
+        );
+    } else if agent.eq_ignore_ascii_case("new") {
+        if let Err(why) = b.thread_agent_check(&c.sender.key) {
+            return err_text(&why);
+        }
+        Give::New
+    } else {
+        let res = s.resolve_mentions(c, "", "", &[agent.to_string()]);
+        match res.mentions.first() {
+            Some(m) if !m.gone && m.key != me(c) => Give::To(m.key.clone()),
+            Some(m) if m.gone => {
+                return err_text(&format!(
+                    "{} is gone: hand the thread to a live agent, or agent=new.",
+                    m.name
+                ));
+            }
+            Some(_) => return err_text("that's you: leave agent out to hold the thread yourself."),
+            None => {
+                let names = s.roster();
+                let line = crate::mention::mention_line(&[], &res.misses, &names);
+                return err_text(&format!(
+                    "no agent {agent} to hand the thread to ({}).",
+                    line.trim()
+                ));
+            }
+        }
+    };
     let (t, out) = if shared {
         match crate::shared::thread_on_board(s, c, &space, text, &a.strs("mention"), &channel) {
             Ok(v) => v,
@@ -1581,6 +1691,45 @@ pub(crate) fn talk_thread(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         "Opened thread {short} (task:{}). You hold it: the person's replies come to you, and no other agent is started for it, even after you end, until they write in it. Answer there with talk_post conv={short}; only the person resolves it.",
         t.id
     );
+    let keeps = if watch {
+        "You watch it: the person's replies reach you too."
+    } else {
+        "You gave it away: pass watch=true next time to keep hearing the replies."
+    };
+    match &give {
+        Give::No => {}
+        Give::New => match b.thread_new_agent(&c.sender.key, &t.id, watch) {
+            Ok(next) => {
+                said = format!(
+                    "Opened thread {short} (task:{}) and gave it to a new agent. {next} It holds the thread and answers there; only the person resolves it. {keeps}",
+                    t.id
+                );
+            }
+            // Refused as agent_start is: the thread stays with its opener.
+            Err(why) => {
+                said += &format!(
+                    " No agent was started: {why}. It stays yours; try again later or mention an agent."
+                );
+            }
+        },
+        Give::To(key) => match b.coord().thread_hand_to(&c.sender.key, &t.id, key, watch) {
+            Ok((_, n)) => {
+                let names = s.roster();
+                let heard = s.told(&s.tell(&c.sender, n), &names);
+                said = format!(
+                    "Opened thread {short} (task:{}) and handed it to {}. It holds the thread and hears the person's replies; only the person resolves it. {keeps}{heard}",
+                    t.id,
+                    names.who(key)
+                );
+            }
+            Err(e) => {
+                said += &format!(
+                    " Handing it to {agent} failed: {}. It stays yours.",
+                    crate::map_err(e)
+                );
+            }
+        },
+    }
     // A pointer in the channel it's about, as the person's thread from a
     // channel post gets one; nobody is woken by it.
     if !channel.is_empty() && (space == ct::PERSONAL_SPACE || shared) {
@@ -1706,15 +1855,45 @@ pub(crate) fn talk_read(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         )
     };
     if all.is_empty() {
-        return format!("No posts in {conv} yet.");
+        return match &target {
+            Target::Call(id) => format!(
+                "No posts in {conv} yet.\n{}",
+                crate::huddle::live_tail(b, talk, id.strip_prefix(ct::CALL_PREFIX).unwrap_or(id))
+            ),
+            _ => format!("No posts in {conv} yet."),
+        };
     }
     let n = s.roster();
     let now = s.now();
     let mut out = String::new();
+    // A huddle read ends with the "still going" line while it is live
+    // (card #1055), so its page is budgeted before the cursor moves: what
+    // the clip would cut stays unread and the line is never cut.
+    let live = match &target {
+        Target::Call(id) => {
+            crate::huddle::live_tail(b, talk, id.strip_prefix(ct::CALL_PREFIX).unwrap_or(id))
+        }
+        _ => String::new(),
+    };
     if let Target::Call(_) = &target {
         out += &call_head(talk, &n, &conv);
     }
     out += &format!("{head} in {conv}, oldest first:\n");
+    let mut shown = shown;
+    if is_call {
+        let reserve = 700 + live.len();
+        let mut used = out.len();
+        let mut keep = 0;
+        for p in &shown {
+            let len = call_line_len(&n, &now, p);
+            if keep > 0 && used + len + reserve > crate::MAX_RESULT {
+                break;
+            }
+            used += len;
+            keep += 1;
+        }
+        shown.truncate(keep);
+    }
     for p in &shown {
         out += &format!(
             "- [{}] {} ({}): {}\n",
@@ -1751,7 +1930,7 @@ pub(crate) fn talk_read(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             if let Some(up_to) = next.encode() {
                 let _ = talk.mark_read(&conv, &up_to, me(c));
             }
-            return out + untrusted();
+            return out + &live + untrusted();
         }
         // Reading moves the caller's cursor (never back).
         let cur = talk.cursor(me(c), &conv);
@@ -1765,6 +1944,22 @@ pub(crate) fn talk_read(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         }
     }
     out + untrusted()
+}
+
+/// How long one post prints in talk_read: its line and its files.
+fn call_line_len(n: &crate::Names<'_>, now: &GoTime, p: &Post) -> usize {
+    let line = format!(
+        "- [{}] {} ({}): {}\n",
+        p.post_id,
+        n.who(&p.by),
+        ago(now, &p.at),
+        one_line(&p.text, READ_TEXT)
+    );
+    line.len()
+        + p.files
+            .iter()
+            .map(|f| f.describe().len() + 32)
+            .sum::<usize>()
 }
 
 pub(crate) fn talk_list(s: &Inner, c: &Caller, _: &[u8]) -> String {
@@ -1920,7 +2115,7 @@ impl Lines {
 }
 
 /// Where a huddle was, for a line about it: `#name`, or the DM with whom.
-fn call_place(talk: &Talk, n: &crate::Names<'_>, conv: &str) -> String {
+pub(crate) fn call_place(talk: &Talk, n: &crate::Names<'_>, conv: &str) -> String {
     if let Some(ch) = talk.channel(conv) {
         return format!("#{}", one_line(&ch.name, 80));
     }
@@ -1931,7 +2126,7 @@ fn call_place(talk: &Talk, n: &crate::Names<'_>, conv: &str) -> String {
 }
 
 /// The huddle `conv` (`call:<id>`) names, as talk_list knows it.
-fn call_info(talk: &Talk, conv: &str) -> Option<ct::CallInfo> {
+pub(crate) fn call_info(talk: &Talk, conv: &str) -> Option<ct::CallInfo> {
     let id = conv.strip_prefix(ct::CALL_PREFIX)?;
     talk.calls().into_iter().find(|c| c.call_id == id)
 }
@@ -1948,33 +2143,28 @@ fn call_head(talk: &Talk, n: &crate::Names<'_>, conv: &str) -> String {
     )
 }
 
-/// talk_list's huddles with a transcript (card #656), newest first: the
-/// person sees all of them, an agent those of the channels it is in, never
-/// a person DM's.
+/// talk_list's huddles with a transcript (card #656, #1047), newest first:
+/// every huddle of the spaces the reader is in, with its title, a person
+/// DM's too. An agent sees only the lines of a person DM's that carry the
+/// `agents` mark, so a DM huddle without any isn't listed.
 fn huddles(talk: &Talk, n: &crate::Names<'_>, me: &str) -> String {
-    let person = ct::is_person_key(me);
-    let shown: Vec<ct::CallInfo> = talk
+    let shown: Vec<(ct::CallInfo, Vec<Post>)> = talk
         .calls()
         .into_iter()
-        .filter(|c| c.lines > 0)
-        .filter(|c| {
-            if talk.pair_other(&c.conv_id).is_some() {
-                return person;
-            }
-            if !ct::is_channel(&c.conv_id) || talk.channel(&c.conv_id).is_none() {
-                return false;
-            }
-            person || talk.is_member(&c.conv_id, me)
+        .filter(|c| talk.pair_other(&c.conv_id).is_some() || talk.channel(&c.conv_id).is_some())
+        .map(|c| {
+            let lines = call_lines(talk, me, &c.call_id);
+            (c, lines)
         })
+        .filter(|(_, lines)| !lines.is_empty())
         .collect();
     if shown.is_empty() {
         return String::new();
     }
     let mut out = "Huddles with a transcript, newest first:\n".to_string();
-    for c in shown.iter().take(HUDDLES_SHOWN) {
+    for (c, lines) in shown.iter().take(HUDDLES_SHOWN) {
         let conv = format!("{}{}", ct::CALL_PREFIX, c.call_id);
-        let lines = talk.call_posts(&c.call_id);
-        let mark = Lines::parse(talk.cursor(me, &conv).as_deref(), &lines);
+        let mark = Lines::parse(talk.cursor(me, &conv).as_deref(), lines);
         let unread = lines
             .iter()
             .filter(|p| !mark.has(p) && ct::canon(&p.by) != ct::canon(me))
@@ -1984,11 +2174,16 @@ fn huddles(talk: &Talk, n: &crate::Names<'_>, me: &str) -> String {
         } else {
             String::new()
         };
+        let title = if c.title.trim().is_empty() {
+            String::new()
+        } else {
+            format!(" \"{}\"", one_line(&c.title, 80))
+        };
         out += &format!(
-            "- huddle in {} (conv={conv}, {} line{}, {}){tail}\n",
+            "- huddle{title} in {} (conv={conv}, {} line{}, {}){tail}\n",
             call_place(talk, n, &c.conv_id),
-            c.lines,
-            if c.lines == 1 { "" } else { "s" },
+            lines.len(),
+            if lines.len() == 1 { "" } else { "s" },
             if c.end.is_some() { "ended" } else { "live" },
         );
     }

@@ -1,7 +1,7 @@
-// AppSidebar is the window's nav (card #135): the space switcher (card
-// #393), Home, Talk (card #390), Boards, Notifications (card #377) and
+// AppSidebar is the window's nav (card #135): Dashboard, the space switcher
+// (card #393), Talk (card #390), Boards, Notifications (card #377) and
 // Held, then
-// the boards and cards you pinned, and at the bottom this device, how the
+// the cards you pinned, and at the bottom this device, how the
 // agents stand, you (your profile, card #393) and Settings. Its top button folds it to icons; the window
 // remembers that on this device. On a phone or a narrow window (card #227)
 // it is a drawer over the page instead: the header's menu button opens it,
@@ -20,8 +20,9 @@ import {
 } from "react"
 import {
   BellIcon,
+  GaugeIcon,
+  HardDriveIcon,
   GitMergeIcon,
-  HomeIcon,
   InboxIcon,
   LayoutGridIcon,
   MessagesSquareIcon,
@@ -43,11 +44,11 @@ import { rosterGroups } from "@/lib/roster-groups"
 import { AgentStrip, OnCards } from "@/components/cards/agent-strip"
 import { CheckSlots } from "@/components/cards/check-slots"
 import { useCommands } from "@/lib/commands"
+import { SidebarShortcut } from "@/lib/app-shortcuts"
 import type { BoardSummary } from "@/lib/boards"
 import type { CardSummary } from "@/lib/cards"
 import { plainLine, type Roster } from "@/lib/irori"
 import { boardsFor, go, onBoards, type Section } from "@/lib/nav"
-import { boardsInSpace } from "@/lib/spaces"
 import { useNarrow } from "@/lib/media"
 import { previewFlag } from "@/lib/preview"
 import {
@@ -92,6 +93,7 @@ export function AppSidebar({
   space,
   onSpace,
   onNewSpace,
+  waiting,
   me,
 }: {
   roster: Roster
@@ -115,11 +117,14 @@ export function AppSidebar({
   // Narrow windows: the drawer is open, and closing it.
   drawer?: boolean
   onDrawer?: (open: boolean) => void
-  // The space Home, Talk and Boards show (card #393), and picking one.
+  // The space Talk and Boards show (card #393; the Dashboard always shows
+  // every space, card #1001), and picking one.
   space: string
   onSpace: (id: string) => void
   // New or join a space, from the picker (card #689).
   onNewSpace: () => void
+  // The spaces with something waiting for you: a dot on their picker row.
+  waiting?: ReadonlySet<string>
   // You, as your profile has you: the row that opens it.
   me: { name: string; color: string; avatar: string }
 }) {
@@ -223,12 +228,13 @@ export function AppSidebar({
   useCommands([
     {
       id: "sidebar.fold",
+      shortcut: SidebarShortcut,
       title: folded ? "Open the sidebar" : "Fold the sidebar",
       keywords: ["nav", "collapse", "expand"],
       run: () => fold(!folded),
     },
   ])
-  const { device, version, agents } = roster
+  const { device, agents } = roster
   // Yours (terminal agents) and On cards (the ones Irori started), card
   // #456. Card #512: no "free" count (a thread gets its own agent); a
   // blocked agent counts as blocked, not working or on cards.
@@ -257,9 +263,6 @@ export function AppSidebar({
     const via = a.deviceVia && throughLine(a.deviceVia)
     return [w?.where, doing, via].filter(Boolean).join(" · ")
   }
-  const pinnedBoards = boardsInSpace(boards, space)
-    .filter((b) => b.pinned)
-    .sort((a, b) => (a.pinRank ?? 0) - (b.pinRank ?? 0))
   // Pinned cards in their order; a subtask shows under Pinned only on its
   // own, its parent's pin already lists the family on the board.
   const pinnedCards = cards
@@ -268,7 +271,9 @@ export function AppSidebar({
   const here = (s: Section) =>
     !openCard &&
     !!section &&
-    section.kind === s.kind &&
+    // A huddle's page lights Talk (card #1044).
+    (section.kind === s.kind ||
+      (s.kind === "talk" && section.kind === "huddle")) &&
     (s.kind !== "board" || (section.kind === "board" && section.id === s.id))
 
   // Shut, the drawer stays mounted off-screen: Settings lives in it.
@@ -294,7 +299,8 @@ export function AppSidebar({
                 "fixed inset-y-0 left-0 z-50 w-[min(18rem,85vw)] bg-background pt-[var(--safe-top)] pb-[var(--safe-bottom)] shadow-xl transition-transform",
                 !drawer && "invisible -translate-x-full"
               )
-            : "bg-sidebar/60"
+            : // Docked: clear of the status bar and side cutout too (card #1092).
+              "bg-sidebar/60 pt-[var(--safe-top)] pb-[var(--safe-bottom)] pl-[var(--safe-left)]"
         )}
         style={narrow ? undefined : { width: folded ? foldedWidth : width }}
       >
@@ -365,97 +371,91 @@ export function AppSidebar({
           )}
         </div>
 
-        <div className="shrink-0 px-2 pb-2">
-          <SpaceSwitcher
-            boards={boards}
-            space={space}
-            onSpace={onSpace}
-            onNewSpace={onNewSpace}
-            folded={folded}
-          />
-        </div>
-
         <nav
           aria-label="Sections"
           className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-x-hidden overflow-y-auto px-2 pb-3 mac:overscroll-none"
         >
           <NavItem
-            icon={HomeIcon}
-            label="Home"
+            icon={GaugeIcon}
+            label="Dashboard"
             folded={folded}
             current={here({ kind: "home" })}
             onClick={() => go({ kind: "home" })}
           />
-          <NavItem
-            icon={MessagesSquareIcon}
-            label="Talk"
-            folded={folded}
-            current={here({ kind: "talk", id: "" })}
-            count={talk}
-            countTone="default"
-            countTitle="Threads an agent answered and DMs you haven't read"
-            onClick={() => go({ kind: "talk", id: "" })}
-          />
-          {desks > 0 && (
-            <NavItem
-              icon={GitMergeIcon}
-              label="Merge desks"
+          <SpaceGroup folded={folded}>
+            <SpaceSwitcher
+              boards={boards}
+              space={space}
+              onSpace={onSpace}
+              onNewSpace={onNewSpace}
               folded={folded}
-              current={here({ kind: "desk", repo: "" })}
-              onClick={() => go({ kind: "desk", repo: "" })}
+              waiting={waiting}
             />
-          )}
-          <NavItem
-            icon={NotebookPenIcon}
-            label="Notes"
-            folded={folded}
-            current={!openCard && section?.kind === "notes"}
-            onClick={() => go({ kind: "notes" })}
-          />
-          {/* Boards (card #689): the picked space's only, never across
-              spaces; with All spaces it asks for one. */}
-          <NavItem
-            icon={LayoutGridIcon}
-            label="Boards"
-            folded={folded}
-            current={!openCard && !!section && onBoards(section)}
-            onClick={() => go(boardsFor(space))}
-          />
-          <NavItem
-            icon={BellIcon}
-            label="Notifications"
-            folded={folded}
-            current={here({ kind: "notifications" })}
-            count={unread}
-            countTone="info"
-            countTitle="Notifications you haven't read"
-            onClick={() => go({ kind: "notifications" })}
-          />
-          <NavItem
-            icon={InboxIcon}
-            label="Held"
-            folded={folded}
-            count={held}
-            countTone="warning"
-            countTitle="Messages Irori is holding back"
-            onClick={onHeld}
-          />
+            <NavItem
+              icon={MessagesSquareIcon}
+              label="Talk"
+              folded={folded}
+              current={here({ kind: "talk", id: "" })}
+              count={talk}
+              countTone="default"
+              countTitle="Threads and DMs with replies you haven't read, and channels that mention you"
+              onClick={() => go({ kind: "talk", id: "" })}
+            />
+            <NavItem
+              icon={LayoutGridIcon}
+              label="Boards"
+              folded={folded}
+              current={!openCard && !!section && onBoards(section)}
+              onClick={() => go(boardsFor(space))}
+            />
+          </SpaceGroup>
 
-          {pinnedBoards.length > 0 && (
-            <Group label="Pinned spaces" folded={folded}>
-              {pinnedBoards.map((b) => (
-                <PinRow
-                  key={b.boardId}
-                  mark={plainLine(b.tag).slice(0, 2)}
-                  label={plainLine(b.name) || "(unnamed)"}
-                  title={`${plainLine(b.name)} (${plainLine(b.tag)}#)`}
-                  folded={folded}
-                  current={here({ kind: "board", id: b.boardId })}
-                  onClick={() => go({ kind: "board", id: b.boardId })}
-                />
-              ))}
-            </Group>
-          )}
+          <Group label="Everywhere" bare folded={folded}>
+            <NavItem
+              icon={BellIcon}
+              label="Notifications"
+              folded={folded}
+              current={here({ kind: "notifications" })}
+              count={unread}
+              countTone="info"
+              countTitle="Notifications you haven't read"
+              onClick={() => go({ kind: "notifications" })}
+            />
+            <NavItem
+              icon={InboxIcon}
+              label="Held"
+              folded={folded}
+              count={held}
+              countTone="warning"
+              countTitle="Messages Irori is holding back"
+              onClick={onHeld}
+            />
+            <NavItem
+              icon={NotebookPenIcon}
+              label="Notes"
+              folded={folded}
+              current={!openCard && section?.kind === "notes"}
+              onClick={() => go({ kind: "notes" })}
+            />
+            {desks > 0 && (
+              <NavItem
+                icon={GitMergeIcon}
+                label="Merge desks"
+                folded={folded}
+                current={here({ kind: "desk", repo: "" })}
+                onClick={() => go({ kind: "desk", repo: "" })}
+              />
+            )}
+            {/* Storage (card #728): what Irori keeps and its size. */}
+            <NavItem
+              icon={HardDriveIcon}
+              label="Storage"
+              folded={folded}
+              current={!openCard && section?.kind === "storage"}
+              onClick={() => go({ kind: "storage", tab: "" })}
+            />
+          </Group>
+
           {pinnedCards.length > 0 && (
             <Group label="Pinned cards" folded={folded}>
               {pinnedCards.map((c) => (
@@ -552,7 +552,7 @@ export function AppSidebar({
           <CallBar
             mine={huddle}
             folded={folded}
-            onOpen={() => go({ kind: "talk", id: huddle.convId })}
+            onOpen={() => go({ kind: "huddle", id: huddle.callId })}
             onMute={(on) => void setMuted(on).catch(() => {})}
             onDeafen={(on) => void setDeafened(on).catch(() => {})}
             onLeave={() => void leaveHuddle().catch(() => {})}
@@ -596,7 +596,10 @@ export function AppSidebar({
               </span>
             )}
           </button>
-          <SettingsMenu version={version} />
+          <SettingsMenu
+            current={here({ kind: "settings", tab: "" })}
+            onGo={() => onDrawer?.(false)}
+          />
         </div>
       </aside>
     </>
@@ -665,6 +668,27 @@ function NavItem({
   )
 }
 
+// SpaceGroup is the picker and the links that follow it (#989); Dashboard
+// sits above it, alone.
+function SpaceGroup({
+  folded,
+  children,
+}: {
+  folded: boolean
+  children: ReactNode
+}) {
+  return (
+    <div role="group" aria-label="This space" className="mt-2 shrink-0">
+      {!folded && (
+        <h2 className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+          Space
+        </h2>
+      )}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-0.5">{children}</div>
+    </div>
+  )
+}
+
 function RosterLabel({ children }: { children: ReactNode }) {
   return (
     <h3 className="px-2.5 pt-2 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
@@ -675,10 +699,13 @@ function RosterLabel({ children }: { children: ReactNode }) {
 
 function Group({
   label,
+  bare = false,
   folded,
   children,
 }: {
   label: string
+  // A divider line for a heading; the label is still its name for a screen reader.
+  bare?: boolean
   folded: boolean
   children: ReactNode
 }) {
@@ -689,10 +716,10 @@ function Group({
       className={cn(
         // One column that may shrink below its rows' text (#309).
         "grid grid-cols-[minmax(0,1fr)] gap-0.5",
-        folded ? "mt-2 border-t border-border pt-2" : "mt-4"
+        folded || bare ? "mt-2 border-t border-border pt-2" : "mt-4"
       )}
     >
-      {!folded && (
+      {!folded && !bare && (
         <h2 className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
           {label}
         </h2>

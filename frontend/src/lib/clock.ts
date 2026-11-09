@@ -9,16 +9,31 @@
 
 import { useMemo, useSyncExternalStore } from "react"
 
+import { appPage } from "./visibility"
+
 const subs = new Set<() => void>()
 let timer = 0
+let unwatch: () => void = () => {}
 
 function subscribe(cb: () => void): () => void {
   subs.add(cb)
-  if (!timer) timer = window.setInterval(() => subs.forEach((f) => f()), 1000)
+  if (!timer) {
+    // Hidden (minimised, in the tray) it holds still, and shown again it
+    // catches up at once (cards #765, #1134: appPage is the window's own
+    // visibility).
+    const page = appPage() ?? document
+    const tick = () => {
+      if (!page.hidden) subs.forEach((f) => f())
+    }
+    timer = window.setInterval(tick, 1000)
+    page.addEventListener("visibilitychange", tick)
+    unwatch = () => page.removeEventListener("visibilitychange", tick)
+  }
   return () => {
     subs.delete(cb)
     if (!subs.size && timer) {
       window.clearInterval(timer)
+      unwatch()
       timer = 0
     }
   }

@@ -1,14 +1,22 @@
 // A space's boards (card #558): a space is a group of people, a board is a
 // list of tasks. SpaceBoards is what a space opens on: a tile per board,
-// each opening that board's list, and Add board. ListHeaderBar is the
-// header over one open board: which space it's in, and renaming or
-// deleting the board. Leave, Invite and Space settings stay on the space.
-// Personal has the same page and list, over the person's own log.
+// each opening that board's list, and Add board; closed boards (card
+// #690) fold away under Closed boards. ListHeaderBar is the header over
+// one open board: which space it's in, and renaming, describing, closing
+// or deleting the board. Leave, Invite and Space settings stay
+// on the space. Personal has the same page and list, over the person's
+// own log.
 
 import { useEffect, useState, type FormEvent } from "react"
 import { ChevronRightIcon, EllipsisIcon } from "lucide-react"
 
 import { BoardView, ScopeOwn } from "@/components/cards/board-view"
+import {
+  AddBoardButton,
+  askBoard,
+  BoardTop,
+  ClosedFold,
+} from "@/components/boards/board-project"
 import type { Filter } from "@/components/cards/card-grid"
 import type { BoardView as View } from "@/components/canvas/switch"
 import { ConfirmDialog } from "@/components/common/confirm-button"
@@ -31,7 +39,13 @@ import {
 import type { CardSummary, DoneState } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import { go } from "@/lib/nav"
-import { boardsOf, cardsOnPersonal, Personal } from "@/lib/spaces"
+import {
+  boardsOf,
+  cardsOnPersonal,
+  closedBoards,
+  openBoards,
+  Personal,
+} from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
 
 import { boardSegs, RecentCards, StateBar } from "./board-tiles"
@@ -72,6 +86,7 @@ function BoardTile({
   cards: CardSummary[]
   onOpen: () => void
 }) {
+  const description = plainLine(x.description ?? "")
   const decide = cards.filter((c) => c.openBlockers > 0).length
   return (
     <li>
@@ -94,8 +109,18 @@ function BoardTile({
               default
             </span>
           )}
+          {x.closed && (
+            <span className="ml-auto rounded bg-muted px-1 text-[11px] text-muted-foreground">
+              Closed
+            </span>
+          )}
         </span>
-        <StateBar segs={boardSegs(cards, 0)} />
+        {description && (
+          <span className="line-clamp-2 text-xs break-words text-muted-foreground">
+            {description}
+          </span>
+        )}
+        {!x.closed && <StateBar segs={boardSegs(cards, 0)} />}
         <RecentCards cards={recent(cards)} />
         {decide > 0 && (
           <span className="text-xs text-destructive">
@@ -104,84 +129,6 @@ function BoardTile({
         )}
       </button>
     </li>
-  )
-}
-
-// AddBoard is + Add board and its small form.
-function AddBoard({
-  onAdd,
-}: {
-  onAdd: (name: string, tag: string) => Promise<unknown>
-}) {
-  const [adding, setAdding] = useState(false)
-  const [name, setName] = useState("")
-  const [tag, setTag] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const add = async (e: FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    try {
-      await onAdd(name, tag)
-      setAdding(false)
-      setName("")
-      setTag("")
-    } catch (err) {
-      setError(errorText(err))
-    }
-  }
-  if (!adding)
-    return (
-      <Button
-        size="sm"
-        variant="ghost"
-        className="h-7 px-2.5 text-[12.5px]"
-        onClick={() => setAdding(true)}
-      >
-        + Add board
-      </Button>
-    )
-  return (
-    <form className="flex flex-wrap items-center gap-1.5" onSubmit={add}>
-      <Input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        maxLength={MaxBoardName}
-        placeholder="Board name"
-        aria-label="New board's name"
-        className="h-8 w-48"
-        autoFocus
-      />
-      <Input
-        value={tag}
-        onChange={(e) => setTag(e.target.value.toLowerCase())}
-        maxLength={16}
-        placeholder="tag"
-        aria-label="New board's tag (its card refs: tag#12)"
-        className="h-8 w-24 font-mono"
-      />
-      <Button
-        type="submit"
-        size="sm"
-        className="h-8"
-        disabled={!name.trim() || !tag.trim()}
-      >
-        Add board
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-8"
-        onClick={() => setAdding(false)}
-      >
-        Cancel
-      </Button>
-      {error && (
-        <p className="basis-full text-xs text-destructive" role="alert">
-          {plainLine(error)}
-        </p>
-      )}
-    </form>
   )
 }
 
@@ -197,32 +144,33 @@ export function SpaceBoards({
   cards: CardSummary[]
 }) {
   const list = boardsOf(b)
+  const tile = (x: SpaceBoard, i: number) => (
+    <BoardTile
+      key={x.boardId}
+      board={x}
+      isDefault={i === 0}
+      cards={cardsOnBoard(b, cards, x.boardId)}
+      onOpen={() => go({ kind: "board", id: b.boardId, board: x.boardId })}
+    />
+  )
+  const closed = closedBoards(list)
   return (
     <section className="grid gap-2" aria-label="Boards in this space">
       <div className="flex items-center gap-2">
         <h2 className="px-1 text-base font-semibold">Boards</h2>
         {b.ready && (
-          <AddBoard
-            onAdd={async (name, tag) => {
-              await actions.addToSpace(b.boardId, name, tag)
+          <AddBoardButton
+            onAdd={async (name, tag, description) => {
+              await actions.addToSpace(b.boardId, name, tag, description)
               await reloadBoards()
             }}
           />
         )}
       </div>
-      <ul className={tiles}>
-        {list.map((x, i) => (
-          <BoardTile
-            key={x.boardId}
-            board={x}
-            isDefault={i === 0}
-            cards={cardsOnBoard(b, cards, x.boardId)}
-            onOpen={() =>
-              go({ kind: "board", id: b.boardId, board: x.boardId })
-            }
-          />
-        ))}
-      </ul>
+      <ul className={tiles}>{openBoards(list).map(tile)}</ul>
+      <ClosedFold count={closed.length}>
+        <ul className={tiles}>{closed.map((x) => tile(x, -1))}</ul>
+      </ClosedFold>
     </section>
   )
 }
@@ -232,6 +180,16 @@ export function SpaceBoards({
 // settings of its own.
 export function PersonalBoards({ cards }: { cards: CardSummary[] }) {
   const { boards: list, error, reload } = usePersonalBoards()
+  const tile = (x: SpaceBoard, i: number) => (
+    <BoardTile
+      key={x.boardId}
+      board={x}
+      isDefault={i === 0}
+      cards={cardsOnPersonal(cards, x.boardId)}
+      onOpen={() => go({ kind: "board", id: Personal, board: x.boardId })}
+    />
+  )
+  const closed = closedBoards(list)
   return (
     <section className="grid gap-2" aria-label="Boards in Personal">
       <p className="max-w-2xl px-1 text-[13px] text-muted-foreground">
@@ -239,25 +197,18 @@ export function PersonalBoards({ cards }: { cards: CardSummary[] }) {
       </p>
       <div className="flex items-center gap-2">
         <h2 className="px-1 text-base font-semibold">Boards</h2>
-        <AddBoard
-          onAdd={async (name, tag) => {
-            await actions.addToPersonal(name, tag)
+        <AddBoardButton
+          onAdd={async (name, tag, description) => {
+            await actions.addToPersonal(name, tag, description)
             await reload()
           }}
         />
       </div>
       {error && <p className="text-xs text-destructive">{plainLine(error)}</p>}
-      <ul className={tiles}>
-        {list.map((x, i) => (
-          <BoardTile
-            key={x.boardId}
-            board={x}
-            isDefault={i === 0}
-            cards={cardsOnPersonal(cards, x.boardId)}
-            onOpen={() => go({ kind: "board", id: Personal, board: x.boardId })}
-          />
-        ))}
-      </ul>
+      <ul className={tiles}>{openBoards(list).map(tile)}</ul>
+      <ClosedFold count={closed.length}>
+        <ul className={tiles}>{closed.map((x) => tile(x, -1))}</ul>
+      </ClosedFold>
     </section>
   )
 }
@@ -289,10 +240,25 @@ export function PersonalList({
   selected: string
   onOpen: (id: string) => void
 }) {
+  const { boards: all } = usePersonalBoards()
+  const x = all.find((b) => b.boardId === list)
+  const shown = cardsOnPersonal(cards, list)
   return (
     <BoardView
       scope={ScopeOwn}
-      cards={cardsOnPersonal(cards, list)}
+      cards={shown}
+      header={
+        x && (
+          <BoardTop
+            space={Personal}
+            board={x}
+            boards={openBoards(all)}
+            open={shown}
+
+            onOpen={onOpen}
+          />
+        )
+      }
       done={done}
       filter={filter}
       onFilter={onFilter}
@@ -305,7 +271,9 @@ export function PersonalList({
 
       empty={
         <p className="px-1 text-[12.5px] text-muted-foreground">
-          No cards on this board yet. Make one with New card.
+          {x?.closed
+            ? "No open cards: its done cards are under Closed."
+            : "No open cards on this board. Make one with New card."}
         </p>
       }
     />
@@ -333,7 +301,7 @@ export function PersonalHeaderBar({ list }: { list: string }) {
         await reload()
       }}
       remove={
-        x.boardId === Personal
+        x.boardId === Personal || x.closed
           ? undefined
           : {
               into: all[0]?.name ?? "Personal",
@@ -367,7 +335,7 @@ export function ListHeaderBar({
         await reloadBoards()
       }}
       remove={
-        !first || first.boardId === x.boardId
+        !first || first.boardId === x.boardId || x.closed
           ? undefined
           : {
               into: first.name,
@@ -384,8 +352,11 @@ export function ListHeaderBar({
 
 // ListHeader is the header over one board's list: the space it's in (back
 // to the space's page), its name and tag, Rename, which any member may use
-// (card #558), and Delete (card #563). The space keeps its own name, and
-// the default board can't be deleted, so it has no remove.
+// (card #558), Edit description and Close board (card #690, which the
+// board's page opens), and Delete (card #563). The space keeps its own
+// name, and the default board can't be deleted, so it has no remove. A
+// closed board is read-only: no Rename, description or Delete; its page has
+// Reopen.
 function ListHeader({
   space,
   onBack,
@@ -409,6 +380,7 @@ function ListHeader({
     setName(x.name)
     setRenaming(true)
   }
+  const closed = !!x.closed
   const rename = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -464,6 +436,11 @@ function ListHeader({
               {plainLine(x.tag)}#
             </span>
           )}
+          {closed && (
+            <span className="hidden self-center rounded bg-muted px-1 text-[11px] font-normal text-muted-foreground sm:inline">
+              Closed
+            </span>
+          )}
         </h1>
       )}
       {error && (
@@ -471,7 +448,7 @@ function ListHeader({
           {plainLine(error)}
         </span>
       )}
-      {!renaming && (
+      {!renaming && !closed && (
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           <Button
             variant="ghost"
@@ -487,7 +464,6 @@ function ListHeader({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  className={remove ? undefined : "sm:hidden"}
                   aria-label="Board actions"
                   title="Board actions"
                 />
@@ -499,6 +475,16 @@ function ListHeader({
               <DropdownMenuItem className="sm:hidden" onClick={start}>
                 Rename
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => askBoard("description", x.boardId)}
+              >
+                Edit description…
+              </DropdownMenuItem>
+              {x.mayClose && (
+                <DropdownMenuItem onClick={() => askBoard("close", x.boardId)}>
+                  Close board…
+                </DropdownMenuItem>
+              )}
               {remove && (
                 <DropdownMenuItem
                   variant="destructive"

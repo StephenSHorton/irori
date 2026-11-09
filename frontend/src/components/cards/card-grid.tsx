@@ -56,6 +56,7 @@ import {
 } from "./bits"
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { ClearDone } from "./clear-done"
+import { WeightTag } from "./weight"
 import { FACES_MAX, Faces, TalkBubble } from "./faces"
 
 // Filter is a chip: All, Needs a decision, In review (card #191), My
@@ -588,6 +589,7 @@ function CardTile({
             Stale
           </Badge>
         )}
+        <WeightTag card={card} />
         {busy(withLive(card, live)) && <Spinner className="ml-auto" />}
       </span>
       {card.talking.length > 1 && (
@@ -642,7 +644,7 @@ function CardTile({
         </span>
       )}
       {card.ask && (openAsk(card) || closed) ? (
-        <AskLine ask={card.ask} />
+        <AskLine ask={card.ask} spawn={card} />
       ) : quiet || (closed && p === null) ? null : p === null ? (
         <HolderLine holder={card.holder} returned={card.returned} />
       ) : (
@@ -682,10 +684,11 @@ function CardTile({
             <Faces who={card.working} max={FACES_MAX} />
             {label && <span>{label}</span>}
           </>
-        ) : closed ? null : spawnLine(card) ? (
-          <SpawnText line={spawnLine(card)!} />
-        ) : openAsk(card) ? (
+        ) : closed ? null : openAsk(card) ? (
+          // Its ask line above says what Irori does to get it an agent.
           <span>you asked the room</span>
+        ) : spawnLine(card) ? (
+          <SpawnText line={spawnLine(card)!} />
         ) : card.returned ? (
           <span>nobody on it: {displayName(card.returned)} went away</span>
         ) : (

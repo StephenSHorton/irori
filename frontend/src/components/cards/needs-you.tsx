@@ -24,11 +24,11 @@ import {
 import { Ago } from "@/components/common/ago"
 import { inWails, plainLine } from "@/lib/irori"
 import { AgentsService } from "@/lib/host"
+import { sampleTrustAndStart } from "@/lib/trust-sample"
 import {
   GIVEN_QUESTION,
   goneTitle,
   loopLine,
-  mergeLine,
   NOT_TRUSTED,
   refOf,
   spawnNeed,
@@ -38,7 +38,7 @@ import {
 } from "@/lib/needs"
 import { SpawnedActions } from "@/components/cards/spawned-actions"
 import { PermissionPrompt } from "@/components/cards/permission-prompt"
-import { openSettings } from "@/components/settings/settings-menu"
+import { openSettings } from "@/lib/nav"
 import { answerable } from "@/lib/thread"
 import { useDraft } from "@/lib/drafts"
 import { answerKey, answerPatch, instant, isDone } from "@/lib/optimistic"
@@ -59,6 +59,8 @@ export function NeedsYou({
   name,
   onOpenCard,
   onHeld,
+  onOpenThread,
+  spaceName,
 }: {
   needs: Need[]
   // name is an agent's name by key (a held message's addressee).
@@ -66,6 +68,10 @@ export function NeedsYou({
   onOpenCard: (id: string) => void
   // onHeld opens the Held list (the quiet line's See them).
   onHeld: () => void
+  // onOpenThread opens a waiting thread in Talk (card #1001); spaceName is
+  // the name of the space a thread is in, "Personal" for "".
+  onOpenThread?: (id: string) => void
+  spaceName?: (spaceId: string) => string
 }) {
   // The quiet line (card #488) is held messages that don't ask the person
   // one by one: it isn't counted, and alone it isn't "something waits".
@@ -96,8 +102,6 @@ export function NeedsYou({
             <li key={`${n.kind}:${n.id}`} className="min-w-0">
               {n.kind === "check" || n.kind === "decision" ? (
                 <CardNeed need={n} onOpen={onOpenCard} />
-              ) : n.kind === "merge" ? (
-                <MergeNeed need={n} onOpen={onOpenCard} />
               ) : n.kind === "gone" ? (
                 <GoneNeed need={n} onOpen={onOpenCard} />
               ) : n.kind === "noAgent" ? (
@@ -106,6 +110,13 @@ export function NeedsYou({
                 <TrustRow need={n} onOpen={onOpenCard} />
               ) : n.kind === "loop" || n.kind === "stuck" ? (
                 <StuckNeed need={n} onOpen={onOpenCard} />
+              ) : n.kind === "thread" ? (
+                <ThreadNeed
+                  need={n}
+
+                  space={spaceName?.(n.thread.spaceId ?? "") ?? ""}
+                  onOpen={() => onOpenThread?.(n.id)}
+                />
               ) : n.kind === "held" ? (
                 <HeldNeed
                   d={n.delivery}
@@ -134,8 +145,6 @@ export function NeedsYou({
 const kinds = {
   check: { label: "Done check", variant: "success" },
   decision: { label: "Decision", variant: "destructive" },
-  // Card #509: an agent waits on the person to merge its PR.
-  merge: { label: "Merge", variant: "warning" },
   // Card #520: a wait on an agent that is gone, on a card nobody holds.
   gone: { label: "Gone", variant: "warning" },
   // Card #541: no computer can start its agent. Nothing to decide.
@@ -150,6 +159,8 @@ const kinds = {
   given: { label: "Given to you", variant: "info" },
   message: { label: "Message", variant: "info" },
   held: { label: "Held", variant: "warning" },
+  // Card #1001: a thread waiting on the person, from any space.
+  thread: { label: "Thread", variant: "info" },
   // Card #481: waits nothing will end.
   loop: { label: "Stuck", variant: "warning" },
   stuck: { label: "Stuck", variant: "warning" },
@@ -348,49 +359,6 @@ function StuckNeed({
   )
 }
 
-// MergeNeed is a card whose agent waits on the person to merge a PR (card
-// #509): such waits sat in Blocked, unseen, for days. It names the PR and
-// opens it on GitHub; the wait ends when Irori hears the PR merged, or on
-// the card. New work asks "Can I merge…?" instead, a decision row.
-function MergeNeed({
-  need,
-  onOpen,
-}: {
-  need: Extract<Need, { kind: "merge" }>
-  onOpen: (id: string) => void
-}) {
-  const c = need.card
-  const { error, done, run } = useAct()
-  const said = plainLine(c.waitQuestion ?? "")
-  return (
-    <Row
-      kind="merge"
-      where={<Where card={c} />}
-      at={need.at}
-
-      title={plainLine(c.title)}
-    >
-      <p className="text-sm break-words text-muted-foreground">
-        {mergeLine(need.pr)} in {need.pr.repo}: its agent waits on you to merge
-        it.{said ? ` “${said}”` : ""}
-      </p>
-      <span className="flex flex-wrap gap-1.5">
-        <Button
-          size="sm"
-          title={need.pr.url}
-          onClick={() => run(() => cardsApi.openURL(need.pr.url), "")}
-        >
-          Open PR #{need.pr.number}
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => onOpen(c.id)}>
-          Open card
-        </Button>
-      </span>
-      <Said error={error} done={done} />
-    </Row>
-  )
-}
-
 // GoneNeed is a card nobody holds whose wait no agent will end (card
 // #520): it waits on an agent that is gone, or its gone agent raised an
 // outside wait. It sat as an amber line on the card's page, unseen. Hand
@@ -541,8 +509,12 @@ function TrustRow({
             disabled={act.busy || !!act.done}
             onClick={() =>
               void act.run(
-                () => AgentsService.TrustAndStart(c.id),
-                "Trusted. Starting its agent…"
+                () =>
+                  host
+                    ? AgentsService.TrustAndStart(c.id)
+                    : sampleTrustAndStart(folder),
+                // What happens next (card #717): started, or why not.
+                (r) => r?.said || "Trusted."
               )
             }
           >
@@ -606,6 +578,42 @@ function NoAgentNeed({
       <span className="flex flex-wrap gap-1.5">
         <Button size="sm" variant="outline" onClick={() => onOpen(c.id)}>
           Open card
+        </Button>
+      </span>
+    </Row>
+  )
+}
+
+function ThreadNeed({
+  need,
+  space,
+  onOpen,
+}: {
+  need: Extract<Need, { kind: "thread" }>
+  space: string
+  onOpen: () => void
+}) {
+  const t = need.thread
+  return (
+    <Row
+      kind="thread"
+      where={space}
+      at={need.at}
+
+      title={plainLine(t.title)}
+    >
+      {t.noAgent ? (
+        <p className="text-sm break-words">{t.noAgent}</p>
+      ) : (
+        t.lastText && (
+          <p className="line-clamp-2 text-sm break-words">
+            {plainLine(t.lastText)}
+          </p>
+        )
+      )}
+      <span className="flex flex-wrap gap-1.5">
+        <Button size="sm" variant="outline" onClick={onOpen}>
+          Open thread
         </Button>
       </span>
     </Row>

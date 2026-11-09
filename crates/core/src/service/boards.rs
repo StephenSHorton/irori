@@ -176,6 +176,9 @@ pub struct BoardAgent {
     /// The member's avatar on their member.profile, "" for none (card
     /// #393).
     pub person_avatar: String,
+    /// The card is its owner's Office Assistant: kind `assistant` and the
+    /// owner's profile points at it (card 3 of assistants talk).
+    pub assistant: bool,
 }
 
 /// Another person on a shared board ([`super::Core::board_people`]).
@@ -240,6 +243,9 @@ pub(crate) struct CardMaps {
     pub keys: HashMap<String, String>,
     /// cardId -> agentKey.
     pub by_id: HashMap<String, String>,
+    /// cardId -> the HLC of the row `cards` holds, so an older row never
+    /// replaces a newer one (assistants talk, card 3).
+    pub card_hlc: HashMap<String, store::Timestamp>,
 }
 
 impl CardMaps {
@@ -294,18 +300,73 @@ impl BoardLog {
         m.add_key(&r.card_id, &r.agent_key);
     }
 
+    /// Folds one `agent.card` row. Only a row written by a device of the
+    /// card's owner counts, and the newest of those by HLC wins: another
+    /// member can write a row for a card id with their own `personId`
+    /// (the verifier accepts it), but it can't change the card's name,
+    /// kind or person here. The owner is the verifier's `card_person`,
+    /// never the row's `personId` (assistants talk §3, card 3).
     fn fold_card(&self, ev: &Event) {
+        let mut m = lock(&self.maps);
+        let CardMaps {
+            cards, card_hlc, ..
+        } = &mut *m;
+        self.fold_card_into(cards, card_hlc, ev);
+    }
+
+    fn fold_card_into(
+        &self,
+        cards: &mut HashMap<String, BoardCard>,
+        hlcs: &mut HashMap<String, store::Timestamp>,
+        ev: &Event,
+    ) {
         let Ok(p) = serde_json::from_slice::<BoardCard>(&ev.payload) else {
             return;
         };
         if p.card_id.is_empty() {
             return;
         }
-        let p = BoardCard {
-            device_id: ev.device_id.clone(),
-            ..p
-        };
-        lock(&self.maps).cards.insert(p.card_id.clone(), p);
+        // No verified owner yet (the card's first row isn't bound to a
+        // certified device): the row stands as it always did, and the map
+        // is refolded when an owner is known. With an owner, only that
+        // person's devices may write the card.
+        let owner = self.verifier.card_person(&p.card_id);
+        if let Some(o) = &owner
+            && self.verifier.person_of(&ev.device_id).as_deref() != Some(o.as_str())
+        {
+            return;
+        }
+        if hlcs.get(&p.card_id).is_some_and(|h| *h > ev.hlc) {
+            return;
+        }
+        hlcs.insert(p.card_id.clone(), ev.hlc);
+        cards.insert(
+            p.card_id.clone(),
+            BoardCard {
+                device_id: ev.device_id.clone(),
+                person_id: owner.unwrap_or(p.person_id.clone()),
+                ..p
+            },
+        );
+    }
+
+    /// Folds every `agent.card` row again. `card_person` can change after a
+    /// row was read (a person's first device certifies late), so the card
+    /// map is rebuilt from the log whenever a member row lands.
+    fn refold_cards(&self) -> Result<()> {
+        let (mut cards, mut hlcs) = (HashMap::new(), HashMap::new());
+        each_row(
+            &self.store,
+            Filter {
+                kinds: vec![kinds::AGENT_CARD.into()],
+                ..Default::default()
+            },
+            |ev| self.fold_card_into(&mut cards, &mut hlcs, ev),
+        )?;
+        let mut m = lock(&self.maps);
+        m.cards = cards;
+        m.card_hlc = hlcs;
+        Ok(())
     }
 
     /// Folds the log's agent cards and the person's board_cards for it: the
@@ -432,8 +493,7 @@ pub(crate) fn each_row(st: &Store, mut f: Filter, mut fun: impl FnMut(&Event)) -
 pub(crate) fn summary_row(ev: &Event) -> bool {
     ev.seq == 0
         || (kinds::is_board_identity_kind(&ev.kind) && ev.kind != kinds::AGENT_CARD)
-        || ev.kind == kinds::SPACE_BOARD_CREATED
-        || ev.kind == kinds::SPACE_BOARD_RENAMED
+        || ev.kind.starts_with("space.board.")
 }
 
 pub(crate) fn created_task_id(ev: &Event) -> String {
@@ -1437,6 +1497,15 @@ impl Services {
                                 return true;
                             };
                             let maps = lock(&b.maps);
+                            // The Office Assistant answers in its channel;
+                            // it is never offered a card.
+                            if maps
+                                .cards
+                                .get(card)
+                                .is_some_and(|c| c.kind == coord::roster::ASSISTANT_KIND)
+                            {
+                                return false;
+                            }
                             let Some(agent) = maps.by_id.get(card).cloned() else {
                                 // Another member's agent: never one their
                                 // Irori started for a card (card #455).
@@ -1471,7 +1540,9 @@ impl Services {
                         let (st, v, id) = (Arc::downgrade(&st), v.clone(), b.id.clone());
                         Arc::new(move || {
                             let st = st.upgrade()?;
-                            super::spaces::board_list_in(&st, &id, &super::spaces::member_wrote(&v))
+                            super::spaces::with_space_rules(&v, |r| {
+                                super::spaces::board_list_in(&st, &id, r)
+                            })
                         })
                     }),
                     ..Default::default()
@@ -1662,6 +1733,9 @@ impl Services {
             }
         } else if ev.kind == kinds::AGENT_CARD {
             b.fold_card(ev);
+        } else if ev.kind.starts_with("member.") {
+            // A device certified or cut: whose card a row is can change.
+            let _ = b.refold_cards();
         }
         if self.board_leaving(b) {
             // A space the person left: its channels stay out of Talk.
@@ -1680,6 +1754,8 @@ impl Services {
             // folded when it was written; the window still hears it.
             self.talk.apply(&row);
             self.hub.publish(crate::events::CoreEvent::Talk);
+            // A live line feeds the assistant (card #1050).
+            self.huddle_line_row(&row);
             // A DM from the other person rings here (card #538); the
             // private log's follower never sees this row.
             if hidden && row.kind == kinds::TALK_POST && ev.actor != self.person_actor() {
@@ -1885,6 +1961,90 @@ impl Services {
         m.add_key(&id, agent);
         m.cards.insert(id, row);
         Ok(format!("{AGENT_ACTOR_PREFIX}{}", m.keys[agent]))
+    }
+
+    /// The id of this person's Office Assistant card on board `b`, minting it
+    /// when there is none (assistants talk, card 2). Only the assistant's
+    /// computer calls this. The card is an `agent.card` of kind `assistant`
+    /// written as itself, with no roster entry and no `board_cards` mapping,
+    /// and the person's `member.profile` then points at it. An existing
+    /// assistant card of this person's is pointed at rather than a second
+    /// minted.
+    pub(crate) fn assistant_card(&self, b: &BoardLog) -> Result<Option<String>> {
+        let me = self.person_id();
+        let v = &b.verifier;
+        let epoch = v.epoch(&me);
+        if epoch != self.ident.current().epoch
+            || !v.writable(&me)
+            || v.cert(&self.device.id).is_none()
+            || v.cut(&self.device.id).is_some()
+        {
+            return Ok(None); // not a writable member of this board yet
+        }
+        let had = v.profile_assistant_card(&me);
+        if !had.is_empty() {
+            return Ok(Some(had));
+        }
+        // Reuse a card of this person's before minting another.
+        let existing = {
+            let m = lock(&b.maps);
+            m.cards
+                .iter()
+                .filter(|(id, c)| {
+                    c.kind == coord::roster::ASSISTANT_KIND
+                        && v.card_person(id).as_deref() == Some(me.as_str())
+                })
+                .map(|(id, _)| id.clone())
+                .min()
+        };
+        let id = match existing {
+            Some(id) => id,
+            None => {
+                let id = new_board_id()?;
+                let row = BoardCard {
+                    card_id: id.clone(),
+                    name: format!("{}'s assistant", self.ident.current().name),
+                    kind: coord::roster::ASSISTANT_KIND.into(),
+                    person_id: me.clone(),
+                    status: "idle".into(),
+                    avatar: String::new(),
+                    spawned: false,
+                    device_id: self.device.id.clone(),
+                };
+                b.store.append(
+                    &format!("{AGENT_ACTOR_PREFIX}{id}"),
+                    kinds::AGENT_CARD,
+                    &row,
+                )?;
+                lock(&b.maps).cards.insert(id.clone(), row);
+                id
+            }
+        };
+        let mut prof = self.ident.member_profile_row(epoch)?;
+        prof.color = self.person_color.chosen();
+        prof.avatar = self.person_avatar.chosen();
+        prof.github_login = v.profile_github_login(&me);
+        prof.assistant_card = id.clone();
+        b.store.append("irori", kinds::MEMBER_PROFILE, &prof)?;
+        Ok(Some(id))
+    }
+
+    /// The host sweep's part: on the assistant's computer, every space the
+    /// person is in gets its assistant card once.
+    pub(crate) fn mint_assistant_cards(&self) {
+        if !self.is_assistant_home() {
+            return;
+        }
+        for b in self.visible_boards() {
+            if self.board_leaving(&b) {
+                continue;
+            }
+            if let Err(e) = self.assistant_card(&b) {
+                logf(format_args!("board {}: assistant card: {e}", b.id));
+            }
+        }
+        // Questions that came while this wasn't the assistant's computer.
+        self.assistant_home_moved();
     }
 
     /// Rewrites the agent.card of each of this device's agents on every
@@ -2146,18 +2306,24 @@ impl Services {
         // different accounts don't take turns rewriting it.
         let color = self.person_color.chosen();
         let avatar = self.person_avatar.chosen();
+        let assistant = self.assistant_name.chosen();
         let had = v.profile_github_login(&me.id);
+        let had_assistant = v.profile_assistant_card(&me.id);
         let login = self.own_github_login();
         if v.profile(&me.id)
             .is_none_or(|n| n != self.ident.current().name)
             || v.profile_color(&me.id) != color
             || v.profile_avatar(&me.id) != avatar
+            || v.profile_assistant_name(&me.id) != assistant
             || (had.is_empty() && !login.is_empty())
         {
             let mut prof = self.ident.member_profile_row(epoch)?;
             prof.color = color;
             prof.avatar = avatar;
+            prof.assistant_name = assistant;
             prof.github_login = if had.is_empty() { login } else { had };
+            // The assistant pointer rides every rewrite (card 2).
+            prof.assistant_card = had_assistant;
             b.store.append("irori", kinds::MEMBER_PROFILE, &prof)?;
         }
         Ok(())
@@ -2331,6 +2497,9 @@ impl Services {
                 ns = n;
             }
             self.card_idle_agents(&b);
+            if notices {
+                self.review_claim_duties(&b);
+            }
             let (asks, aerr) = b.coord().sweep_asks_partial(&self.board_ask_agents(&b));
             if let Err(e) = aerr {
                 errs.push(e.to_string());
@@ -2597,6 +2766,13 @@ impl super::Core {
         r
     }
 
+    /// What an agent's @name may name on board `board_id` (card #186, and
+    /// assistants talk card 3): the other members and their agents, an
+    /// Office Assistant under each of its names.
+    pub fn board_mentionables(&self, board_id: &str) -> Vec<coord::roster::AgentCard> {
+        self.s.board_mentionables(board_id)
+    }
+
     /// Every agent card on the boards this device holds, keyed as the
     /// boards write them (agent:<cardId>), with the person it belongs to
     /// (card #146): the window names another member's agents from it, so a
@@ -2627,13 +2803,30 @@ impl super::Core {
             };
             for a in roster_of(&self.s, &b) {
                 let person_id = person_of.get(&a.key).cloned().unwrap_or_default();
+                let assistant = a.agent == coord::roster::ASSISTANT_KIND
+                    && a.key.strip_prefix(AGENT_ACTOR_PREFIX)
+                        == Some(b.verifier.profile_assistant_card(&person_id).as_str());
+                let name = if assistant {
+                    let owner = b
+                        .verifier
+                        .profile(&person_id)
+                        .or_else(|| people.get(&person_id).cloned())
+                        .unwrap_or_default();
+                    coord::assistant_name::label(
+                        &owner,
+                        &b.verifier.profile_assistant_name(&person_id),
+                    )
+                } else {
+                    a.name
+                };
                 out.push(BoardAgent {
+                    assistant,
                     person: people.get(&person_id).cloned().unwrap_or_default(),
                     person_color: b.verifier.profile_color(&person_id),
                     avatar: checked_face(face_of.get(&a.key).map(String::as_str).unwrap_or("")),
                     person_avatar: b.verifier.profile_avatar(&person_id),
                     key: a.key,
-                    name: a.name,
+                    name,
                     status: a.status,
                     board_id: b.id.clone(),
                     person_id,

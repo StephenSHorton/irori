@@ -221,7 +221,13 @@ impl Inner {
         ready: &[String],
     ) -> Result<Wake> {
         let msgs: Vec<Delivery> = ready.iter().map(|id| self.copy_id(id)).collect();
-        let (full, overflow, mut prompt) = batch(token, reminder, &msgs);
+        let (full, overflow, mut prompt) = batch(
+            token,
+            reminder,
+            &msgs,
+            self.reviews_unasked
+                .load(std::sync::atomic::Ordering::SeqCst),
+        );
         if md == mode::STOP {
             prompt = format!("{}\n\n{prompt}", stop_header(&msgs));
         }
@@ -477,7 +483,14 @@ impl Inner {
                 .filter_map(|id| self.dels.get(id).map(|d| self.copy_out(d)))
                 .collect();
         let mut out = w.w.clone();
-        out.prompt = fence(&w.w.token, w.w.reminder, &msgs, &w.w.overflow);
+        out.prompt = fence(
+            &w.w.token,
+            w.w.reminder,
+            &msgs,
+            &w.w.overflow,
+            self.reviews_unasked
+                .load(std::sync::atomic::Ordering::SeqCst),
+        );
         let notes = crate::WakeNotes {
             task: w.w.notes_task.clone(),
             notes: w.w.notes.clone(),
@@ -591,7 +604,9 @@ impl Inbox {
     /// that are still on it: woken and not started yet, or in the turn
     /// the wake started (card #645). The newest wake per conversation and
     /// agent; held, deferred, skipped, moved and finished ones are gone.
-    /// Whether the agent has posted since is the caller's to check.
+    /// Whether the agent has posted since is the caller's to check. Judge
+    /// by the turn rows, not delivery state: `engaged` and `turn_ended` are
+    /// written only from the mod hook (api `v02.rs`).
     pub fn talk_wakes(&self, since: GoTime) -> Vec<TalkWake> {
         self.read(|b| {
             let mut seen = std::collections::HashSet::new();

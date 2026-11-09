@@ -1,19 +1,19 @@
 // ThreadsPanel is a shared board's Threads panel beside its Board (card
-// #116). Home's threads moved to the Talk page (card #390); a board's stay
-// here until Spaces (Talk 4) bring them into Talk. The thread pieces it
-// shows live in components/talk/threads.
+// #116). Home's threads moved to the Talk page (card #390). A row opens
+// its thread in Talk, in the thread's ask card view (card #780): one view
+// of a thread, not one here too. The thread pieces it shows live in
+// components/talk/threads.
 
 import { Ago } from "@/components/common/ago"
 import { cardRef } from "@/components/cards/bits"
-import { useEffect, useRef, useState } from "react"
+import { useContext, useState } from "react"
 import { ChevronDownIcon, ChevronRightIcon, XIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { AgentCards } from "@/components/cards/agent-hover"
 import {
   ThreadCards,
-  ThreadView,
-  openAfterResolve,
   resolvedShown,
   resolvedToggle,
   stateBadges,
@@ -66,8 +66,8 @@ export function ThreadsPanel({
       </div>
       {live.length === 0 && (
         <p className="text-[12.5px] text-muted-foreground">
-          No open threads. Ask about anything in the box above: an agent on the
-          cards you name answers, or an idle one does.
+          No open threads. Start one in the box above: an agent on the cards you
+          name answers, or an idle one does.
         </p>
       )}
       {live.map((t) => (
@@ -76,7 +76,6 @@ export function ThreadsPanel({
           t={t}
           open={open === t.id}
           onToggle={() => onOpen(open === t.id ? "" : t.id)}
-          onResolved={() => onOpen(openAfterResolve(open, t.id))}
 
           why={why}
         />
@@ -107,7 +106,6 @@ export function ThreadsPanel({
                 t={t}
                 open={open === t.id}
                 onToggle={() => onOpen(open === t.id ? "" : t.id)}
-                onResolved={() => onOpen(openAfterResolve(open, t.id))}
 
                 why={why}
               />
@@ -122,56 +120,33 @@ function ThreadRow({
   t,
   open,
   onToggle,
-  onResolved,
   why,
 }: {
   t: ThreadSummary
+  // open marks the thread the panel was opened with (one just started).
   open: boolean
   onToggle: () => void
-  onResolved: () => void
   why: string
 }) {
-  // Opened from elsewhere (a #ref, card #144), it scrolls into view. It
-  // grows as its messages load and arrive: it scrolls again so the reply
-  // box stays in view, unless the person has scrolled away (card #564).
-  const box = useRef<HTMLElement>(null)
-  useEffect(() => {
-    const el = box.current
-    if (!open || !el) return
-    let inView = true
-    const seen = new IntersectionObserver(
-      ([e]) => {
-        inView = e.isIntersecting
-      },
-      { threshold: 0.5 }
-    )
-    const grown = new ResizeObserver(() => {
-      if (inView) el.scrollIntoView({ block: "nearest" })
-    })
-    seen.observe(el)
-    grown.observe(el)
-    return () => {
-      seen.disconnect()
-      grown.disconnect()
-    }
-  }, [open])
+  const ctx = useContext(AgentCards)
   const at = parseTime(t.updatedAt)
   const waiting = t.state === "waiting" || t.state === "handed"
   const badge = stateBadges[t.state]
   return (
     <section
-      ref={box}
       className={
         open
-          ? "grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-lg border border-primary bg-background/40 px-3 py-2.5"
+          ? "grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1 rounded-lg border border-primary bg-background/40 px-3 py-2.5"
           : "grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1 rounded-lg border border-border bg-background/40 px-3 py-2.5"
       }
     >
       <button
         type="button"
         className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5 text-left"
-        onClick={onToggle}
-        aria-expanded={open}
+        onClick={() =>
+          ctx?.onOpenThread ? ctx.onOpenThread(t.id) : onToggle()
+        }
+        title="Open the thread in Talk"
       >
         <span className="flex min-w-0 items-center gap-2">
           {t.short && (
@@ -206,34 +181,17 @@ function ThreadRow({
             <Ago at={at} />
           </time>
         </span>
-        {!open && (
-          <span
-            className={
-              waiting
-                ? "line-clamp-2 text-xs text-warning"
-                : "line-clamp-2 text-xs text-muted-foreground"
-            }
-          >
-            {stateLine(t, why)}
-          </span>
-        )}
+        <span
+          className={
+            waiting
+              ? "line-clamp-2 text-xs text-warning"
+              : "line-clamp-2 text-xs text-muted-foreground"
+          }
+        >
+          {stateLine(t, why)}
+        </span>
       </button>
       {t.cards.length > 0 && <ThreadCards cards={t.cards} />}
-      {open && (
-        <ThreadView
-          t={t}
-
-          onResolved={onResolved}
-          bound={PanelThreadBound}
-        />
-      )}
     </section>
   )
 }
-
-// How tall an open thread grows in the panel (cards #170, #564): the window
-// less the header, the ask box and its row's title, so the row fits the
-// column. If a tall draft outgrows that in a tiny window, the thread itself
-// scrolls; the padding keeps the box's focus ring from being cut.
-const PanelThreadBound =
-  "-mx-1 max-h-[max(13rem,calc(100svh-19rem))] overflow-y-auto px-1"

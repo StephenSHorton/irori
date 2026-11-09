@@ -51,43 +51,10 @@ impl Sampler {
 
     /// CPU busy % from the summed tick counters of every processor.
     fn cpu(&mut self) -> Cpu {
-        let mut count: libc::natural_t = 0;
-        let mut info: libc::processor_info_array_t = std::ptr::null_mut();
-        let mut info_cnt: libc::mach_msg_type_number_t = 0;
-        // SAFETY: out pointers are valid; the array is freed below.
-        let kr = unsafe {
-            libc::host_processor_info(
-                libc::mach_host_self(),
-                libc::PROCESSOR_CPU_LOAD_INFO,
-                &mut count,
-                &mut info,
-                &mut info_cnt,
-            )
-        };
-        if kr != libc::KERN_SUCCESS || info.is_null() {
+        let Some((busy, total, cores)) = cpu_ticks() else {
             return Cpu::default();
-        }
-        let states = libc::CPU_STATE_MAX as usize;
-        // SAFETY: the kernel returned info_cnt integers.
-        let ticks = unsafe { std::slice::from_raw_parts(info, info_cnt as usize) };
-        let (mut busy, mut total) = (0u64, 0u64);
-        for cpu in ticks.chunks_exact(states) {
-            let t = |i: libc::c_int| cpu[i as usize] as u32 as u64;
-            let idle = t(libc::CPU_STATE_IDLE);
-            let used =
-                t(libc::CPU_STATE_USER) + t(libc::CPU_STATE_SYSTEM) + t(libc::CPU_STATE_NICE);
-            busy += used;
-            total += used + idle;
-        }
-        // SAFETY: the array host_processor_info allocated in our task.
-        unsafe {
-            libc::vm_deallocate(
-                libc::mach_task_self(),
-                info as libc::vm_address_t,
-                info_cnt as libc::vm_size_t * std::mem::size_of::<libc::integer_t>(),
-            );
-        }
-        self.cores = count;
+        };
+        self.cores = cores;
         let pct = match self.cpu_prev {
             Some((b0, t0)) if total > t0 => {
                 clamp_pct((busy.saturating_sub(b0)) as f64 * 100.0 / (total - t0) as f64)
@@ -234,9 +201,78 @@ struct DiskRaw {
     busy_ns: u64,
 }
 
+/// Summed busy and total ticks over every processor, and the processor count.
+fn cpu_ticks() -> Option<(u64, u64, u32)> {
+    let mut count: libc::natural_t = 0;
+    let mut info: libc::processor_info_array_t = std::ptr::null_mut();
+    let mut info_cnt: libc::mach_msg_type_number_t = 0;
+    // SAFETY: out pointers are valid; the array is freed below.
+    let kr = unsafe {
+        libc::host_processor_info(
+            libc::mach_host_self(),
+            libc::PROCESSOR_CPU_LOAD_INFO,
+            &mut count,
+            &mut info,
+            &mut info_cnt,
+        )
+    };
+    if kr != libc::KERN_SUCCESS || info.is_null() {
+        return None;
+    }
+    let states = libc::CPU_STATE_MAX as usize;
+    // SAFETY: the kernel returned info_cnt integers.
+    let ticks = unsafe { std::slice::from_raw_parts(info, info_cnt as usize) };
+    let (mut busy, mut total) = (0u64, 0u64);
+    for cpu in ticks.chunks_exact(states) {
+        let t = |i: libc::c_int| cpu[i as usize] as u32 as u64;
+        let idle = t(libc::CPU_STATE_IDLE);
+        let used = t(libc::CPU_STATE_USER) + t(libc::CPU_STATE_SYSTEM) + t(libc::CPU_STATE_NICE);
+        busy += used;
+        total += used + idle;
+    }
+    // SAFETY: the array host_processor_info allocated in our task.
+    unsafe {
+        libc::vm_deallocate(
+            libc::mach_task_self(),
+            info as libc::vm_address_t,
+            info_cnt as libc::vm_size_t * std::mem::size_of::<libc::integer_t>(),
+        );
+    }
+    Some((busy, total, count))
+}
+
+/// CPU busy over `window`, from two tick reads that far apart. No shared state.
+pub(super) fn cpu_now(window: std::time::Duration) -> Option<Cpu> {
+    let (b0, t0, _) = cpu_ticks()?;
+    std::thread::sleep(window);
+    let (b1, t1, cores) = cpu_ticks()?;
+    let pct = if t1 > t0 {
+        clamp_pct(b1.saturating_sub(b0) as f64 * 100.0 / (t1 - t0) as f64)
+    } else {
+        None
+    };
+    Some(Cpu {
+        pct,
+        ghz: None,
+        cores,
+    })
+}
+
+/// Memory now, or `None` when the read failed.
+pub(super) fn mem_now() -> Option<Mem> {
+    mem_read()
+}
+
 /// Memory used as Activity Monitor counts it: app memory (internal pages
 /// less purgeable) plus wired plus compressed.
 fn mem() -> Mem {
+    mem_read().unwrap_or_else(|| Mem {
+        used_bytes: 0,
+        total_bytes: sysctl_u64(c"hw.memsize").unwrap_or(0),
+    })
+}
+
+fn mem_read() -> Option<Mem> {
     let total = sysctl_u64(c"hw.memsize").unwrap_or(0);
     let page = sysctl_u64(c"hw.pagesize").unwrap_or(16384);
     // SAFETY: a zeroed plain-data struct.
@@ -251,21 +287,18 @@ fn mem() -> Mem {
             &mut count,
         )
     };
-    if kr != libc::KERN_SUCCESS {
-        return Mem {
-            used_bytes: 0,
-            total_bytes: total,
-        };
+    if kr != libc::KERN_SUCCESS || total == 0 {
+        return None;
     }
     let internal = st.internal_page_count as u64;
     let purgeable = st.purgeable_count as u64;
     let wired = st.wire_count as u64;
     let compressed = st.compressor_page_count as u64;
     let used = (internal.saturating_sub(purgeable) + wired + compressed) * page;
-    Mem {
+    Some(Mem {
         used_bytes: used.min(total),
         total_bytes: total,
-    }
+    })
 }
 
 /// The GPU's busy % and the memory it holds (Apple Silicon shares memory,

@@ -59,6 +59,31 @@ describe("boardTarget", () => {
     ).toBe("p-home")
   })
 
+  test("a closed board is never on offer (card #690)", () => {
+    const s = BoardSummary({
+      ...space,
+      boards: [
+        ...space.boards,
+        { boardId: "p", name: "Proto", tag: "proto", closed: true },
+      ],
+    })
+    const t = boardTarget(s, personal, s.boards[2], "p")
+    expect(t.choices.map((x) => x.boardId)).toEqual(["s", "n"])
+    // From the closed board's list: the space's first board.
+    expect(t.spaceBoard).toBe("s")
+    const mine = [
+      ...personal,
+      { boardId: "p-tax", name: "Taxes", tag: "tax", closed: true },
+    ]
+    expect(
+      boardTarget(undefined, mine, mine[2], null).choices.map((x) => x.boardId)
+    ).toEqual([Personal, "p-home"])
+    expect(boardTarget(undefined, mine, mine[2], null).spaceBoard).toBe(
+      Personal
+    )
+    expect(boardTarget(undefined, [], mine[2], null).spaceBoard).toBeUndefined()
+  })
+
   test("Personal's boards not loaded yet: the open list, else nothing", () => {
     expect(boardTarget(undefined, [], personal[1], null).spaceBoard).toBe(
       "p-home"
