@@ -345,11 +345,19 @@ impl BoardLog {
             return;
         }
         hlcs.insert(p.card_id.clone(), ev.hlc);
+        // The stamped host counts only as a device of the card's verified
+        // person, or with none yet of the writer's: never of a person the
+        // row names.
+        let host_ok = !p.host.is_empty() && {
+            let hp = self.verifier.person_of(&p.host);
+            hp.as_deref().is_some_and(|h| !h.is_empty())
+                && match &owner {
+                    Some(o) => hp.as_deref() == Some(o.as_str()),
+                    None => hp == self.verifier.person_of(&ev.device_id),
+                }
+        };
         let person = owner.unwrap_or(p.person_id.clone());
-        // The stamped host counts only as a device of the card's person.
-        let device_id = if !p.host.is_empty()
-            && self.verifier.person_of(&p.host).as_deref() == Some(person.as_str())
-        {
+        let device_id = if host_ok {
             p.host.clone()
         } else {
             ev.device_id.clone()

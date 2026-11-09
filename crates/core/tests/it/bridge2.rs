@@ -311,6 +311,8 @@ fn a_review_request_reaches_the_dedicated_reviewer() {
             && m.text.contains("answer on the PR by its URL"),
         "{m:?}"
     );
+    // No PR card for it, so no review_claim to run (§12.5).
+    assert!(!m.text.contains("review_claim"), "{m:?}");
     assert_eq!(d.hold, "", "Open lets it through: {d:?}");
     assert!(
         bridged(t.a(), &t.ra.key_a).is_empty(),
@@ -1334,6 +1336,11 @@ mod claim {
             )
             .unwrap();
         t.sync();
+        // The sync copies rows in; Bob's coord folds them on its thread.
+        let bco = t.b().board_coord(&t.board).unwrap();
+        wait_for(10, "bob folds the PR card", || {
+            bco.get_task(&card.id).is_some()
+        });
         card.id
     }
 
@@ -1364,7 +1371,9 @@ mod claim {
         assert!(out.contains("You hold the review claim"), "{out}");
         assert!(out.contains("gh pr view"), "{out}");
         t.sync();
-        let held = t.a().board_coord(&t.board).unwrap().claim_of(PR).unwrap();
+        let aco = t.a().board_coord(&t.board).unwrap();
+        wait_for(10, "alice folds the claim", || aco.claim_of(PR).is_some());
+        let held = aco.claim_of(PR).unwrap();
         assert!(held.holder.starts_with("agent:"), "{held:?}");
         // Another of Bob's agents is told who holds it.
         let again = rc(t.b(), &t.rb.key_b, "claim");
@@ -1482,6 +1491,10 @@ mod claim {
         assert!(out.contains("not you"), "{out}");
         t.sync();
         let co = t.a().board_coord(&t.board).unwrap();
+        wait_for(10, "alice folds the decline", || {
+            co.comments(&id)
+                .is_some_and(|cs| cs.iter().any(|c| c.declines == PR))
+        });
         assert!(co.claim_of(PR).is_none());
         let cs = co.comments(&id).unwrap();
         assert!(

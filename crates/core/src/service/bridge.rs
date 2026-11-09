@@ -167,13 +167,20 @@ impl Services {
             return;
         };
         // A review ask is for a PR the card links: a row naming any other
-        // is dropped (§12.12 B1b). The sender links the PR just before it
-        // asks, so the link can come in the same sync and not be folded
-        // yet: fold what the log holds before dropping it.
-        let t = if ev.kind == kinds::REVIEW_REQUESTED && !links_pr(&t, &f.pr) {
-            match co.catch_up().ok().and_then(|()| co.get_task(&f.task_id)) {
-                Some(t) if links_pr(&t, &f.pr) => t,
-                _ => return,
+        // is dropped (§12.12 B1b). And only a row the fold took is told:
+        // its checks (the author's own agents, who may ask as a person)
+        // are the fold's (§12.3, §12.7). The sender links the PR just
+        // before it asks, so the link can come in the same sync and not
+        // be folded yet: fold what the log holds before dropping it.
+        let t = if ev.kind == kinds::REVIEW_REQUESTED {
+            let pos = coord::RowPos::of(ev);
+            let ok = |co: &Coord| {
+                co.get_task(&f.task_id)
+                    .filter(|t| links_pr(t, &f.pr) && co.review_row_folded(&t.id, &pos))
+            };
+            match ok(co).or_else(|| co.catch_up().ok().and_then(|()| ok(co))) {
+                Some(t) => t,
+                None => return,
             }
         } else {
             t
@@ -293,6 +300,7 @@ impl Services {
                 let by_person = m.from.starts_with(PERSON_ACTOR_PREFIX);
                 let who = self.board_person_name(&b, &person);
                 let (pr, title, short) = (m.pr, gocompat::quote::quote(&t.title), t.short_ref());
+                // Only a PR card's ask is caught up, so review_claim works.
                 let plan = Plan {
                     kind: row_kind::REVIEW,
                     card_id,
@@ -300,7 +308,7 @@ impl Services {
                     row: format!("{}/{}", m.pos.dev, m.pos.seq),
                     wake: m.wake,
                     text: Box::new(move |name| {
-                        review_ask_text(name, by_person, false, &pr, &title, &short, "")
+                        review_ask_text(name, by_person, false, true, &pr, &title, &short, "")
                     }),
                 };
                 self.send_ref(&b, &person, &who, 0, plan, format!("task:{}", t.id));
@@ -897,20 +905,25 @@ fn mention_plan(ev: &Event, f: &RowFields, t: &Task, to: Vec<String>) -> Option<
 }
 
 /// What a review ask or ping says (merge desk §12.4, §12.7): fixed text,
-/// the PR's URL, the card's title and ref, and names clipped by the
-/// sender. `by_person` for an ask from the PR author's person (their
-/// Irori picked the agent); `reviewer` is who has the review, for a ping.
-/// The live bridge and the catch-up both word it here.
+/// the PR's URL (rebuilt from its parts, so the row's text never rides
+/// along), the card's title and ref, and names clipped by the sender.
+/// `by_person` for an ask from the PR author's person (their Irori picked
+/// the agent); `claimable` when the PR has a PR card, so review_claim
+/// works; `reviewer` is who has the review, for a ping. The live bridge
+/// and the catch-up both word it here.
+#[allow(clippy::too_many_arguments)]
 fn review_ask_text(
     name: &str,
     by_person: bool,
     look: bool,
+    claimable: bool,
     pr: &str,
     title: &str,
     short: &str,
     reviewer: &str,
 ) -> String {
     const CLAIM: &str = "if someone else holds it, comment on the PR instead.";
+    let pr = &pr_url(pr);
     if look {
         let who = if by_person {
             format!("{name}'s Irori")
@@ -921,14 +934,32 @@ fn review_ask_text(
             "{who}: look at {pr} ({title}, {short}) and comment on the PR if your work bears on it (`gh pr view {pr} --comments`); {reviewer} has the review."
         );
     }
+    let claim = if claimable {
+        format!("Run review_claim pr={pr} first; {CLAIM} ")
+    } else {
+        String::new()
+    };
     if by_person {
         format!(
-            "{name}'s Irori picked you to review {pr} for {title} ({short}). Run review_claim pr={pr} first; {CLAIM} Read it with `gh pr view {pr} --comments` and answer on the PR by its URL; Irori never posts reviews or merges."
+            "{name}'s Irori picked you to review {pr} for {title} ({short}). {claim}Read it with `gh pr view {pr} --comments` and answer on the PR by its URL; Irori never posts reviews or merges."
         )
     } else {
         format!(
-            "{name} asks you to review {pr} for {title} ({short}). Run review_claim pr={pr} first; {CLAIM} Read it with `gh pr view {pr} --comments`, review it with your own gh and answer on the PR by its URL ({pr}); Irori never posts reviews or merges."
+            "{name} asks you to review {pr} for {title} ({short}). {claim}Read it with `gh pr view {pr} --comments`, review it with your own gh and answer on the PR by its URL ({pr}); Irori never posts reviews or merges."
         )
+    }
+}
+
+/// A PR's URL as `pr_link` reads it: `https://github.com/<repo>/pull/<n>`.
+fn pr_url(pr: &str) -> String {
+    let l = coord::Link {
+        kind: coord::LINK_URL.into(),
+        reference: pr.trim().into(),
+        ..coord::Link::default()
+    };
+    match coord::pr_link(&l) {
+        Some((repo, n)) => format!("https://github.com/{repo}/pull/{n}"),
+        None => String::new(),
     }
 }
 
@@ -956,12 +987,16 @@ fn reviewer_name(b: &BoardLog, co: &Coord, card: &str) -> String {
     .unwrap_or_else(|| "another agent".into())
 }
 
-/// Whether the card links the PR (by its exact URL): a review ask for any
-/// other is refused on receipt.
+/// Whether the card links the PR (as the claim resource reads both): a
+/// review ask for any other is refused on receipt.
 fn links_pr(t: &Task, pr: &str) -> bool {
-    t.links
-        .iter()
-        .any(|l| coord::pr_link(l).is_some() && l.reference.trim() == pr.trim())
+    let Some(want) = coord::pr_claim_resource(pr) else {
+        return false;
+    };
+    t.links.iter().any(|l| {
+        coord::pr_link(l).is_some()
+            && coord::pr_claim_resource(&l.reference).as_deref() == Some(&want)
+    })
 }
 
 /// A card row's plan: a comment, an assignment, a blocker change, a review
@@ -1022,6 +1057,7 @@ fn row_plan(
     // A ping never wakes, whatever the row says (§12.7).
     let look = ev.kind == kinds::REVIEW_REQUESTED && f.look;
     let by_person = card_id.is_empty();
+    let claimable = ev.kind == kinds::REVIEW_REQUESTED && co.pr_card_for(&f.pr).is_some();
     Some(Plan {
         kind,
         card_id,
@@ -1031,9 +1067,9 @@ fn row_plan(
         text: Box::new(move |name| match k.as_str() {
             kinds::TASK_COMMENT => f.text,
             kinds::TASK_ASSIGNED => format!("{name} assigned you {title}."),
-            kinds::REVIEW_REQUESTED => {
-                review_ask_text(name, by_person, look, &f.pr, &title, &short, &reviewer)
-            }
+            kinds::REVIEW_REQUESTED => review_ask_text(
+                name, by_person, look, claimable, &f.pr, &title, &short, &reviewer,
+            ),
             kinds::BLOCKER_OPTION => {
                 format!("{name} recommends an answer on {title}: {}", f.answer)
             }

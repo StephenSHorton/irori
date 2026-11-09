@@ -254,6 +254,9 @@ fn alices_poll_asks_one_of_bobs_agents_once() {
         !bridged(t.b(), &t.rb.key_a).is_empty()
     });
     settle_bridged(t.b(), &t.rb.key_a, 1);
+    // The catch-up after the live delivery sends nothing more.
+    t.b().check_prs();
+    settle_bridged(t.b(), &t.rb.key_a, 1);
     let d = bridged(t.b(), &t.rb.key_a).pop().unwrap();
     assert_eq!(d.message.board.kind, row_kind::REVIEW);
     assert_eq!(d.mode, mode::WAKE);
@@ -701,7 +704,10 @@ fn a_missed_ask_is_not_caught_up_once_the_pr_is_claimed() {
     let gh = alices_gh();
     let (t, card, asked, _, _) = missed_world(&gh);
     let bco = t.b().board_coord(&t.board).unwrap();
+    // Without the claim the catch-up would deliver it.
+    assert_eq!(bco.missed_review_asks().len(), 1);
     bco.claim_pr(&asked, &url(1)).unwrap();
+    assert!(bco.missed_review_asks().is_empty());
     assert!(matches!(
         bco.review_phase(&card.id),
         ReviewPhase::Claimed { .. }
@@ -710,6 +716,71 @@ fn a_missed_ask_is_not_caught_up_once_the_pr_is_claimed() {
     for k in [&t.rb.key_a, &t.rb.key_b] {
         settle_bridged(t.b(), k, 0);
     }
+}
+
+/// Bob's device writes a person's ask on Alice's PR card naming her own
+/// agent: every fold drops it (only the card's creator asks as a person,
+/// never the author's own agents), so her bridge never wakes the agent
+/// with it either.
+#[test]
+fn an_ask_the_fold_refused_never_reaches_an_agent() {
+    let gh = alices_gh();
+    let t = pick_world(&gh, |_| {});
+    let card = make_pr_card(&t);
+    let a1 = t.a().board_key(&t.board, &t.ra.key_a).unwrap();
+    t.sync();
+    let bob = Two::person(t.b());
+    let row = coord::rows::ReviewRequestedRow {
+        task_id: card.id.clone(),
+        pr: url(1),
+        from: bob.clone(),
+        to: a1.clone(),
+        at: gocompat::time::GoTime::from_system(std::time::SystemTime::now()).utc(),
+        wake: true,
+        look: false,
+    };
+    let aco = t.a().board_coord(&t.board).unwrap();
+    let ignored = aco.ignored_rows();
+    t.sb()
+        .append(&bob, store::kinds::REVIEW_REQUESTED, &row)
+        .unwrap();
+    t.sync();
+    wait_for(10, "alice folds and drops the row", || {
+        aco.ignored_rows() > ignored
+    });
+    assert!(aco.reviews(&card.id).is_empty());
+    settle_bridged(t.a(), &t.ra.key_a, 0);
+}
+
+/// board_review with no `to` on a PR card asks nobody and says who picks
+/// the reviewer, and how to take the review yourself.
+#[test]
+fn board_review_on_a_pr_card_says_the_author_picks() {
+    let gh = alices_gh();
+    let t = pick_world(&gh, |_| {});
+    let card = make_pr_card(&t);
+    bobs_on(&t, &[&t.rb.key_a]);
+    wait_for(10, "bob folds the PR card", || {
+        pr_card(t.b(), &t.board).is_some()
+    });
+    let caller = tools::Caller {
+        sender: inbox::Sender::new(&t.rb.key_a, "agent", "claude"),
+        path: inbox::path::MOD.into(),
+    };
+    let args = serde_json::json!({"task_id": card.id, "pr": url(1)});
+    let out = t
+        .b()
+        .tools()
+        .call(&caller, "board_review", &serde_json::to_vec(&args).unwrap())
+        .unwrap();
+    assert_eq!(
+        out,
+        format!(
+            "Irori picks this PR's reviewer from the PR author's device; to review it yourself, run review_claim pr={}",
+            url(1)
+        )
+    );
+    assert!(review_rows(&t.sb()).is_empty());
 }
 
 /// A mention on a PR card tells the agent to answer on the PR by its URL,
@@ -885,6 +956,14 @@ fn a_declined_agent_is_never_asked_again_for_the_pr() {
         wait_for(10, "alice folds the decline", || {
             aco.declined(&card.id).contains_key(k)
         });
+        if n == 0 {
+            // Under load her view of Bob's other agent can lag (presence):
+            // poll until it is asked, then see nothing more is.
+            wait_for(10, "alice asks bob's other agent", || {
+                poll(t.a());
+                asks_and_pings(&t.sa()).0.len() >= 2
+            });
+        }
         for _ in 0..3 {
             poll(t.a());
         }

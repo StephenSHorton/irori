@@ -3459,7 +3459,7 @@ impl Core {
     /// was written; an error when this device doesn't poll it or GitHub
     /// couldn't be asked.
     pub fn poll_desk(&self, repo_key: &str) -> Result<bool, String> {
-        self.s.poll_desk(repo_key)
+        self.s.poll_desk(repo_key, true)
     }
 
     /// How polling `repo_key`'s desk stands on this device: the last poll,
@@ -4888,13 +4888,15 @@ impl Services {
             if !self.desk_watch.due(&k, now) {
                 continue;
             }
-            if let Err(e) = self.poll_desk(&k) {
+            if let Err(e) = self.poll_desk(&k, true) {
                 logf(format_args!("desk {k}: {e}"));
             }
         }
     }
 
-    fn poll_desk(self: &Arc<Self>, repo_key: &str) -> Result<bool, String> {
+    /// One desk poll; `pick` for a counted one, which picks reviewers
+    /// (§12.5): a re-poll after a merge is no gap for their waits.
+    fn poll_desk(self: &Arc<Self>, repo_key: &str, pick: bool) -> Result<bool, String> {
         let Some(lister) = self.desk_lister.clone() else {
             return Err("this Irori polls no merge desk".into());
         };
@@ -4937,7 +4939,9 @@ impl Services {
                     // shared space, and what GitHub says on the PR.
                     let standing = self.pr_cards(repo_key, &v);
                     // §12.5 (card #1079): pick a reviewer for them.
-                    self.review_pick(repo_key, &standing);
+                    if pick {
+                        self.review_pick(repo_key, &standing);
+                    }
                     // Card #421: a PR that left the list may have merged.
                     self.settle_gone_prs(repo_key);
                 }

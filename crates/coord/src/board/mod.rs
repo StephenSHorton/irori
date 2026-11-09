@@ -1478,6 +1478,10 @@ impl Coord {
     pub fn missed_review_asks(&self) -> Vec<MissedAsk> {
         self.lock().missed_review_asks()
     }
+    /// Whether the fold took the review row at `pos` on card `id`.
+    pub fn review_row_folded(&self, id: &str, pos: &RowPos) -> bool {
+        self.lock().review_row_folded(id, pos)
+    }
     /// A card's creation row.
     pub fn created_pos(&self, id: &str) -> Option<RowPos> {
         self.lock().created_pos.get(id).cloned()

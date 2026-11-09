@@ -212,8 +212,8 @@ fn verdict_after(f: &PickFacts, login: &str, since: &GoTime) -> bool {
 
 /// The agents left out of picks for this PR, from rows alone (D1): those
 /// that declined it; those whose claim on it ended with no verdict from
-/// their person's login; and those asked when a newer ask went to
-/// another agent. `login_of` gives an agent's person's GitHub login.
+/// their person's login; and those asked when a newer pick (the person's
+/// ask) went to another agent. `login_of` gives an agent's person's GitHub login.
 pub(crate) fn excluded(f: &PickFacts, login_of: &dyn Fn(&str) -> String) -> BTreeSet<String> {
     let mut out: BTreeSet<String> = f.declined.keys().cloned().collect();
     let live = f.live_claim.as_ref().map(|l| l.holder.as_str());
@@ -232,8 +232,13 @@ pub(crate) fn excluded(f: &PickFacts, login_of: &dyn Fn(&str) -> String) -> BTre
             *e = &a.pos;
         }
     }
+    // Only a pick (the person's ask) replaces an ask: an agent's
+    // board_review asks several at once, and none leaves another out.
     for (to, pos) in &newest {
-        if f.asks.iter().any(|a| a.to != *to && a.pos > **pos) {
+        if f.asks
+            .iter()
+            .any(|a| a.to != *to && a.pos > **pos && a.from.starts_with(kinds::PERSON_ACTOR_PREFIX))
+        {
             out.insert(to.to_string());
         }
     }
@@ -459,6 +464,13 @@ impl Services {
             _ => AskedNow::default(),
         };
         let (phase, left_out) = device_phase(&facts.phase, &now);
+        if let Some(k) = &left_out {
+            let why = if now.gone { "gone" } else { "turn ended" };
+            logf(format_args!(
+                "desk: PR #{}: {k} no longer holds the ask ({why})",
+                p.number
+            ));
+        }
         if phase != ReviewPhase::Waiting {
             return Ok(());
         }
@@ -473,6 +485,11 @@ impl Services {
         let Some(pick) = r.pick else {
             // Tier 7: B7 starts a new reviewer; for now the desk says so.
             let member = polls < TIER7_POLLS && member_card_since(self, b, &facts);
+            logf(format_args!(
+                "desk: PR #{}: nobody to ask ({} live, poll {polls})",
+                p.number,
+                live.len()
+            ));
             if tier7_allowed(polls, member) {
                 self.desk_watch
                     .set_note(repo_key, p.number, Some(NOBODY_NOTE.into()));
@@ -486,7 +503,7 @@ impl Services {
                 "desk: PR #{}: asked {pick} to review (tier {})",
                 p.number, r.tier
             )),
-            // Another ask landed since the facts were read.
+            // An ask, claim or verdict landed since the facts were read.
             Ok(None) => return Ok(()),
             Err(e) => return Err(e.to_string()),
         }
@@ -1076,6 +1093,28 @@ mod tests {
         f.asks.push(ask("agent:b3", 8));
         let out = excluded(&f, &login_of);
         assert!(!out.contains("agent:b3") && out.contains("agent:b4"));
+    }
+
+    #[test]
+    fn an_agents_ask_to_several_leaves_none_out() {
+        let mut f = facts();
+        // One board_review with no `to` before the PR card stood: a row
+        // for each other person's dedicated reviewer.
+        let mut b1 = ask("agent:b1", 4);
+        let mut c1 = ask("agent:c1", 5);
+        for a in [&mut b1, &mut c1] {
+            a.from = "agent:x1".into();
+        }
+        f.asks = vec![b1, c1];
+        assert!(excluded(&f, &login_of).is_empty());
+        // c1 goes OFFLINE: the re-pick may still ask b1, a tier 4 match.
+        let live = [cand("agent:b1", "pb", true, T4)];
+        let r = decide(&f, &live, Some("agent:c1"), &login_of, &Tier5::Skip);
+        assert_eq!((r.pick.as_deref(), r.tier), (Some("agent:b1"), 4));
+        // The pick that replaced them leaves both out.
+        f.asks.push(ask("agent:b2", 6));
+        let out = excluded(&f, &login_of);
+        assert!(out.contains("agent:b1") && out.contains("agent:c1"));
     }
 
     #[test]

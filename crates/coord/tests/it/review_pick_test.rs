@@ -381,8 +381,8 @@ fn the_review_phase_follows_asks_claims_verdicts_and_heads() {
         .unwrap();
     assert_eq!(asked_to(&a.c.review_phase(&id)), CARD2);
 
-    // A decline by the asked agent after the ask: Waiting. A new ask
-    // after the decline stands.
+    // A decline by the asked agent after the ask: Waiting. A pick of it
+    // after the decline (one that crossed it) is answered by it too.
     let id8 = pr_card(&[&a, &b], 8);
     let r8 = a.c.pick_ask(P1, &id8, CARD2, false, None).unwrap().unwrap();
     sync(&a, &b);
@@ -393,6 +393,11 @@ fn the_review_phase_follows_asks_claims_verdicts_and_heads() {
     a.c.pick_ask(P1, &id8, CARD2, false, Some(r8.pos))
         .unwrap()
         .unwrap();
+    assert_eq!(a.c.review_phase(&id8), ReviewPhase::Waiting);
+    // An agent's ask naming it after the decline stands: it was asked
+    // knowing.
+    let w8 = plain_card(&a, &pr(8));
+    a.c.request_review(CARD1, &w8, &pr(8), CARD2).unwrap();
     assert_eq!(asked_to(&a.c.review_phase(&id8)), CARD2);
 
     // A claim taken after the ask and let go: Waiting.
@@ -766,4 +771,114 @@ fn a_named_ask_on_a_work_card_is_the_prs_ask() {
     assert!(a.c.pick_ask(P1, &id, CARD3, false, None).unwrap().is_none());
     let f = a.c.pick_facts(&id).unwrap();
     assert_eq!(f.asks.last().map(|r| r.to.as_str()), Some(CARD2));
+}
+
+#[test]
+fn asks_that_could_never_be_answered_leave_the_pr_waiting() {
+    let (a, b, c, _) = three_people();
+    let all = [&a, &b, &c];
+    // Before the PR card stands, p3's agent asks p1's own agent on a card
+    // linking p1's PR: no PR card yet, so nothing stops the row.
+    let plain = plain_card(&a, &pr(7));
+    sync_all(&all);
+    c.c.request_review(CARD4, &plain, &pr(7), CARD1).unwrap();
+    sync_all(&all);
+    let id = pr_card(&all, 7);
+    for s in all {
+        assert_eq!(s.c.review_phase(&id), ReviewPhase::Waiting);
+        assert!(s.c.pick_facts(&id).unwrap().asks.is_empty());
+        assert!(s.c.missed_review_asks().is_empty());
+    }
+
+    // An ask for the PR on a card that doesn't link it is taken, but it
+    // could never be delivered, so it is no ask of the PR's.
+    let bare = plain_card(&a, "");
+    sync_all(&all);
+    forge_ask(
+        &all,
+        "dev-c2",
+        1,
+        CARD4,
+        ask_row(&bare, &pr(7), CARD4, CARD2, false),
+    );
+    for s in all {
+        assert_eq!(s.c.reviews(&bare).len(), 1);
+        assert_eq!(s.c.review_phase(&id), ReviewPhase::Waiting);
+    }
+
+    // On a PR card an ask is for that card's PR; a ping only from its
+    // creator as their person.
+    let id8 = pr_card(&all, 8);
+    let before: Vec<usize> = all.iter().map(|s| s.c.ignored_rows()).collect();
+    forge_ask(
+        &all,
+        "dev-a2",
+        1,
+        P1,
+        ask_row(&id8, &pr(7), P1, CARD2, false),
+    );
+    forge_ask(
+        &all,
+        "dev-c2",
+        2,
+        CARD4,
+        ask_row(&id, &pr(7), CARD4, CARD2, true),
+    );
+    for (s, n) in all.iter().zip(before) {
+        assert_eq!(s.c.ignored_rows(), n + 2);
+        assert!(s.c.reviews(&id8).is_empty());
+        assert!(s.c.reviews(&id).is_empty());
+        assert_eq!(s.c.review_phase(&id), ReviewPhase::Waiting);
+    }
+    // The bridge's test: a row the fold took, and one it didn't.
+    let r = a.c.pick_ask(P1, &id, CARD2, false, None).unwrap().unwrap();
+    assert!(a.c.review_row_folded(&id, &r.pos));
+    let other = RowPos {
+        seq: r.pos.seq + 100,
+        ..r.pos.clone()
+    };
+    assert!(!a.c.review_row_folded(&id, &other));
+}
+
+#[test]
+fn another_agents_claim_holds_the_ask_out_once_it_ends() {
+    let (a, b, c, _) = three_people();
+    let all = [&a, &b, &c];
+    let id = pr_card(&all, 7);
+    let r = a.c.pick_ask(P1, &id, CARD2, false, None).unwrap().unwrap();
+    sync_all(&all);
+    // p3's agent, never asked, claims: Claimed while it lives, and no
+    // ask is written meanwhile, even for a decision made before it.
+    c.c.claim_pr(CARD4, &pr(7)).unwrap();
+    sync_all(&all);
+    assert!(matches!(a.c.review_phase(&id), ReviewPhase::Claimed { .. }));
+    assert_eq!(
+        a.c.pick_ask(P1, &id, CARD3, false, Some(r.pos.clone()))
+            .unwrap(),
+        None
+    );
+    // It lets go: the ask to p2's agent is out again, not Waiting.
+    assert!(c.c.release_claim(CARD4, &pr(7)).unwrap());
+    sync_all(&all);
+    for s in all {
+        match s.c.review_phase(&id) {
+            ReviewPhase::Asked { ask } => assert_eq!(ask.pos, r.pos),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(s.c.missed_review_asks().len(), 1);
+    }
+    // Only a decision on that ask may replace it.
+    let older = RowPos {
+        hlc: r.pos.hlc - 1,
+        ..r.pos.clone()
+    };
+    assert_eq!(
+        a.c.pick_ask(P1, &id, CARD4, false, Some(older)).unwrap(),
+        None
+    );
+    assert!(
+        a.c.pick_ask(P1, &id, CARD4, false, Some(r.pos))
+            .unwrap()
+            .is_some()
+    );
 }

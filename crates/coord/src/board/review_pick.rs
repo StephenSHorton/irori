@@ -227,18 +227,39 @@ impl Fold {
             .then_some((t, c))
     }
 
-    /// The newest ask on the card for the PR `res` names, by row place,
-    /// so every device agrees.
-    /// Every ask for the PR `res` names, on any card of the board: an
-    /// agent's board_review naming `to` on a work card that links the PR
-    /// is the PR's ask too, so naming `to` skips the pick (§12.5).
-    fn pr_asks(&self, res: &str) -> impl Iterator<Item = &ReviewRequest> {
-        let res = res.to_string();
-        self.reviews.values().flatten().filter(move |r| {
-            !r.look && !r.to.is_empty() && pr_claim_resource(&r.pr).as_deref() == Some(&res)
+    /// Whether card `id` links the PR `res` names (the PR card links its
+    /// own).
+    fn links_res(&self, id: &str, res: &str) -> bool {
+        self.tasks.get(id).is_some_and(|t| {
+            t.links.iter().any(|l| {
+                pr_link(l).is_some() && pr_claim_resource(&l.reference).as_deref() == Some(res)
+            })
         })
     }
 
+    /// Every ask for the PR `res` names, on any card of the board that
+    /// links it: an agent's board_review naming `to` on a work card that
+    /// links the PR is the PR's ask too, so naming `to` skips the pick
+    /// (§12.5). An ask that could never be delivered (its card doesn't
+    /// link the PR) or that names an agent of no known person or of the
+    /// PR author's (a row written before the PR card stood) is none.
+    fn pr_asks(&self, res: &str) -> impl Iterator<Item = &ReviewRequest> {
+        let res = res.to_string();
+        let author = self
+            .pr_card_by_resource(&res)
+            .map(|c| self.person_of(&c.created_by))
+            .unwrap_or_default();
+        self.reviews.values().flatten().filter(move |r| {
+            if r.look || r.to.is_empty() || pr_claim_resource(&r.pr).as_deref() != Some(&res) {
+                return false;
+            }
+            let to = self.person_of(&r.to);
+            !to.is_empty() && to != author && self.links_res(&r.task_id, &res)
+        })
+    }
+
+    /// The newest ask for the PR `res` names, by row place, so every
+    /// device agrees.
     fn newest_ask(&self, res: &str) -> Option<&ReviewRequest> {
         self.pr_asks(res).max_by(|a, b| a.pos.cmp(&b.pos))
     }
@@ -287,11 +308,19 @@ impl Fold {
             return ReviewPhase::Reviewed;
         }
         if let Some(a) = self.newest_ask(&res) {
-            let declined = self.declined(id).get(&a.to).is_some_and(|p| *p > a.pos);
+            // A pick never asks an agent it knows declined, so a decline
+            // sorting before the pick's ask crossed it and answers it too.
+            let pick = a.from.starts_with(kinds::PERSON_ACTOR_PREFIX);
+            let declined = self
+                .declined(id)
+                .get(&a.to)
+                .is_some_and(|p| *p > a.pos || pick);
+            // Only the asked agent's own claim answers the ask: another's
+            // stands as Claimed while live, and the ask holds after.
             let claimed = self
                 .pr_claims
                 .iter()
-                .any(|((_, r), s)| *r == res && s.pos > a.pos);
+                .any(|((h, r), s)| *r == res && *h == a.to && s.pos > a.pos);
             if !declined && !claimed {
                 return ReviewPhase::Asked { ask: a.clone() };
             }
@@ -361,6 +390,14 @@ impl Fold {
             }
         } else if self.newest_ask(&res).map(|a| &a.pos) != after.as_ref() {
             return Ok(None);
+        } else {
+            // What folded since the caller decided may have ended the
+            // pick: a claim, a verdict, an approval.
+            match self.review_phase(card) {
+                ReviewPhase::Waiting => {}
+                ReviewPhase::Asked { ask } if Some(&ask.pos) == after.as_ref() => {}
+                _ => return Ok(None),
+            }
         }
         let at = self.stamp();
         self.write(
@@ -392,6 +429,14 @@ impl Fold {
         }
     }
 
+    /// Whether the fold took the review row at `pos` on card `id`: the
+    /// bridge delivers only an ask the fold accepted.
+    pub(crate) fn review_row_folded(&self, id: &str, pos: &RowPos) -> bool {
+        self.reviews
+            .get(id)
+            .is_some_and(|rs| rs.iter().any(|r| r.pos == *pos))
+    }
+
     /// The standing open PR cards in Waiting or Asked, with their author's
     /// person: where another member's idle agents are wanted.
     pub(crate) fn wanting_review(&self) -> Vec<(String, String)> {
@@ -419,11 +464,8 @@ impl Fold {
             };
             // The ask may sit on a work card that links the PR: it is
             // delivered from there, as the live bridge did.
-            let links = self.tasks.get(&ask.task_id).is_some_and(|w| {
-                w.links
-                    .iter()
-                    .any(|l| pr_link(l).is_some() && trim_space(&l.reference) == ask.pr)
-            });
+            let links =
+                pr_claim_resource(&ask.pr).is_some_and(|r| self.links_res(&ask.task_id, &r));
             if links {
                 out.push(MissedAsk {
                     card: ask.task_id.clone(),

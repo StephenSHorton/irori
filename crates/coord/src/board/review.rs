@@ -22,6 +22,7 @@ use super::error::{Result, invalid, not_allowed, not_found};
 use super::fold::Fold;
 use super::fold::is_holder;
 use super::links::pr_link;
+use super::resource::pr_claim_resource;
 use super::rows::{ReviewRequestedRow, ReviewReviewerRow, TaskCommentRow, TaskStateRow, row};
 use super::types::*;
 use super::util::{caller, deeper, new_id};
@@ -122,15 +123,21 @@ impl Fold {
                     self.is_agent_key(&p.from) && self.may_write(&p.from, &ev.device_id)
                 };
                 // §12.3: never the PR author's own agents, on every device.
-                let author_ok = !self.on_board || p.to.is_empty() || {
-                    let card = if pr_card(t) {
-                        Some(t)
-                    } else {
-                        self.pr_card_for(&p.pr)
-                    };
-                    card.is_none_or(|c| self.person_of(&p.to) != self.person_of(&c.created_by))
-                };
-                if !from_ok || !theirs || !author_ok {
+                // The author is the creator of the row's PR's card.
+                let author_ok = !self.on_board
+                    || p.to.is_empty()
+                    || self
+                        .pr_card_for(&p.pr)
+                        .is_none_or(|c| self.person_of(&p.to) != self.person_of(&c.created_by));
+                // On a PR card, an ask is for that card's PR; a ping
+                // (§12.7) only ever from its creator as their person.
+                let pr_ok = !self.on_board
+                    || t.pr_card
+                        .as_ref()
+                        .is_none_or(|c| pr_claim_resource(&c.pr) == pr_claim_resource(&p.pr));
+                let look_ok =
+                    !p.look || pr_card(t) && p.from.starts_with(kinds::PERSON_ACTOR_PREFIX);
+                if !from_ok || !theirs || !author_ok || !pr_ok || !look_ok {
                     self.ignore(&ev.device_id);
                     return;
                 }
