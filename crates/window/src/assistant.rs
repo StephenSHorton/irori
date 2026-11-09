@@ -1,5 +1,7 @@
 //! The window's assistant (card #783): the small chat in the corner. Each
-//! question is one headless `claude -p` turn on Haiku, through the
+//! question was one headless `claude -p` turn; since one-assistant card 8
+//! the chat's questions go to one held `claude` on the assistant's computer
+//! (`assistant_held`), with the same argv. Either way it runs through the
 //! person's own Claude Code sign-in, with only Irori's read tools and the
 //! two writes the person's own message can allow (card #987): `irori mcp`
 //! started with the Core's assistant secret, which the API reads as the
@@ -1349,7 +1351,7 @@ impl Run {
 /// runs as `cmd.exe`, which starts `node.exe` (and that `irori mcp`):
 /// killing `cmd.exe` alone leaves them running, holding stdout open, so
 /// the run would never end. `taskkill /T` ends the whole tree first.
-fn kill_tree(c: &mut Child) {
+pub(crate) fn kill_tree(c: &mut Child) {
     #[cfg(windows)]
     {
         let mut k = Command::new("taskkill");
@@ -1373,7 +1375,7 @@ pub struct Runner {
 }
 
 /// How much of stderr is kept for an error.
-const STDERR_CAP: usize = 16 << 10;
+pub(crate) const STDERR_CAP: usize = 16 << 10;
 
 impl Runner {
     pub fn new() -> Runner {
@@ -2238,6 +2240,7 @@ impl crate::Window {
 
     /// Ends the assistant's runs as the app quits.
     pub fn assistant_shutdown(&self) {
+        self.held_chat.shutdown();
         self.assistant.shutdown();
         self.names.shutdown();
         self.weighs.shutdown();

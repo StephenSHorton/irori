@@ -533,6 +533,17 @@ fn start_core(
                 }
             },
         )));
+        // The chat's held session ends when another computer becomes the
+        // assistant's (one-assistant card 8): no Claude kept for nothing.
+        let w = Arc::downgrade(&window);
+        let me = core.device_id().to_string();
+        core.set_assistant_home_listener(Some(Arc::new(move |now: Option<&str>| {
+            if now != Some(me.as_str())
+                && let Some(w) = w.upgrade()
+            {
+                w.chat_held_end();
+            }
+        })));
     }
     // A phone runs no agents (card #524): with no spawner its sweep never
     // lists `claude` agents, so it doesn't log "spawn cleanup: can't find
