@@ -34,6 +34,7 @@ import {
   blockerOpen,
   blockerOutcome,
   deliveryOutcome,
+  deliveryWakes,
   kindLabel,
   kindTone,
   readNotifications,
@@ -44,6 +45,7 @@ import {
   type NotificationFilter,
 } from "@/lib/notifications"
 import { talk, type Delivery } from "@/lib/talk"
+import { onChange } from "@/lib/changes"
 import { go } from "@/lib/nav"
 import { cn } from "@/lib/utils"
 
@@ -466,17 +468,28 @@ function DeliveryLive({ n, onOpen }: { n: Notification; onOpen: () => void }) {
   const held = n.kind === Kind.Held
   const [d, setD] = useState<Delivery | null>(null)
   const [gone, setGone] = useState(false)
+  const deliveryId = n.deliveryId
   useEffect(() => {
     let live = true
-    talk
-      .get(n.deliveryId)
-      .then((x) => live && setD(x))
-      .catch(() => live && setGone(true))
+    const fetch = () =>
+      talk
+        .get(deliveryId)
+        .then((x) => live && setD(x))
+        .catch(() => live && setGone(true))
+    void fetch()
+    // Only a change to this delivery (or everything) reads it again.
+    const off = onChange(
+      "inbox:changed",
+      (c) => {
+        if (deliveryWakes(c, deliveryId)) void fetch()
+      },
+      { follow: ["deliveries"] }
+    )
     return () => {
       live = false
+      off()
     }
-    // n is re-read on every inbox change, so its object changes then.
-  }, [n])
+  }, [deliveryId])
   const act = useAct()
   const [replying, setReplying] = useState(false)
   if (gone) return <Outcome line="The message is gone" />

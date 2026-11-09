@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import { TalkHuddle } from "../gen/models"
+import { names, type Notice } from "./changes"
 import { huddleName, byNewest, isLive, lengthOf, placeText } from "./huddles"
 import { huddlesFor } from "../components/talk/huddles-list"
 
@@ -52,5 +53,34 @@ describe("huddles", () => {
     expect(
       huddlesFor([a, b], convs, "", "signing").map((x) => x.callId)
     ).toEqual(["a"])
+  })
+})
+
+// Card #1150: the huddles list and a transcript wake on calls.
+const talk = (convs: string[], calls: string[]): Notice => ({
+  signal: "talk:changed",
+  all: false,
+  ids: { convs, calls },
+})
+
+describe("huddles wake on calls (card #1150)", () => {
+  test("the list reads in full on any call, so a start mark shows the new huddle", () => {
+    expect(names(talk([], ["call-new"]), "calls")).toBe(true)
+    expect(names(talk(["ch1"], ["call-new", "call-old"]), "calls")).toBe(true)
+  })
+  test("a post with no call, and nothing named, wake no huddles", () => {
+    expect(names(talk(["ch1"], []), "calls")).toBe(false)
+    expect(names(talk([], []), "calls")).toBe(false)
+  })
+  test("`all` wakes everything", () => {
+    expect(names({ signal: "talk:changed", all: true }, "calls")).toBe(true)
+    expect(names({ signal: "talk:changed", all: true }, "calls", "x")).toBe(
+      true
+    )
+  })
+  test("a transcript wakes only for its own call", () => {
+    expect(names(talk([], ["call-a"]), "calls", "call-b")).toBe(false)
+    expect(names(talk([], ["call-a", "call-b"]), "calls", "call-b")).toBe(true)
+    expect(names(talk([], ["call-b"]), "calls", "call:call-b")).toBe(true)
   })
 })

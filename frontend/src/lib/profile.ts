@@ -42,9 +42,7 @@ export function useMe(): Me {
     void reload()
     const on = () => void reload()
     window.addEventListener(MeEvent, on)
-    const off = inWails()
-      ? onChange(EventDevicesChanged, () => on(), { held: false })
-      : () => {}
+    const off = inWails() ? onChange(EventDevicesChanged, () => on()) : () => {}
     return () => {
       window.removeEventListener(MeEvent, on)
       off()

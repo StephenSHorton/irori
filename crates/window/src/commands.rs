@@ -372,6 +372,16 @@ pub async fn notifications_list(w: W<'_>) -> R<Vec<crate::notifications::Notific
     Ok(w.notifications())
 }
 
+/// Just these keys' notifications (card #1151).
+#[tauri::command]
+#[specta::specta]
+pub async fn notifications_by_key(
+    w: W<'_>,
+    keys: Vec<String>,
+) -> R<Vec<crate::notifications::Notification>> {
+    blocking(&w, move |w| Ok(w.notifications_by_key(&keys))).await
+}
+
 /// How many notifications the person hasn't read (card #377).
 #[tauri::command]
 #[specta::specta]
@@ -2248,11 +2258,24 @@ pub async fn desk_set(w: W<'_>, settings: DeskSettings) -> R<()> {
 
 // ---- talk (card #389) -----------------------------------------------------
 
-/// Talk's list: channels, DMs and open threads, with unread counts.
+/// Talk's list: channels and DMs, with unread counts, and the open threads
+/// when `threads` (Talk's own list leaves them out, card #1150).
 #[tauri::command]
 #[specta::specta]
-pub async fn talk_conversations(w: W<'_>) -> R<Vec<TalkConversation>> {
-    w.talk_conversations()
+pub async fn talk_conversations(w: W<'_>, threads: bool) -> R<Vec<TalkConversation>> {
+    w.talk_conversations(threads)
+}
+
+/// The rows of just `convs` (channel and DM ids, bare thread ids): what a
+/// `talk:changed` named. One with no row is left out, so it is gone.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_conversations_by_id(
+    w: W<'_>,
+    convs: Vec<String>,
+    threads: bool,
+) -> R<Vec<TalkConversation>> {
+    w.talk_conversations_by_id(&convs, threads)
 }
 
 /// Up to `limit` posts before `before` (none: the newest), oldest first.
@@ -2474,6 +2497,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_cards_in,
             board_idle_report,
             notifications_list,
+            notifications_by_key,
             notifications_unread,
             notifications_read,
             notifications_answer_ask,
@@ -2674,6 +2698,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             share_keyframe,
             share_note_seen,
             talk_conversations,
+            talk_conversations_by_id,
             talk_posts,
             talk_post,
             talk_post_with_files,
