@@ -319,6 +319,7 @@ So a member who makes a card for someone else's PR (under the author's login or 
 - `pr_cards` keeps the card coord says stands, else its lowest own one; when its own card doesn't stand, the desk says why (`standing_line`: the space hasn't heard the login yet, the profile names another login, another member also says they are that login, or another member made a card for the PR) and nothing is picked for it.
 - The fold's author check on an ask (`fold_review`) refuses a `to` whose person made any PR card for the PR, standing or not (`pr_card_makers`), so accepting a row turns on rows, not on profiles; `pr_asks` reads the same set. A person's ask (the pick) counts only on a card the standing card's maker made, their own duplicate included, so a forger's person asks never steer it. An agent's ask on any card that links the PR still counts, as §12.5 intends for every member's agent.
 - `review_claim` looks first in a space where a member's profile names the PR's author login, since in a space the author isn't in a card stands only by who made it.
+- `REVIEWS_PROTOCOL` stays at 1. No rows changed, only how the fold reads them, and no release has shipped B2a or B2b (the newest tag, v0.12.9, has neither), so no device in the wild reads the old lowest-id rule.
 
 ### 12.3 The claim
 
