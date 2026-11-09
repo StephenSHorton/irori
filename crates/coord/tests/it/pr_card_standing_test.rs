@@ -306,3 +306,43 @@ fn an_ask_on_the_authors_own_duplicate_card_still_counts() {
         }
     }
 }
+
+/// A review card given to p3 on PR card `of`, made by `by` on side `s`.
+fn give_review(s: &Side, by: &str, of: &str) -> String {
+    let r =
+        s.c.create_task(
+            by,
+            NewTask {
+                title: "Review PR #7".into(),
+                repo_key: common::REPO_A.into(),
+                links: vec![PR.into()],
+                review_of: of.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    s.c.assign_task(by, &r.id, P3).unwrap();
+    r.id
+}
+
+/// Whether review card `id`'s start question on `s` was answered as it
+/// was raised (started unasked).
+fn started_unasked(s: &Side, id: &str) -> bool {
+    let t = s.c.get_task(id).unwrap();
+    assert!(!t.blockers.is_empty(), "no question raised: {t:?}");
+    t.blockers.iter().all(|b| b.resolved.is_some())
+}
+
+#[test]
+fn only_a_standing_cards_review_card_starts_without_asking() {
+    let (a, b, c, id) = with_both();
+    // Bob's review card for his forged card asks carol before it starts.
+    let forged_review = give_review(&b, P2, FORGED);
+    // Alice's for her standing card starts unasked (merge desk §12.10).
+    let real_review = give_review(&a, P1, &id);
+    sync_all(&[&a, &b, &c]);
+    c.c.start_given(P3, &forged_review, "").unwrap();
+    c.c.start_given(P3, &real_review, "").unwrap();
+    assert!(!started_unasked(&c, &forged_review));
+    assert!(started_unasked(&c, &real_review));
+}
