@@ -189,6 +189,14 @@ fn stored_returned_rows_never_show_a_key() {
         r.w.notifications().len() == rows.len()
     });
     let ns = r.w.notifications();
+    // Card #1151: by key gives the same rows, in the order asked, and
+    // leaves out a key nothing is kept under.
+    let want = [ns[2].key.clone(), "nope".to_string(), ns[0].key.clone()];
+    assert_eq!(
+        r.w.notifications_by_key(&want),
+        vec![ns[2].clone(), ns[0].clone()]
+    );
+    assert!(r.w.notifications_by_key(&[]).is_empty());
     for n in &ns {
         assert!(!n.body.contains('/'), "{n:?}");
         if let Some(f) = &n.from {

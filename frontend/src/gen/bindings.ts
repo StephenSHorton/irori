@@ -60,6 +60,8 @@ export const commands = {
 	boardIdleReport: () => __TAURI_INVOKE<IdleReport>("board_idle_report"),
 	/**  The person's notifications, newest first (card #377). */
 	notificationsList: () => __TAURI_INVOKE<Notification[]>("notifications_list"),
+	/**  Just these keys' notifications (card #1151). */
+	notificationsByKey: (keys: string[]) => __TAURI_INVOKE<Notification[]>("notifications_by_key", { keys }),
 	/**  How many notifications the person hasn't read (card #377). */
 	notificationsUnread: () => __TAURI_INVOKE<number>("notifications_unread"),
 	/**  Marks notifications read; no keys reads them all (card #377). */
@@ -3097,6 +3099,8 @@ export type Notification = {
  *  its time runs out.
  */
 export type NotificationAsk = {
+	/**  The ask's id, which `notifications:changed.asks` names. */
+	id: string,
 	open: boolean,
 	actions: string[],
 	/**

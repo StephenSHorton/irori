@@ -15,10 +15,16 @@ import {
   blockerOpen,
   blockerOutcome,
   deliveryOutcome,
+  deliveryWakes,
+  keysToRead,
+  MaxListed,
   shown,
   unreadCount,
+  upsertNotifications,
   waitedSummary,
 } from "./notifications"
+import type { Want } from "./patched"
+import type { Notice } from "./changes"
 
 describe("the messages that waited (card #482)", () => {
   test("the summary card is one row for several messages, old rows too", () => {
@@ -155,5 +161,129 @@ describe("messages and asks", () => {
       askOutcome(NotificationAsk({ answered: true, choice: "Restart" }))
     ).toBe("Answered “Restart”")
     expect(askOutcome(NotificationAsk({}))).toBe("Closed: no answer in time")
+  })
+})
+
+// Card #1151: a notice reads only the rows it names.
+describe("notifications read by key", () => {
+  const row = (key: string, min: number, p: Partial<Notification> = {}) =>
+    Notification({
+      key,
+      at: new Date(Date.UTC(2026, 0, 1, 0, min)).toISOString(),
+      ...p,
+    })
+  const want = (ids: Record<string, string[]>): Want => ({
+    all: false,
+    drift: false,
+    full: false,
+    ids,
+  })
+  const list = [
+    row("a", 5, { taskId: "T1", title: "old title" }),
+    row("ask:x", 4, {
+      kind: "ask",
+      ask: NotificationAsk({ id: "X", open: true }),
+    }),
+    row("b", 3, { taskId: "T2" }),
+    row("c", 2),
+  ]
+
+  test("the keys in notifications:changed", () => {
+    expect(
+      keysToRead(list, want({ "notifications:changed.keys": ["c", "new"] }))
+    ).toEqual(["c", "new"])
+  })
+
+  test("rows whose taskId is in board:changed.cards", () => {
+    expect(keysToRead(list, want({ "board:changed.cards": ["T1"] }))).toEqual([
+      "a",
+    ])
+  })
+
+  test("rows whose ask is in asks", () => {
+    expect(
+      keysToRead(list, want({ "notifications:changed.asks": ["X"] }))
+    ).toEqual(["ask:x"])
+  })
+
+  test("a notice naming none of the rows reads nothing", () => {
+    expect(
+      keysToRead(
+        list,
+        want({
+          "board:changed.cards": ["other"],
+          "notifications:changed.asks": ["Y"],
+        })
+      )
+    ).toEqual([])
+  })
+
+  test("a row named twice is read once", () => {
+    expect(
+      keysToRead(
+        list,
+        want({
+          "notifications:changed.keys": ["a"],
+          "board:changed.cards": ["T1"],
+        })
+      )
+    ).toEqual(["a"])
+  })
+
+  test("an ask answered elsewhere updates its row, in place", () => {
+    const answered = row("ask:x", 4, {
+      kind: "ask",
+      ask: NotificationAsk({
+        id: "X",
+        open: false,
+        answered: true,
+        choice: "Yes",
+      }),
+    })
+    const next = upsertNotifications(list, [answered])
+    expect(next.map((n) => n.key)).toEqual(["a", "ask:x", "b", "c"])
+    expect(next[1].ask?.choice).toBe("Yes")
+    expect(next[0]).toBe(list[0])
+  })
+
+  test("a new row goes in newest first; a retitled one keeps its place", () => {
+    const next = upsertNotifications(list, [
+      row("n", 9),
+      row("a", 5, { taskId: "T1", title: "new title" }),
+    ])
+    expect(next.map((n) => n.key)).toEqual(["n", "a", "ask:x", "b", "c"])
+    expect(next[1].title).toBe("new title")
+  })
+
+  test("the list is cut at the cap, dropping the oldest", () => {
+    const many = Array.from({ length: MaxListed }, (_, i) =>
+      row(`k${i}`, 1000 - i)
+    )
+    const next = upsertNotifications(many, [row("fresh", 2000)])
+    expect(next).toHaveLength(MaxListed)
+    expect(next[0].key).toBe("fresh")
+    expect(next.some((n) => n.key === `k${MaxListed - 1}`)).toBe(false)
+  })
+
+  test("no rows leaves the list as it is", () => {
+    expect(upsertNotifications(list, [])).toBe(list)
+  })
+})
+
+describe("a message row reads its delivery only when it is named", () => {
+  const some = (deliveries: string[]): Notice => ({
+    signal: "inbox:changed",
+    all: false,
+    ids: { deliveries },
+  })
+  test("its delivery id, or all", () => {
+    expect(deliveryWakes(some(["d1", "d2"]), "d2")).toBe(true)
+    expect(deliveryWakes({ signal: "inbox:changed", all: true }, "d2")).toBe(
+      true
+    )
+  })
+  test("another delivery, or only cards, does not", () => {
+    expect(deliveryWakes(some(["d1"]), "d2")).toBe(false)
+    expect(deliveryWakes(some([]), "d2")).toBe(false)
   })
 })
