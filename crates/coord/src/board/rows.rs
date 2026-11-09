@@ -29,6 +29,9 @@ crate::go_struct! {
         /// A thread started from a message in this Talk channel (card
         /// #454): its `ch_` id.
         pub channel: String = "channel" "omit",
+        /// A thread the Office Assistant posted for the person (card #991):
+        /// it keeps the title it was posted with. No mark: the person's.
+        pub assistant: bool = "assistant" "omit",
     }
 }
 
@@ -57,6 +60,19 @@ crate::go_struct! {
         /// device it was typed on, or its parent's; empty for any side
         /// (and every older card). Private log only.
         pub side: String = "side" "omit",
+        /// The person named it by hand on the card it comes from (card
+        /// #779); the fold keeps it only on a person's row.
+        pub title_by_person: bool = "titleByPerson" "omit",
+        /// The PR a PR card is for (merge desk §12.2): its URL, as the card
+        /// links it. The fold keeps it only on a person's row (`pr_card`).
+        /// Older devices drop it and see a plain card.
+        pub pr: String = "pr" "omit",
+        /// The PR author's GitHub login, on a PR card's creation row.
+        pub pr_author: String = "prAuthor" "omit",
+        /// The PR card this is a review card for (merge desk §12.10): its
+        /// task id. The fold keeps it only on a person's row of the PR
+        /// card's own creator, so a review card is the PR author's.
+        pub review_of: String = "reviewOf" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }
@@ -134,6 +150,28 @@ crate::go_struct! {
         /// OPEN heard by a device that knew the PR closed: a reopen
         /// (card #548). An OPEN without it can't undo a closing.
         pub over_closed: bool = "overClosed" "omit",
+        /// Who commented on the PR (merge desk §12.4), as logins. A row
+        /// without activity keeps the last known; it never clears.
+        pub commenters: Vec<String> = "commenters" "omit",
+        /// GitHub's reviews of the PR: login, state, sha, time.
+        pub reviews: Vec<PrReview> = "reviews" "omit",
+        /// The first 100 paths the PR changes, and whether there are more.
+        pub paths: Vec<String> = "paths" "omit",
+        pub paths_cut: bool = "pathsCut" "omit",
+        /// The PR's head commit (merge desk §12.5). A row without it keeps
+        /// the last known.
+        pub head: String = "head" "omit",
+    }
+}
+
+crate::go_struct! {
+    /// One review GitHub holds on a PR (merge desk §12.4).
+    #[derive(Debug, Clone, Default, PartialEq, Eq)]
+    pub struct PrReview {
+        pub login: String = "login",
+        pub state: String = "state",
+        pub sha: String = "sha" "omit",
+        pub at: GoTime = "at",
     }
 }
 
@@ -213,6 +251,9 @@ crate::go_struct! {
         pub mentions: Vec<Mention> = "mentions" "omit",
         /// A review verdict on a private card (#88): approved or changes.
         pub verdict: String = "verdict" "omit",
+        /// A reviewer's "not me" on a PR card (merge desk §12.3): the PR's
+        /// URL. A comment with it and no `to`; old devices show a comment.
+        pub declines: String = "declines" "omit",
     }
 }
 
@@ -444,6 +485,26 @@ crate::go_struct! {
 }
 
 crate::go_struct! {
+    /// task.weight (card #963): a card's weight, or `level: ""` to clear
+    /// it. Who set it is never taken from the row: the fold works it out
+    /// from the writer.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct TaskWeightRow {
+        pub task_id: String = "taskId",
+        pub level: String = "level",
+        pub reason: String = "reason" "omit",
+        pub by: String = "by",
+        pub at: GoTime = "at",
+        /// On Irori's own row (card #965): the weight it replaced, for the
+        /// person's Undo. In the row, as rows can fold out of order.
+        pub was_level: String = "wasLevel" "omit",
+        pub was_reason: String = "wasReason" "omit",
+        /// "up" or "down" when the card's agent moved it (card #966).
+        pub moved: String = "moved" "omit",
+    }
+}
+
+crate::go_struct! {
     #[derive(Debug, Clone, Default, PartialEq)]
     pub struct TaskArchivedRow {
         pub task_id: String = "taskId",
@@ -518,6 +579,12 @@ crate::go_struct! {
         pub seen: BTreeMap<String, i64> = "seen" "omit",
         pub was: String = "was" "omit",
         pub handed: bool = "handed" "omit",
+        /// An agent's own thread its opener gave to a fresh agent (card
+        /// #1027): it waits for that agent instead of resting.
+        pub fresh: bool = "fresh" "omit",
+        /// The opener gave the thread away: it no longer hears the
+        /// person's replies. Sticks once written.
+        pub gave: bool = "gave" "omit",
         pub at: GoTime = "at",
     }
 }
@@ -599,6 +666,11 @@ crate::go_struct! {
         pub from: String = "from",
         pub to: String = "to" "omit",
         pub at: GoTime = "at",
+        /// Wakes an idle recipient: a review ask is something to act on
+        /// now (§12.12 B1b). Rows without it were next-turn asks.
+        pub wake: bool = "wake" "omit",
+        /// A ping (merge desk §12.7): look at the PR, no review asked.
+        pub look: bool = "look" "omit",
     }
 }
 
@@ -709,6 +781,10 @@ crate::go_struct! {
         pub worktree: String = "worktree" "omit",
         pub model: String = "model" "omit",
         pub effort: String = "effort" "omit",
+        /// The weight this attempt runs at, and whether the advisor was on
+        /// where it was asked for (card #966).
+        pub weight: String = "weight" "omit",
+        pub advisor: bool = "advisor" "omit",
         pub permission_mode: String = "permissionMode",
         pub name: String = "name" "omit",
         pub reason: String = "reason" "omit",
@@ -718,6 +794,10 @@ crate::go_struct! {
         /// It counts toward "My agents may start agents" (card #575): an
         /// agent asked for it, or an agent that counts went on to cause it.
         pub counted: bool = "counted" "omit",
+        /// The agent it starts reads another person's text (card #1075):
+        /// its brief quotes it, or its card is on a shared board. The
+        /// inbox flags the agent for the session it starts.
+        pub others: bool = "others" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }

@@ -150,6 +150,12 @@ kinds! {
     /// The person paused a card (card #207): its holders are stopped and
     /// their tools refused until Resume. The private log only.
     TASK_PAUSED = "task.paused" => Replicated, Refuses;
+    /// A card's weight (card #963): `{taskId, level: light|normal|heavy|""
+    /// (cleared), reason, by, at}`. Irori starts the card's agent on the
+    /// model and effort Settings › Agents maps the weight to. Who set it
+    /// comes from the row's writer; a weight the person set is changed only
+    /// by a person. Boards accept it: their cards start agents too.
+    TASK_WEIGHT = "task.weight" => Replicated, Accepts;
     /// A shared card's owner changing hands (card #432):
     /// `{taskId, op: offer|request|accept|decline, person, blockerId?, by, at}`.
     /// `person` is who would own it. Shared boards only.
@@ -208,6 +214,60 @@ kinds! {
     /// "Transcribe what I say in calls" (card #656): `{on, by, at}`, actor
     /// `user`, newest wins, none means on. Set in the app only.
     TRANSCRIBE_SET = "transcribe.set" => Replicated, Refuses;
+    /// The themes new agents' names don't come from (card #702): `{off,
+    /// by, at}`, actor `user`, newest wins, none means every theme on. Set
+    /// in the app only.
+    NAMES_THEMES = "names.themes" => Replicated, Refuses;
+    /// "Name new threads" (card #782): Irori's assistant gives the
+    /// person's new thread a short title. `{on, by, at}`, actor `user`,
+    /// newest wins, none means on. Set in the app only.
+    ASSISTANT_NAMES_SET = "assistant.names.set" => Replicated, Refuses;
+    /// "Weigh new cards" (card #965): Irori's assistant weighs each new
+    /// card. `{on, by, at}`, actor `user`, newest wins, none means on. Set
+    /// in the app only.
+    ASSISTANT_WEIGHS_SET = "assistant.weighs.set" => Replicated, Refuses;
+    /// The Office Assistant's computer (one-assistant card 1): `{device,
+    /// how: "auto" | "person", by, at}`, actor `user`. The first automatic
+    /// claim wins, a person's pick beats it, a removal ends older rows.
+    ASSISTANT_HOME = "assistant.home" => Replicated, Refuses;
+    /// "Let my assistant add notes from what I say" (card #1053,
+    /// docs/design/call-agents.md §12): off stops the assistant's own digest
+    /// in huddles. `{on, by, at}`, actor `user`, newest wins, none means on.
+    /// Set in the app only.
+    ASSISTANT_HUDDLE_NOTES_SET = "assistant.huddle.notes.set" => Replicated, Refuses;
+    /// "Let my assistant chair huddles I start" (card #1053, §12): off
+    /// passes the chair to the next person's assistant. `{on, by, at}`,
+    /// actor `user`, newest wins, none means on. Set in the app only.
+    ASSISTANT_HUDDLE_CHAIR_SET = "assistant.huddle.chair.set" => Replicated, Refuses;
+    /// The Office Assistant's one conversation (card #1102,
+    /// docs/design/one-assistant.md §4): private rows every one of the
+    /// person's devices folds the same (`core::service::assistant_chat`).
+    /// No tool writes them, and the events tool leaves their text out. Every
+    /// `at` is Unix milliseconds. A question the person typed: `{turn, text,
+    /// screen, device, at, again?, imported?, callId?}`, actor `user`,
+    /// written only by a host command.
+    ASSISTANT_CHAT_ASKED = "assistant.chat.asked" => Replicated, Refuses;
+    /// The assistant's reply to a question: `{turn, text, changed?, posted?,
+    /// looked?, error?, skipped?, device, at, imported?}`, actor `irori`,
+    /// written by the assistant's computer. The first per turn wins.
+    ASSISTANT_CHAT_SAID = "assistant.chat.said" => Replicated, Refuses;
+    /// A follow-up line: `{key, thread?, text, act?, request?, at,
+    /// imported?}`, actor `irori`. The first per key wins.
+    ASSISTANT_CHAT_UPDATE = "assistant.chat.update" => Replicated, Refuses;
+    /// The person posted a reply's draft as a thread: `{turn, posted}`,
+    /// actor `user`. The first per turn wins.
+    ASSISTANT_CHAT_POSTED = "assistant.chat.posted" => Replicated, Refuses;
+    /// New chat: `{by, at}`, actor `user`. The newest hides what came before.
+    ASSISTANT_CHAT_CLEARED = "assistant.chat.cleared" => Replicated, Refuses;
+    /// The person stopped a turn: `{turn, by, at}`, actor `user`.
+    ASSISTANT_CHAT_STOP = "assistant.chat.stop" => Replicated, Refuses;
+    /// Let it answer or Answer this, tapped on any device (§9): `{request,
+    /// post, space, how: let|draft, by, at}`, actor `user`.
+    ASSISTANT_ANSWER_REQUESTED = "assistant.answer.requested" => Replicated, Refuses;
+    /// The owner's-OK draft of an answer to another person (§9): `{request,
+    /// post, space, text, device, at}`, actor `irori`. The first per request
+    /// wins.
+    ASSISTANT_ANSWER_DRAFT = "assistant.answer.draft" => Replicated, Refuses;
     // capture
     CAPTURE_TURN = "capture.turn" => Replicated, Refuses;
     CAPTURE_EDIT = "capture.edit" => Replicated, Refuses;
@@ -240,6 +300,10 @@ kinds! {
     /// `{avatar, atDevice}`, actor `user`: the person's avatar on shared
     /// spaces (card #393); spaces learn it from member.profile.
     PERSON_AVATAR = "person.avatar" => Replicated, Refuses;
+    /// `{name, by, at}`, actor `user`: the name the person gave their Office
+    /// Assistant (card #1045); spaces learn it from member.profile's
+    /// `assistantName`.
+    ASSISTANT_NAME = "assistant.name" => Replicated, Refuses;
     // devname (card #184)
     DEVICE_NAME = "device.name" => Replicated, Refuses;
     /// `{deviceId, sides, atDevice}`, actor `user`: the work/personal
@@ -296,6 +360,15 @@ kinds! {
     SPACE_BOARD_CREATED = "space.board.created" => Replicated, Accepts;
     /// `{boardId, name, tag, by, at}`: a board in the space renamed.
     SPACE_BOARD_RENAMED = "space.board.renamed" => Replicated, Accepts;
+    /// `{boardId, description, by, at}`: a board's description (card
+    /// #690), empty clears it; the newest row stands. Stored unread by an
+    /// Irori at hello `tolerant` 1, so a space writes it only once every
+    /// member device is there.
+    SPACE_BOARD_DESCRIBED = "space.board.described" => Replicated, Accepts;
+    /// `{boardId, closed, by, at}`: a board closed (read-only, out of the
+    /// lists) or reopened (`closed: false`) (card #690); the newest valid
+    /// row stands. Gated like `space.board.described`.
+    SPACE_BOARD_CLOSED = "space.board.closed" => Replicated, Accepts;
     // merge desk (card #415, docs/design/merge-desk.md §7): the person's
     // private log in v1
     /// `{repoKey, enabled, takesPrs, pollDevice, trusted[], perPrOk, by,
@@ -349,6 +422,26 @@ kinds! {
     /// `{callId, convId, seg, startMs, endMs, text, by, at}`: one finished
     /// phrase of a huddle, written only by the speaker's own device (card #656).
     CALL_SEGMENT = "call.segment" => Replicated, Accepts;
+    /// `{callId, convId, title, assistant, by, at}`: a huddle's title, set by
+    /// a person or proposed by an assistant (`assistant: true`); a person's
+    /// newest title beats an assistant's (docs/design/call-agents.md §8).
+    CALL_TITLE = "call.title" => Replicated, Accepts;
+    /// `{callId, convId, device, state, chair, by, at}`: a person's assistant
+    /// is hosted (`on`) or not (`off`) on `device` for this huddle (card
+    /// #1049, docs/design/call-agents.md §7, §8). Arbitrates which of a
+    /// person's devices hosts it.
+    CALL_ASSIST = "call.assist" => Replicated, Accepts;
+    /// `{itemId, callId, convId, kind, text, status, reply?, refs?, asker?,
+    /// why?, assistant, by, at}`: one item on a huddle's canvas (card #1051,
+    /// docs/design/call-agents.md §8). A person's, their assistant's
+    /// (`assistant: true`) or an agent's; an assistant's or agent's status
+    /// reads as `open`.
+    CALL_ITEM = "call.item" => Replicated, Accepts;
+    /// `{itemId, callId, convId, text?, status?, x?, y?, card?, assistant,
+    /// by, at}`: a change to a canvas item, per field, newest wins (card
+    /// #1051). `status`, `card`, `x` and `y` count only from a person's row
+    /// with no `assistant` flag.
+    CALL_ITEM_SET = "call.item.set" => Replicated, Accepts;
     // device-local board rows
     /// `{cardId, agentKey}`; still read, no longer written.
     BOARD_CARD_KEY = "board.cardkey" => Local;

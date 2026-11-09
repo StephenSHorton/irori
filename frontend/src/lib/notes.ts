@@ -287,7 +287,7 @@ export function useNotes(): {
   reload: () => Promise<void>
 } {
   const load = useCallback(() => notes.list(), [])
-  const { value, loading, error, reload } = useLatest<Note[]>(load, [])
+  const { value, loading, error, reload } = useLatest<Note[]>(load, [], "notes")
   useNotesFresh(reload)
   return { notes: value, loading, error, reload }
 }
@@ -303,7 +303,7 @@ function useNotesFresh(reload: () => Promise<void>) {
       void reload()
     }
     const off = inWails()
-      ? Events.On(EventBoardChanged, () => void reload())
+      ? Events.OnShown(EventBoardChanged, () => void reload())
       : () => {}
     return () => {
       listeners.delete(reloadFn)

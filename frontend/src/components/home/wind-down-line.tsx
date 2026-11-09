@@ -1,19 +1,17 @@
-// WindDownLine is Home's one line for a Wind down (card #484): "Wound down
-// 43 agents, 23 confirmed". A Wind down once opened a DM with every agent it
-// reached, and each "wound down" waited there unread; now it opens none,
-// and this line stands for the whole run. It opens the Wind down dialog,
+// WindDownLine is Home's one line for a Stop here or Stop everywhere run
+// (cards #484, #773): "Stopped 43 agents, 23 handed off". A run once opened
+// a DM with every agent it reached, and each answer waited there unread;
+// now it opens none, and this line stands for the whole run. It opens the
+// run's dialog,
 // with each agent's answer, and goes once dismissed, until the next run.
 // It reads the run the window keeps, so a restart of Irori clears it.
 
-import { useCallback, useEffect, useState } from "react"
+import { useState } from "react"
 import { PowerIcon, XIcon } from "lucide-react"
 
-import { EventWindDown } from "@/components/wind-down-dialog"
 import type { WindDownStatus } from "@/gen/bindings"
-import { Events, WindDownService } from "@/lib/host"
-import { inWails } from "@/lib/irori"
-import { useLatest } from "@/lib/talk"
-import { windDownLine, windDownSample } from "@/lib/wind-down"
+import { stopLabels as L } from "@/lib/stop-labels"
+import { windDownLine } from "@/lib/wind-down"
 
 const seenKey = "irori.windDown.dismissed"
 
@@ -25,27 +23,14 @@ function readSeen(): string {
   }
 }
 
-const none: WindDownStatus = {
-  id: "",
-  scope: "this",
-  pauseAfter: true,
-  paused: false,
-  finished: false,
-  rows: [],
-}
-
-export function WindDownLine({ onOpen }: { onOpen: () => void }) {
-  const load = useCallback(
-    async () =>
-      inWails() ? WindDownService.Status() : (windDownSample() ?? none),
-    []
-  )
-  const { value: st, reload } = useLatest<WindDownStatus>(load, none)
-  useEffect(() => {
-    void reload()
-    if (!inWails()) return
-    return Events.On(EventWindDown, () => void reload())
-  }, [reload])
+// It reads App's one copy of the switch (card #787).
+export function WindDownLine({
+  status: st,
+  onOpen,
+}: {
+  status: WindDownStatus
+  onOpen: () => void
+}) {
   const [seen, setSeen] = useState(readSeen)
   const text = windDownLine(st)
   if (!text || seen === st.id) return null
@@ -66,7 +51,7 @@ export function WindDownLine({ onOpen }: { onOpen: () => void }) {
       <button
         type="button"
         onClick={onOpen}
-        title="Show each agent's answer"
+        title={L.line.openTitle}
         className="min-w-0 truncate rounded text-left hover:text-ink hover:underline"
       >
         {text}

@@ -81,7 +81,7 @@ impl SpawnPermissions {
 }
 
 /// The spawn this card is getting.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Spawn {
     /// The card is on a board shared with other people.
     pub shared_board: bool,
@@ -91,9 +91,18 @@ pub struct Spawn {
     pub merge: MergePolicy,
     /// The card's lead (or its only agent), the one that merges.
     pub lead: bool,
+    /// Canonical URLs (`https://github.com/o/r/pull/N`) of the PRs the card
+    /// links at spawn. The PR rules below bind to exactly these.
+    pub prs: Vec<String>,
+    /// "Review without asking" is on at spawn (merge-desk §12.8).
+    pub reviews: bool,
+    /// A review card (merge-desk §12.10): never Bypass, its own short list,
+    /// none of the board's build or test rules, and no merge or push.
+    pub review: bool,
 }
 
 pub const SHARED_BOARD: &str = "bypass is never used in a shared space";
+pub const REVIEW_CARD: &str = "a review card never uses bypass and has its own short list";
 pub const OTHERS_TEXT: &str = "bypass is never used when the brief has another person's text";
 
 /// The permissions for `spawn` under the board's `p`.
@@ -105,6 +114,13 @@ pub fn spawn_permissions(p: &BoardPermissions, spawn: Spawn) -> SpawnPermissions
     } else {
         None
     };
+    if spawn.review {
+        return SpawnPermissions {
+            mode: ACCEPT_EDITS,
+            settings: Some(settings(&review_allow(&spawn), &review_deny(p))),
+            fell_back: (p.choice == Choice::Bypass).then_some(REVIEW_CARD),
+        };
+    }
     match (p.choice, refused) {
         (Choice::Bypass, None) => SpawnPermissions {
             mode: BYPASS,
@@ -113,12 +129,12 @@ pub fn spawn_permissions(p: &BoardPermissions, spawn: Spawn) -> SpawnPermissions
         },
         (Choice::EditsOnly, _) => SpawnPermissions {
             mode: ACCEPT_EDITS,
-            settings: Some(settings(&[], &deny_rules(p, spawn))),
+            settings: Some(settings(&[], &deny_rules(p, &spawn))),
             fell_back: None,
         },
         (Choice::Bypass, why @ Some(_)) | (Choice::Limited, why) => SpawnPermissions {
             mode: ACCEPT_EDITS,
-            settings: Some(settings(&allow_rules(p, spawn), &deny_rules(p, spawn))),
+            settings: Some(settings(&allow_rules(p, &spawn), &deny_rules(p, &spawn))),
             fell_back: if p.choice == Choice::Bypass {
                 why
             } else {
@@ -134,8 +150,9 @@ fn settings(allow: &[String], deny: &[String]) -> serde_json::Value {
 
 /// The allow rules for a limited spawn: the irori tools, staging and
 /// committing, pushing (the deny rules keep main out), a PR where the repo
-/// merges through one, and the board's own rules.
-fn allow_rules(p: &BoardPermissions, spawn: Spawn) -> Vec<String> {
+/// merges through one, reading and commenting on the PRs the card links
+/// (reviewing too while the setting is on), and the board's own rules.
+fn allow_rules(p: &BoardPermissions, spawn: &Spawn) -> Vec<String> {
     let mut out: Vec<String> = [
         "mcp__irori",
         "Bash(git status:*)",
@@ -152,10 +169,24 @@ fn allow_rules(p: &BoardPermissions, spawn: Spawn) -> Vec<String> {
     .collect();
     if spawn.merge == MergePolicy::PullRequest {
         out.push("Bash(gh pr create:*)".into());
-        // Card #509: the lead merges its PR itself once the person says
-        // Merge it on its "Can I merge…?"; a prompt here would sit unseen.
+        // The lead merges its PR itself once the person says Merge it on
+        // its "Can I merge…?"; a prompt here would sit unseen.
         if spawn.lead {
             out.push("Bash(gh pr merge:*)".into());
+        }
+    }
+    // Merge-desk §12.12 B1c: reading, commenting and reviewing a PR is
+    // bound to the URL of a PR the card links, never a bare `gh pr review`
+    // or `gh pr comment` rule. The rule is the exact URL, or the URL then
+    // a space and flags, so `/pull/5` never matches `/pull/50`.
+    for url in &spawn.prs {
+        let mut verbs = vec!["view", "diff", "checks", "comment"];
+        if spawn.reviews {
+            verbs.push("review");
+        }
+        for verb in verbs {
+            out.push(format!("Bash(gh pr {verb} {url})"));
+            out.push(format!("Bash(gh pr {verb} {url} *)"));
         }
     }
     for r in &p.allow {
@@ -167,10 +198,62 @@ fn allow_rules(p: &BoardPermissions, spawn: Spawn) -> Vec<String> {
     out
 }
 
+/// A review card's short list (merge-desk §12.8, §12.10): the irori tools,
+/// reading git, and `gh pr` reading, commenting and (while the setting is
+/// on) reviewing, each bound to its PR's URL. Nothing from the board's
+/// build or test rules, and no `git add`, `commit`, `rebase` or `push`.
+fn review_allow(spawn: &Spawn) -> Vec<String> {
+    let mut out: Vec<String> = [
+        "mcp__irori",
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git log:*)",
+        "Bash(git fetch:*)",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    for url in &spawn.prs {
+        let mut verbs = vec!["view", "diff", "checks", "comment"];
+        if spawn.reviews {
+            verbs.push("review");
+        }
+        for verb in verbs {
+            out.push(format!("Bash(gh pr {verb} {url})"));
+            out.push(format!("Bash(gh pr {verb} {url} *)"));
+        }
+    }
+    out
+}
+
+/// What a review card never runs: merging, checking out and pushing, and
+/// the board's own deny rules.
+fn review_deny(p: &BoardPermissions) -> Vec<String> {
+    let mut out: Vec<String> = [
+        "Bash(gh pr merge:*)",
+        "Bash(gh pr checkout:*)",
+        "Bash(git push:*)",
+        "Bash(git merge:*)",
+        "Bash(git checkout:*)",
+        "Bash(rm -rf:*)",
+        "Bash(rm -fr:*)",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    for r in &p.deny {
+        let r = r.trim();
+        if !r.is_empty() && !out.iter().any(|o| o == r) {
+            out.push(r.to_string());
+        }
+    }
+    out
+}
+
 /// What must never run, whatever the allow list says: force pushes,
 /// `rm -rf`, and pushing to main unless this is the lead on a
 /// straight-to-main repo.
-fn deny_rules(p: &BoardPermissions, spawn: Spawn) -> Vec<String> {
+fn deny_rules(p: &BoardPermissions, spawn: &Spawn) -> Vec<String> {
     let mut out: Vec<String> = [
         "Bash(git push --force:*)",
         "Bash(git push -f:*)",
@@ -369,5 +452,149 @@ mod tests {
         assert_eq!(allow.iter().filter(|r| *r == "Bash(git add:*)").count(), 1);
         assert!(allow.iter().all(|r| !r.trim().is_empty()));
         assert!(allow.contains(&"mcp__irori".to_string()));
+    }
+
+    #[test]
+    fn pr_rules_bind_to_the_linked_urls_and_review_follows_the_setting() {
+        let b = BoardPermissions {
+            choice: Choice::Limited,
+            ..Default::default()
+        };
+        let u5 = "https://github.com/o/r/pull/5";
+        let u9 = "https://github.com/o/r/pull/9";
+        let allow = |reviews, prs: &[&str]| {
+            list(
+                &spawn_permissions(
+                    &b,
+                    Spawn {
+                        reviews,
+                        prs: prs.iter().map(|u| u.to_string()).collect(),
+                        ..Default::default()
+                    },
+                ),
+                "allow",
+            )
+        };
+        let has = |a: &[String], r: String| a.contains(&r);
+
+        // On: view, diff, checks, comment and review, each for both URLs.
+        let on = allow(true, &[u5, u9]);
+        for u in [u5, u9] {
+            for v in ["view", "diff", "checks", "comment", "review"] {
+                assert!(has(&on, format!("Bash(gh pr {v} {u})")), "{v} {u}");
+                assert!(has(&on, format!("Bash(gh pr {v} {u} *)")), "{v} {u} *");
+            }
+        }
+
+        // Off: everything but review.
+        let off = allow(false, &[u5]);
+        assert!(has(&off, format!("Bash(gh pr comment {u5})")));
+        assert!(has(&off, format!("Bash(gh pr view {u5} *)")));
+        assert!(off.iter().all(|r| !r.contains("gh pr review")), "{off:?}");
+
+        // No linked PR: no view/diff/checks/comment/review rule at all.
+        for reviews in [true, false] {
+            let none = allow(reviews, &[]);
+            for v in ["view", "diff", "checks", "comment", "review"] {
+                assert!(
+                    none.iter().all(|r| !r.contains(&format!("gh pr {v}"))),
+                    "{none:?}"
+                );
+            }
+        }
+
+        // Never an unbound rule: every review and comment rule names a
+        // URL, and none ends in a bare prefix wildcard.
+        for r in on
+            .iter()
+            .filter(|r| r.contains("gh pr review") || r.contains("gh pr comment"))
+        {
+            assert!(r.contains("https://github.com/o/r/pull/"), "{r}");
+            assert!(!r.ends_with(":*)"), "{r}");
+        }
+        // /pull/5 never reaches /pull/50.
+        assert!(
+            !on.iter()
+                .any(|r| r.starts_with("Bash(gh pr comment https://github.com/o/r/pull/5:"))
+        );
+    }
+
+    fn review_spawn(reviews: bool) -> Spawn {
+        Spawn {
+            shared_board: true,
+            review: true,
+            reviews,
+            prs: vec!["https://github.com/o/r/pull/5".into()],
+            ..Default::default()
+        }
+    }
+
+    /// A review card under the Bypass choice comes out limited with its own
+    /// short list: none of the board's build or test rules, merge, push and
+    /// checkout denied, and review rules bound to its PR (merge-desk
+    /// §12.10).
+    #[test]
+    fn a_review_card_is_limited_under_bypass_with_its_own_list() {
+        for choice in [Choice::Bypass, Choice::Limited, Choice::EditsOnly] {
+            let s = spawn_permissions(&board(choice), review_spawn(true));
+            assert_eq!(s.mode, ACCEPT_EDITS, "{choice:?}");
+            let allow = list(&s, "allow");
+            let deny = list(&s, "deny");
+            assert!(
+                !allow.contains(&"Bash(cargo test:*)".to_string()),
+                "{allow:?}"
+            );
+            for no in [
+                "git add",
+                "git commit",
+                "git rebase",
+                "git push",
+                "gh pr merge",
+                "gh pr create",
+            ] {
+                assert!(
+                    !allow.iter().any(|r| r.starts_with(&format!("Bash({no}"))),
+                    "{no} allowed: {allow:?}"
+                );
+            }
+            for d in [
+                "Bash(gh pr merge:*)",
+                "Bash(gh pr checkout:*)",
+                "Bash(git push:*)",
+                "Bash(git merge:*)",
+                "Bash(git checkout:*)",
+                "Bash(cargo publish:*)",
+            ] {
+                assert!(deny.contains(&d.to_string()), "{d} not denied: {deny:?}");
+            }
+            // PR rules bound to the URL, with a space-bounded form.
+            let u = "https://github.com/o/r/pull/5";
+            for verb in ["view", "diff", "checks", "comment", "review"] {
+                assert!(allow.contains(&format!("Bash(gh pr {verb} {u})")), "{verb}");
+                assert!(
+                    allow.contains(&format!("Bash(gh pr {verb} {u} *)")),
+                    "{verb}"
+                );
+            }
+            assert!(
+                !allow
+                    .iter()
+                    .any(|r| r.contains("gh pr review:*") || r.contains("gh pr comment:*")),
+                "unbound rule: {allow:?}"
+            );
+        }
+        let s = spawn_permissions(&board(Choice::Bypass), review_spawn(true));
+        assert_eq!(s.fell_back, Some(REVIEW_CARD));
+    }
+
+    #[test]
+    fn a_review_card_reviews_only_while_the_setting_is_on() {
+        let s = spawn_permissions(&board(Choice::Limited), review_spawn(false));
+        let allow = list(&s, "allow");
+        assert!(
+            allow.iter().all(|r| !r.contains("gh pr review")),
+            "{allow:?}"
+        );
+        assert!(allow.iter().any(|r| r.contains("gh pr comment")));
     }
 }

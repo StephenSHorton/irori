@@ -4,6 +4,7 @@
 //! here opens a socket.
 #![allow(dead_code)]
 
+pub mod chat;
 pub mod mesh;
 
 use std::path::{Path, PathBuf};
@@ -93,7 +94,7 @@ fn proc_start_field() -> Option<String> {
     Some(sys::proc::filetime_ticks(st).to_string())
 }
 
-fn unix_ms() -> i64 {
+pub fn unix_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()

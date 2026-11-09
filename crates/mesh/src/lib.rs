@@ -24,6 +24,7 @@
 
 extern crate irori_identity as identity;
 
+pub mod activity;
 pub mod boardmesh;
 pub mod boards;
 pub mod devices;
@@ -41,8 +42,9 @@ pub mod servers;
 mod session;
 pub mod transport;
 
+pub use activity::Activity;
 pub use boards::BOARD_LABEL_PREFIX;
-pub use devices::{DeviceRead, DeviceRow, Fresh, PeerState, Status};
+pub use devices::{DeviceRead, DeviceRow, Fresh, Holdout, PeerState, Status};
 pub use fake::FakeNet;
 pub use files::{BLOB_LABEL_PREFIX, FetchError, FileOffer};
 pub use frames::{Frame, Row, batches, decode_frame};

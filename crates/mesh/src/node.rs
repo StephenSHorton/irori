@@ -216,6 +216,8 @@ pub struct Node {
     pub(crate) board_pending: Mutex<BTreeMap<String, crate::ownboards::PendingBoardSecret>>,
     /// Who hears call frames from the person's devices (crate::owncalls).
     pub(crate) own_calls: Mutex<Option<Arc<dyn crate::owncalls::OwnCalls>>>,
+    /// Rows or blobs moving to or from a peer (card #1089).
+    activity: crate::Activity,
     me: Weak<Node>,
 }
 
@@ -276,6 +278,7 @@ impl Node {
             own_boards: Mutex::new(None),
             board_pending: Mutex::new(BTreeMap::new()),
             own_calls: Mutex::new(None),
+            activity: crate::Activity::default(),
             me: me.clone(),
             o,
         })
@@ -298,6 +301,18 @@ impl Node {
     }
 
     /// This device's id.
+    /// The sync signal's source: [`Activity::pulse`](crate::Activity::pulse)
+    /// from whatever moves rows or blobs.
+    pub fn activity(&self) -> &crate::Activity {
+        &self.activity
+    }
+
+    /// Whether this device is exchanging rows or blobs with a peer now,
+    /// held a second past the last (card #1089).
+    pub fn syncing(&self) -> bool {
+        self.activity.active()
+    }
+
     pub fn self_id(&self) -> &str {
         &self.self_id
     }
@@ -939,6 +954,57 @@ impl Node {
             let now = self.now();
             self.lock().info(peer).in_step = Some(now);
         }
+    }
+
+    /// How far `dev`'s wall clock runs ahead of this one's, in
+    /// nanoseconds, as its last hello said (one-assistant card 3: is a
+    /// question late?). `None` when no session with it has said.
+    pub fn skew(&self, dev: &str) -> Option<i64> {
+        self.lock().known.get(dev).map(|k| k.skew)
+    }
+
+    /// Whether this device is caught up with every one of the person's
+    /// devices it has a live session with (one-assistant card 1): for each,
+    /// this device's vector covers that device's newest vector. A writer
+    /// that stopped here (a fork, a bad HLC order: its rows will never
+    /// arrive) and a revoked device's rows past its cut are left out, so a
+    /// stuck writer can't hold the assistant forever. With no own device
+    /// connected it is true.
+    pub fn caught_up(&self) -> bool {
+        let devices = self.o.chain.devices();
+        let own: BTreeMap<String, Option<i64>> = devices
+            .iter()
+            .map(|d| (d.cert.device_id.clone(), d.revoked.then_some(d.cut)))
+            .collect();
+        let connected: Vec<String> = self
+            .session_list()
+            .iter()
+            .filter(|s| s.hello_done())
+            .map(|s| s.conn.id())
+            .filter(|id| *id != self.self_id && own.get(id).is_some_and(|cut| cut.is_none()))
+            .collect();
+        if connected.is_empty() {
+            return true;
+        }
+        let Ok(ours) = self.o.store.vector() else {
+            return false;
+        };
+        let g = self.lock();
+        connected.iter().all(|peer| {
+            let Some(k) = g.known.get(peer) else {
+                return true;
+            };
+            k.vec.iter().all(|(writer, seq)| {
+                if g.stopped.contains_key(writer) {
+                    return true;
+                }
+                let want = match own.get(writer) {
+                    Some(Some(cut)) => (*seq).min(*cut),
+                    _ => *seq,
+                };
+                ours.get(writer).copied().unwrap_or(0) >= want
+            })
+        })
     }
 
     /// Rows of `dev` were applied from the connection to `peer` (card

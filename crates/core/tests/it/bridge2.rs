@@ -45,35 +45,35 @@ fn copy(from: &Store, to: &Store, to_dev: &str) {
     r.unwrap();
 }
 
-struct Two {
-    ra: Rig,
-    rb: Rig,
-    board: String,
+pub(crate) struct Two {
+    pub(crate) ra: Rig,
+    pub(crate) rb: Rig,
+    pub(crate) board: String,
     // Last, so both Cores are dropped before the next test's turn.
     _turn: std::sync::MutexGuard<'static, ()>,
 }
 
 impl Two {
-    fn a(&self) -> &Core {
+    pub(crate) fn a(&self) -> &Core {
         &self.ra.core
     }
-    fn b(&self) -> &Core {
+    pub(crate) fn b(&self) -> &Core {
         &self.rb.core
     }
-    fn sa(&self) -> Arc<Store> {
+    pub(crate) fn sa(&self) -> Arc<Store> {
         self.a().board_store(&self.board).unwrap()
     }
-    fn sb(&self) -> Arc<Store> {
+    pub(crate) fn sb(&self) -> Arc<Store> {
         self.b().board_store(&self.board).unwrap()
     }
     /// Both ways, twice, so rows that answer rows settle.
-    fn sync(&self) {
+    pub(crate) fn sync(&self) {
         for _ in 0..2 {
             copy(&self.sa(), &self.sb(), self.b().device_id());
             copy(&self.sb(), &self.sa(), self.a().device_id());
         }
     }
-    fn person(c: &Core) -> String {
+    pub(crate) fn person(c: &Core) -> String {
         format!("{PERSON_ACTOR_PREFIX}{}", c.person().id)
     }
 }
@@ -86,9 +86,14 @@ fn two_people() -> Two {
 
 /// [`two_people`] with `notes` as Bob's desktop cards.
 fn two_people_with(notes: Option<notify::Notifier>) -> Two {
+    two_people_opts(Rig::new(), |o| o.notifier = notes)
+}
+
+/// [`two_people`] with `ra` as Alice's rig and `edit` applied to Bob's
+/// Core options.
+pub(crate) fn two_people_opts(ra: Rig, edit: impl FnOnce(&mut irori_core::Options)) -> Two {
     let turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
-    let ra = Rig::new();
-    let rb = Rig::with(|o| o.notifier = notes);
+    let rb = Rig::with(edit);
     let (a, b) = (&ra.core, &rb.core);
     assert_ne!(a.person().id, b.person().id, "two people");
     let board = a.create_board("MLG farming", "mlg").unwrap();
@@ -135,7 +140,7 @@ fn two_people_with(notes: Option<notify::Notifier>) -> Two {
 }
 
 /// The deliveries to `agent` that came over the bridge, held ones too.
-fn bridged(c: &Core, agent: &str) -> Vec<Delivery> {
+pub(crate) fn bridged(c: &Core, agent: &str) -> Vec<Delivery> {
     c.inbox()
         .list(10_000)
         .into_iter()
@@ -143,7 +148,7 @@ fn bridged(c: &Core, agent: &str) -> Vec<Delivery> {
         .collect()
 }
 
-fn wait_bridged(c: &Core, agent: &str, n: usize) -> Vec<Delivery> {
+pub(crate) fn wait_bridged(c: &Core, agent: &str, n: usize) -> Vec<Delivery> {
     wait_for(10, "bridged deliveries", || bridged(c, agent).len() >= n);
     let ds = bridged(c, agent);
     assert_eq!(ds.len(), n, "{ds:?}");
@@ -151,7 +156,7 @@ fn wait_bridged(c: &Core, agent: &str, n: usize) -> Vec<Delivery> {
 }
 
 /// Lets the followers run, then checks nothing more crossed.
-fn settle_bridged(c: &Core, agent: &str, n: usize) {
+pub(crate) fn settle_bridged(c: &Core, agent: &str, n: usize) {
     std::thread::sleep(Duration::from_millis(400));
     let ds = bridged(c, agent);
     assert_eq!(ds.len(), n, "{ds:?}");
@@ -160,7 +165,7 @@ fn settle_bridged(c: &Core, agent: &str, n: usize) {
 /// Waits until `c`'s roster for `board` lists each of `keys` idle and not
 /// offline: the board's follower has folded the agent.card rows a sync
 /// copied in.
-fn wait_cards(c: &Core, board: &str, keys: &[&str]) {
+pub(crate) fn wait_cards(c: &Core, board: &str, keys: &[&str]) {
     wait_for(10, "the other person's cards", || {
         let r = c.board_roster(board);
         keys.iter().all(|k| {
@@ -191,7 +196,7 @@ fn idle_in_order(keys: &[&str]) -> Vec<AgentCard> {
         .collect()
 }
 
-fn set_receive(c: &Core, board: &str, preset: &str) {
+pub(crate) fn set_receive(c: &Core, board: &str, preset: &str) {
     c.inbox()
         .set_receive(
             ReceiveSetting {
@@ -297,12 +302,17 @@ fn a_review_request_reaches_the_dedicated_reviewer() {
     t.sync();
     let ds = wait_bridged(t.a(), &t.ra.key_b, 1);
     let (d, m) = (&ds[0], &ds[0].message);
-    assert_eq!(m.board.kind, row_kind::ASSIGN);
+    assert_eq!(m.board.kind, row_kind::REVIEW);
+    assert_eq!(d.mode, mode::WAKE, "a review ask wakes: {d:?}");
     assert!(m.board.card_id.len() > 1, "from bob's agent: {m:?}");
     assert!(
-        m.from.name.starts_with("bob's agent") && m.text.contains(PR),
+        m.from.name.starts_with("bob's agent")
+            && m.text.contains(PR)
+            && m.text.contains("answer on the PR by its URL"),
         "{m:?}"
     );
+    // No PR card for it, so no review_claim to run (§12.5).
+    assert!(!m.text.contains("review_claim"), "{m:?}");
     assert_eq!(d.hold, "", "Open lets it through: {d:?}");
     assert!(
         bridged(t.a(), &t.ra.key_a).is_empty(),
@@ -315,6 +325,107 @@ fn a_review_request_reaches_the_dedicated_reviewer() {
     t.sync();
     let ds = wait_bridged(t.a(), &t.ra.key_a, 1);
     assert_eq!(ds[0].hold, hold::CROSS_PERSON, "{:?}", ds[0]);
+}
+
+/// §12.12 B1b: a review ask is checked against the card's links on
+/// receipt. Bob's device still sees the PR linked when Alice unlinks it,
+/// so his ask passes his own check; Alice's side drops it. Once she links
+/// it again, Bob's next ask is the only one her reviewer hears.
+#[test]
+fn a_review_ask_for_a_pr_off_the_card_is_dropped() {
+    let t = two_people();
+    let a1 = t.a().board_key(&t.board, &t.ra.key_a).unwrap();
+    let a2 = t.a().board_key(&t.board, &t.ra.key_b).unwrap();
+    let b1 = t.b().board_key(&t.board, &t.rb.key_a).unwrap();
+    let co_a = t.a().board_coord(&t.board).unwrap();
+    let card = co_a
+        .create_task(
+            &a1,
+            coord::NewTask {
+                title: "Fix the loader".into(),
+                objective: "make it load".into(),
+                shared: true,
+                ..coord::NewTask::default()
+            },
+        )
+        .unwrap();
+    co_a.add_link(&a1, &card.id, PR).unwrap();
+    co_a.set_reviewer(&Two::person(t.a()), &a2, "").unwrap();
+    t.sync();
+    let co_b = t.b().board_coord(&t.board).unwrap();
+    wait_for(10, "alice's reviewer and link on bob's side", || {
+        co_b.reviewer(&t.a().person().id, "") == a2
+            && co_b
+                .get_task(&card.id)
+                .is_some_and(|c| c.links.iter().any(|l| l.reference == PR))
+    });
+
+    // Alice unlinks the PR; Bob's device hasn't heard yet.
+    co_a.remove_link(&a1, &card.id, PR).unwrap();
+    co_b.request_review(&b1, &card.id, PR, "").unwrap();
+    t.sync();
+    settle_bridged(t.a(), &t.ra.key_b, 0);
+
+    // Linked again, the next ask reaches the reviewer, and only it.
+    co_a.add_link(&a1, &card.id, PR).unwrap();
+    t.sync();
+    wait_for(10, "the link back on bob's side", || {
+        co_b.get_task(&card.id)
+            .is_some_and(|c| c.links.iter().any(|l| l.reference == PR))
+    });
+    co_b.request_review(&b1, &card.id, PR, "").unwrap();
+    t.sync();
+    let ds = wait_bridged(t.a(), &t.ra.key_b, 1);
+    assert_eq!(ds[0].message.board.kind, row_kind::REVIEW, "{:?}", ds[0]);
+    settle_bridged(t.a(), &t.ra.key_b, 1);
+}
+
+/// §12.12 B1b: Bob's agent links the PR and asks at once, so the link and
+/// the ask reach Alice in one sync, behind a run of other rows. Her bridge
+/// gets to the ask before her fold has the link; it folds the log and
+/// looks again rather than dropping the ask.
+#[test]
+fn a_review_ask_and_its_link_in_one_sync_arrive() {
+    let t = two_people();
+    let a1 = t.a().board_key(&t.board, &t.ra.key_a).unwrap();
+    let a2 = t.a().board_key(&t.board, &t.ra.key_b).unwrap();
+    let b1 = t.b().board_key(&t.board, &t.rb.key_a).unwrap();
+    let co_a = t.a().board_coord(&t.board).unwrap();
+    let card = co_a
+        .create_task(
+            &a1,
+            coord::NewTask {
+                title: "Fix the loader".into(),
+                objective: "make it load".into(),
+                shared: true,
+                ..coord::NewTask::default()
+            },
+        )
+        .unwrap();
+    co_a.set_reviewer(&Two::person(t.a()), &a2, "").unwrap();
+    t.sync();
+    let co_b = t.b().board_coord(&t.board).unwrap();
+    wait_for(10, "alice's reviewer and card on bob's side", || {
+        co_b.reviewer(&t.a().person().id, "") == a2 && co_b.get_task(&card.id).is_some()
+    });
+    // Rows first that Alice's fold must get through and her bridge skips,
+    // so the ask reaches her bridge before her fold has the link.
+    for _ in 0..100 {
+        co_b.add_link(&b1, &card.id, "https://example.com/x")
+            .unwrap();
+        co_b.remove_link(&b1, &card.id, "https://example.com/x")
+            .unwrap();
+    }
+    co_b.add_link(&b1, &card.id, PR).unwrap();
+    co_b.request_review(&b1, &card.id, PR, "").unwrap();
+    t.sync();
+    let ds = wait_bridged(t.a(), &t.ra.key_b, 1);
+    assert_eq!(ds[0].message.board.kind, row_kind::REVIEW, "{:?}", ds[0]);
+    assert!(
+        ds[0].message.text.contains("--comments"),
+        "{:?}",
+        ds[0].message
+    );
 }
 
 /// §5.4: Bob's agent asks Alice's agent to release a lease, on the shared
@@ -982,6 +1093,61 @@ fn a_persons_avatar_reaches_the_other_side() {
     });
 }
 
+/// Card #1045: Bob names his assistant. Alice sees "Juno · <Bob's name>'s
+/// assistant" with the person taken from Bob's own profile; with no name
+/// chosen, both read the computed default and nothing was written for it;
+/// clearing it goes back to the default.
+#[test]
+fn a_persons_assistant_name_reaches_the_other_side() {
+    let t = two_people();
+    let bob_id = t.b().person().id;
+    let bob = |c: &Core| {
+        c.board_list()
+            .into_iter()
+            .flat_map(|b| b.members)
+            .find(|m| m.person_id == bob_id)
+    };
+    // The person comes from the member's own profile name, whatever Alice
+    // has of it now; the chosen name sits beside it.
+    let says = |c: &Core, chosen: &str| {
+        bob(c).is_some_and(|m| {
+            let d = format!("{}'s assistant", m.name);
+            m.assistant
+                == if chosen.is_empty() {
+                    d
+                } else {
+                    format!("{chosen} · {d}")
+                }
+        })
+    };
+    wait_for(30, "alice sees the default, nothing written", || {
+        t.sync();
+        says(t.a(), "")
+    });
+    assert_eq!(t.b().assistant_name(), "");
+    assert_eq!(
+        t.b().assistant_name_or_default(),
+        format!("{}'s assistant", t.b().person().name)
+    );
+    for bad in ["Juno 2", "Juno · Alice's assistant", &"x".repeat(25)] {
+        assert!(t.b().set_assistant_name(bad).is_err(), "{bad}");
+    }
+    t.b().set_assistant_name("Juno").unwrap();
+    wait_for(30, "bob's Core takes the name", || {
+        t.b().assistant_name() == "Juno"
+    });
+    assert_eq!(t.b().assistant_name_or_default(), "Juno");
+    wait_for(30, "alice sees bob's assistant by its name", || {
+        t.sync();
+        says(t.a(), "Juno")
+    });
+    t.b().set_assistant_name("").unwrap();
+    wait_for(30, "alice sees the default again", || {
+        t.sync();
+        says(t.a(), "")
+    });
+}
+
 /// Card #472: a new agent's word is never one another member's live agent
 /// on a shared board has. Bob runs a "kestrel" and shares it on the board;
 /// a seed whose first word is kestrel gives Alice's next agent kestrel
@@ -1026,4 +1192,315 @@ fn a_new_agents_word_differs_from_a_friends_agent_on_a_shared_board() {
     let got = t.a().pick_agent_name(&seed);
     assert_ne!(got, "kestrel", "Bob's agent has it");
     assert!(coord::names::WORDS.contains(&got.as_str()), "{got}");
+}
+
+/// Card #1075 (§12.12 B8): another person's ask reaches Bob's agent; once
+/// the agent has it, every card it makes on Bob's private log is marked,
+/// and a card by his other agent, which never heard it, is not.
+#[test]
+fn a_card_made_after_another_persons_words_is_marked() {
+    let t = two_people();
+    let (b1, b2) = (
+        t.b().board_key(&t.board, &t.rb.key_a).unwrap(),
+        t.b().board_key(&t.board, &t.rb.key_b).unwrap(),
+    );
+    t.sync();
+    wait_cards(t.a(), &t.board, &[&b1, &b2]);
+    let co = t.a().board_coord(&t.board).unwrap();
+    co.post_ask(
+        &Two::person(t.a()),
+        coord::NewAsk {
+            text: "Who can look at the flaky sync test?".into(),
+            wake: true,
+            ..coord::NewAsk::default()
+        },
+        &[idle(&b1)],
+    )
+    .unwrap();
+    t.sync();
+    wait_bridged(t.b(), &t.rb.key_a, 1);
+    let nt = |title: &str| coord::NewTask {
+        title: title.into(),
+        ..coord::NewTask::default()
+    };
+    let ib = t.b().inbox();
+    assert!(!ib.saw_others(&t.rb.key_a), "not read yet");
+    let w = ib
+        .next_wake(&t.rb.key_a, inbox::path::MOD)
+        .unwrap()
+        .expect("the ask wakes alpha");
+    ib.mark_delivered(&t.rb.key_a, &w.token).unwrap();
+    assert!(ib.saw_others(&t.rb.key_a), "delivered: alpha read it");
+    assert!(!ib.saw_others(&t.rb.key_b));
+    let after = t
+        .b()
+        .coord()
+        .create_task(&t.rb.key_a, nt("Look at the sync test"))
+        .unwrap();
+    let other = t
+        .b()
+        .coord()
+        .create_task(&t.rb.key_b, nt("Something else"))
+        .unwrap();
+    assert!(t.b().coord().get_task(&after.id).unwrap().others);
+    assert!(!t.b().coord().get_task(&other.id).unwrap().others);
+}
+
+// ---- merge desk §12.3 (card #1078, B3): review_claim --------------------
+
+mod claim {
+    use super::*;
+    use coord::{NewTask, PrCard};
+    use irori_core::deskwatch::PrLister;
+    use irori_core::prwatch::PrChecker;
+    use std::sync::Mutex;
+
+    const REPO: &str = "remote:github.com/a/b";
+    /// The PR's author on GitHub, as Alice's PR card names it.
+    const AUTHOR: &str = "alice-gh";
+
+    /// A fake gh: who it says wrote the PR, and who the viewer is.
+    struct Gh {
+        author: Mutex<String>,
+        viewer: String,
+    }
+
+    impl PrLister for Gh {
+        fn list(&self, _: &str, _: usize) -> Result<Vec<coord::DeskPr>, String> {
+            Ok(vec![])
+        }
+        fn viewer(&self) -> Result<String, String> {
+            if self.viewer.is_empty() {
+                Err("no gh".into())
+            } else {
+                Ok(self.viewer.clone())
+            }
+        }
+    }
+
+    impl PrChecker for Gh {
+        fn check(&self, url: &str) -> coord::PrCheck {
+            coord::PrCheck {
+                pr: url.into(),
+                state: "OPEN".into(),
+                ..coord::PrCheck::default()
+            }
+        }
+        fn author(&self, _: &str) -> Result<String, String> {
+            Ok(self.author.lock().unwrap().clone())
+        }
+    }
+
+    /// Alice and Bob; Bob's gh says `viewer`, and says `author` wrote the PR.
+    fn world(viewer: &str, author: &str) -> (Two, Arc<Gh>) {
+        let gh = Arc::new(Gh {
+            author: Mutex::new(author.into()),
+            viewer: viewer.into(),
+        });
+        let g = gh.clone();
+        let t = two_people_opts(Rig::new(), move |o| {
+            o.desk_lister = Some(g.clone());
+            o.pr_checker = Some(g);
+        });
+        if !viewer.is_empty() {
+            // Bob's gh has said who he is: the desk poll learns it.
+            t.b()
+                .coord()
+                .set_desk(
+                    &format!("user:{}", t.b().device_id()),
+                    coord::new_desk(REPO, t.b().device_id()),
+                )
+                .unwrap();
+            let _ = t.b().poll_desk(REPO);
+        }
+        (t, gh)
+    }
+
+    /// Alice makes the PR card for PR 7, as herself.
+    fn pr_card(t: &Two) -> String {
+        let co = t.a().board_coord(&t.board).unwrap();
+        let card = co
+            .create_task(
+                &Two::person(t.a()),
+                NewTask {
+                    title: "PR #7: ship it".into(),
+                    objective: "Irori made this card for the pull request.".into(),
+                    repo_key: REPO.into(),
+                    links: vec![PR.into()],
+                    pr_card: Some(PrCard {
+                        pr: PR.into(),
+                        author: AUTHOR.into(),
+                    }),
+                    ..NewTask::default()
+                },
+            )
+            .unwrap();
+        t.sync();
+        // The sync copies rows in; Bob's coord folds them on its thread.
+        let bco = t.b().board_coord(&t.board).unwrap();
+        wait_for(10, "bob folds the PR card", || {
+            bco.get_task(&card.id).is_some()
+        });
+        card.id
+    }
+
+    fn call(c: &Core, key: &str, name: &str, args: serde_json::Value) -> String {
+        let caller = tools::Caller {
+            sender: inbox::Sender::new(key, "agent", "claude"),
+            path: inbox::path::MOD.into(),
+        };
+        c.tools()
+            .call(&caller, name, &serde_json::to_vec(&args).unwrap())
+            .unwrap()
+    }
+
+    fn rc(c: &Core, key: &str, action: &str) -> String {
+        call(
+            c,
+            key,
+            "review_claim",
+            serde_json::json!({"pr": PR, "action": action}),
+        )
+    }
+
+    #[test]
+    fn an_agent_with_no_shared_card_claims_and_the_other_person_sees_it() {
+        let (t, _gh) = world("bob-gh", AUTHOR);
+        pr_card(&t);
+        let out = rc(t.b(), &t.rb.key_a, "claim");
+        assert!(out.contains("You hold the review claim"), "{out}");
+        assert!(out.contains("gh pr view"), "{out}");
+        t.sync();
+        let aco = t.a().board_coord(&t.board).unwrap();
+        wait_for(10, "alice folds the claim", || aco.claim_of(PR).is_some());
+        let held = aco.claim_of(PR).unwrap();
+        assert!(held.holder.starts_with("agent:"), "{held:?}");
+        // Another of Bob's agents is told who holds it.
+        let again = rc(t.b(), &t.rb.key_b, "claim");
+        assert!(again.contains("holds the review claim"), "{again}");
+        assert!(again.contains("comment on the PR instead"), "{again}");
+        let refused = t.b().board_coord(&t.board).unwrap().claim_of(PR).unwrap();
+        assert_eq!(refused.holder, held.holder);
+        // confirm, then release.
+        assert!(rc(t.b(), &t.rb.key_a, "confirm").contains("still hold"));
+        assert!(rc(t.b(), &t.rb.key_b, "confirm").contains("don't hold"));
+        assert!(rc(t.b(), &t.rb.key_a, "release").contains("Released"));
+    }
+
+    #[test]
+    fn the_go_ahead_needs_work_in_the_repo_in_that_space() {
+        let (t, _gh) = world("bob-gh", AUTHOR);
+        pr_card(&t);
+        let out = rc(t.b(), &t.rb.key_a, "claim");
+        assert!(
+            out.contains(irori_tools_text::OFF),
+            "no card of his here: {out}"
+        );
+        rc(t.b(), &t.rb.key_a, "release");
+        // Bob's own card in the repo.
+        t.b()
+            .board_coord(&t.board)
+            .unwrap()
+            .create_task(
+                &Two::person(t.b()),
+                NewTask {
+                    title: "Fix the farm".into(),
+                    objective: "work".into(),
+                    repo_key: REPO.into(),
+                    ..NewTask::default()
+                },
+            )
+            .unwrap();
+        let out = rc(t.b(), &t.rb.key_a, "claim");
+        assert!(out.contains("already allowed this review"), "{out}");
+        // With the setting off it is the Off text again.
+        t.b().set_reviews_unasked(false).unwrap();
+        let out = rc(t.b(), &t.rb.key_a, "claim");
+        assert!(out.contains(irori_tools_text::OFF), "{out}");
+    }
+
+    mod irori_tools_text {
+        pub const OFF: &str = "Your person signs off this review";
+    }
+
+    #[test]
+    fn the_authors_own_agent_is_refused() {
+        let (t, _gh) = world("bob-gh", AUTHOR);
+        pr_card(&t);
+        let out = rc(t.a(), &t.ra.key_a, "claim");
+        assert!(out.contains("own PR"), "{out}");
+    }
+
+    #[test]
+    fn a_pr_github_says_someone_else_wrote_is_refused() {
+        let (t, gh) = world("bob-gh", AUTHOR);
+        pr_card(&t);
+        *gh.author.lock().unwrap() = "mallory".into();
+        let out = rc(t.b(), &t.rb.key_a, "claim");
+        assert!(out.contains("someone else wrote"), "{out}");
+        assert!(t.b().board_coord(&t.board).unwrap().claim_of(PR).is_none());
+    }
+
+    #[test]
+    fn an_unknown_github_login_is_refused() {
+        let (t, _) = world("", AUTHOR);
+        pr_card(&t);
+        let out = rc(t.b(), &t.rb.key_a, "claim");
+        assert!(out.contains("doesn't know your GitHub login"), "{out}");
+    }
+
+    #[test]
+    fn a_card_an_agent_made_is_not_a_pr_card_and_lease_refuses_pr_names() {
+        let (t, _gh) = world("bob-gh", AUTHOR);
+        // A plain card that links the PR.
+        let co = t.a().board_coord(&t.board).unwrap();
+        co.create_task(
+            &Two::person(t.a()),
+            NewTask {
+                title: "PR #7: ship it".into(),
+                objective: "x".into(),
+                repo_key: REPO.into(),
+                links: vec![PR.into()],
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+        t.sync();
+        let out = rc(t.b(), &t.rb.key_a, "claim");
+        assert!(out.contains("no card for this PR"), "{out}");
+        let out = call(
+            t.b(),
+            &t.rb.key_a,
+            "lease",
+            serde_json::json!({"resource": "pr/a/b/7"}),
+        );
+        assert!(out.contains("review_claim"), "{out}");
+    }
+
+    #[test]
+    fn a_decline_comments_on_the_card_and_lets_go() {
+        let (t, _gh) = world("bob-gh", AUTHOR);
+        let id = pr_card(&t);
+        rc(t.b(), &t.rb.key_a, "claim");
+        let out = call(
+            t.b(),
+            &t.rb.key_a,
+            "review_claim",
+            serde_json::json!({"pr": PR, "action": "decline", "reason": "not my area"}),
+        );
+        assert!(out.contains("not you"), "{out}");
+        t.sync();
+        let co = t.a().board_coord(&t.board).unwrap();
+        wait_for(10, "alice folds the decline", || {
+            co.comments(&id)
+                .is_some_and(|cs| cs.iter().any(|c| c.declines == PR))
+        });
+        assert!(co.claim_of(PR).is_none());
+        let cs = co.comments(&id).unwrap();
+        assert!(
+            cs.iter()
+                .any(|c| c.declines == PR && c.text.contains("not my area")),
+            "{cs:?}"
+        );
+    }
 }

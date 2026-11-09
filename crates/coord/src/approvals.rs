@@ -193,7 +193,13 @@ pub struct Book {
     now: NowFn,
     st: Mutex<State>,
     on_resolved: Mutex<Vec<ResolvedFn>>,
-    subs: Mutex<Vec<Weak<Queue<String>>>>,
+    subs: Mutex<Vec<AskSub>>,
+}
+
+/// One [`Book::subscribe`] queue and whether it lost an id.
+struct AskSub {
+    q: Weak<Queue<String>>,
+    lost: bool,
 }
 
 impl Book {
@@ -349,7 +355,7 @@ impl Book {
     }
 
     fn refold_if_cut(&self, vec: &store::Vector) {
-        let was: Vec<String> = {
+        {
             let mut st = self.lock();
             let cut = st
                 .last
@@ -358,16 +364,16 @@ impl Book {
             if !cut {
                 return;
             }
-            let was = st.asks.keys().cloned().collect();
             let revives = st.revives;
             *st = State {
                 revives,
                 ..State::default()
             };
-            was
-        };
+        }
         let _ = self.replay();
-        self.lock().pending.extend(was);
+        // Every ask may have changed: one "all" marker, not every id (a
+        // feed holds 64; list-signals.md §3.1).
+        self.lock().pending.push(String::new());
     }
 
     /// Folds one row.
@@ -446,16 +452,24 @@ impl Book {
         }
     }
 
+    /// Hands the changed ids out. A full reader loses one and gets ""
+    /// (every ask) in place of the next one that fits; a batch holding ""
+    /// sends only that.
     fn flush(&self) {
-        let ids = std::mem::take(&mut self.lock().pending);
+        let mut ids = std::mem::take(&mut self.lock().pending);
         if ids.is_empty() {
             return;
         }
+        if ids.iter().any(String::is_empty) {
+            ids = vec![String::new()];
+        }
         let mut subs = self.subs.lock().unwrap_or_else(|e| e.into_inner());
-        subs.retain(|w| w.strong_count() > 0);
+        subs.retain(|s| s.q.strong_count() > 0);
         for id in ids {
-            for q in subs.iter().filter_map(Weak::upgrade) {
-                q.push(id.clone());
+            for s in subs.iter_mut() {
+                let Some(q) = s.q.upgrade() else { continue };
+                let msg = if s.lost { String::new() } else { id.clone() };
+                s.lost = !q.push(msg);
             }
         }
     }
@@ -715,14 +729,18 @@ impl Book {
         self.lock().ignored_by.clone()
     }
 
-    /// The id of each ask that changed (posted, answered, resolved); a slow
-    /// reader drops ids. Dropping the queue unsubscribes.
+    /// The id of each ask that changed (posted, answered, resolved). An
+    /// empty id means every ask: a re-fold, or ids this reader lost when
+    /// it was full. Dropping the queue unsubscribes.
     pub fn subscribe(&self) -> Arc<Queue<String>> {
         let q = Arc::new(Queue::new(SUB_BUFFER));
         self.subs
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .push(Arc::downgrade(&q));
+            .push(AskSub {
+                q: Arc::downgrade(&q),
+                lost: false,
+            });
         q
     }
 }

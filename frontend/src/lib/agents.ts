@@ -6,11 +6,15 @@
 import { useCallback, useEffect, useState } from "react"
 
 import type {
+  CardWeight,
   AgentsChange,
   AgentStartsView,
+  RunHistoryRow,
   AgentsLimits,
   AgentsPauseView,
   AgentsSettings,
+  NamesThemesView,
+  AgentUsage,
   RunningAgent,
   TermInfo,
   TrustedRepo,
@@ -24,7 +28,10 @@ export type {
   AgentsLimits,
   AgentsPauseView,
   AgentStartsView,
+  RunHistoryRow,
   AgentsSettings,
+  NamesThemesView,
+  AgentUsage,
   RunningAgent,
   TrustedRepo,
 }
@@ -39,10 +46,17 @@ export function sampleAgents(): AgentsSettings {
     chosen: previewFlag("spawn") !== "first",
     model: "sonnet",
     effort: "medium",
-    models: ["sonnet", "opus", "haiku"],
+    models: ["sonnet", "opus"],
     efforts: ["low", "medium", "high", "xhigh", "max"],
     defaultModel: "sonnet",
     defaultEffort: "medium",
+    lightModel: "sonnet",
+    lightEffort: "medium",
+    heavyModel: "opus",
+    heavyEffort: "high",
+    assistantModel: "sonnet",
+    assistantEffort: "low",
+    assistantModels: ["sonnet", "opus", "haiku"],
     idleMins: 30,
     idleChoices: [10, 30, 60, 120, 240],
     crashLimit: 2,
@@ -81,6 +95,118 @@ export const modelLabel = (v: string, def: string) =>
 export const effortLabel = (v: string, def: string) =>
   choiceLabel(v, effortNames, def)
 
+// A card's weight (card #963): light, normal or heavy, each mapped to a
+// model and effort per board in Settings › Agents. No weight runs as normal.
+export const WEIGHT_LEVELS = ["light", "normal", "heavy"] as const
+
+// shortModel is a model and effort in brief, as a card's label wants it:
+// "Opus high", "Sonnet extra high".
+export function shortModel(model: string, effort: string): string {
+  const m = modelNames[model] ?? model
+  const e = (effortNames[effort] ?? effort).toLowerCase()
+  return [m, e].filter(Boolean).join(" ")
+}
+
+// sentBackRate is the share of answered attempts the person sent back, as
+// it shows in Settings › Agents' history (card #966).
+export function sentBackRate(r: { runs: number; sentBack: number }): string {
+  return r.runs > 0 ? `${Math.round((r.sentBack / r.runs) * 100)}%` : "–"
+}
+
+const sampleHistory: RunHistoryRow[] = [
+  {
+    weight: "light",
+    model: "sonnet",
+    effort: "medium",
+    runs: 12,
+    firstTry: 10,
+    sentBack: 2,
+    advised: 12,
+  },
+  {
+    weight: "normal",
+    model: "sonnet",
+    effort: "medium",
+    runs: 31,
+    firstTry: 22,
+    sentBack: 8,
+    advised: 31,
+  },
+  {
+    weight: "heavy",
+    model: "opus",
+    effort: "high",
+    runs: 9,
+    firstTry: 8,
+    sentBack: 1,
+    advised: 9,
+  },
+]
+
+// useRunHistory loads how cards ended while Settings is open (card #966).
+export function useRunHistory(open: boolean) {
+  const [rows, setRows] = useState<RunHistoryRow[]>(
+    inWails() ? [] : sampleHistory
+  )
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AgentsService.History().then(
+      (r) => live && setRows(r),
+      () => live && setRows([])
+    )
+    return () => {
+      live = false
+    }
+  }, [open])
+  return rows
+}
+
+// weightLabel is a card's weight as it shows: "heavy · Opus high: planning
+// the split", the reason only when there is one.
+export function weightLabel(w: CardWeight): string {
+  const run = shortModel(w.model, w.effort)
+  const level = w.runsAt || w.level
+  const head = run ? `${level} · ${run}` : level
+  const why = w.steppedWhy || w.reason?.trim()
+  return why ? `${head}: ${why}` : head
+}
+
+// weightBy says who set a weight, for its tooltip: the person's own is
+// theirs, and agents can't change it.
+export function weightBy(w: CardWeight): string {
+  if (w.steppedWhy && !w.setBy)
+    return "Irori stepped it up for its next attempt"
+  if (w.setBy === "assistant") return "Irori's assistant set it"
+  if (w.setBy === "person")
+    return w.byName && w.byName !== "you"
+      ? `${w.byName} set it; agents can't change it`
+      : "You set it; agents can't change it"
+  return `${w.byName || "An agent"} set it`
+}
+
+// usedModel names a model as an agent's details show it (card #1020): the
+// short name Irori started it with ("sonnet" -> "Sonnet"), or a full id from
+// a transcript ("claude-opus-5-5" -> "Opus 5.5", "claude-haiku-4-5-2025…" ->
+// "Haiku 4.5"). Anything else is shown as it is.
+export function usedModel(v: string): string {
+  if (modelNames[v]) return modelNames[v]
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(v)
+  if (!m) return v
+  const name = m[1].charAt(0).toUpperCase() + m[1].slice(1)
+  return `${name} ${m[2]}${m[3] ? `.${m[3]}` : ""}`
+}
+
+// tokenCount shortens a token count: "950", "12.3K", "4.5M", "1.2B".
+export function tokenCount(n: number): string {
+  const short = (v: number, unit: string) =>
+    `${v >= 100 ? Math.round(v) : Number(v.toPrecision(3))}${unit}`
+  if (n < 1000) return String(Math.max(0, Math.round(n)))
+  if (n < 1e6) return short(n / 1e3, "K")
+  if (n < 1e9) return short(n / 1e6, "M")
+  return short(n / 1e9, "B")
+}
+
 // idleLabel names an idle limit in minutes, marking the default.
 export function idleLabel(m: number, def = 30): string {
   const n =
@@ -98,6 +224,86 @@ function sampleStarts(): AgentStartsView {
     used: previewFlag("agentstarts") === "full" ? 100 : 3,
     ceiling: 1000,
   }
+}
+
+// The preview's themes (card #702): the real lists live in
+// crates/coord/src/names.rs. `?namesoff=movies,anime` turns some off.
+function sampleNamesThemes(): NamesThemesView {
+  const off = (previewFlag("namesoff") ?? "").split(",")
+  const t = (id: string, label: string, words: number, sample: string[]) => ({
+    id,
+    label,
+    on: !off.includes(id),
+    words,
+    sample,
+  })
+  return {
+    themes: [
+      t("nature", "Nature", 1021, ["kestrel", "cedar", "quartz", "heron"]),
+      t("produce", "Produce and things", 256, [
+        "onion",
+        "tomato",
+        "kettle",
+        "mitten",
+      ]),
+      t("movies", "Movie characters", 132, [
+        "ripley",
+        "marty",
+        "dorothy",
+        "atticus",
+      ]),
+      t("anime", "Anime characters", 168, [
+        "chihiro",
+        "spike",
+        "levi",
+        "sakura",
+      ]),
+      t("presidents", "US presidents", 29, [
+        "lincoln",
+        "adams",
+        "polk",
+        "taft",
+      ]),
+      t("myth", "Mythology", 225, ["zeus", "athena", "odin", "anubis"]),
+    ],
+  }
+}
+
+// useNamesThemes is the themes new agents' names come from (card #702):
+// read when Settings opens, and switched from there only.
+export function useNamesThemes(open: boolean) {
+  const [v, setV] = useState<NamesThemesView | null>(
+    inWails() ? null : sampleNamesThemes()
+  )
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AgentsService.NamesThemes().then(
+      (x) => live && (setV(x), setError("")),
+      (e: Error) => live && setError(e.message)
+    )
+    return () => {
+      live = false
+    }
+  }, [open])
+  const set = (id: string, on: boolean) => {
+    setV(
+      (p) =>
+        p && {
+          themes: p.themes.map((t) => (t.id === id ? { ...t, on } : t)),
+        }
+    )
+    if (!inWails()) return
+    AgentsService.NamesThemeSet(id, on).then(
+      (x) => (setV(x), setError("")),
+      (e: Error) => {
+        setError(e.message)
+        AgentsService.NamesThemes().then(setV, () => {})
+      }
+    )
+  }
+  return { view: v, error, set }
 }
 
 export function useAgentStarts(open: boolean) {
@@ -128,6 +334,65 @@ export function useAgentStarts(open: boolean) {
     )
   }
   return { starts: s, error, set }
+}
+
+// useAgentReviews is "Agents review other people's PRs without asking"
+// (merge-desk §12.8): on until the person turns it off, on all their
+// devices.
+export function useAgentReviews(open: boolean) {
+  const [on, setOn] = useState<boolean | null>(inWails() ? null : true)
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AgentsService.Reviews().then(
+      (v) => live && (setOn(v), setError("")),
+      (e: Error) => live && setError(e.message)
+    )
+    return () => {
+      live = false
+    }
+  }, [open])
+  const set = (v: boolean): Promise<void> => {
+    if (!inWails()) {
+      setOn(v)
+      return Promise.resolve()
+    }
+    return AgentsService.SetReviews(v).then(
+      (r) => (setOn(r), setError("")),
+      (e: Error) => setError(e.message)
+    )
+  }
+  return { on, error, set }
+}
+
+// useAgentReviewStarts is "Start a reviewer on this machine when nobody else
+// fits" (merge-desk §12.10): on until the person turns it off.
+export function useAgentReviewStarts(open: boolean) {
+  const [on, setOn] = useState<boolean | null>(inWails() ? null : true)
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AgentsService.ReviewStarts().then(
+      (v) => live && (setOn(v), setError("")),
+      (e: Error) => live && setError(e.message)
+    )
+    return () => {
+      live = false
+    }
+  }, [open])
+  const set = (v: boolean): Promise<void> => {
+    if (!inWails()) {
+      setOn(v)
+      return Promise.resolve()
+    }
+    return AgentsService.SetReviewStarts(v).then(
+      (r) => (setOn(r), setError("")),
+      (e: Error) => setError(e.message)
+    )
+  }
+  return { on, error, set }
 }
 
 // The preview's settings by board; a space's switch starts off, as it does
@@ -184,6 +449,12 @@ export function useAgents(open: boolean, boardId = "") {
         on: c.on ?? null,
         model: c.model ?? null,
         effort: c.effort ?? null,
+        lightModel: c.lightModel ?? null,
+        lightEffort: c.lightEffort ?? null,
+        heavyModel: c.heavyModel ?? null,
+        heavyEffort: c.heavyEffort ?? null,
+        assistantModel: c.assistantModel ?? null,
+        assistantEffort: c.assistantEffort ?? null,
         idleMins: c.idleMins ?? null,
         crashLimit: c.crashLimit ?? null,
         startTries: c.startTries ?? null,
@@ -196,6 +467,12 @@ export function useAgents(open: boolean, boardId = "") {
           chosen: x.chosen || c.on != null,
           model: c.model ?? x.model,
           effort: c.effort ?? x.effort,
+          lightModel: c.lightModel ?? x.lightModel,
+          lightEffort: c.lightEffort ?? x.lightEffort,
+          heavyModel: c.heavyModel ?? x.heavyModel,
+          heavyEffort: c.heavyEffort ?? x.heavyEffort,
+          assistantModel: c.assistantModel ?? x.assistantModel,
+          assistantEffort: c.assistantEffort ?? x.assistantEffort,
           idleMins: c.idleMins ?? x.idleMins,
           crashLimit: c.crashLimit ?? x.crashLimit,
           startTries: c.startTries ?? x.startTries,
@@ -313,8 +590,8 @@ const sampleLogs = [
 ].join("\n")
 
 // sampleRunning is the preview's Running agents list: two working, one
-// running a job between turns (card #489), one on another device, one
-// starting.
+// running a job between turns (card #489), one on a shared space's card
+// (card #1070), one on another device, one starting.
 function sampleRunning(): RunningAgent[] {
   const now = Date.now()
   const row = (p: Partial<RunningAgent>): RunningAgent => ({
@@ -368,6 +645,16 @@ function sampleRunning(): RunningAgent[] {
       startedAt: now - 30 * 60_000,
     }),
     row({
+      key: "sample-device/sample01-synthetic-session",
+      name: "sample-otter",
+      cardId: "sample-board-1",
+      cardShort: "mlg#1",
+      cardTitle: "Lobby sync for the boat race",
+      model: "opus",
+      effort: "high",
+      startedAt: now - 35 * 60_000,
+    }),
+    row({
       key: "pc/wren",
       name: "wren",
       cardId: "c58",
@@ -408,6 +695,48 @@ export function useRunning(open: boolean) {
   }, [open, tick])
   const refresh = useCallback(() => setTick((t) => t + 1), [])
   return { rows, error, loading: !loaded && !error, refresh }
+}
+
+// sampleUsage is the preview's agent details: a spawned agent has its model,
+// effort and tokens; ?usage=none shows an agent nothing is known of.
+function sampleUsage(): AgentUsage {
+  if (previewFlag("usage") === "none") return { model: "", effort: "" }
+  return {
+    model: "opus",
+    effort: "high",
+    tokens: {
+      total: 4_812_345,
+      input: 12_345,
+      output: 98_000,
+      cacheRead: 4_500_000,
+      cacheWrite: 202_000,
+    },
+  }
+}
+
+// useAgentUsage reads one agent's model, effort and tokens while its details
+// are open (card #1020), again every few seconds, since the tokens grow. An
+// agent nothing is known of gets an empty answer; so does a failed read.
+export function useAgentUsage(key: string): AgentUsage | null {
+  const [usage, setUsage] = useState<AgentUsage | null>(() =>
+    inWails() ? null : sampleUsage()
+  )
+  useEffect(() => {
+    if (!inWails()) return
+    let live = true
+    const load = () =>
+      AgentsService.Usage(key).then(
+        (v) => live && setUsage(v),
+        () => undefined
+      )
+    void load()
+    const id = window.setInterval(load, 5000)
+    return () => {
+      live = false
+      window.clearInterval(id)
+    }
+  }, [key])
+  return usage
 }
 
 // TRIES_CHOICES are the crashes or failed starts before Irori asks you

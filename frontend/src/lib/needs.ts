@@ -22,7 +22,7 @@ import {
   type CardRef,
   type CardSummary,
   type GoneWait,
-  type WaitPr,
+  type ThreadSummary,
 } from "./cards"
 import { parseTime, plainLine } from "./irori"
 import { HoldReason, State, type Delivery } from "./talk"
@@ -151,8 +151,6 @@ function row(c: CardSummary, now: number): Row {
       : { state: "working", line }
   }
   if (c.paused) return { state: "waiting", line: "Paused" }
-  // Card #509: an agent's wait on a PR's merge is the person's merge.
-  if (c.mergePr) return { state: "needs", line: mergeLine(c.mergePr) }
   // Card #520: a wait no agent will end, on a card nobody holds.
   if (c.goneWait) return { state: "needs", line: goneLine(c.goneWait) }
   // Card #471: a card on a PR waits on the PR (agents merge it, another
@@ -315,11 +313,6 @@ export function prChip(
   }
 }
 
-// mergeLine is a merge wait's line (card #509): "Merge PR #41".
-export function mergeLine(pr: WaitPr): string {
-  return `Merge PR #${pr.number}`
-}
-
 // goneLine is a gone wait's line (card #520): "Waits on kestrel (gone)",
 // or for an outside wait its gone agent raised, "Waits on CI on the
 // release; piranha (gone) raised it".
@@ -398,14 +391,14 @@ export function stuckLine(end: CardRef, cards: CardSummary[]): string {
 
 export type Need =
   | { kind: "check" | "decision"; id: string; at: number; card: CardSummary }
-  // Card #509: an agent waits on the person to merge a PR.
-  | { kind: "merge"; id: string; at: number; card: CardSummary; pr: WaitPr }
   // Card #520: a wait no agent will end, on a card nobody holds.
   | { kind: "gone"; id: string; at: number; card: CardSummary; wait: GoneWait }
   // Card #541: no computer can start its agent, and nothing to decide.
   | { kind: "noAgent"; id: string; at: number; card: CardSummary }
   | { kind: "trust"; id: string; at: number; card: CardSummary }
   | { kind: "held"; id: string; at: number; delivery: Delivery }
+  // Card #1001: a thread waiting on the person, from any space.
+  | { kind: "thread"; id: string; at: number; thread: ThreadSummary }
   | { kind: "heldQuiet"; id: string; at: number; deliveries: Delivery[] }
   // Card #481: cards that wait on each other, once for the whole loop,
   // and cards whose waits end at a card nobody is on, once per card.
@@ -471,8 +464,19 @@ const time = (s: string | undefined) => parseTime(s ?? "")?.getTime() ?? 0
 // design b1), not a row here. held is the Held list: only the holds that
 // ask the person (asksPerson) are rows; the rest are one heldQuiet line,
 // always last (card #488).
-export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
+export function needsOf(
+  cards: CardSummary[],
+  held: Delivery[],
+  threads: ThreadSummary[] = []
+): Need[] {
   const out: Need[] = []
+  // Card #1001: the Dashboard spans every space, so a thread waiting on the
+  // person (an agent replied since they last looked, or no computer can
+  // start its agent: as Talk counts it) is a row here from any of them.
+  for (const t of threads) {
+    if (t.state === "resolved" || !(t.unread || t.noAgent)) continue
+    out.push({ kind: "thread", id: t.id, at: time(t.updatedAt), thread: t })
+  }
   for (const c of cards) {
     if (!needsYou(c)) continue
     const check = !!c.ready && c.openBlockers <= 1
@@ -489,17 +493,7 @@ export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
     })
   }
   for (const c of cards) {
-    if (!c.mergePr || over(c) || needsYou(c)) continue
-    out.push({
-      kind: "merge",
-      id: c.id,
-      at: time(c.updatedAt),
-      card: c,
-      pr: c.mergePr,
-    })
-  }
-  for (const c of cards) {
-    if (!c.goneWait || c.mergePr || over(c) || needsYou(c)) continue
+    if (!c.goneWait || over(c) || needsYou(c)) continue
     out.push({
       kind: "gone",
       id: c.id,

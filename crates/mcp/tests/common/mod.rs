@@ -19,6 +19,8 @@ pub struct FakeCall {
     pub name: String,
     pub member: String,
     pub body: String,
+    /// The `X-Irori-Assistant` header (card #783).
+    pub assistant: String,
 }
 
 #[derive(Default)]
@@ -34,6 +36,8 @@ pub struct FakeState {
     pub keys: HashMap<String, String>,
     pub n: usize,
     pub attaches: Vec<String>,
+    /// The `client=` of each tool list asked for.
+    pub listed: Vec<String>,
 }
 
 pub struct FakeCore {
@@ -94,10 +98,19 @@ impl FakeCore {
     }
 
     pub fn dial(&self) -> mcp::Dialer {
+        self.dial_as("")
+    }
+
+    /// [`FakeCore::dial`] as the window assistant with `secret` (card #783).
+    pub fn dial_as(&self, secret: &str) -> mcp::Dialer {
         let (addr, st) = (self.addr.clone(), self.st.clone());
+        let secret = secret.to_string();
         Arc::new(move || {
             let token = st.lock().unwrap().token.clone();
-            Ok(Arc::new(HttpCore::new(&format!("http://{addr}"), &token)) as Arc<dyn Core>)
+            Ok(
+                Arc::new(HttpCore::new(&format!("http://{addr}"), &token).with_assistant(&secret))
+                    as Arc<dyn Core>,
+            )
         })
     }
 
@@ -190,8 +203,14 @@ fn serve(
     }
     let member = headers.get("x-irori-member").cloned().unwrap_or_default();
     let known = st.lock().unwrap().secrets.contains_key(&member);
+    let assistant = headers
+        .get("x-irori-assistant")
+        .cloned()
+        .unwrap_or_default();
     if method == "GET" && path == "/v1/tools" {
-        if query_get(query, "client") != "grok" {
+        let client = query_get(query, "client");
+        st.lock().unwrap().listed.push(client.clone());
+        if client != "grok" && client != "assistant" {
             return err_json(&mut s, 400, "client");
         }
         let specs = st.lock().unwrap().specs.clone();
@@ -205,6 +224,7 @@ fn serve(
             name: name.clone(),
             member: member.clone(),
             body,
+            assistant,
         });
         if !member.is_empty() && !known {
             return err_json(&mut s, 403, "unknown member");

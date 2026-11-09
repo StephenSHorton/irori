@@ -49,6 +49,20 @@ pub struct DeviceView {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub via: String,
+    /// How this device reaches it: direct, relay or unreachable (card
+    /// #1119). Empty (omitted): this device, or a removed one.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub reach: String,
+    /// The app version it runs, when known.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub version: String,
+    /// The newest version among the devices, when this one runs an older
+    /// one (omitted otherwise).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub behind: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub color: String,
@@ -57,6 +71,18 @@ pub struct DeviceView {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[specta(optional)]
     pub sides: Vec<String>,
+    /// (A removal pending) the remaining devices that have not seen it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[specta(optional)]
+    pub holdouts: Vec<HoldoutView>,
+}
+
+/// A remaining device a pending removal waits on.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HoldoutView {
+    pub device_id: String,
+    pub name: String,
 }
 
 /// The Home server section of Devices.
@@ -104,19 +130,6 @@ pub struct HomeServerView {
 
 fn is_zero(n: &i64) -> bool {
     *n == 0
-}
-
-/// The advanced relay line (D4: no iroh meaning, always "none").
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RelayView {
-    #[serde(skip_serializing_if = "String::is_empty")]
-    #[specta(optional)]
-    pub credential_url: String,
-    pub state: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    #[specta(optional)]
-    pub detail: String,
 }
 
 /// The device that is joining (Go `pair.Joiner`).
@@ -232,6 +245,23 @@ impl Window {
         self.core.set_person_color(color)
     }
 
+    /// DevicesService.AssistantName: the name the person gave their
+    /// assistant, "" for the default (card #1045).
+    pub fn assistant_name(&self) -> String {
+        self.core.assistant_name()
+    }
+
+    /// DevicesService.AssistantLabel: the name as shown for the person's
+    /// own assistant, the default when none is chosen.
+    pub fn assistant_label(&self) -> String {
+        self.core.assistant_name_or_default()
+    }
+
+    /// DevicesService.SetAssistantName ("" goes back to the default).
+    pub fn set_assistant_name(&self, name: &str) -> Result<(), String> {
+        self.core.set_assistant_name(name)
+    }
+
     /// DevicesService.PersonAvatar: the person's avatar on shared spaces,
     /// a small image data URL, "" for none (card #393).
     pub fn person_avatar(&self) -> String {
@@ -271,22 +301,6 @@ impl Window {
     pub fn set_public_relays(&self, on: bool) -> Result<HomeServerView, String> {
         self.seams.mesh.set_public_relays(on)?;
         Ok(self.home_server())
-    }
-
-    /// DevicesService.Relay: D4 dropped the TURN relay, so there is none.
-    pub fn relay(&self) -> RelayView {
-        RelayView {
-            state: "none".into(),
-            ..RelayView::default()
-        }
-    }
-
-    /// DevicesService.SetRelay: refused (D4).
-    pub fn set_relay(&self, credential_url: &str) -> Result<RelayView, String> {
-        if crate::trim(credential_url).is_empty() {
-            return Ok(self.relay());
-        }
-        Err("this Irori connects through your home server; a separate TURN relay isn't used any more".into())
     }
 
     /// DevicesService.RemoveDevice.
@@ -331,8 +345,19 @@ pub fn device_view(r: mesh::DeviceRow) -> DeviceView {
         action: r.action,
         last_seen: r.last_seen.unwrap_or_default(),
         via: r.via,
+        reach: r.reach,
+        version: r.version,
+        behind: r.behind,
         color: String::new(),
         sides: Vec::new(),
+        holdouts: r
+            .holdouts
+            .into_iter()
+            .map(|h| HoldoutView {
+                device_id: h.device_id,
+                name: h.name,
+            })
+            .collect(),
     }
 }
 

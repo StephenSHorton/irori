@@ -1,5 +1,6 @@
 import { useState } from "react"
 
+import { Ago } from "@/components/common/ago"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -9,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { parseTime, plainBlock, plainLine, relativeTime } from "@/lib/irori"
+import { parseTime, plainBlock, plainLine } from "@/lib/irori"
 import {
   allowLifts,
   errorText,
@@ -43,7 +44,6 @@ export function HeldDialog({
   name,
   cardLabel,
   onCard,
-  now,
   onClose,
 }: {
   state: HeldState
@@ -54,7 +54,6 @@ export function HeldDialog({
   name: (key: string) => string
   cardLabel: (ref: string) => string
   onCard: (id: string) => void
-  now: Date
   onClose: () => void
 }) {
   const [busy, setBusy] = useState("")
@@ -162,7 +161,7 @@ export function HeldDialog({
                 repo={repo}
                 cardLabel={cardLabel}
                 onCard={onCard}
-                now={now}
+
                 busy={busy === d.id}
                 disabled={!!busy}
                 onAct={(fn) => void act(d.id, fn)}
@@ -201,7 +200,6 @@ function HeldRow({
   repo,
   cardLabel,
   onCard,
-  now,
   busy,
   disabled,
   onAct,
@@ -213,7 +211,6 @@ function HeldRow({
   repo: (key: string) => string
   cardLabel: (ref: string) => string
   onCard: (id: string) => void
-  now: Date
   busy: boolean
   disabled: boolean
   onAct: (fn: () => Promise<void>) => void
@@ -265,7 +262,7 @@ function HeldRow({
           dateTime={sent?.toISOString()}
           title={sent?.toLocaleString()}
         >
-          {relativeTime(sent, now)}
+          <Ago at={sent} />
         </time>
       </div>
       <p className="text-xs text-muted-foreground">
@@ -339,7 +336,7 @@ function HeldRow({
           <span>
             {by && `by ${by} `}
             <time dateTime={at?.toISOString()} title={at?.toLocaleString()}>
-              {relativeTime(at, now)}
+              <Ago at={at} />
             </time>
             {movedHeld
               ? d.movedTo && ` · to ${name(d.movedTo)}`

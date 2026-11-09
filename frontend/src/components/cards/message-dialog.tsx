@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react"
 
+import { Ago } from "@/components/common/ago"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -16,7 +17,7 @@ import {
   useFileAttach,
 } from "@/components/attachments"
 import { MentionTextarea } from "@/components/common/mention-textarea"
-import { parseTime, plainBlock, plainLine, relativeTime } from "@/lib/irori"
+import { parseTime, plainBlock, plainLine } from "@/lib/irori"
 import { notDelivered, type Mention } from "@/lib/mentions"
 import {
   errorText,
@@ -35,12 +36,10 @@ import {
 export function MessageDialog({
   id,
   name,
-  now,
   onClose,
 }: {
   id: string
   name: (key: string) => string
-  now: Date
   onClose: () => void
 }) {
   const [d, setD] = useState<Delivery | null>(null)
@@ -151,7 +150,7 @@ export function MessageDialog({
                 dateTime={sent?.toISOString()}
                 title={sent?.toLocaleString()}
               >
-                {relativeTime(sent, now)}
+                <Ago at={sent} />
               </time>
               {!held && !forYou && ` · ${d.state}`}
             </DialogDescription>

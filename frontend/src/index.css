@@ -135,6 +135,68 @@
     background: transparent;
 }
 
+/* Ask Irori's "take me there" (card #784, lib/spotlight.ts), after the
+   person's DentCharter and RGBeast assistants: what it took you to holds a
+   glowing outline for SpotlightMs (8 s) that breathes, and a dashed glowing
+   line runs to it from the chat (components/assistant/spotlight-line.tsx).
+   Each animation runs a set number of times to fit the 8 s, never forever
+   (card #765). Small outline offsets: a pane with little padding inside a
+   scroll box (Talk's, on a phone) would clip one drawn far out. Reduce
+   Motion: all of it still. */
+[data-spotlight] {
+    border-radius: var(--radius-md, 6px);
+    outline: 2px solid color-mix(in oklch, var(--primary) 85%, white);
+    outline-offset: 2px;
+    box-shadow:
+        0 0 0 2px color-mix(in oklch, var(--primary) 28%, transparent),
+        0 0 18px color-mix(in oklch, var(--primary) 30%, transparent);
+}
+@keyframes irori-spotlight {
+    0%,
+    100% {
+        outline-color: color-mix(in oklch, var(--primary) 85%, white);
+        box-shadow:
+            0 0 0 2px color-mix(in oklch, var(--primary) 30%, transparent),
+            0 0 16px color-mix(in oklch, var(--primary) 26%, transparent);
+    }
+    50% {
+        outline-color: color-mix(in oklch, var(--primary) 55%, white);
+        box-shadow:
+            0 0 0 3px color-mix(in oklch, var(--primary) 18%, transparent),
+            0 0 8px color-mix(in oklch, var(--primary) 12%, transparent);
+    }
+}
+@keyframes irori-spot-dash {
+    to {
+        stroke-dashoffset: -28;
+    }
+}
+@keyframes irori-spot-dot {
+    0%,
+    100% {
+        opacity: 1;
+        r: 4.5;
+    }
+    50% {
+        opacity: 0.65;
+        r: 6.5;
+    }
+}
+.irori-spot-line {
+    stroke-dasharray: 6 8;
+}
+@media (prefers-reduced-motion: no-preference) {
+    [data-spotlight] {
+        animation: irori-spotlight 1.4s ease-in-out 6;
+    }
+    .irori-spot-line {
+        animation: irori-spot-dash 0.9s linear 9;
+    }
+    .irori-spot-dot {
+        animation: irori-spot-dot 1.1s ease-in-out 7;
+    }
+}
+
 /* Indeterminate progress sweep (the update download line). */
 @keyframes irori-sweep {
     0% {
@@ -156,4 +218,16 @@
 :root.dark {
     --skullet-base: color-mix(in oklab, var(--foreground) 9%, transparent);
     --skullet-highlight: color-mix(in oklab, var(--foreground) 7%, transparent);
+}
+/* Content fades in where a skeleton stood (card #1100: it renders outside
+   skullet once loaded); it just appears under Reduce Motion. */
+@keyframes irori-loading-reveal {
+    from {
+        opacity: 0;
+    }
+}
+@media (prefers-reduced-motion: no-preference) {
+    .loading-reveal {
+        animation: irori-loading-reveal 0.2s ease-out;
+    }
 }

@@ -321,6 +321,36 @@ async fn forged_rows_are_refused_even_with_the_cert_check_off() {
     forged_rows_refused(true).await;
 }
 
+/// One-assistant card 1: a device is caught up when it holds every row the
+/// devices it is connected to say they hold. Alone, or with a peer whose
+/// rows it holds, it is; while a peer's rows wait (a clock ahead), it isn't;
+/// a peer's rows it will never get (a stopped writer) don't count.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn caught_up_means_holding_what_the_connected_devices_hold() {
+    let net = FakeNet::new();
+    let (mut a, mut b) = (Dev::new(&net, "pc"), Dev::new(&net, "mac"));
+    assert!(a.node.is_none());
+    b.join(&a).await;
+    a.start();
+    b.start();
+    eventually("converge", || converged(&[&a, &b])).await;
+    eventually("a is caught up with b", || a.node().caught_up()).await;
+    b.clk.set(Duration::from_secs(600));
+    let ahead = b.append(store::kinds::AGENT_SEEN, seen(&b, "ahead"));
+    eventually("a shows b's rows waiting", || a.peer(&b.id()).ahead).await;
+    assert!(!a.has(&ahead));
+    // b says what it holds when it takes rows from a.
+    a.append(store::kinds::AGENT_SEEN, seen(&a, "reply"));
+    eventually("a is behind: b holds a row a holds back", || {
+        !a.node().caught_up()
+    })
+    .await;
+    assert!(b.node().caught_up(), "b holds everything a holds");
+    a.clk.set(Duration::from_secs(600));
+    eventually("the row lands", || a.has(&ahead)).await;
+    eventually("a is caught up again", || a.node().caught_up()).await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn catch_up_through_the_node_with_the_mac_gone() {
     let net = FakeNet::new();
@@ -549,6 +579,45 @@ fn mac_row(pc: &Dev, mac: &str) -> DeviceRow {
         .unwrap_or_default()
 }
 
+/// The PC's Devices row for the Mac says how it is reached (card #1119)
+/// and which version it is behind, from the devices' `device.started` rows.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_device_row_names_its_reach_and_what_it_is_behind_on() {
+    let net = FakeNet::new();
+    let (pc, mut mac, nd) = trio(&net).await;
+    mac.append(
+        store::kinds::DEVICE_STARTED,
+        json!({"name": "mac", "os": "darwin", "version": "0.11.0"}),
+    );
+    pc.append(
+        store::kinds::DEVICE_STARTED,
+        json!({"name": "pc", "os": "windows", "version": "0.12.1"}),
+    );
+    eventually("the PC reads the Mac's version", || {
+        mac_row(&pc, &mac.id()).version == "0.11.0"
+    })
+    .await;
+    let r = mac_row(&pc, &mac.id());
+    assert_eq!((r.reach.as_str(), r.behind.as_str()), ("direct", "0.12.1"));
+    let n = pc
+        .node()
+        .devices(false)
+        .into_iter()
+        .find(|r| r.device_id == nd.id())
+        .unwrap();
+    assert_eq!(n.behind, "", "no version known, so not called behind");
+    assert_eq!(
+        pc.node().devices(false)[0].reach,
+        "",
+        "this device has none"
+    );
+    mac.stop().await;
+    eventually("the Mac is unreachable once its session ends", || {
+        mac_row(&pc, &mac.id()).reach == "unreachable"
+    })
+    .await;
+}
+
 /// The node is off when the PC revokes the Mac. The PC keeps the epoch-1
 /// topic open until the node has the new key, which it gets there.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -563,7 +632,10 @@ async fn an_offline_device_gets_the_new_key_on_the_previous_topic() {
     })
     .await;
     let w = mac_row(&pc, &mac.id()).warning;
-    assert_eq!(w, "Removal pending: seen by 1 of 2 devices.");
+    assert_eq!(
+        w,
+        "Removal pending: seen by 1 of 2 devices. Waiting on node."
+    );
     nd.start();
     eventually("the removal is seen by both", || {
         mac_row(&pc, &mac.id()).warning == "Removed."
@@ -583,6 +655,28 @@ async fn an_offline_device_gets_the_new_key_on_the_previous_topic() {
         2,
         "the adopted key did not survive a restart"
     );
+}
+
+/// The node never comes back: the pending removal names it, and removing it
+/// clears the line.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_pending_removal_names_the_holdout_and_removing_it_clears_the_line() {
+    let net = FakeNet::new();
+    let (pc, mut mac, mut nd) = trio(&net).await;
+    nd.stop().await;
+    mac.stop().await;
+    pc.node().revoke(&mac.id(), "lost").await.unwrap();
+    let row = mac_row(&pc, &mac.id());
+    assert!(row.warning.starts_with("Removal pending: seen by 1 of 2"));
+    assert_eq!(row.holdouts.len(), 1);
+    assert_eq!(row.holdouts[0].device_id, nd.id());
+    assert!(row.warning.contains(&row.holdouts[0].name));
+    pc.node().revoke(&nd.id(), "gone for good").await.unwrap();
+    eventually("the line clears", || {
+        let r = mac_row(&pc, &mac.id());
+        r.warning == "Removed." && r.holdouts.is_empty()
+    })
+    .await;
 }
 
 /// The PC and the node can't reach each other, and the person removes the
@@ -976,4 +1070,21 @@ fn scrub_urls_cuts_queries() {
         mesh::scrub_urls("fetch https://relay.example/cred?key=abc failed"),
         "fetch https://relay.example/cred?… failed"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn syncing_is_true_while_rows_move_and_falls_after_a_second() {
+    let net = FakeNet::new();
+    let (mut a, mut b) = (Dev::new(&net, "pc"), Dev::new(&net, "mac"));
+    b.join(&a).await;
+    a.start();
+    b.start();
+    eventually("connected", || a.peer(&b.id()).state == "connected").await;
+    // Let the hello exchange settle, then wait the flag out: idle is false.
+    eventually("quiet", || !a.node().syncing() && !b.node().syncing()).await;
+    // b writes a row; a receives it, so a is syncing (and so is b, sending).
+    let e = b.append(store::kinds::AGENT_SEEN, seen(&b, "badge"));
+    eventually("a took the row", || a.has(&e)).await;
+    assert!(a.node().syncing(), "a took rows and must show syncing");
+    eventually("falls once quiet", || !a.node().syncing()).await;
 }

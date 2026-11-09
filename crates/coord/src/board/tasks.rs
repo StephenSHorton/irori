@@ -53,6 +53,32 @@ pub(crate) struct CleanTask {
     pub after: Vec<String>,
     /// Held as Not yet from the start (card #570).
     pub later: Option<super::later::Back>,
+    /// The person named it by hand (card #779).
+    pub title_by_person: bool,
+    /// Makes it a PR card (merge desk §12.2).
+    pub pr_card: Option<PrCard>,
+    /// The PR card it reviews (merge desk §12.10).
+    pub review_of: String,
+    /// Its weight from the start and why (card #964); "" is none.
+    pub weight: String,
+    pub weight_reason: String,
+}
+
+/// The PR card fields of a new task, checked (merge desk §12.2): a GitHub
+/// PR URL, a repo and the author's login.
+fn pr_card_of(nt: &NewTask, repo_key: &str) -> Result<Option<PrCard>> {
+    let Some(c) = &nt.pr_card else {
+        return Ok(None);
+    };
+    let pr = trim_space(&c.pr).to_string();
+    let author = trim_space(&c.author).to_string();
+    let parsed = parse_link(&pr).ok().and_then(|l| super::links::pr_link(&l));
+    if parsed.is_none() || author.is_empty() || repo_key.is_empty() {
+        return Err(invalid(
+            "a PR card needs a GitHub pull request URL, a repo and the author's login",
+        ));
+    }
+    Ok(Some(PrCard { pr, author }))
 }
 
 /// CreateTask's checks.
@@ -110,7 +136,11 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
     check_reason(&reason, false)?;
     let mut steps = nt.steps.clone();
     check_steps(&mut steps)?;
+    let pr_card = pr_card_of(nt, &repo_key)?;
+    let (weight, weight_reason) = super::weight::clean_new_weight(&nt.weight, &nt.weight_reason)?;
     Ok(CleanTask {
+        weight,
+        weight_reason,
         by: by.into(),
         title,
         obj,
@@ -124,6 +154,9 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
         steps: new_steps(&steps),
         after: nt.after.clone(),
         later: nt.later.clone(),
+        title_by_person: nt.title_by_person,
+        pr_card,
+        review_of: nt.review_of.trim().to_string(),
         parent: String::new(),
         spawn: false,
         from: String::new(),
@@ -203,8 +236,30 @@ impl Fold {
                 "this space holds no boards, so it takes no card",
             ));
         }
+        // Only a person's row makes a PR card, written from their own
+        // device (merge desk §12.2): an agent's would fold as a plain card.
+        if ct.pr_card.is_some() && !self.is_owner(by) {
+            return Err(not_allowed("only a person makes a PR card"));
+        }
+        // A review card is the PR card's creator's, made by their person
+        // on the PR card's board (merge desk §12.10).
+        if !ct.review_of.is_empty() {
+            let ok = self.is_owner(by)
+                && self
+                    .tasks
+                    .get(&ct.review_of)
+                    .is_some_and(|c| c.pr_card.is_some() && c.created_by == by);
+            if !ok {
+                return Err(not_allowed(
+                    "only a PR card's creator makes a review card for it",
+                ));
+            }
+        }
         if let Some(p) = self.tasks.get(&ct.parent) {
             ct.board = p.board.clone();
+        }
+        if self.board_closed(&ct.board) {
+            return Err(self.closed_refusal(&ct.board));
         }
         let mut bb = None;
         if !ct.reason.is_empty() {
@@ -212,6 +267,7 @@ impl Fold {
         }
         // All of it before the first row (card #570).
         let waits = self.new_waits(&ct, bb.as_ref())?;
+        self.check_new_weight(by, &ct.weight, &ct.weight_reason)?;
         let at = self.stamp();
         let id = new_id(&at);
         let num = self.next_short(&ct.board);
@@ -233,6 +289,18 @@ impl Fold {
                 from: ct.from.clone(),
                 board: ct.board.clone(),
                 side: ct.side.clone(),
+                title_by_person: ct.title_by_person,
+                pr: ct
+                    .pr_card
+                    .as_ref()
+                    .map(|c| c.pr.clone())
+                    .unwrap_or_default(),
+                pr_author: ct
+                    .pr_card
+                    .as_ref()
+                    .map(|c| c.author.clone())
+                    .unwrap_or_default(),
+                review_of: ct.review_of.clone(),
                 by: by.into(),
                 at,
                 ask: None,
@@ -277,6 +345,8 @@ impl Fold {
             )?;
         }
         if self.tasks.contains_key(&id) {
+            // Weighed with the card (card #964): before anyone is handed it.
+            self.write_new_weight(by, &id, &ct.weight, &ct.weight_reason)?;
             self.write_new_waits(by, &id, waits)?;
         }
         // The fold can set the row aside (a writer the board doesn't count).
@@ -476,7 +546,9 @@ impl Fold {
             self.unreviewed_refusal(&t)?;
         }
         // Card #208: nor while a PR it links is open on GitHub.
-        if s == COMPLETED && self.is_agent_key(&by) {
+        // A review card links an open PR by design, and its agent never
+        // lands it (merge desk §12.10).
+        if s == COMPLETED && self.is_agent_key(&by) && t.review_of.is_empty() {
             self.open_pr_refusal(&t)?;
         }
         let cascade = self.parent_state_refusal(&t, s)?;
@@ -503,7 +575,15 @@ impl Fold {
         if s == COMPLETED && self.is_agent_key(&by) && lead.is_empty() && self.lead_coming(&t) {
             return self.ask_lead(&by, &t, "", &note, files);
         }
-        if s == COMPLETED && self.done_check && self.is_agent_key(&by) && lead.is_empty() {
+        // A review card's Done goes to nobody (merge desk §12.10): the
+        // author is not asked whether a reviewer's review is done; the card
+        // closes with its agent's completed.
+        if s == COMPLETED
+            && self.done_check
+            && self.is_agent_key(&by)
+            && lead.is_empty()
+            && t.review_of.is_empty()
+        {
             return self.ask_done(&by, &t, &note, files, need_proof);
         }
         if t.state == s && t.note == note {
@@ -584,6 +664,9 @@ impl Fold {
     pub(crate) fn reopen_locked(&mut self, by: &str, id: &str, note: &str) -> Result<()> {
         let t = self.tasks[id].clone();
         self.reopen_refusal(&t)?;
+        if self.board_closed(&t.board) {
+            return Err(self.closed_refusal(&t.board));
+        }
         if let Some(p) = self.tasks.get(&t.parent).cloned()
             && is_terminal(&p.state)
         {
@@ -1066,6 +1149,11 @@ impl Fold {
         self.pr_states.clear();
         self.pr_ahead.clear();
         self.pr_vouchers.clear();
+        // Review asks keep their row's place, and a replay folds them again.
+        self.reviews.clear();
+        self.reviewers.clear();
+        self.pr_claims.clear();
+        self.created_pos.clear();
         self.pins.clear();
         self.archived.clear();
         // Pins from rows the cut moved out go too (card #494).

@@ -24,6 +24,10 @@ pub struct DeskSettings {
     pub trusted: Vec<String>,
     #[serde(default)]
     pub per_pr_ok: bool,
+    /// Other people's agents don't review this repo's PRs (card #1077):
+    /// off, it behaves like a solo repo. On (false here) when unset.
+    #[serde(default)]
+    pub reviews_off: bool,
     #[serde(default)]
     pub by: String,
     #[serde(default)]
@@ -91,6 +95,57 @@ pub struct DeskAuthorView {
     pub card_ref: String,
     /// The agent behind it; "" none.
     pub agent: String,
+    /// Why the PR has no review card in a shared space yet (card #1077);
+    /// "" when nothing waits.
+    pub review_note: String,
+    /// Who reviews it and where the review stands (card #1080).
+    pub review: DeskReviewView,
+}
+
+/// The agent holding a PR's review claim.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeskClaimerView {
+    pub agent: String,
+    pub person: String,
+    /// When the claim lapses unless renewed, RFC 3339.
+    pub until: String,
+}
+
+/// An agent told to look at a PR, and why.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeskRelatedView {
+    pub agent: String,
+    pub person: String,
+    pub why: String,
+}
+
+/// A PR's review on the desk line (merge desk §12.9, card #1080).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeskReviewView {
+    /// `none`, `off`, `waiting`, `asked`, `claimed` or `reviewed`; ""
+    /// when unknown.
+    pub pick: String,
+    /// GitHub's review decision; "" none.
+    pub review: String,
+    /// The agent asked, while `pick` is `asked`.
+    pub asked: String,
+    #[specta(optional)]
+    pub claimer: Option<DeskClaimerView>,
+    pub related: Vec<DeskRelatedView>,
+    /// Why nothing is picked, as this viewer can see it.
+    pub why_none: String,
+}
+
+/// One person's review claims.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeskClaimCountView {
+    pub person: String,
+    pub open: u32,
+    pub recent: u32,
 }
 
 /// One repo's desk.
@@ -114,6 +169,8 @@ pub struct DeskView {
     /// our PRs (the person's, their members' and their agents'; card
     /// #625): anyone else's is left out here.
     pub authors: Vec<DeskAuthorView>,
+    /// Each person's open and 14-day claims (card #1080).
+    pub claim_counts: Vec<DeskClaimCountView>,
 }
 
 fn settings_of(r: coord::RepoDeskRow) -> DeskSettings {
@@ -124,6 +181,7 @@ fn settings_of(r: coord::RepoDeskRow) -> DeskSettings {
         poll_device: r.poll_device,
         trusted: r.trusted,
         per_pr_ok: r.per_pr_ok,
+        reviews_off: r.reviews_off,
         by: r.by,
         at: r.at,
     }
@@ -142,6 +200,7 @@ fn row_of(s: DeskSettings) -> coord::RepoDeskRow {
             .filter(|t| !t.is_empty())
             .collect(),
         per_pr_ok: s.per_pr_ok,
+        reviews_off: s.reviews_off,
         ..coord::RepoDeskRow::default()
     }
 }
@@ -152,6 +211,16 @@ impl Window {
     /// #625), with how polling stands when this device polls it.
     pub fn desks(&self) -> Vec<DeskView> {
         let here = self.core.device_id();
+        let counts: Vec<DeskClaimCountView> = self
+            .core
+            .desk_claim_counts()
+            .into_iter()
+            .map(|c| DeskClaimCountView {
+                person: c.person,
+                open: c.open as u32,
+                recent: c.recent as u32,
+            })
+            .collect();
         let mut out: Vec<DeskView> = self
             .core
             .coord()
@@ -180,11 +249,34 @@ impl Window {
                         card: a.card,
                         card_ref: a.card_ref,
                         agent: a.agent,
+                        review_note: a.review_note,
+                        review: DeskReviewView {
+                            pick: a.review.pick,
+                            review: a.review.review,
+                            asked: a.review.asked,
+                            claimer: a.review.claimer.map(|c| DeskClaimerView {
+                                agent: c.agent,
+                                person: c.person,
+                                until: c.until,
+                            }),
+                            related: a
+                                .review
+                                .related
+                                .into_iter()
+                                .map(|r| DeskRelatedView {
+                                    agent: r.agent,
+                                    person: r.person,
+                                    why: r.why,
+                                })
+                                .collect(),
+                            why_none: a.review.why_none,
+                        },
                     })
                     .collect();
                 let ours: std::collections::HashSet<i64> = authors.iter().map(|a| a.pr).collect();
                 DeskView {
                     authors,
+                    claim_counts: counts.clone(),
                     is_default: d.is_default(),
                     seen_on: d.seen_on.clone(),
                     follows_seen: d.is_default() || d.follow_poll,

@@ -131,13 +131,12 @@ pub(crate) fn day_of(d: &GoTime) -> String {
     format!("{y:04}-{m:02}-{day:02}")
 }
 
-/// Whether open item b is the person's to see: a question, a done check,
-/// an ownership change or a PR to merge.
+/// Whether open item b is the person's to see: a question, a done check
+/// or an ownership change. A wait on a PR is its agent's (card #970).
 fn for_person(b: &Blocker) -> bool {
     b.done_check
         || b.transfer
         || !b.options.is_empty()
-        || b.merge_wait().is_some()
         || b.on.as_ref().is_none_or(|on| on.kind == BLOCKED_ON_PERSON)
 }
 

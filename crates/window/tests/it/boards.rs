@@ -1411,3 +1411,151 @@ fn a_space_channel_posts_file_goes_with_the_space() {
     let e = w.attachment_info(&sha).unwrap_err();
     assert_eq!(e, irori_window::attachments::NO_ATTACHMENT);
 }
+
+/// Card #1143: the tray's count is built from each card's summary and its
+/// waits alone, and counts what the grid's own pipeline would: a private
+/// card (a thread too) and a shared board's card with an open blocker, but
+/// not a board's thread, which shows in its Threads panel.
+#[test]
+fn decide_count_matches_the_grid_across_private_shared_and_threads() {
+    let r = Rig::new();
+    let w = &r.w;
+    let b = w.boards_create("Horton", "horton").unwrap();
+    let ask = |co: &coord::Coord, key: &str, id: &str, q: &str| {
+        co.raise(
+            key,
+            id,
+            coord::NewBlocker {
+                question: q.into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    };
+    // Private: one waiting, one not.
+    let pco = w.core.coord();
+    let _quiet = create(&r, "private, quiet");
+    let waiting = create(&r, "private, waiting");
+    ask(pco, &r.key_a, &waiting.id, "private q?");
+    assert_eq!(w.decide_count(), 1);
+    // A private thread raises no blocker (it is an ask), so adds nothing.
+    w.start_thread("thread about nothing", &[], &[], "")
+        .unwrap();
+    assert_eq!(w.decide_count(), 1);
+    // Shared board: one waiting, one not.
+    let bco = w.core.board_coord(&b.board_id).unwrap();
+    let me = w
+        .core
+        .board_key(&b.board_id, &w.core.user_sender().key)
+        .unwrap();
+    let alpha = w.core.board_key(&b.board_id, &r.key_a).unwrap();
+    let mk = |title: &str| {
+        bco.create_task(
+            &me,
+            coord::NewTask {
+                title: title.into(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let _bq = mk("board, quiet");
+    let bw = mk("board, waiting");
+    ask(&bco, &alpha, &bw.id, "board q?");
+    assert_eq!(w.decide_count(), 2, "a shared card with a blocker");
+    // A shared thread is the Threads panel's, not counted.
+    w.start_thread("shared thread", &[], &[], &b.board_id)
+        .unwrap();
+    assert_eq!(w.decide_count(), 2, "a board's thread is not counted");
+    // The same as the grid's own rows say.
+    let grid = w
+        .cards()
+        .iter()
+        .filter(|s| s.open_blockers > 0 || s.gone_wait.is_some())
+        .count();
+    assert_eq!(grid, 2);
+}
+
+/// Card #690: from the window, a board gets its description at New board
+/// and edits it, closes (sent as camelCase fields only when set), moving
+/// or canceling its open cards, and reopens; a space's first board and
+/// Personal's default never close.
+#[test]
+fn a_boards_description_and_close_from_the_window() {
+    let r = Rig::new();
+    let w = &r.w;
+    let id = w.boards_create("Wind", "wind").unwrap().board_id;
+    let s = w
+        .boards_add_to_space_with(&id, "Netcode", "net", "Rollback netcode")
+        .unwrap();
+    let net = s.boards[1].board_id.clone();
+    assert_eq!(s.boards[1].description, "Rollback netcode");
+    assert!(s.boards[1].may_close && !s.boards[0].may_close);
+    let s = w
+        .boards_set_description_in_space(&id, &id, "The game")
+        .unwrap();
+    assert_eq!(s.boards[0].description, "The game");
+    // A card on net: a close that keeps it is refused; a bad choice too.
+    let co = w.core.board_coord(&id).unwrap();
+    let me = w.core.board_key(&id, &w.core.user_sender().key).unwrap();
+    let t = co
+        .create_task(
+            &me,
+            coord::NewTask {
+                title: "rollback".into(),
+                board: net.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let e = w.boards_close_in_space(&id, &net, "keep", "").unwrap_err();
+    assert!(e.contains("net#1"), "{e}");
+    assert!(w.boards_close_in_space(&id, &net, "move", "").is_err());
+    assert!(w.boards_close_in_space(&id, &net, "drop", "").is_err());
+    // Moved to the first board, by the space's id.
+    let s = w.boards_close_in_space(&id, &net, "move", &id).unwrap();
+    assert!(s.boards[1].closed && !s.boards[1].closed_at.is_empty());
+    assert_eq!(co.get_task(&t.id).unwrap().board, "");
+    let v = serde_json::to_value(&s.boards[1]).unwrap();
+    assert_eq!(v["closed"], true);
+    assert_eq!(v["description"], "Rollback netcode");
+    assert!(v.get("closedAt").is_some(), "{v}");
+    let v = serde_json::to_value(&s.boards[0]).unwrap();
+    assert!(
+        v.get("closed").is_none() && v.get("mayClose").is_none(),
+        "{v}"
+    );
+    let e = w.boards_close_in_space(&id, &id, "keep", "").unwrap_err();
+    assert!(e.contains("first board"), "{e}");
+    let s = w.boards_reopen_in_space(&id, &net).unwrap();
+    assert!(!s.boards[1].closed);
+
+    let bs = w
+        .boards_add_to_personal_with("House", "home", "Fix up the house")
+        .unwrap();
+    let home = bs[1].board_id.clone();
+    let pc = w.core.coord();
+    let p = pc
+        .create_task(
+            &w.core.user_sender().key,
+            coord::NewTask {
+                title: "paint".into(),
+                board: home.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let bs = w.boards_close_in_personal(&home, "cancel", "").unwrap();
+    assert!(bs[1].closed);
+    assert_eq!(pc.get_task(&p.id).unwrap().state, coord::CANCELED);
+    let bs = w
+        .boards_set_description_in_personal(irori_core::PERSONAL_BOARD, "Everything else")
+        .unwrap();
+    assert_eq!(bs[0].description, "Everything else");
+    assert!(
+        w.boards_close_in_personal(irori_core::PERSONAL_BOARD, "keep", "")
+            .is_err()
+    );
+    let bs = w.boards_reopen_in_personal(&home).unwrap();
+    assert!(!bs[1].closed);
+}
