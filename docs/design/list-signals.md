@@ -324,6 +324,17 @@ A new `frontend/src/lib/changes.ts` takes over **every `Events.On`/`OnShown` of 
 | inbox, held | upsert by `deliveries` with `InboxService.Get`. Held drops a row whose new state isn't held or whose `Get` fails, and the inbox drops rows past its 200 that aren't held. `all` re-reads the list. |
 | repo names, storage (cleared list), `useMe`, the header's device read | full read on every notice of their signal, through the module, so they are held while hidden |
 
+**As built (card 11, #1152).** The decisions are plain functions in `frontend/src/lib/small-lists.ts` (`deskWakes`, `notesWake`, `doneWakes`, `refsToDrop`, `rosterWatch`, `trailing`, `upsertRows`, `heldUpsert`, `createStore`), each tested in `small-lists.test.ts`. Where the build differs or chooses:
+- **Desk** follows `desk` and `cards`; its verdict cards are each PR's author card (`authors[pr].card`). The 30 s poll stays.
+- **Notes** follow `notes` and `cards` (a card some note names by `taskId`), and read again when the window shows and on focus (at most once a minute) for the `path:` files.
+- **Idle line** reads at most every 5 s (`IdleEveryMs`, trailing); the mount's read and a retry after an error are direct.
+- **#ref chips.** Each cache entry remembers the card it resolved to and whether it answered. A notice drops the entries whose card it names plus the null and pending ones, then the 1.5 s burst wait bumps `refGen`. `devices:changed` is `all`.
+- **Closed tab.** "Now closed" is told by the grid: `liveCards` keeps the cards the grid last showed, and a card that leaves it reads the tab (`onLeft`). Until the grid has answered once, any named card reads. A card that arrives already closed from another device is not named by either rule, so it shows on the next focus, show or `all`.
+- **Boards and personal boards** are one store each (`subscribeBoards`, `subscribePersonal`); only the first reader reads. A reader swapped in the same commit (a page change, React's strict-mode remount) keeps the store, because the last reader's stop waits a microtask. `OwnerChip` starts no read, so Home's first load is one `boards_list`.
+- **Devices** are one store (`createStore`). `roster:changed` is read from its payload and ignored unless the set of `deviceId=deviceState` pairs moved; while hidden it is owed and read once on show. The 5 s poll runs only while a `useDevices(open, true)` (the devices panel) is mounted, with one timer for all.
+- **Inbox and held** are on `usePatched`: `inbox:changed.deliveries` are read by `InboxService.Get` and upserted; a failed `Get` makes the inbox read whole, and drops the row from held. Held with History open reads whole. The drift check covers both.
+- **Full-read lists** (repo names, storage's cleared list, `useMe`, the header's device read) are all on `onChange` and now held while hidden; card 5 had left `useMe`, the header and storage on `held: false`.
+
 ## 7. Fallback rules, per signal
 
 | Signal | Patched with | Full read when |

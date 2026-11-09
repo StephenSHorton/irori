@@ -74,8 +74,14 @@ describe("the shared boards list (card #233)", () => {
       await settled()
       expect(reads).toBe(1)
       for (const off of offs) off()
+      // A reader swapped in the same commit keeps the store as it is.
+      const swap = subscribeBoards(() => {})
+      await settled()
+      expect(reads).toBe(1)
+      swap()
       // Once every reader has gone the store stops following; the next
       // first reader reads again.
+      await settled()
       const off = subscribeBoards(() => {})
       await settled()
       expect(reads).toBe(2)

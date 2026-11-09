@@ -105,10 +105,13 @@ export function createStore<T>(o: {
       }
       return () => {
         readers.delete(reader)
-        if (readers.size === 0 && stop) {
+        // After the commit: a page swapped for another (or React's
+        // strict-mode remount) keeps the store.
+        queueMicrotask(() => {
+          if (readers.size > 0 || !stop) return
           stop()
           stop = null
-        }
+        })
       }
     },
     snapshot: () => state,

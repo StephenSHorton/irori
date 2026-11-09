@@ -340,6 +340,8 @@ describe("the devices store (card #1152)", () => {
     expect(reads).toBeGreaterThanOrEqual(3)
     expect(store.snapshot().loading).toBe(false)
     for (const off of offs) off()
+    expect(stopped).toBe(0) // a commit's swap may follow
+    await Promise.resolve()
     expect(stopped).toBe(1)
     expect(store.readers()).toBe(0)
   })

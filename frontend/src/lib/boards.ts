@@ -1040,10 +1040,13 @@ export function subscribeBoards(reader: () => void): () => void {
   }
   return () => {
     listState.readers.delete(reader)
-    if (listState.readers.size === 0) {
+    // After the commit: a page swapped for another (or React's strict-mode
+    // remount) keeps the store, and the next reader reads nothing.
+    queueMicrotask(() => {
+      if (listState.readers.size > 0) return
       listState.off?.()
       listState.off = null
-    }
+    })
   }
 }
 
@@ -1104,10 +1107,11 @@ export function subscribePersonal(reader: () => void): () => void {
   }
   return () => {
     personalState.readers.delete(reader)
-    if (personalState.readers.size === 0) {
+    queueMicrotask(() => {
+      if (personalState.readers.size > 0) return
       personalState.off?.()
       personalState.off = null
-    }
+    })
   }
 }
 
