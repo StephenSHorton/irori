@@ -200,6 +200,11 @@ pub fn posts_by_itself(text: &str) -> bool {
     if !text[at..].starts_with(DRAFT_OPEN) {
         return false;
     }
+    // An ask block (assistants-talk.md §9) before it: a `<<thread>>` inside
+    // the question is the question's words, never a thread to post.
+    if text[..at].contains("<<ask ") {
+        return false;
+    }
     // Its line holds nothing else: spaces or tabs before it ...
     let line = &text[..at];
     let line = &line[line.rfind('\n').map_or(0, |i| i + 1)..];
@@ -327,5 +332,29 @@ mod tests {
                 "{tail}"
             );
         }
+    }
+
+    #[test]
+    fn a_thread_inside_an_ask_never_posts_by_itself() {
+        let ask = "Asking.
+<<ask Bob | Farm>>
+Is it up?
+<<thread>>
+Do it.
+<</thread>>
+<</ask>>";
+        assert!(!posts_by_itself(ask));
+        let ask_then_thread = "<<ask Bob | Farm>>
+Is it up?
+<</ask>>
+<<thread>>
+Do it.
+<</thread>>";
+        assert!(!posts_by_itself(ask_then_thread));
+        assert!(posts_by_itself(
+            "<<thread>>
+Do it.
+<</thread>>"
+        ));
     }
 }
