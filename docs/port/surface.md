@@ -320,14 +320,20 @@ app runs on a built-in sample roster. One localStorage key: the updater's dismis
 | Event | Payload | Emitted | Ref |
 |---|---|---|---|
 | `roster:changed` | `{change: presence.Change, agents: AgentCard[] (MeshAgents)}` | every presence change | roster_service.go:30-37,65-69 |
-| `inbox:changed` | `InboxCounts {unread, held, paused}` | coalesced ≤ every 250 ms | inbox_service.go:22-25,282-300 |
-| `board:changed` | `{}` | coalesced 250 ms; also from boards pump | board_service.go:27-30,531; boards_service.go:174 |
-| `boards:changed` | `{}` | shared-board list change | boards_service.go:24,162 |
+| `inbox:changed` | `InboxCounts {unread, held, paused}` plus `seq, all, deliveries, cards` | coalesced ≤ every 250 ms; `all` for a change naming no delivery (a policy write, the mesh re-fold), a lost event or a kick | inbox_service.go:22-25,282-300; list-signals.md §4 |
+| `board:changed` | `{seq, all, cards, notes, desk}` | coalesced 250 ms from the Board, Presence, Roster and Inbox feeds: `cards` is the ids a change named, expanded to every card or thread whose row shows them; also when a clock time passes (a talking line ends, a card goes stale, a spawn's grace). `all` for a resync, an unmapped kind, a board opened or left, and more than 200 ids | board_service.go:27-30,531; list-signals.md §3.3, §4 |
+| `boards:changed` | `{seq}` | shared-board list change, a pin (also `Window::boards_pin`) | boards_service.go:24,162 |
+| `talk:changed` | `{seq, all, convs, calls}` | coalesced 250 ms; `convs` has bare thread ids for a thread's read cursor | list-signals.md §4 |
+| `notifications:changed` | `{seq, all, keys, asks}` | coalesced 250 ms from the Notifications and Asks feeds; `all` for an empty ask id | list-signals.md §4 |
+| `devices:changed` | `{seq, all: true}` | coalesced 250 ms | list-signals.md §4 |
+| `assistant:changed` | `{seq, all}` | coalesced 250 ms; `all` after a lost event | list-signals.md §4 |
 | `capture:changed` | `CaptureChange` | coalesced 300 ms (no frontend listener) | capture_service.go:26-30,355 |
 | `devices:pairing` | `pair.Status` | pairing change | devices_service.go:20-43 |
 | `settings:launch-at-login` | bool (live OS state) | after every toggle attempt | settings_service.go:25,126-141 |
 | `app:open` | `notify.Target {tab, ref?}` | notification Open/body click, after showing window | notify_gui.go:16-31 |
 | `update:status` | `update.Status {phase, version, notes, error}` | every updater transition | update/service.go:63-85,224-237 |
+
+`seq` of the six list signals counts up from 1 per event name, minted with the emit under one mutex (`Window::emit_change`); a debug build can skip one (`IRORI_DEV_SKIP_SEQ=N`) or shrink the Core feeds (`IRORI_DEV_FEED_QUEUE=N`) to force the page's full-read fallback.
 
 Frontend reads Wails payloads as `ev.data` (src/lib/irori.ts:106-110); Tauri delivers `event.payload`.
 

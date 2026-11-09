@@ -77,6 +77,7 @@ In `sweep_spawns` (`crates/core/src/service/spawn.rs`), after `refresh_agent_dev
 - This device's own `spawn.host` says `assistantTurn`. From card 3 on, it must also say `assistantChat` (below).
 - Today's ranking, `assistant_home_of(homes, hosts)`, names this device, taken over only the computers whose newest `spawn.host` says every field the claim needs (from card 3, `assistantChat` too). Two connected desktops then agree on which of them claims, and a desktop left on an older build never blocks an updated one.
 - **This device is caught up with every one of the person's devices it is connected to** (below). That keeps a newly paired desktop, or one back from a long absence, from claiming before the existing claim has reached it.
+- **No other able desktop is about without a session.** No other of the person's desktops whose newest `spawn.host` says `assistantTurn` and `assistantChat` reads `recent` (its rows reached this device within 10 minutes) or is on a shared board's connection while it has no session with this one. That one may have claimed already, and its claim can't arrive until the session is back. The claim waits until that desktop has a session (then the ranking decides), or reads `offline` and is on no shared board's connection. A `connected` one is left to the ranking.
 
 A device only ever claims itself. It never writes an automatic row naming another device, and writes nothing while there is an assistant's computer, even one that has been offline for days.
 
@@ -93,7 +94,7 @@ Nothing else moves it: not being offline, asleep or unreachable, not a slow link
 
 A new `Node::caught_up() -> bool` (`crates/mesh/src/node.rs`): true when, for every one of the person's devices this one has a live session with, this device's vector covers that device's newest vector (the same `covers` check `check_step` makes). It leaves out writers in the node's `stopped` map (a fork or a bad HLC order: their rows will never arrive) and revoked devices' rows past their cut, so a stuck writer can't hold the assistant forever. With no own device connected, it is true. Both the claim and the worker (§5) use it.
 
-*Built in card 1 (#1101).* The peer's vector it compares with is the one the peer last sent: at connect and after it takes rows. Rows a peer wrote since arrive by push and are not in that vector, so `caught_up` can be true for a moment while a peer's newest rows are on their way. It is false while the peer's rows are held back (a clock ahead) once the peer has said so. Until a session is up it is true (a device that has just started and is not yet connected can claim; the sweep runs several seconds after start).
+*Built in card 1 (#1101).* The peer's vector it compares with is the one the peer last sent: at connect and after it takes rows. Rows a peer wrote since arrive by push and are not in that vector, so `caught_up` can be true for a moment while a peer's newest rows are on their way. It is false while the peer's rows are held back (a clock ahead) once the peer has said so. Until a session is up it is true. So the claim doesn't lean on it alone: a desktop that has just started, or lost its session, doesn't claim while another able desktop still reads `recent` or is on a shared board's connection (§3's claim rules); it claims once that one has a session (then the ranking decides), or reads `offline` and is on no shared board's connection. Two desktops that share a board and never get a session never claim.
 
 ### Saying it can answer from other devices
 
@@ -358,6 +359,39 @@ The person asked for "one Claude that is started for that". There are two ways t
   - It stays one turn at a time, through the same worker, so the grants rule holds.
 - **Card 8 measures it first,** with tools on the chat's model, against card 3's turns. If the numbers say keep it, it is built. If they say not to, the card posts the numbers on #1093 and asks the person. It doesn't drop the session by itself, since the person asked for it in so many words.
 
+**As measured (#1108).** 2026-11-08, Claude Code 2.1.319, Sonnet at low effort (the chat's default, which the person hasn't changed), the chat's tools, system prompt and argv exactly as `Job::assistant` builds them. The Core was an offline scratch copy of the person's Mac data (a debug build). The harness is `crates/window/tests/it/chat_held_measure.rs`: the same 20-question conversation in both modes, one question at a time, alternating which mode goes first. Some questions lean on earlier answers. A new card was made after question 4 and a comment added to #1095 after question 15, to catch a held session answering from what it saw before. The per-question side used `render_prompt` (the window's port of Core's `chat_prompt`: the same text for questions with no files). The held side kept one process with stdin open, sent the question alone, and started again from the rows (the same prompt the per-question side gets) past 60k tokens. Two passes: the first at load average 15–108 on 18 cores (other agents' checks), the second at 7–16 with the order flipped. Costs at API rates.
+
+| Over 40 questions per mode | Per-question turn (card 3) | Held session |
+|---|---|---|
+| Time to the first word of the reply, median / p90 | 5.0 s / 9.2 s | 3.9 s / 9.9 s |
+| Second pass only (low load), median | 4.4 s | 3.9 s |
+| Model time per question (`duration_api_ms`), median | 3.8 s | 3.8 s |
+| Start-up before the model runs, median / p90 | 0.3 s / 2.5 s (a new `claude` and `irori mcp`) | 4 ms / 7 ms (warm) |
+| Cost for 20 questions | $0.48 and $0.60 | $0.34 and $0.40 (−30%) |
+| Cost per question, median | $0.019 | $0.012 |
+| Tool calls | 69 (9 questions without one) | 54 (14 without one) |
+| Starting again past 60k tokens | n/a | 5 times in 40 questions (every 6–9 questions) |
+| Questions lost to a tool failure | 6 ("Irori isn't running on this device": each new `irori mcp` checks the Core once at start, and under load that check timed out), 5 of them at high load | 1 (a transient error, then it went on) |
+| Memory while held | none between questions | 240–365 MB (`claude` plus `irori mcp`) |
+
+- **The first question of a held session costs what a per-question turn costs**, and at high load its start can take long: the first held question of the first pass took 124 s, of which 4.4 s was the model (the process took 105 s to start under load 85+). A turn per question pays a smaller start every time.
+- **Context grows fast with tools.** A question adds 5–10k tokens of tool output, so a held session reaches 60k in six to nine questions and starts again from the rows. The warm saving applies to most questions, not all.
+- **Answers, judged blind.** Three independent panels judged every question, each answer against its own tool results: which answer is better, and whether each is grounded, stale, right about earlier turns and within the chat's rules. Over 40 questions, the held session was better on 11 by majority, the per-question turn on 10, with 18 ties and one split. Mean correctness was 1.60 of 2 for the held session and 1.43 for the per-question turn, but that gap is the per-question turn's tool failures at high load. In the low-load pass alone, the per-question turn was better on 6 and the held session on 4, and correctness was 1.55 and 1.50. So the quality is the same within noise, with different failure modes. Both found the new card and the new comment (no answer was stale from memory; in the second pass both missed the new card, because the scratch's search hadn't caught up).
+  - Where the held session lost: it answered from memory where a look would have been better (ranking cards by a time it had seen instead of checking their dates), claimed a check it hadn't made, and twice took "the first of those agents" to be a different agent from the first one it had listed.
+  - Where it won: summaries that agree with what it found earlier, being honest that it can't see the start of the chat after starting again (the per-question turn named the wrong "first questions" as fact), and no lost answers when the Core was slow.
+  - Both see only the last 12 turns after a start, so neither remembers the start of a long chat. The held session remembers more between starts.
+- **Verdict: keep it.** It is faster at the median (about a second a question, a fifth of the wait), the same at p90, 30% cheaper, and it answers no worse. That is the rule above, so card 8 builds it. The held session's habit of answering from memory is what to watch.
+
+**As built (#1108).**
+
+- **Core** (`assistant_turns.rs`) keeps what the held session has seen: a key, the last question it answered, the turns it answered and the posted threads it was told of. Each `ChatJob` carries the seed (`prompt`, as before), the `message` (the question alone, after "Since we last spoke:" lines) and the `session` key. The fold's `since` gives the lines: follow-up lines and turns another computer answered, between the session's last question and this one, then threads posted later from its own drafts. The key changes, so the next question seeds a new session, when the session's last question is hidden by New chat or comes after this one, when its turn failed or was stopped, and when the assistant's computer changes (`chat_session_reset` on the refold).
+- **The window** (`crates/window/src/assistant_held.rs`, `HeldChat`) keeps one `claude` with the exact argv a per-question turn runs, partial messages included, so the stream is unchanged. A turn reads to its `result` with today's `Parser`. The process is kept only when the key and the argv (the chat's model and effort) are the same, the turn ended well and its context is under 60k. Stderr is kept for a failure's words. Whether to keep it is settled before the turn's end is told, so the next question never starts a second process. Grants and the screen are set per question, as card 3 does.
+- **A Stop ends the process**, as it ended a per-question run, so the next question is a cold start. Quitting (`set_chat_turn(None)`, then `assistant_shutdown`) ends it with no reply, so the next start answers the question. The shell installs the home listener: when another computer becomes the assistant's, the held process ends.
+- **Since lines are cut:** another computer's reply goes in at most 600 characters. They go by store order between the session's last question and this one, so a follow-up line written on a device that hadn't yet seen that question can sort before it and is never told. Rare (it needs a follower line racing a turn), and the next new session's seed has it.
+- **No idle timeout:** a held session keeps its 240–365 MB until Irori quits, the computer stops being the assistant's, New chat or a reseed. Not in v1.
+- **Tests:** `crates/window/tests/it/chat_held.rs`, over a fake held `claude`: a second question on the same process with only its message; grants open per message and closed after; New chat seeds a new process holding nothing from before; "Since we last spoke" lines; a new process on a change of model, past 60k and after a Stop; quitting writes no reply; another computer taking over ends the process; ten questions from two paired Cores in one process.
+- **A scratch run** on two fresh paired instances (debug builds, the person's Claude Code sign-in): ten questions, six asked on the second instance and four on the first, all answered by the first with no error. Both showed the same conversation, and one `claude` (one pid, 26 minutes, 352 MB at the end) answered all ten. "What did I ask you first?" was answered from the session. The first instance claimed itself as the assistant's computer within 15 s. (An offline copy of the person's own data dir didn't: it shares the live device's id, and its `spawn.host` never said `assistantTurn`.)
+
 ## 9. Answering other people, and the huddle
 
 ### Assistants talk (docs/design/assistants-talk.md)
@@ -439,6 +473,8 @@ Done when tests show:
 - An automatic claim for the Mac, then a person's row for the PC, then the PC revoked: no assistant's computer, then a connected PC2 claims, and the Mac's old claim doesn't come back. Revoking changes the cached answer with no other row arriving.
 - A computer whose `spawn.host` drops `assistantTurn`, for a moment or for good, stays the assistant's computer, no other Core claims, and the status says Claude Code is missing there.
 - A Core that is connected to another of the person's devices but not caught up with it doesn't claim.
+- A Core doesn't claim while another able desktop reads `recent` with no session, and claims once that one reads `offline`.
+- A Core doesn't claim while another able desktop is on a shared board's connection with no session, even once it reads `offline`, and claims once that connection is gone.
 - `assistant_home_status` reports `setting_up`, `needs_update` and `no_claude` in their cases, with `assistantChat` set directly in hand-written `spawn.host` rows.
 - A person's row naming a revoked device, sorted after the revocation, is ignored.
 - A change of the folded answer publishes `assistant:home`.

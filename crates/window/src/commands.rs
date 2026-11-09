@@ -27,7 +27,7 @@ use crate::call::CallView;
 use crate::cards::{CardDetail, CardMessage, CardSummary, DonePage, IdleReport};
 use crate::desk::{DeskSettings, DeskView};
 use crate::devices::{DeviceView, HomeServerView, PairStatus};
-use crate::events::{CaptureChange, Empty};
+use crate::events::CaptureChange;
 use crate::inbox::{InboxCounts, SendResult};
 use crate::invites::InviteStatus;
 use crate::mentions::{MentionCandidate, MentionOutcome};
@@ -2740,7 +2740,13 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
         ])
         .typ::<RosterChange>()
         .typ::<CaptureChange>()
-        .typ::<Empty>()
+        .typ::<crate::signals::CardsChange>()
+        .typ::<crate::signals::TalkSignal>()
+        .typ::<crate::signals::NotifSignal>()
+        .typ::<crate::signals::InboxSignal>()
+        .typ::<crate::signals::DevicesSignal>()
+        .typ::<crate::signals::BoardsSignal>()
+        .typ::<crate::signals::AssistantSignal>()
         .typ::<Target>()
         .typ::<ts::TaskState>()
         .typ::<ts::LinkKind>()

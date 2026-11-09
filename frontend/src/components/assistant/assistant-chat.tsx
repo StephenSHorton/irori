@@ -975,9 +975,14 @@ function Entry({
       </p>
     )
   // A thread posting by itself shows that, not Post thread (card #988).
-  // A draft cut short (Stopped, or a reply that never closed it) shows
-  // with no Post thread: it isn't the whole thread.
-  const { text, draft, partial, go, cards, settle } = splitReply(entry.text)
+  // A draft cut short (Stopped, or a failure before it closed) shows with
+  // no Post thread: it isn't the whole thread. A reply that ended by itself
+  // without closing it has the whole draft.
+  const { text, draft, partial, go, cards, settle } = splitReply(
+    entry.text,
+    false,
+    entry.cutOff
+  )
   return (
     <Message>
       <MessageContent className="gap-2 text-[13.5px] leading-relaxed">

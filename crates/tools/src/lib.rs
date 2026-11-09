@@ -336,6 +336,33 @@ pub struct AgentsPaused {
     pub by: String,
 }
 
+/// One of the person's own devices, as the agents tool lists it, so a
+/// device with no agents still reads as online or stopped.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OwnDevice {
+    pub id: String,
+    /// Its name for people (the person's rename when they gave one).
+    pub name: String,
+    /// This device: `device_phrase` says "online, this device".
+    pub this: bool,
+    /// connected, recent or offline (coord::roster's words); ignored for
+    /// this device.
+    pub state: String,
+    /// When it was last heard (zero: never).
+    pub seen: GoTime,
+    /// The name of the device its rows come through, while recent.
+    pub via: String,
+    /// Stop here on it: true while it starts no agents (its own Stop here,
+    /// or Stop everywhere's).
+    pub stopped: bool,
+    /// Which one holds it: false its own Stop here, true Stop everywhere.
+    pub everywhere: bool,
+    /// When that went on (zero when off).
+    pub since: GoTime,
+    /// Who turned it on, for people ("the person on Mac").
+    pub by: String,
+}
+
 /// Shared boards to show (Go `BoardViewer`).
 pub trait BoardViewer: Send + Sync {
     fn board_views(&self, f: &coord::BoardFilter) -> Vec<coord::BoardView>;
@@ -459,6 +486,11 @@ pub trait Backend: Send + Sync {
     /// the backend keeps none.
     fn agents_paused(&self, _caller: &str) -> Option<AgentsPaused> {
         None
+    }
+    /// The person's own devices, this one first, removed ones left out
+    /// (Settings → Devices' rows); empty when the backend keeps none.
+    fn own_devices(&self) -> Vec<OwnDevice> {
+        Vec::new()
     }
     /// The person's limit on their agents' starts. There is no setter here,
     /// and none may be added: only the app changes it.

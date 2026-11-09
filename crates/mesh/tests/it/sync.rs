@@ -504,6 +504,56 @@ async fn reconnect_after_a_drop() {
     eventually("they reconnect after a drop", || b.has(&ea)).await;
 }
 
+/// A connection that stays up while nothing comes over it (the peer's
+/// session died under it) is closed, so the pair dials again: the transport
+/// counts a live connection as connected and would never redial.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_silent_connection_is_closed_and_dialled_again() {
+    let net = FakeNet::new();
+    let (mut a, mut b) = (Dev::new(&net, "pc"), Dev::new(&net, "mac"));
+    b.join(&a).await;
+    a.start();
+    b.start();
+    eventually("converge", || converged(&[&a, &b])).await;
+    eventually("connected", || a.peer(&b.id()).state == "connected").await;
+    net.stall(&a.id(), &b.id());
+    let eb = b.append(store::kinds::AGENT_SEEN, seen(&b, "after the stall"));
+    eventually("a fresh session carries the row", || a.has(&eb)).await;
+    eventually("connected again", || {
+        a.peer(&b.id()).state == "connected" && b.peer(&a.id()).state == "connected"
+    })
+    .await;
+    let ea = a.append(store::kinds::AGENT_SEEN, seen(&a, "both ways"));
+    eventually("and back", || b.has(&ea)).await;
+}
+
+/// A peer whose hello never comes is closed `no hello`, not held forever
+/// as a connection that blocks every redial.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_connection_with_no_hello_is_closed() {
+    let net = FakeNet::new();
+    let (mut a, mut b) = (Dev::new(&net, "pc"), Dev::new(&net, "mac"));
+    b.join(&a).await;
+    a.trust = true;
+    a.start();
+    b.start();
+    eventually("converge", || converged(&[&a, &b])).await;
+    let pid = a.ident.current().id;
+    let secret = mesh_secret(&a.seed(1), &pid, 1);
+    let (room, mut conns) = raw_peer(&net, secret, "ffffffffquiet").await;
+    room.connect(&a.id());
+    let c = tokio::time::timeout(Duration::from_secs(5), conns.recv())
+        .await
+        .expect("never connected")
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), c.done())
+        .await
+        .expect("a connection with no hello stayed open");
+    let err = c.err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(err.contains("no hello"), "{err}");
+    room.close();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn revoke_converges_and_rotates_the_key() {
     let net = FakeNet::new();
