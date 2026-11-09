@@ -53,6 +53,7 @@ import {
   type Delivery,
 } from "@/lib/talk"
 import { EarlierRound } from "./done-rounds"
+import { ProposalsPreview, proposalsPreview } from "./needs-proposals"
 
 export function NeedsYou({
   needs,
@@ -91,7 +92,8 @@ export function NeedsYou({
           </span>
         )}
       </h2>
-      {rows.length === 0 && (
+      {proposalsPreview() && <ProposalsPreview />}
+      {rows.length === 0 && !proposalsPreview() && (
         <p className="px-1 text-[12.5px] text-muted-foreground">
           Nothing waits on you right now.
         </p>
