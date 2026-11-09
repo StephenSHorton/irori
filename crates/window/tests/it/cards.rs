@@ -2051,3 +2051,27 @@ fn cards_by_id_unchanged_by_rev() {
     }];
     assert!(r.w.cards_by_id(&ids, &other)[0].card.is_some());
 }
+
+/// Card #1148: a batch builds the people once, not once per id.
+#[test]
+fn cards_by_id_builds_people_once_per_call() {
+    let r = Rig::new();
+    let a = held_task(&r);
+    let b = another_held_task(&r);
+    let ids = vec![a.id.clone(), b.id.clone(), "no-such-card".to_string()];
+
+    let before = r.w.card_people_builds();
+    let got = r.w.cards_by_id(&ids, &[]);
+    assert!(got[0].card.is_some() && got[1].card.is_some());
+    assert_eq!(
+        r.w.card_people_builds() - before,
+        1,
+        "one people() per call"
+    );
+
+    // Two cards read apart cost two: the batch is what shares.
+    let before = r.w.card_people_builds();
+    r.w.cards_by_id(&ids[..1], &[]);
+    r.w.cards_by_id(&ids[1..2], &[]);
+    assert_eq!(r.w.card_people_builds() - before, 2);
+}

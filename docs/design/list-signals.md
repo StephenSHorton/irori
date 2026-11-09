@@ -290,6 +290,12 @@ A new `frontend/src/lib/changes.ts` takes over **every `Events.On`/`OnShown` of 
 - **Inbox:** it follows `inbox:changed.cards` instead of reading everything on every inbox change.
 - **On the host,** `cards_by_id` builds `people()`, `Followers` and `order_loops` once per call, not once per id. That is the part #1136 left: it cut the bytes but not the building.
 
+**As built (card 7, #1148).**
+- **Page.** `createCardStore`'s `events` callback now takes ids: `again(ids)` reads the watched ones among them (the unwatched are dropped before any read is queued, so a notice naming none starts none), `again()` reads every watched id. `cardEvents` follows `board:changed.cards` (via `subscribeIds`, with focus) and `inbox:changed.cards`; `devices:changed`, focus, a gap, a first notice and the failed-read retry stay `all`. The `have` revs gate is as before.
+- **The chain comes from the signal, not the page.** The board pump already adds `cache_batch`'s rows (card 6's `readers` index, which holds every card a row's chain read, wait graph and `order` included) to the notice's `cards`, so a card page far down a chain is named when a card on it moves. The page keeps no index of its own. The index only exists while the grid's cache is built (its first read builds it); a card page opened with no grid read yet is named by the one-hop expander only until then.
+- **Host.** `Window::cards_by_id` reads through `card_with(id, &CardShared)`: the people are built once for the call, and the order loops and `Followers` once per log (keyed by the log's `Arc`), not once per id. `card` (one id) builds its own. `Window::card_people_builds()` counts the people builds for the test.
+- **Tests and harness.** `card-store.test.ts` ("by id"); `cards_by_id_builds_people_once_per_call` (`tests/it/cards.rs`); the perf harness's snapshot has `cardIds`, the ids of each `board_cards_by_id` read.
+
 ### 6.3 Threads (`useAllThreads`, `useThreads`, the follower)
 
 - **A real `threads_by_id(ids) → {rows, gone}`**, replacing today's `threads_all` + filter:
