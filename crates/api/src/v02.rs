@@ -176,15 +176,20 @@ fn tool(h: &Handler, name: &str) -> Resp {
         Ok(d) => d,
         Err(e) => return http::error(400, &e),
     };
-    let args = match d.raw(0) {
+    let mut args = match d.raw(0) {
         Some(a) if !a.is_empty() && a != b"null" => a,
         _ => b"{}".to_vec(),
     };
-    if write && !assistant_write_allowed(h, name, &args) {
-        return http::error(
-            403,
-            "the person's message didn't ask for that: say it plainly, naming the card (close #12, tick s2 on #12)",
-        );
+    if write {
+        match assistant_write_allowed(h, name, &args) {
+            Some(a) => args = a,
+            None => {
+                return http::error(
+                    403,
+                    "the person's message didn't ask for that: say it plainly, naming the card or agent (close #12, tick s2 on #12, tell ringo ..., comment on #12: ...)",
+                );
+            }
+        }
     }
     let caller = ToolCaller {
         sender: c.sender,
@@ -209,25 +214,47 @@ fn tool(h: &Handler, name: &str) -> Resp {
 }
 
 /// Spends the grant the person's message gave for this write (card #987).
-fn assistant_write_allowed(h: &Handler, name: &str, args: &[u8]) -> bool {
-    let Some(g) = h.s.b.assistant_grants() else {
-        return false;
-    };
+/// What comes back are the arguments to run with: for a message or a
+/// comment the words are the grant's, the person's, whatever the model sent.
+fn assistant_write_allowed(h: &Handler, name: &str, args: &[u8]) -> Option<Vec<u8>> {
+    let g = h.s.b.assistant_grants()?;
     let Ok(serde_json::Value::Object(v)) = serde_json::from_slice(args) else {
-        return false;
+        return None;
     };
     // Exactly the names read here: the tool's decoder also folds case, so
     // a `TASK_ID` beside `task_id` would act on a card this didn't check.
-    let known: &[&str] = if name == "assistant_tick" {
-        &["task_id", "step_id"]
-    } else {
-        &["task_id"]
+    // `text` is allowed to be sent but is never used (card #1193).
+    let known: &[&str] = match name {
+        "assistant_tick" => &["task_id", "step_id"],
+        "assistant_send" => &["to", "text"],
+        "assistant_comment" => &["task_id", "text"],
+        _ => &["task_id"],
     };
     if v.keys().any(|k| !known.contains(&k.as_str())) {
-        return false;
+        return None;
     }
     let arg = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or_default();
-    g.take(name, arg("task_id"), arg("step_id"))
+    match name {
+        tools::TOOL_SEND => {
+            let (to, text) = g.take_text(name, arg("to"))?;
+            Some(
+                serde_json::json!({ "to": to, "text": text })
+                    .to_string()
+                    .into_bytes(),
+            )
+        }
+        tools::TOOL_COMMENT => {
+            let (card, text) = g.take_text(name, arg("task_id"))?;
+            Some(
+                serde_json::json!({ "task_id": card, "text": text })
+                    .to_string()
+                    .into_bytes(),
+            )
+        }
+        _ => g
+            .take(name, arg("task_id"), arg("step_id"))
+            .then(|| args.to_vec()),
+    }
 }
 
 fn set_policy(h: &Handler, ib: &inbox::Inbox) -> Resp {

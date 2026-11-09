@@ -10,7 +10,8 @@
 import { useSyncExternalStore } from "react"
 
 import { EventBoardsChanged } from "./boards"
-import { Events, SyncService } from "./host"
+import { SyncService } from "./host"
+import { onChange } from "./changes"
 import { timedRead } from "./window-log"
 import { inWails, parseTime, relativeTime } from "./irori"
 import { previewFlag } from "./preview"
@@ -141,7 +142,9 @@ function subscribe(l: () => void): () => void {
   if (!stop) {
     read()
     const id = window.setInterval(read, RefreshMs)
-    const off = inWails() ? Events.OnShown(EventBoardsChanged, read) : () => {}
+    const off = inWails()
+      ? onChange(EventBoardsChanged, () => read())
+      : () => {}
     stop = () => {
       window.clearInterval(id)
       off()

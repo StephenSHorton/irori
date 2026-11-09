@@ -48,6 +48,7 @@ import {
 } from "./assistant-talk-follow"
 import { splitAsk, type AskDraft } from "./assistant-ask"
 import { AssistantService, Events } from "./host"
+import { onChange } from "./changes"
 import { EventDevicesChanged, inWails } from "./irori"
 import { previewFlag } from "./preview"
 import { checkUploads, uploadOf } from "./uploads"
@@ -1547,9 +1548,9 @@ export function startFollowing(): () => void {
   const offs: Array<() => void> = []
   if (inWails()) {
     offs.push(
-      Events.OnShown(EventAssistantChanged, () => void refresh()),
+      onChange(EventAssistantChanged, () => void refresh()),
       Events.OnShown(EventAssistantHome, () => void refreshHome()),
-      Events.OnShown(EventDevicesChanged, () => void refreshHome())
+      onChange(EventDevicesChanged, () => void refreshHome())
     )
     const timer = setInterval(() => {
       if (assistantState().open) void refreshHome()

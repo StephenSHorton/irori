@@ -2446,5 +2446,43 @@
     },
     "readOnly": false,
     "clients": []
+  },
+  {
+    "name": "assistant_send",
+    "description": "Message one agent, as the person. Only when the person's own newest message plainly tells you to (for example \"tell ringo the allow prompt is cleared\"), and only the agent they named. Give the agent exactly as they wrote it. The words sent are the person's own, taken from their message; you cannot supply or change them, so do not try.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string",
+          "description": "The agent the person named, as they wrote it."
+        }
+      },
+      "required": [
+        "to"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": []
+  },
+  {
+    "name": "assistant_comment",
+    "description": "Comment on one card, as the person. Only when the person's own newest message plainly tells you to (for example \"comment on #1182: ...\"), and only the card they named. The comment is the person's own words, taken from their message; you cannot supply or change them, so do not try.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "The card the person named, as they wrote it: #12 or tag#12."
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": []
   }
 ]

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { Events, TalkService } from "./host"
+import { onChange } from "./changes"
 import {
   TalkCall,
   TalkConversation,
@@ -273,13 +274,8 @@ function useTalkFresh(reload: () => Promise<void>) {
         sampleListeners.delete(reload)
       }
     }
-    const off = Events.OnShown(EventTalkChanged, () => void reload())
-    const onFocus = () => void reload()
-    window.addEventListener("focus", onFocus)
-    return () => {
-      off()
-      window.removeEventListener("focus", onFocus)
-    }
+    // Focus is the module's: a full read at most once a minute.
+    return onChange(EventTalkChanged, () => void reload(), { focus: true })
   }, [reload])
 }
 

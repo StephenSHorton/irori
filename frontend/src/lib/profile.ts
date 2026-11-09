@@ -7,7 +7,8 @@
 import { useEffect } from "react"
 
 import { devices } from "./devices"
-import { Events, SettingsService } from "./host"
+import { SettingsService } from "./host"
+import { onChange } from "./changes"
 import { EventDevicesChanged, inWails } from "./irori"
 import { useLatest } from "./talk"
 
@@ -41,7 +42,9 @@ export function useMe(): Me {
     void reload()
     const on = () => void reload()
     window.addEventListener(MeEvent, on)
-    const off = inWails() ? Events.On(EventDevicesChanged, on) : () => {}
+    const off = inWails()
+      ? onChange(EventDevicesChanged, () => on(), { held: false })
+      : () => {}
     return () => {
       window.removeEventListener(MeEvent, on)
       off()

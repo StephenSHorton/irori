@@ -12,7 +12,8 @@
 
 import { useCallback, useEffect } from "react"
 
-import { Events, NotesService } from "./host"
+import { NotesService } from "./host"
+import { onChange } from "./changes"
 import { EventBoardChanged } from "./cards"
 import { inWails } from "./irori"
 import { useLatest } from "./talk"
@@ -303,7 +304,7 @@ function useNotesFresh(reload: () => Promise<void>) {
       void reload()
     }
     const off = inWails()
-      ? Events.OnShown(EventBoardChanged, () => void reload())
+      ? onChange(EventBoardChanged, () => void reload())
       : () => {}
     return () => {
       listeners.delete(reloadFn)

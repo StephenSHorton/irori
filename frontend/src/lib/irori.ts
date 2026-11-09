@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react"
 
 import { Events, RosterService } from "./host"
+import { onChange } from "./changes"
 import type {
   AgentCard,
   Identity,
@@ -105,11 +106,15 @@ export function useRoster(): Roster {
     })
 
     // A rename changes what the header calls this device.
-    const offDevices = Events.On(EventDevicesChanged, () => {
-      RosterService.Device()
-        .then((device) => live && setState((s) => ({ ...s, device })))
-        .catch(() => {})
-    })
+    const offDevices = onChange(
+      EventDevicesChanged,
+      () => {
+        RosterService.Device()
+          .then((device) => live && setState((s) => ({ ...s, device })))
+          .catch(() => {})
+      },
+      { held: false }
+    )
 
     Promise.all([
       RosterService.Device(),

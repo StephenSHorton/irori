@@ -9,7 +9,8 @@
 
 import { useCallback, useEffect } from "react"
 
-import { Events, StorageService } from "./host"
+import { StorageService } from "./host"
+import { onChange } from "./changes"
 import { EventBoardChanged } from "./cards"
 import { inWails } from "./irori"
 import { useLatest } from "./talk"
@@ -649,7 +650,10 @@ export function useStorageFresh(
     void reload()
     const fn = () => void reload()
     listeners.set(fn, scope)
-    const off = board && inWails() ? Events.On(EventBoardChanged, fn) : () => {}
+    const off =
+      board && inWails()
+        ? onChange(EventBoardChanged, () => fn(), { held: false })
+        : () => {}
     return () => {
       listeners.delete(fn)
       off()
