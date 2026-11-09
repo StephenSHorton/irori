@@ -2448,7 +2448,10 @@ impl Core {
                 while let Some(ch) = sub.recv() {
                     // An agent's message shows as a DM from its delivery's
                     // first row (list-signals.md §3.2).
-                    let d = (!ch.delivery_id.is_empty())
+                    // Only a first row or a move can show one: no lookup
+                    // for the rest.
+                    let d = (!ch.delivery_id.is_empty()
+                        && (ch.created || ch.kind == inbox::ChangeKind::MovedAway))
                         .then(|| s.inbox.get(&ch.delivery_id))
                         .flatten();
                     if let Some(t) = dm_change(&ch, d.as_ref()) {
@@ -2494,7 +2497,7 @@ impl Core {
             let q = s.boards.subscribe();
             let reg = self.on_stop(&q, |q| q.close());
             let s = s.clone();
-            self.spawn("feed-boards", move || {
+            self.spawn("feed-board-set", move || {
                 let _reg = reg;
                 while q.recv().is_some() {
                     s.hub.publish(CoreEvent::Board(coord::Change {

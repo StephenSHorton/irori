@@ -1279,6 +1279,10 @@ fn test_talk_survives_a_restart() {
 /// show as a DM. Board notices (most of what the inbox carries while
 /// agents work) and stops don't, so they no longer make the window
 /// rebuild Talk's list from the whole inbox; an agent's message still does.
+/// It comes from feed-inbox on the delivery's first row and names the DM
+/// (list-signals.md §3.2). If this ever counts 2, check for an inbox
+/// Resync: feed-inbox's 64-slot subscription overflowing during the 22
+/// sends turns into a Talk `all` as well.
 #[test]
 fn test_only_messages_that_show_as_dms_change_talk() {
     let r = Rig::new();

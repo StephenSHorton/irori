@@ -714,7 +714,7 @@ impl Boards {
     }
 
     /// Tells the window a board opened, went or was renamed: a zero Change,
-    /// which the Core's `feed-boards` pump turns into a Board resync.
+    /// which the Core's `feed-board-set` pump turns into a Board resync.
     pub(crate) fn moved(&self) {
         self.tell(Change::default());
     }
