@@ -611,9 +611,11 @@ mod tests {
 
     #[test]
     fn a_short_spike_is_not_heavy() {
+        // Two readings of 3 cores: the 10 s average drops under 1 core
+        // before it has held 10 s.
         let mut h = Heavy::default();
-        assert!(!h.step(2000, Some(8.0), 0));
-        assert!(!h.step(4000, Some(8.0), 0));
+        assert!(!h.step(2000, Some(3.0), 0));
+        assert!(!h.step(4000, Some(3.0), 0));
         for t in (6000..40_000).step_by(2000) {
             assert!(!h.step(t, Some(0.1), 0));
         }
