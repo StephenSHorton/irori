@@ -522,7 +522,7 @@ function FitWhileUntouched({
 // KeepCenter holds the middle of the view still when the canvas changes
 // size (a window resize, full screen on or off: card #410): React Flow
 // keeps the top-left corner, so the view would slide.
-function KeepCenter() {
+export function KeepCenter() {
   const w = useStore((s) => s.width)
   const h = useStore((s) => s.height)
   const { getViewport, setViewport } = useReactFlow()

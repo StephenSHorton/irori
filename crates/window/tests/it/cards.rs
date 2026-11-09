@@ -2008,3 +2008,46 @@ fn a_wait_on_a_gone_agent_is_the_persons() {
     assert!(summary(&t73.id).gone_wait.is_none());
     assert_eq!(r.w.decide_count(), 2);
 }
+
+/// Card #1136: a read that holds a card's rev gets a stamp back, not the
+/// card, until anything on the card (a comment, a step) moves it.
+#[test]
+fn cards_by_id_unchanged_by_rev() {
+    use irori_window::cards::CardHave;
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let t = held_task(&r);
+    let ids = vec![t.id.clone(), "no-such-card".to_string()];
+
+    let first = r.w.cards_by_id(&ids, &[]);
+    assert!(first[0].card.is_some() && !first[0].unchanged);
+    assert!(!first[0].rev.is_empty());
+    assert!(first[1].card.is_none() && !first[1].error.is_empty());
+
+    let have = [CardHave {
+        id: t.id.clone(),
+        rev: first[0].rev.clone(),
+    }];
+    let again = r.w.cards_by_id(&ids, &have);
+    assert!(again[0].unchanged && again[0].card.is_none());
+    // The bytes a quiet card costs, whole and as a stamp.
+    let whole = serde_json::to_vec(&first[0]).unwrap().len();
+    let stamp = serde_json::to_vec(&again[0]).unwrap().len();
+    eprintln!("cards_by_id one card: {whole} bytes whole, {stamp} bytes unchanged");
+    assert!(stamp * 20 < whole);
+    assert_eq!(again[0].rev, first[0].rev);
+
+    // A comment alone moves it, whatever it does to the task's stamp.
+    co.add_comment(&me(&r), &t.id, "Use the staging DB.", false)
+        .unwrap();
+    let moved = r.w.cards_by_id(&ids, &have);
+    assert!(!moved[0].unchanged && moved[0].card.is_some());
+    assert_ne!(moved[0].rev, first[0].rev);
+
+    // A stale rev for another id never matches.
+    let other = [CardHave {
+        id: "other".into(),
+        rev: moved[0].rev.clone(),
+    }];
+    assert!(r.w.cards_by_id(&ids, &other)[0].card.is_some());
+}

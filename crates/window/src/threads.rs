@@ -457,6 +457,15 @@ impl Window {
         all
     }
 
+    /// BoardService.ThreadsById (card #1136): the rows of just these
+    /// threads, in `threads_all`'s order, for Ask Irori's follower, which
+    /// follows a few and needn't be sent every thread in every space.
+    pub fn threads_by_id(&self, ids: &[String]) -> Vec<ThreadSummary> {
+        let mut all = self.threads_all();
+        all.retain(|t| ids.contains(&t.id));
+        all
+    }
+
     /// `found` as the panel lists it, in space `space` ("": Personal): open
     /// ones newest first, then the newest resolved ones.
     fn thread_rows(&self, found: Vec<Found>, space: &str) -> Vec<ThreadSummary> {

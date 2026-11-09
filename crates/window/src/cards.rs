@@ -11,7 +11,7 @@ use coord::FileRef;
 use coord::{Activity, Comment, Link, Step, Task};
 use gocompat::time::GoTime;
 use inbox::{Delivery, st};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::Window;
@@ -969,6 +969,31 @@ pub struct CardRead {
     pub card: Option<CardDetail>,
     /// "" when card is there.
     pub error: String,
+    /// A stamp of the card as read (card #1136): the window sends it back in
+    /// `have`, and a card that still hashes to it comes back `unchanged`
+    /// with no card, so a quiet board costs a few bytes a card, not every
+    /// comment and step of it. "" when the card isn't there.
+    pub rev: String,
+    /// The card is what `have` said: `card` is empty on purpose.
+    pub unchanged: bool,
+}
+
+/// What the window holds of one card: the `rev` it was last sent.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CardHave {
+    pub id: String,
+    pub rev: String,
+}
+
+/// The stamp of a card as it would be sent: a hash of its JSON. It only
+/// has to agree with itself within one run (the window and this process
+/// start together), so the std hasher with its fixed keys is enough.
+fn card_rev(c: &CardDetail) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    serde_json::to_vec(c).unwrap_or_default().hash(&mut h);
+    format!("{:016x}", h.finish())
 }
 
 /// One card opened beside the grid.
@@ -2591,18 +2616,25 @@ impl Window {
     /// Several cards at once, in the order asked (card #468): the window's
     /// card hooks (a Notifications row's, a Needs you row's, a thread's,
     /// the open card's) share one read per change instead of one each.
-    pub fn cards_by_id(&self, ids: &[String]) -> Vec<CardRead> {
+    pub fn cards_by_id(&self, ids: &[String], have: &[CardHave]) -> Vec<CardRead> {
         ids.iter()
             .map(|id| match self.card(id) {
-                Ok(c) => CardRead {
-                    id: id.clone(),
-                    card: Some(c),
-                    error: String::new(),
-                },
+                Ok(c) => {
+                    let rev = card_rev(&c);
+                    let same = have.iter().any(|h| h.id == *id && h.rev == rev);
+                    CardRead {
+                        id: id.clone(),
+                        card: (!same).then_some(c),
+                        error: String::new(),
+                        rev,
+                        unchanged: same,
+                    }
+                }
                 Err(e) => CardRead {
                     id: id.clone(),
                     card: None,
                     error: e,
+                    ..CardRead::default()
                 },
             })
             .collect()

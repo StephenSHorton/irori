@@ -15,6 +15,7 @@ import { nameOr, unknownPerson } from "./names"
 import { previewFlag } from "./preview"
 import type { CallShareView, ShareSourceView } from "./share"
 import { previewTitleOf } from "./huddles"
+import { sampleAssistants, sampleCanvas } from "./sample-huddle"
 import { allowMic, loadVoiceStatus } from "./voice"
 import type {
   CallCaptionView,
@@ -672,18 +673,19 @@ function previewTranscript(callId: string): TalkTranscript {
     convId,
     convName,
     convKind: "channel",
-    agents: false,
+    agents: true,
     startedAtMs: started,
     ended: !live,
     durationMs: live ? 0 : 18 * 60_000,
     title: previewTitleOf(callId) ?? "",
     titleByAssistant: false,
     over: !live,
-    assistants: [],
-    canvas: [],
+    assistants: sampleAssistants(live),
+    canvas: sampleCanvas(callId, Date.now()),
     lines: said.slice(0, n).map((l, i) => ({
       name: l.name,
       mine: l.name === "you",
+      agents: true,
       atMs: started + 20_000 + i * 75_000,
       text: l.text,
     })),

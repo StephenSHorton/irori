@@ -12,6 +12,7 @@ import type {
   RosterChange,
 } from "./models"
 import { sampleRoster } from "./sample"
+import { appPage } from "./visibility"
 
 export type { AgentCard, Identity, LogEvent }
 
@@ -166,18 +167,20 @@ export function useNow(intervalMs = 1000): Date {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     // Hidden, it holds still: the App's 1 s clock re-renders the whole
-    // window (card #765). Shown again, it catches up at once.
+    // window (card #765). Shown again, it catches up at once. Hidden is
+    // appPage's, so a minimised or tray-hidden window counts (card #1134).
+    const page = appPage() ?? document
     const tick = () => setNow(new Date())
     const id = window.setInterval(() => {
-      if (!document.hidden) tick()
+      if (!page.hidden) tick()
     }, intervalMs)
     const onShow = () => {
-      if (!document.hidden) tick()
+      if (!page.hidden) tick()
     }
-    document.addEventListener("visibilitychange", onShow)
+    page.addEventListener("visibilitychange", onShow)
     return () => {
       window.clearInterval(id)
-      document.removeEventListener("visibilitychange", onShow)
+      page.removeEventListener("visibilitychange", onShow)
     }
   }, [intervalMs])
   return now
