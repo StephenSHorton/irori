@@ -16,6 +16,7 @@ import {
 } from "./models"
 import { EventDevicesChanged, EventRosterChanged, inWails } from "./irori"
 import { createStore, rosterWatch } from "./small-lists"
+import { forgetSpace } from "./spaces"
 import { appPage } from "./visibility"
 
 export { DeviceView, HomeServerView, PairStatus }
@@ -320,7 +321,11 @@ export const devices = {
   // reset makes this device a new one (its log, id and keys move aside;
   // settings stay). Irori quits, and opening it again finishes it.
   async reset(): Promise<void> {
-    if (inWails()) return DevicesService.ResetDevice()
+    if (inWails()) {
+      // The spaces move aside too, so the window's pick of one goes.
+      forgetSpace()
+      return DevicesService.ResetDevice()
+    }
     throw new Error("Reset needs the desktop app")
   },
   // homeServer is the Home server section: on this device, the switch

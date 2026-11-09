@@ -10,12 +10,13 @@
 //! the old person's: what says this person joined, forgot or hides each one
 //! is in the private log, which moves, yet a start opens every log it finds
 //! in `spaces/`. Kept, they showed the old cards on the new device's board
-//! and left it holding the old person's space keys (the keystore's key
-//! belongs to the data dir, not to `device.key`, so it still unseals them).
-//! A space comes back the way it reaches any new device: over sync once
-//! this device is paired into the person again, or by a new invite. If this
-//! device was the only one holding a space, its files are in the reset
-//! folder, still sealed by the same keystore.
+//! and left it holding the old person's space keys: `.secrets` is sealed by
+//! the data dir's keystore (the Mac's Keychain item for this data dir, the
+//! PC's Windows user), not by `device.key`, so a Reset alone doesn't stop it
+//! unsealing them. A space comes back the way it reaches any new device:
+//! over sync once this device is paired into the person again, or by a new
+//! invite. If this device was the only one holding a space, its files are
+//! in the reset folder, and the same keystore still opens them.
 
 use std::fs;
 use std::io;

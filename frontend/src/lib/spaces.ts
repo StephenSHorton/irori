@@ -159,6 +159,18 @@ function readSpace(): string {
   }
 }
 
+// forgetSpace drops the saved pick (card #1096): a Reset moves this
+// device's spaces aside, and a pick of one would leave the window on a
+// space it no longer has, since an empty list can't tell it apart from one
+// still loading. The next start is on Personal.
+export function forgetSpace(): void {
+  try {
+    localStorage.removeItem(spaceKey)
+  } catch {
+    // A blocked storage saved no pick either.
+  }
+}
+
 // useSpace is the picked space on this device, kept between starts; every
 // user of it follows a pick made anywhere in the window.
 export function useSpace(
