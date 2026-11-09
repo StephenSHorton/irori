@@ -63,6 +63,7 @@ import { useRoster } from "@/lib/irori"
 import { useClockValue } from "@/lib/clock"
 import { previewFlag } from "@/lib/preview"
 import { onOpen } from "@/lib/settings"
+import { setAssistantOpen } from "@/lib/assistant"
 import { nameLookup, SystemKey, useGone, useHeld, useInbox } from "@/lib/talk"
 import { startWindowLog } from "@/lib/window-log"
 import { deskShown, useDesks } from "@/lib/desk"
@@ -489,6 +490,11 @@ export function App() {
     () =>
       onOpen((target) => {
         const ref = target.ref ?? ""
+        // A toast for a line that waits in the Office Assistant chat.
+        if (target.tab === "assistant") {
+          setAssistantOpen(true)
+          return
+        }
         if (target.tab === "wind-down") {
           setWindDown(true)
           return

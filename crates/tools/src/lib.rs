@@ -65,6 +65,7 @@ mod observe;
 mod review_claim;
 mod room;
 mod shared;
+mod slots;
 mod specs;
 mod started;
 pub mod talk;
@@ -606,7 +607,7 @@ const CALLER_READS: [&str; 10] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 68] = [
+    let list: [(&'static str, Handler); 70] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -655,6 +656,8 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("leases", board::leases),
         ("device_free", devicefree::device_free),
         ("release", board::release),
+        ("slot_take", slots::slot_take),
+        ("slot_release", slots::slot_release),
         ("review_claim", review_claim::review_claim),
         ("timeline", capturetools::timeline),
         ("why", capturetools::why),
@@ -781,6 +784,9 @@ impl Set {
                 "this connection isn't bound to an agent yet. Grok: call join first. \
 Claude Code: the Irori mod attaches your session; reload it if this persists.",
             ));
+        }
+        if !trim(&c.sender.key).is_empty() && name != "slot_release" {
+            slots::renew(x, c);
         }
         let out = x.around_board(name, args, || h(x, c, args));
         Ok(clip(&out, MAX_RESULT))

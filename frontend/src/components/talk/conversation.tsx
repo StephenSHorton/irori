@@ -38,6 +38,7 @@ import { AgentCards } from "@/components/cards/agent-hover"
 import { NewCardDialog } from "@/components/cards/new-card-dialog"
 import { Button } from "@/components/ui/button"
 import { useBoards } from "@/lib/boards"
+import { replyLine } from "@/lib/talk-reply"
 import { dropMakingCard, keepMakingCard, makingCard } from "@/lib/drafts"
 import { PostRowsShape } from "@/components/common/loading-shapes"
 import { ReplyingRow } from "@/components/talk/replying-row"
@@ -624,6 +625,13 @@ export function ConversationView({
                         )}
                         <PostRow
                           post={p}
+                          replyNote={replyLine(
+                            p,
+                            posts,
+                            conv.members,
+                            boards.find((b) => b.boardId === conv.spaceId)
+                              ?.name ?? ""
+                          )}
                           who={memberOf(names.values(), p.by)}
                           names={names}
                           live={live}
@@ -734,6 +742,7 @@ function DayLine({ label }: { label: string }) {
 
 export function PostRow({
   post,
+  replyNote,
   who,
   names,
   live,
@@ -745,6 +754,9 @@ export function PostRow({
   onOpenHuddle,
 }: {
   post: Post
+  // An assistant's answer or waiting line says whose question it is and
+  // that it is a reading of the space (card #1062).
+  replyNote?: string
   who?: Member
   names: ReadonlyMap<string, Member>
   live: ReadonlyMap<string, LiveAgent>
@@ -889,6 +901,14 @@ export function PostRow({
             mentions={mentions}
             className="text-[13px] leading-relaxed [overflow-wrap:anywhere] text-ink-2"
           />
+        )}
+        {replyNote && (
+          <p
+            className="text-[11.5px] text-muted-foreground"
+            data-assistant-reply=""
+          >
+            {replyNote}
+          </p>
         )}
         <AttachmentList attachments={post.attachments ?? []} />
         {post.card && <CardChip id={post.card} />}

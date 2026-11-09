@@ -467,6 +467,8 @@ struct State {
     stops: HashMap<String, Held<Stop>>,
     updates: HashMap<String, Held<Update>>,
     drafts: HashMap<String, Held<AnswerDraft>>,
+    /// Let it answer and Answer this taps, by request (§9).
+    requests: HashMap<String, Held<AnswerRequested>>,
     /// The newest New chat.
     cleared: Option<Order>,
 }
@@ -595,6 +597,21 @@ impl Fold {
 
     /// Folds one row; reports whether the fold changed. A row folded twice
     /// (written here, then heard from the kind loop) changes nothing.
+    /// The taps that nothing has served yet, oldest first: no `update`
+    /// line or draft names the request (§9, "Serving writes a record").
+    pub(crate) fn unserved_requests(&self) -> Vec<AnswerRequested> {
+        let st = self.lock();
+        let mut out: Vec<(&Order, &AnswerRequested)> = st
+            .requests
+            .values()
+            .filter(|r| !st.drafts.contains_key(&r.row.request))
+            .filter(|r| !st.updates.values().any(|u| u.row.request == r.row.request))
+            .map(|r| (&r.at, &r.row))
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(b.0));
+        out.into_iter().map(|(_, r)| r.clone()).collect()
+    }
+
     pub fn apply(&self, ev: &Event) -> bool {
         let Some(actor) = actor_of(&ev.kind) else {
             return false;
@@ -643,6 +660,12 @@ impl Fold {
             }
             // Requests are served by the assistant's computer (§9); they
             // show nothing by themselves.
+            ANSWER_REQUESTED => {
+                if let Some(r) = decode::<AnswerRequested>(ev).filter(|r| !r.request.is_empty()) {
+                    first_wins(&mut st.requests, r.request.clone(), at, r);
+                }
+                false
+            }
             _ => false,
         }
     }

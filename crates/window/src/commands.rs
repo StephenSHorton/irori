@@ -2736,6 +2736,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_chat_clear,
             assistant_chat_update,
             assistant_chat_import,
+            assistant_talk_cards,
+            assistant_answer_request,
+            assistant_talk_toast,
             assistant_chat_watch,
         ])
         .typ::<RosterChange>()
@@ -2855,6 +2858,36 @@ pub async fn assistant_chat_update(
     line: crate::assistant_chat::AssistantChatUpdateIn,
 ) -> R<()> {
     blocking(&w, move |w| w.assistant_chat_update(line)).await
+}
+
+/// The spaces where the person has an Office Assistant: its card and the
+/// space's #office-assistants channel (assistants-talk.md §8).
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_talk_cards(w: W<'_>) -> R<Vec<crate::assistant_chat::AssistantTalkCard>> {
+    Ok(w.assistant_talk_cards())
+}
+
+/// Let it answer: a tap on question `post` of `space`, from any device. The
+/// assistant's computer answers it, or says why not in the chat. Returns the
+/// request's id.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_answer_request(
+    w: W<'_>,
+    post: String,
+    space: String,
+    how: String,
+) -> R<String> {
+    blocking(&w, move |w| w.assistant_answer_request(&post, &space, &how)).await
+}
+
+/// One toast for a chat line that waits on the person; a click opens the
+/// Office Assistant chat. False when no card was shown.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_talk_toast(w: W<'_>, conv: String, title: String, body: String) -> R<bool> {
+    Ok(w.assistant_talk_toast(&conv, &title, &body))
 }
 
 /// Brings this computer's old chat history (localStorage) in as the
