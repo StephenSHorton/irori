@@ -411,6 +411,25 @@ Each is a subtask of #1138, in this order (`after`). Cards 7–11 can run side b
 
 ## 10. Open questions
 
-1. **Shared boards' `all`.** One board's resync sets `all` for every board, because the Board feed is one queue. If a busy shared board resyncs often, a per-board `all` would need a board id on `Change`. Card 12's numbers will tell.
+1. **Shared boards' `all`.** One board's resync sets `all` for every board, because the Board feed is one queue. If a busy shared board resyncs often, a per-board `all` would need a board id on `Change`. Card 12 ran one local board only (no shared board), so it did not measure this; it stays open.
 2. **Others' agents (`AGENT_CARD`)** change names and status on cards and conversation rows with no event today. This design doesn't make that worse. Card 6's `deps` index could take those keys later.
-3. **The 100–200 s single reads** on the Mac on 11/08 are a different problem: the coord lock held through a catch-up, or contention. Fewer reads lower the contention, but if card 12 still shows reads over 10 s, they need their own card.
+3. **The 100–200 s single reads** on the Mac on 11/08 are a different problem: the coord lock held through a catch-up, or contention. Fewer reads lower the contention, but if card 12 still shows reads over 10 s, they need their own card. Card 12 did (14 of 30 minutes had one, up to 20 s, under 6 busy agents); that is #1234.
+
+## 11. As measured (card 12, #1153)
+
+Debug build of main at `d9cd094d` on a scratch copy, 6 pretend agents for 30 minutes (card creates, comments, steps, and posts to #general), no debug switches. Against the card-1 baseline on #1138 (same size of board load; the baseline had no talk posts, so this run adds talk and inbox work of its own):
+
+| | Baseline, 30 min | After, 30 min |
+|---|---|---|
+| `board:changed` | 852 | 804 |
+| `board_cards` (full grid) | ≈684 | 5 (+5 `board_cards_cold`, the drift reads) |
+| `board_cards_patch` | n/a | 792 (0.99 per change) |
+| `board_threads_all` / `board_threads_by_id` | ≈621 / 0 | 12 / 974 |
+| `desk_list` | ≈894 | 67 |
+| reads over 1 s | 784 | 348 |
+| slowest read | 46 s | 20 s |
+
+- **Drift:** `drift cards-cache 0` in all 7 host samples; 11 page samples compared, all 0, and 19 dropped (a change came during or just after the read). The grid's own page sample was dropped every time at this rate (27 changes a minute); quiet runs compared it at `drift cards 0 of 1`.
+- **Two false drifts were found and fixed:** the host's cold read and the page's sample both saw changes whose notice had not arrived yet. The host leaves rows written since the cache's last batch out of the comparison (the drift line names the fields that differ); the page waits 3 s after a drift read for a notice.
+- **Forced fallbacks** (the `dev:` log lines count each skipped seq and each `all`): `IRORI_DEV_SKIP_SEQ=7` gave 16 `board:changed` gaps and 17 full grid reads (16 + the mount read); `IRORI_DEV_FEED_QUEUE=2` with 4 bursts of 80 comments gave 22 `board:changed` `all`s and 22 full grid reads.
+- **Left over:** `inbox_repo_names` is read once per `inbox:changed`, and `board_idle_report` about once per three changes; both are full reads outside this design. Reads over 10 s remain: #1234.
