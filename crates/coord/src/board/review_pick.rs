@@ -251,16 +251,25 @@ impl Fold {
     /// PR author's (a row written before the PR card stood) is none.
     fn pr_asks(&self, res: &str) -> impl Iterator<Item = &ReviewRequest> {
         let res = res.to_string();
-        let author = self
+        let card = self
             .pr_card_by_resource(&res)
-            .map(|c| self.person_of(&c.created_by))
+            .map(|c| c.id.clone())
             .unwrap_or_default();
+        // Never the author's agents: whoever made a PR card for the PR, as
+        // the fold refuses (card #1155).
+        let makers = self.pr_card_makers(&res);
         self.reviews.values().flatten().filter(move |r| {
             if r.look || r.to.is_empty() || pr_claim_resource(&r.pr).as_deref() != Some(&res) {
                 return false;
             }
+            // A person's ask is the pick, and counts only on the standing
+            // card: one on a PR card that doesn't stand is its creator's
+            // own (card #1155).
+            if r.from.starts_with(kinds::PERSON_ACTOR_PREFIX) && r.task_id != card {
+                return false;
+            }
             let to = self.person_of(&r.to);
-            !to.is_empty() && to != author && self.links_res(&r.task_id, &res)
+            !to.is_empty() && !makers.contains(&to) && self.links_res(&r.task_id, &res)
         })
     }
 

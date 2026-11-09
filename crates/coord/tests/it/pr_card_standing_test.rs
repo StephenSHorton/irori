@@ -1,8 +1,9 @@
 //! Merge desk §12.2 (card #1155): which of two PR cards for one PR stands.
-//! A PR card stands only for the one active member whose profile names its
-//! PR author's GitHub login, so a member's modified client can't make a
-//! lower-id card for someone else's PR stand in for theirs. p1 is alice,
-//! the PR's author; p2 (bob) writes the forged card; p3 (carol) reviews.
+//! A PR card stands only for the one member its PR author's GitHub login
+//! names (by profile, else by who made cards), so a member's modified
+//! client can't make a lower-id card for someone else's PR stand in for
+//! theirs. p1 is alice, the PR's author; p2 (bob) writes the forged card;
+//! p3 (carol) reviews.
 
 use crate::common;
 
@@ -34,9 +35,9 @@ fn alices_card(s: &Side) -> String {
     .id
 }
 
-/// p2's person row, from p2's own device, making a PR card for alice's PR:
-/// what a modified client can write.
-fn forge_card(b: &Side) {
+/// p2's person row, from p2's own device, making a PR card for alice's PR
+/// that names `author`: what a modified client can write.
+fn forge_card_as(b: &Side, author: &str) {
     let row = TaskCreatedRow {
         task_id: FORGED.into(),
         title: "PR #7: ship it".into(),
@@ -44,13 +45,17 @@ fn forge_card(b: &Side) {
         repo_key: common::REPO_A.into(),
         links: vec![parse_link(PR).unwrap()],
         pr: PR.into(),
-        pr_author: "alice".into(),
+        pr_author: author.into(),
         by: P2.into(),
         at: common::fixed_now(),
         ..TaskCreatedRow::default()
     };
     let ev = b.st.append(P2, kinds::TASK_CREATED, &row).unwrap();
     b.c.fold_live(&[ev]);
+}
+
+fn forge_card(b: &Side) {
+    forge_card_as(b, "alice");
 }
 
 /// Three people with alice's card and bob's lower-id forged one, both PR
@@ -169,16 +174,81 @@ fn a_login_two_members_claim_stands_for_nobody() {
 }
 
 #[test]
-fn a_card_stands_only_once_the_authors_profile_names_the_login() {
+fn a_forged_card_under_the_forgers_own_login_stops_the_review_but_never_takes_it() {
     let (a, b, c, _) = three_people();
-    a.set_login("p1", "");
+    // Bob's card for alice's PR names him as its author. Alone it stands:
+    // coord can't ask GitHub. Alice's device makes her own card for every
+    // PR of hers whatever others made, and from then on neither stands.
+    forge_card_as(&b, "bob");
+    sync_all(&[&a, &b, &c]);
+    for s in [&a, &b, &c] {
+        assert_eq!(standing(s).as_deref(), Some(FORGED));
+    }
     let id = alices_card(&a);
     sync_all(&[&a, &b, &c]);
     for s in [&a, &b, &c] {
         assert_eq!(standing(s), None);
+        assert_eq!(s.c.review_phase(&id), ReviewPhase::Off);
+        assert_eq!(s.c.review_phase(FORGED), ReviewPhase::Off);
     }
+}
+
+#[test]
+fn an_authors_card_stands_alone_when_no_profile_names_the_login() {
+    // Alice's profile names another account (or none yet): her card, the
+    // only one, stands by who made it.
+    let (a, b, c, _) = three_people();
+    a.set_login("p1", "alice-personal");
+    let id = alices_card(&a);
+    sync_all(&[&a, &b, &c]);
+    for s in [&a, &b, &c] {
+        assert_eq!(standing(s).as_deref(), Some(id.as_str()));
+    }
+    // Bob claiming the login, with no card of his, stops it standing; it
+    // never makes anything of his stand.
+    b.set_login("p2", "alice");
+    for s in [&a, &b, &c] {
+        assert_eq!(standing(s), None);
+    }
+    b.set_login("p2", "bob");
+    // A forged card beside hers, with nobody's profile naming the login:
+    // two makers, so neither stands.
+    forge_card(&b);
+    sync_all(&[&a, &b, &c]);
+    for s in [&a, &b, &c] {
+        assert_eq!(standing(s), None);
+    }
+    // Once her profile names the login (Irori writes it before it makes a
+    // card), hers stands again: the profile picks between the makers.
     a.set_login("p1", "Alice");
     for s in [&a, &b, &c] {
         assert_eq!(standing(s).as_deref(), Some(id.as_str()), "any case");
+    }
+}
+
+#[test]
+fn an_ask_from_a_forged_card_never_steers_the_authors_pick() {
+    let (a, b, c, id) = with_both();
+    // Bob's person row asks carol's agent on his own card: it folds (he
+    // made that card), but it isn't the pick for alice's card.
+    let ev =
+        b.st.append(
+            P2,
+            kinds::REVIEW_REQUESTED,
+            &ReviewRequestedRow {
+                task_id: FORGED.into(),
+                pr: PR.into(),
+                from: P2.into(),
+                to: CARD4.into(),
+                at: common::fixed_now(),
+                wake: true,
+                look: false,
+            },
+        )
+        .unwrap();
+    b.c.fold_live(&[ev]);
+    sync_all(&[&a, &b, &c]);
+    for s in [&a, &b, &c] {
+        assert_eq!(s.c.review_phase(&id), ReviewPhase::Waiting);
     }
 }

@@ -60,8 +60,8 @@ impl Side {
         );
     }
 
-    /// `person`'s profile now says GitHub `login`, on every side of the
-    /// test.
+    /// `person`'s profile now says GitHub `login` and nothing else, on
+    /// every side of the test ("" for none).
     pub fn set_login(&self, person: &str, login: &str) {
         let mut l = self.logins.lock().unwrap();
         l.retain(|(p, _)| p != person);
@@ -166,17 +166,14 @@ fn coord_for(
         is_owner: Some(Arc::new(move |k: &str| k == me)),
         key_person: Some(Arc::new(key_person)),
         device_person: Some(Arc::new(device_person)),
-        // The one person whose login it is; a login two claim is nobody's.
-        login_person: Some(Arc::new(move |login: &str| {
-            let l = ls.lock().unwrap();
-            let mut who = l
+        // Everyone whose profile claims the login.
+        login_people: Some(Arc::new(move |login: &str| {
+            ls.lock()
+                .unwrap()
                 .iter()
                 .filter(|(_, x)| !login.is_empty() && x.eq_ignore_ascii_case(login))
-                .map(|(p, _)| p.clone());
-            match (who.next(), who.next()) {
-                (Some(p), None) => p,
-                _ => String::new(),
-            }
+                .map(|(p, _)| p.clone())
+                .collect()
         })),
         tag: Some(Arc::new(|| "mlg".to_string())),
         board_owner: Some(Arc::new(move |p: &str, _: Option<&RowPos>| {

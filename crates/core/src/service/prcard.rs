@@ -71,8 +71,9 @@ impl Services {
             .filter(|p| p.author.eq_ignore_ascii_case(&own))
         {
             // Only the person's own cards count (card #1155): another
-            // member's card for this PR never stands for it, so it is
-            // neither followed nor a reason to make none.
+            // member's card for this PR is neither followed nor a reason to
+            // make none, and the person's own card beside it is what stops
+            // it standing.
             let cards: Vec<&Found> = found
                 .iter()
                 .filter(|f| {
@@ -80,15 +81,22 @@ impl Services {
                         && f.task.created_by == me
                 })
                 .collect();
-            // The lowest id is kept; the author's device cancels the others
-            // it made (§12.2).
-            let stands = cards
+            let stands = |f: &Found| {
+                f.board
+                    .coord()
+                    .pr_card_for(&p.url)
+                    .is_some_and(|t| t.id == f.task.id)
+            };
+            // The one that stands is kept, else the lowest id; the author's
+            // device cancels the others it made (§12.2).
+            let keep = cards
                 .iter()
-                .min_by(|a, b| a.task.id.cmp(&b.task.id))
+                .find(|f| stands(f))
+                .or_else(|| cards.iter().min_by(|a, b| a.task.id.cmp(&b.task.id)))
                 .copied();
-            if let Some(keep) = stands {
+            if let Some(keep) = keep {
                 self.cancel_duplicates(&me, keep, &cards);
-                let note = self.login_note(&keep.board, &own);
+                let note = (!stands(keep)).then(|| self.standing_note(&keep.board, &own));
                 self.desk_watch.set_note(repo_key, p.number, note.clone());
                 self.follow_pr_card(&lister, &repo, p, keep, verdicts);
                 if note.is_none() {
@@ -126,7 +134,7 @@ impl Services {
                 }
             }
             // A card that couldn't stand there would only sit on the board.
-            if let Some(line) = self.login_note(b, &own) {
+            if let Some(line) = self.login_gate(b, &own) {
                 if self
                     .desk_watch
                     .set_note(repo_key, p.number, Some(line.clone()))
@@ -162,20 +170,38 @@ impl Services {
         standing
     }
 
-    /// Why a PR card of the person's for a PR by GitHub `own` can't stand
-    /// on `b` (card #1155), or None when it can: the one active member
-    /// whose profile there names `own` must be the person.
-    fn login_note(&self, b: &BoardLog, own: &str) -> Option<String> {
+    /// Whether the person's profile on `b` names GitHub `own` (heard),
+    /// and whether another active member's names it too (taken).
+    fn login_facts(&self, b: &BoardLog, own: &str) -> (bool, bool) {
         let me = self.person_id();
-        if b.verifier.github_login_person(own) == me {
-            return None;
+        let heard = b.verifier.names_github_login(&me, own);
+        let taken = b.verifier.github_login_people(own).iter().any(|p| *p != me);
+        (heard, taken)
+    }
+
+    /// Why the person's PR card for a PR by GitHub `own` doesn't stand on
+    /// `b` (card #1155), for the desk.
+    fn standing_note(&self, b: &BoardLog, own: &str) -> String {
+        let (heard, taken) = self.login_facts(b, own);
+        prcard::standing_line(&b.verifier.membership().name, own, heard, taken)
+    }
+
+    /// Why no PR card for a PR by GitHub `own` should be made on `b` yet
+    /// (card #1155), or None: the person's profile there must name the
+    /// login, so a member who later claims it can only stop the card
+    /// standing, and no other member's may. A profile still without it is
+    /// written now: the desk poll can learn the login before the identity
+    /// sweep has written it.
+    fn login_gate(&self, b: &BoardLog, own: &str) -> Option<String> {
+        let (mut heard, mut taken) = self.login_facts(b, own);
+        if !heard {
+            if let Err(e) = self.keep_current(b) {
+                logf(format_args!("board {}: github login: {e}", b.id));
+            }
+            (heard, taken) = self.login_facts(b, own);
         }
-        let space = b.verifier.membership().name;
-        Some(prcard::login_line(
-            &space,
-            own,
-            &b.verifier.profile_github_login(&me),
-        ))
+        (!heard || taken)
+            .then(|| prcard::standing_line(&b.verifier.membership().name, own, heard, taken))
     }
 
     /// Every PR card on the boards this device shows, open or not.

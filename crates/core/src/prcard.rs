@@ -236,27 +236,26 @@ pub fn waiting_line(too_old: &[String], unheard: &[String]) -> Option<String> {
 }
 
 /// The desk's line when the person's PR card can't stand in a space (card
-/// #1155): a PR card stands only for the one active member whose profile
-/// there names the PR's author. `own` is the login the person's gh says,
-/// `profile` the login their profile in that space names ("" none yet).
-pub fn login_line(space: &str, own: &str, profile: &str) -> String {
+/// #1155): `heard` is whether their profile there names their GitHub login
+/// `own` yet; `taken` whether another member's profile names it too;
+/// otherwise another member made a card for the PR.
+pub fn standing_line(space: &str, own: &str, heard: bool, taken: bool) -> String {
     let space = if space.trim().is_empty() {
         "the space"
     } else {
         space.trim()
     };
-    if profile.trim().is_empty() {
+    if !heard {
         format!(
             "waiting for {space} to hear your GitHub login ({own}) before this PR gets a review card"
         )
-    } else if !profile.trim().eq_ignore_ascii_case(own) {
+    } else if taken {
         format!(
-            "your profile in {space} names GitHub {}, not {own}, so this PR gets no review card there",
-            profile.trim()
+            "another member of {space} also says they are GitHub {own}, so this PR's review card can't stand there until one of them changes it"
         )
     } else {
         format!(
-            "another member of {space} also says they are GitHub {own}, so this PR gets no review card there until one of you changes it"
+            "another member of {space} made a card for this PR too, so its review card can't stand there"
         )
     }
 }
@@ -404,6 +403,22 @@ pub fn relay(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_standing_line_says_why_the_card_cant_stand() {
+        let l = standing_line("crew", "alice", false, false);
+        assert!(
+            l.starts_with("waiting for crew to hear your GitHub login (alice)"),
+            "{l}"
+        );
+        let l = standing_line("", "alice", true, true);
+        assert!(
+            l.starts_with("another member of the space also says they are GitHub alice"),
+            "{l}"
+        );
+        let l = standing_line("crew", "alice", true, false);
+        assert!(l.contains("made a card for this PR too"), "{l}");
+    }
 
     fn pr(n: i64) -> DeskPr {
         DeskPr {
