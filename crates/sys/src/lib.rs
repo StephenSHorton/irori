@@ -9,6 +9,7 @@
 //! | [`power`] | none | hearing the OS sleep and wake (card #580) |
 //! | [`fswatch`] | `internal/fswatch` | `Watch` (ReadDirectoryChangesW on Windows, FSEvents on macOS), the coalescer with its sticky Overflow, `ErrUnsupported` elsewhere |
 //! | [`meters`] | (new, card #599) | this computer's CPU, memory, disk, network and GPU meters |
+//! | [`runmeter`] | (new, card #1249) | one background run's process tree: members, CPU, memory, Stop |
 //! | [`cancel`] | `context.Context` cancellation | a token a blocking wait can be woken by |
 //! | [`tz`] | `time.Local` | the local UTC offset at an instant |
 //! | [`shellpath`] | root `guipath_darwin.go` | the desktop app's PATH from the login shell (macOS) |
@@ -21,5 +22,6 @@ pub mod fswatch;
 pub mod meters;
 pub mod power;
 pub mod proc;
+pub mod runmeter;
 pub mod shellpath;
 pub mod tz;
