@@ -1341,7 +1341,7 @@ impl Core {
         // private board counts.
         let svc_cell: Arc<OnceLock<Weak<Services>>> = Arc::new(OnceLock::new());
         let spawn_state = spawn::SpawnState::default();
-        spawn::load_spawn(&st, &spawn_state);
+        let _ = spawn::load_spawn(&st, &spawn_state);
         ib.set_reviews_unasked(
             !spawn_state
                 .reviews_off
@@ -1592,6 +1592,14 @@ impl Core {
                         let (ib, co, asks, roster) =
                             (ib.clone(), co.clone(), asks.clone(), roster.clone());
                         Some(Arc::new(move || ignored_by(&ib, &co, &asks, &roster)))
+                    },
+                    assistant_turns: {
+                        let cell = services_cell.clone();
+                        Some(Arc::new(move |turn: &str| {
+                            cell.get()
+                                .and_then(|w| w.upgrade())
+                                .and_then(|s| s.chat.stream_open(turn))
+                        }))
                     },
                 },
             );
@@ -2154,7 +2162,8 @@ impl Core {
                         load_notifications(&s.store, &s.notifications);
                         s.settle_notifications();
                         s.hub.publish(CoreEvent::Devices);
-                        s.hub.publish(CoreEvent::Notifications);
+                        s.hub
+                            .publish(CoreEvent::Notifications(crate::events::NotifChange::all()));
                         let before = s.store.vector().unwrap_or_default();
                         s.assistant_chat.reload(&s.store);
                         s.hub.publish(CoreEvent::AssistantChat);
@@ -2164,7 +2173,8 @@ impl Core {
                             logf(format_args!("dm spaces: load: {e}"));
                         }
                         let _ = s.talk.load();
-                        s.hub.publish(CoreEvent::Talk);
+                        s.hub
+                            .publish(CoreEvent::Talk(crate::events::TalkChange::all()));
                         s.follow_call_settings();
                         s.follow_names_themes();
                         s.follow_names_on();
@@ -2200,22 +2210,13 @@ impl Core {
                         // A write here was folded when it was written; the
                         // window still hears it (card #389).
                         s.talk.apply(&ev);
-                        s.hub.publish(CoreEvent::Talk);
+                        s.hub
+                            .publish(CoreEvent::Talk(crate::events::TalkChange::of_row(&ev)));
                         if ev.kind == kinds::TALK_POST {
                             s.talk_note(&ev);
                         }
                         // A live line feeds the assistant (card #1050).
                         s.huddle_line_row(&ev);
-                    } else if ev.kind == kinds::MESSAGE_SENT {
-                        // Agents' messages show as DMs (card #389); a
-                        // notice, a stop or a mention's wake never does,
-                        // so it doesn't make the window rebuild Talk's
-                        // list from the whole inbox (card #468).
-                        if inbox::decode_message(&ev.payload)
-                            .map_or(true, |m| tools::talk::mirrors(&m))
-                        {
-                            s.hub.publish(CoreEvent::Talk);
-                        }
                     } else if assistant_chat::KINDS.contains(&ev.kind.as_str()) {
                         // The assistant's conversation (card #1102); a row
                         // written here was folded when it was written.
@@ -2228,7 +2229,7 @@ impl Core {
                         // This device's own rows were folded when written;
                         // folding again changes nothing.
                         if s.notifications.apply(&ev) {
-                            s.hub.publish(CoreEvent::Notifications);
+                            s.hub.publish(notifications::notif_change(&ev));
                             // Another device kept one this one can see is
                             // already resolved.
                             if ev.kind == coord::notifications::POSTED {
@@ -2236,7 +2237,11 @@ impl Core {
                             }
                         }
                     } else if ev.kind == coord::devcolor::KIND {
-                        s.colors.apply(&ev);
+                        // Cards and the header show device colours
+                        // (list-signals.md §3.2).
+                        if s.colors.apply(&ev) {
+                            s.hub.publish(CoreEvent::Devices);
+                        }
                     } else if ev.kind == coord::avatar::KIND {
                         if s.faces.apply(&ev) {
                             s.hub.publish(CoreEvent::Devices);
@@ -2460,6 +2465,19 @@ impl Core {
             self.spawn("feed-inbox", move || {
                 let _reg = reg;
                 while let Some(ch) = sub.recv() {
+                    // An agent's message shows as a DM from its delivery's
+                    // first row (list-signals.md §3.2).
+                    // Only a first row or a move can show one: no lookup
+                    // for the rest.
+                    let d = (!ch.delivery_id.is_empty()
+                        && (ch.created
+                            || ch.was_to.is_some()
+                            || ch.kind == inbox::ChangeKind::MovedAway))
+                        .then(|| s.inbox.get(&ch.delivery_id))
+                        .flatten();
+                    if let Some(t) = dm_change(&ch, d.as_ref()) {
+                        s.hub.publish(CoreEvent::Talk(t));
+                    }
                     s.hub.publish(CoreEvent::Inbox(ch));
                     // A message replied to, read or released (card #482).
                     s.settle_notifications();
@@ -2488,6 +2506,25 @@ impl Core {
                     s2.hub.publish(CoreEvent::Board(ch));
                     // A blocker answered or a done check marked, by anyone.
                     s2.settle_notifications();
+                }
+            });
+        }
+        {
+            // A shared board opened, went, was renamed or changed members,
+            // or a DM space was hidden (`Boards::moved`): an opened board's
+            // cards come by replay, which notes nothing, so every card list
+            // reads again (list-signals.md §3.1). Through the hub, so a
+            // full feed's lost flag covers it.
+            let q = s.boards.subscribe();
+            let reg = self.on_stop(&q, |q| q.close());
+            let s = s.clone();
+            self.spawn("feed-board-set", move || {
+                let _reg = reg;
+                while q.recv().is_some() {
+                    s.hub.publish(CoreEvent::Board(coord::Change {
+                        kind: coord::RESYNC.into(),
+                        ..coord::Change::default()
+                    }));
                 }
             });
         }
@@ -4099,6 +4136,54 @@ fn ignored_by(
         }
     }
     out
+}
+
+/// The DMs an inbox change shows an agent's message in (list-signals.md
+/// §3.2), as Talk lists them (`tools::talk::mirrored`): only on the
+/// delivery's first row, or a move or a new recipient (an assign, a
+/// release), which takes the message from the old recipient's DM to the
+/// new one's. A notice, a stop or a mention's wake never shows. `d` is the
+/// delivery now.
+pub(crate) fn dm_change(
+    ch: &inbox::Change,
+    d: Option<&inbox::Delivery>,
+) -> Option<crate::events::TalkChange> {
+    use crate::events::TalkChange;
+    use inbox::ChangeKind as K;
+    // Lost changes may have held a delivery's first row; a re-fold after a
+    // revoke's cut (an Updated naming nobody and no delivery, as a policy
+    // write also sends) may drop or bring back any DM's posts.
+    if ch.kind == K::Resync
+        || (ch.kind == K::Updated && ch.to.is_empty() && ch.delivery_id.is_empty())
+    {
+        return Some(TalkChange::all());
+    }
+    let moved = ch.kind == K::MovedAway || ch.was_to.is_some();
+    if ch.delivery_id.is_empty() || !(ch.created || moved) {
+        return None;
+    }
+    let d = d?;
+    let m = &d.message;
+    // The delivery came from another device before its message did.
+    if m.id.is_empty() {
+        return Some(TalkChange::all());
+    }
+    if !tools::talk::mirrors(m) {
+        return None;
+    }
+    let dm = |to: &str| {
+        (!to.is_empty() && coord::talk::canon(&m.from.key) != coord::talk::canon(to))
+            .then(|| coord::talk::dm_id(&m.from.key, to))
+    };
+    let mut convs: Vec<String> = dm(&d.to).into_iter().collect();
+    if ch.kind == K::MovedAway {
+        // moved_to is the new recipient's key.
+        convs.extend(dm(&d.moved_to));
+    }
+    if let Some(was) = &ch.was_to {
+        convs.extend(dm(was));
+    }
+    (!convs.is_empty()).then(|| TalkChange::convs(convs))
 }
 
 fn load_notifications(st: &Store, h: &coord::notifications::History) {
@@ -5795,5 +5880,210 @@ impl StartLaps {
 
     fn report(&self) {
         logf(format_args!("start: core ready in {}", self.summary()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use coord::talk::dm_id;
+    use inbox::{Change, ChangeKind as K, Delivery, Message, Sender};
+
+    use super::dm_change;
+    use crate::events::TalkChange;
+
+    const AGENT: &str = "agent:dev1/s1";
+    const TO: &str = "user";
+
+    fn ch(kind: K, created: bool, delivery_id: &str) -> Change {
+        Change {
+            kind,
+            to: TO.into(),
+            delivery_id: delivery_id.into(),
+            created,
+            was_to: None,
+        }
+    }
+
+    /// An agent's message to the person: one that shows as a DM.
+    fn msg() -> Message {
+        Message {
+            id: "m1".into(),
+            from: Sender::new(AGENT, "Ann", "claude"),
+            text: "hi".into(),
+            ..Default::default()
+        }
+    }
+
+    fn delivery(to: &str, m: Message) -> Delivery {
+        Delivery {
+            id: "d1".into(),
+            message_id: m.id.clone(),
+            to: to.into(),
+            message: m,
+            ..Default::default()
+        }
+    }
+
+    /// A delivery's first row shows its message in the sender's DM with the
+    /// recipient (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_first_row_names_the_dm() {
+        let d = delivery(TO, msg());
+        assert_eq!(
+            dm_change(&ch(K::WakeReady, true, "d1"), Some(&d)),
+            Some(TalkChange::convs([dm_id(AGENT, TO)]))
+        );
+    }
+
+    /// A later row of the same delivery (read, replied) shows nothing new,
+    /// and is not looked up (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_later_row_is_none() {
+        let d = delivery(TO, msg());
+        assert_eq!(dm_change(&ch(K::Updated, false, "d1"), Some(&d)), None);
+        assert_eq!(dm_change(&ch(K::Updated, false, "d1"), None), None);
+        assert_eq!(dm_change(&ch(K::WakeReady, false, "d1"), Some(&d)), None);
+    }
+
+    /// A notice, a stop and a mention's wake never show as a DM (card
+    /// #1144, list-signals.md §3.2; tools::talk::mirrors).
+    #[test]
+    fn dm_change_unmirrored_is_none() {
+        let cases = [
+            Message {
+                notice: true,
+                ..msg()
+            },
+            Message {
+                stop: true,
+                ..msg()
+            },
+            Message {
+                reason: inbox::REASON_MENTIONED.into(),
+                ..msg()
+            },
+        ];
+        for m in cases {
+            let d = delivery(TO, m.clone());
+            assert_eq!(
+                dm_change(&ch(K::WakeReady, true, "d1"), Some(&d)),
+                None,
+                "{m:?}"
+            );
+        }
+    }
+
+    /// A move takes the message from the old recipient's DM to the new
+    /// one's: both, old first (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_move_names_old_and_new_dm() {
+        let other = "agent:dev1/s2";
+        let d = Delivery {
+            moved_to: other.into(),
+            ..delivery(TO, msg())
+        };
+        assert_eq!(
+            dm_change(&ch(K::MovedAway, false, "d1"), Some(&d)),
+            Some(TalkChange::convs([dm_id(AGENT, TO), dm_id(AGENT, other)]))
+        );
+    }
+
+    /// A move with no new recipient names only the old DM (card #1144,
+    /// list-signals.md §3.2).
+    #[test]
+    fn dm_change_move_without_target_names_old_dm() {
+        let d = delivery(TO, msg());
+        assert_eq!(
+            dm_change(&ch(K::MovedAway, false, "d1"), Some(&d)),
+            Some(TalkChange::convs([dm_id(AGENT, TO)]))
+        );
+    }
+
+    /// A delivery whose message hasn't arrived yet can't be placed: Talk
+    /// reads everything (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_missing_message_is_all() {
+        let d = delivery(TO, Message::default());
+        assert_eq!(
+            dm_change(&ch(K::WakeReady, true, "d1"), Some(&d)),
+            Some(TalkChange::all())
+        );
+    }
+
+    /// A lost inbox change may have held a first row: Talk reads everything
+    /// (card #1144, list-signals.md §3.1).
+    #[test]
+    fn dm_change_resync_is_all() {
+        let r = Change {
+            kind: K::Resync,
+            to: String::new(),
+            delivery_id: String::new(),
+            created: false,
+            was_to: None,
+        };
+        assert_eq!(dm_change(&r, None), Some(TalkChange::all()));
+    }
+
+    /// A message between two of the person's own keys has no DM (card
+    /// #1144, list-signals.md §3.2; coord::talk::canon).
+    #[test]
+    fn dm_change_same_party_is_none() {
+        let m = Message {
+            from: Sender::new("user:dev1", "Me", "user"),
+            ..msg()
+        };
+        let d = delivery("user:dev2", m);
+        assert_eq!(dm_change(&ch(K::WakeReady, true, "d1"), Some(&d)), None);
+    }
+
+    /// An existing delivery given to someone else without a move (an
+    /// assign, a release) takes its message from the old recipient's DM to
+    /// the new one's: both are named (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_new_recipient_names_both_dms() {
+        const OTHER: &str = "agent:dev1/s2";
+        let d = delivery(OTHER, msg());
+        let c = Change {
+            was_to: Some(TO.into()),
+            ..ch(K::Updated, false, "d1")
+        };
+        assert_eq!(
+            dm_change(&c, Some(&d)),
+            Some(TalkChange::convs([
+                coord::talk::dm_id(AGENT, OTHER),
+                coord::talk::dm_id(AGENT, TO),
+            ]))
+        );
+        // Handed out from nobody (an assign of an unrouted delivery): only
+        // the new DM.
+        let c = Change {
+            was_to: Some(String::new()),
+            ..ch(K::Updated, false, "d1")
+        };
+        assert_eq!(
+            dm_change(&c, Some(&d)),
+            Some(TalkChange::convs([coord::talk::dm_id(AGENT, OTHER)]))
+        );
+    }
+
+    /// A change that names no delivery shows nothing (card #1144,
+    /// list-signals.md §3.2).
+    #[test]
+    fn dm_change_without_delivery_id_is_none() {
+        let d = delivery(TO, msg());
+        assert_eq!(dm_change(&ch(K::WakeReady, true, ""), Some(&d)), None);
+        assert_eq!(dm_change(&ch(K::MovedAway, false, ""), Some(&d)), None);
+    }
+
+    /// The inbox's re-fold after a revoke's cut (an Updated naming nobody
+    /// and no delivery) may change any DM: Talk reads everything (card
+    /// #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_refold_is_all() {
+        let r = Change {
+            to: String::new(),
+            ..ch(K::Updated, false, "")
+        };
+        assert_eq!(dm_change(&r, None), Some(TalkChange::all()));
     }
 }

@@ -350,6 +350,11 @@ impl crate::Window {
         if answered(turn) {
             return;
         }
+        // Another device runs it: follow it over the mesh (card #1107).
+        if !self.core.is_assistant_home() {
+            follow_remote(self.core.clone(), turn.to_string(), sink);
+            return;
+        }
         let mut w = self.chat_watch.m.lock().unwrap_or_else(|e| e.into_inner());
         // Turns answered without running here (stopped, skipped, another
         // computer) end their watches now.
@@ -391,6 +396,61 @@ impl crate::Window {
             w.running = None;
         }
     }
+}
+
+/// How long a dropped or not-yet-open stream waits before the next try.
+const FOLLOW_RETRY: Duration = Duration::from_secs(2);
+/// How long a device keeps trying to follow one turn.
+const FOLLOW_FOR: Duration = Duration::from_secs(15 * 60);
+
+/// Follows `turn` as the assistant's computer runs it: its events go to
+/// `sink` until the turn ends. A stream that can't open or drops is
+/// tried again until the `said` row lands; the row is the reply, so
+/// nothing is shown for a failure. After a drop the new stream starts with
+/// the text so far, of which what was already sent is left out.
+fn follow_remote(core: std::sync::Arc<irori_core::Core>, turn: String, sink: Sink) {
+    let spawned = std::thread::Builder::new()
+        .name("irori-chat-follow".into())
+        .spawn(move || {
+            let started = std::time::Instant::now();
+            let mut sent = 0usize;
+            while started.elapsed() < FOLLOW_FOR {
+                let answered = core
+                    .assistant_chat_turn(&turn)
+                    .is_none_or(|t| t.said.is_some() || t.stopped);
+                if answered || core.is_assistant_home() {
+                    return;
+                }
+                if let Some(home) = core.assistant_home()
+                    && let Ok(rx) = core.assistant_stream(&home, &turn)
+                {
+                    let mut replay = sent > 0;
+                    while let Ok(ev) = rx.recv() {
+                        let mut text = ev.text;
+                        if ev.kind == "delta" {
+                            if replay {
+                                text = text.get(sent..).unwrap_or("").to_string();
+                            }
+                            replay = false;
+                            if text.is_empty() {
+                                continue;
+                            }
+                            sent += text.len();
+                        }
+                        let ends = ev.kind == "done" || ev.kind == "error";
+                        let out = AssistantEvent {
+                            kind: ev.kind,
+                            text,
+                        };
+                        if !sink(out) || ends {
+                            return;
+                        }
+                    }
+                }
+                std::thread::sleep(FOLLOW_RETRY);
+            }
+        });
+    drop(spawned);
 }
 
 #[cfg(test)]

@@ -10,7 +10,9 @@ use std::time::Duration;
 use common::pair::{dev, free_udp, paired};
 use common::{Rig, wait_for};
 use coord::ErrorKind as CK;
-use irori_core::{BoardError, Core, SPACES_DIR as BOARDS_DIR, valid_board_id};
+use irori_core::{
+    BoardError, Core, CoreEvent, Feed, SPACES_DIR as BOARDS_DIR, Topic, valid_board_id,
+};
 use store::Filter;
 use store::kinds::{self, AGENT_ACTOR_PREFIX, PERSON_ACTOR_PREFIX};
 
@@ -1559,6 +1561,120 @@ fn a_board_from_another_device_tells_the_window_when_its_rows_land() {
     q.close();
     a.core.close().unwrap();
     b.core.close().unwrap();
+}
+
+/// Drains `feed` until it has been quiet for 300 ms, so an earlier step's
+/// late events (the follower's summary rows) are gone before the next.
+fn settle(feed: &Feed) {
+    while let Ok(Some(_)) = feed.recv_timeout(Duration::from_millis(300)) {}
+}
+
+/// Whether `feed` holds a board resync: a board set changing
+/// (`Board{kind: RESYNC}`) or a lost feed. Other Board events (a card's
+/// change, agents.changed) don't count.
+fn board_resync(feed: &Feed) -> bool {
+    let mut got = false;
+    while let Some(ev) = feed.try_recv() {
+        got |= matches!(ev, CoreEvent::Resync)
+            || matches!(&ev, CoreEvent::Board(c) if c.kind == coord::RESYNC);
+    }
+    got
+}
+
+/// Card #1144, list-signals.md §3.1: opening, renaming, forgetting and
+/// leaving a shared board, and a DM space opening hidden from its marker,
+/// each reach the hub's Board feed as a resync (`Boards::moved` through
+/// the `feed-board-set` pump): an opened board's cards come by replay,
+/// which notes nothing, so every card list has to read again. At least
+/// one per step: create and rename tell both directly and from the
+/// follower.
+#[test]
+fn board_set_changes_reach_the_board_feed_as_resync() {
+    let r = Rig::new();
+    let c = &r.core;
+    let feed = c.feed(&[Topic::Board]);
+    settle(&feed);
+
+    let a = c.create_board("Alpha", "alpha").unwrap();
+    wait_for(45, "opening a board resyncs", || board_resync(&feed));
+
+    settle(&feed);
+    c.rename_board(&a, "Alpha two").unwrap();
+    wait_for(45, "renaming a board resyncs", || board_resync(&feed));
+
+    let b = c.create_board("Beta", "beta").unwrap();
+    settle(&feed);
+    c.forget_board(&b).unwrap();
+    wait_for(45, "forgetting a board resyncs", || board_resync(&feed));
+    assert!(c.board_coord(&b).is_err(), "the board is still open");
+
+    // Alone on it, leave forgets it everywhere (§4.4).
+    settle(&feed);
+    c.leave_board(&a).unwrap();
+    wait_for(45, "leaving a board resyncs", || board_resync(&feed));
+    wait_for(45, "the left board goes", || c.board_coord(&a).is_err());
+
+    // my_pin makes a board: its resync goes before the marker's.
+    let pin = my_pin(c);
+    settle(&feed);
+    c.write_dm_marker(DM, &pin, "bob").unwrap();
+    c.reconcile_boards();
+    wait_for(45, "a DM space opening hidden resyncs", || {
+        board_resync(&feed)
+    });
+    assert!(
+        c.board_coord(DM).is_ok(),
+        "the marker didn't open the space"
+    );
+    assert!(
+        c.board_list().iter().all(|s| s.board_id != DM),
+        "a marker's space shows"
+    );
+    drop(feed);
+    r.core.close().unwrap();
+}
+
+/// Card #1144, list-signals.md §3.1: a shared board's card change reaches
+/// the hub's Board feed as `CoreEvent::Board` naming the card (the board's
+/// changes thread publishes to the hub, so a full feed's lost flag covers
+/// it), and [`Core::subscribe_boards`] no longer carries it: that queue
+/// holds only zero Changes (a board set changing).
+#[test]
+fn a_shared_cards_change_reaches_the_board_feed() {
+    let r = Rig::new();
+    let c = &r.core;
+    let feed = c.feed(&[Topic::Board]);
+    let id = c.create_board("Shared", "shared").unwrap();
+    let co = c.board_coord(&id).unwrap();
+    settle(&feed);
+    let q = c.subscribe_boards();
+    let me = format!("{PERSON_ACTOR_PREFIX}{}", c.person().id);
+    let task = co
+        .create_task(&me, new_task("on the shared board"))
+        .unwrap();
+    let mut heard = Vec::new();
+    wait_for(45, "the shared card's change on the Board feed", || {
+        while let Ok(Some(ev)) = feed.recv_timeout(Duration::from_millis(100)) {
+            assert!(
+                !matches!(ev, CoreEvent::Resync),
+                "the Board feed overflowed; heard {heard:?}"
+            );
+            if let CoreEvent::Board(ch) = ev {
+                heard.push(ch.task_id);
+            }
+        }
+        heard.contains(&task.id)
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    while let Ok(Some(ch)) = q.recv_timeout(Duration::from_millis(100)) {
+        assert!(
+            ch.kind.is_empty() && ch.task_id.is_empty(),
+            "subscribe_boards carried a card change: {ch:?}"
+        );
+    }
+    q.close();
+    drop(feed);
+    r.core.close().unwrap();
 }
 
 /// TestBoardCardsAcrossOwnDevices: a shared card works with agents on any

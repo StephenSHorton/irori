@@ -1037,6 +1037,10 @@ pub struct Lease {
     pub acquired_at: GoTime,
     #[serde(skip_serializing_if = "omit")]
     pub conflict: String,
+    /// The limit of the slot pool this lease is one slot of (card #1167):
+    /// the `slots` its taker passed; 0 on any other lease.
+    #[serde(skip_serializing_if = "omit")]
+    pub slots: i64,
 }
 
 /// What a Subscribe change is about.
@@ -1051,6 +1055,10 @@ pub const RESYNC: &str = "resync";
 pub const BOARD_PIN_CHANGED: &str = "board_pin";
 /// The pin-row key prefix of a shared board's sidebar pin (card #135).
 pub const BOARD_PIN_PREFIX: &str = "board:";
+/// A merge desk changed (list-signals.md §3.2): its settings, where its
+/// repo was seen, its PR list or which repos are the person's. The repo
+/// key is in `resource`; empty means every desk. No card changed.
+pub const DESK_CHANGED: &str = "desk";
 
 /// A notification for transports and the UI.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]

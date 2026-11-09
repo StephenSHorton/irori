@@ -26,6 +26,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -1150,6 +1151,69 @@ impl Core {
     /// Turn `turn` as the fold has it, hidden by New chat or not.
     pub fn assistant_chat_turn(&self, turn: &str) -> Option<ChatTurn> {
         self.s.assistant_chat.turn(turn)
+    }
+
+    /// Opens the reply of `turn` as the assistant's computer `device` runs
+    /// it (card #1107): its events in order, from the text so far. The
+    /// receiver ends when the turn does, when the stream drops, or at once
+    /// when `device` is not connected or runs no such turn: the caller then
+    /// waits for the `said` row, which is the reply whatever the stream
+    /// carried. Dropping the receiver closes the stream.
+    pub fn assistant_stream(
+        &self,
+        device: &str,
+        turn: &str,
+    ) -> Result<Receiver<ChatEvent>, String> {
+        use mesh::assistant_stream as a;
+        let node = self.s.mesh.node.clone();
+        let (device, turn) = (device.to_string(), turn.to_string());
+        let (tx, rx) = std::sync::mpsc::channel::<ChatEvent>();
+        let (opened_tx, opened_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        self.pairing_runtime().spawn(async move {
+            let opened = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                node.open_assistant_stream(&device, &turn),
+            )
+            .await;
+            let mut st = match opened {
+                Ok(Ok(st)) => {
+                    let _ = opened_tx.send(Ok(()));
+                    st
+                }
+                Ok(Err(e)) => {
+                    let _ = opened_tx.send(Err(e));
+                    return;
+                }
+                Err(_) => {
+                    let _ = opened_tx.send(Err("assistant: the stream did not open".into()));
+                    return;
+                }
+            };
+            while let Some((kind, body)) = a::read_frame(&mut st).await {
+                let k = match kind {
+                    a::T_DELTA => "delta",
+                    a::T_TOOL => "tool",
+                    a::T_CHANGED => "changed",
+                    a::T_DONE => "done",
+                    a::T_ERROR => "error",
+                    _ => continue,
+                };
+                let ev = ChatEvent {
+                    kind: k.into(),
+                    text: String::from_utf8_lossy(&body).into_owned(),
+                };
+                if tx.send(ev).is_err() {
+                    return; // the watcher left: dropping st closes the stream
+                }
+                if kind == a::T_DONE || kind == a::T_ERROR {
+                    return;
+                }
+            }
+        });
+        opened_rx
+            .recv_timeout(std::time::Duration::from_secs(12))
+            .map_err(|_| "assistant: the stream did not open".to_string())??;
+        Ok(rx)
     }
 }
 

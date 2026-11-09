@@ -139,7 +139,9 @@ impl DmHooks for DmBridge {
             && !s.is_dm_space(via)
             && !s.dm_spaces.of(&peer.person_id).is_empty()
         {
-            s.hub.publish(crate::events::CoreEvent::Talk);
+            s.hub.publish(crate::events::CoreEvent::Talk(
+                crate::events::TalkChange::all(),
+            ));
         }
     }
 
@@ -945,7 +947,9 @@ impl Services {
             self.talk.drop_space(&b.id);
         }
         self.fold_space_talk(b);
-        self.hub.publish(crate::events::CoreEvent::Talk);
+        self.hub.publish(crate::events::CoreEvent::Talk(
+            crate::events::TalkChange::all(),
+        ));
     }
 
     /// Whether `b`'s other person has no counted cert yet: it is a hidden

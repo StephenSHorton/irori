@@ -123,12 +123,14 @@ impl Fold {
                     self.is_agent_key(&p.from) && self.may_write(&p.from, &ev.device_id)
                 };
                 // §12.3: never the PR author's own agents, on every device.
-                // The author is the creator of the row's PR's card.
+                // The author is whoever made a PR card for the row's PR,
+                // standing or not (card #1155): which card stands turns on
+                // profiles, and a row's fold must turn on rows alone.
                 let author_ok = !self.on_board
                     || p.to.is_empty()
-                    || self
-                        .pr_card_for(&p.pr)
-                        .is_none_or(|c| self.person_of(&p.to) != self.person_of(&c.created_by));
+                    || pr_claim_resource(&p.pr).is_none_or(|res| {
+                        !self.pr_card_makers(&res).contains(&self.person_of(&p.to))
+                    });
                 // On a PR card, an ask is for that card's PR; a ping
                 // (§12.7) only ever from its creator as their person.
                 let pr_ok = !self.on_board

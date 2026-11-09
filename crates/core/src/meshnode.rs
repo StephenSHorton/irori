@@ -101,6 +101,8 @@ pub(crate) struct Parts {
     pub now: Option<mesh::node::NowFn>,
     /// Per writing device, the rows the folds ignored (Go `ignoredBy`).
     pub ignored: Option<mesh::node::IgnoredFn>,
+    /// The assistant's running turns, for `assistant/<turn>` streams.
+    pub assistant_turns: Option<mesh::AssistantTurnsFn>,
 }
 
 impl Mesh {
@@ -123,6 +125,7 @@ impl Mesh {
             intervals: mesh::Intervals::default(),
             trust_any_peer: false,
             ignored: p.ignored,
+            assistant_turns: p.assistant_turns,
             logf: Some(Arc::new(|l: &str| crate::log(l))),
             now: p.now,
         });

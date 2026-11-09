@@ -1696,7 +1696,8 @@ impl SpawnState {
 /// cards" only from rows its own device signed. A board this device has
 /// no per-device row for yet (the upgrade) takes the newest row from any
 /// device, the one an older build ran on, and keeps it as its own.
-pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
+/// True when a board's setting changed (its cards' weight lines read it).
+pub(crate) fn load_spawn(st: &Store, s: &SpawnState) -> bool {
     let mut f = Filter {
         kinds: vec![
             kinds::SPAWN_SET.into(),
@@ -1712,7 +1713,7 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
     // it would be written again on every load.
     let mut evs = Vec::new();
     loop {
-        let Ok(page) = st.list(&f) else { return };
+        let Ok(page) = st.list(&f) else { return false };
         let full = page.len() as i64 >= f.limit;
         if let Some(last) = page.last() {
             f.after = last.cursor();
@@ -1823,7 +1824,12 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
         }
         on.insert(board, r.s);
     }
-    *s.on.write().unwrap_or_else(|e| e.into_inner()) = on;
+    let changed = {
+        let mut cur = s.on.write().unwrap_or_else(|e| e.into_inner());
+        let changed = *cur != on;
+        *cur = on;
+        changed
+    };
     *s.caps.write().unwrap_or_else(|e| e.into_inner()) = caps;
     *s.agent_starts.write().unwrap_or_else(|e| e.into_inner()) = starts.unwrap_or_default();
     s.reviews_off
@@ -1832,6 +1838,7 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
         .store(!review_starts, std::sync::atomic::Ordering::SeqCst);
     *s.offers.write().unwrap_or_else(|e| e.into_inner()) = offers;
     *s.agents_pause.write().unwrap_or_else(|e| e.into_inner()) = pause.done();
+    changed
 }
 
 fn session_of(key: &str) -> &str {
@@ -1886,13 +1893,20 @@ impl Services {
         self.store
             .append("user", kinds::SPAWN_SET, &row)
             .map_err(|e| e.to_string())?;
-        self.spawn
+        let changed = self
+            .spawn
             .on
             .write()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(s.board_id.clone(), s);
+            .insert(s.board_id.clone(), s.clone())
+            .as_ref()
+            != Some(&s);
         drop(rows);
         self.asks_kick.kick();
+        // Every card's weight line reads the setting (list-signals.md §3.2).
+        if changed {
+            self.tell_agents_changed();
+        }
         Ok(())
     }
 
@@ -2023,7 +2037,9 @@ impl Services {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let rows = self.store.as_ref();
-        load_spawn(rows, &self.spawn);
+        if load_spawn(rows, &self.spawn) {
+            self.tell_agents_changed();
+        }
         // Each shared space's #office-assistants (assistants-talk.md §4):
         // no event fires when a space's gate opens, so the sweep retries.
         self.ensure_assistants_channels();
@@ -2037,6 +2053,7 @@ impl Services {
         // devices (card #455): acted on even while paused.
         self.serve_end_requests();
         self.serve_trust_requests();
+        self.expire_usage_hold();
         self.sweep_usage_limits();
         self.end_finished();
         self.sweep_ending();

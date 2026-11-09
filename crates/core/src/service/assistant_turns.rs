@@ -25,7 +25,7 @@
 //!   skew) gets an age note and no grants.
 //! - **Stop and New chat** trip the running turn's cancel at once.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -35,8 +35,8 @@ use store::{Event, Vector};
 
 use super::Services;
 use super::assistant_chat::{
-    ASKED, Asked, CLEARED, ChatJob, ChatKind, ChatRow, ChatTurnFn, EARLIER_CAP, HISTORY_TURNS,
-    Order, SINCE_HEAD, STOP, STOPPED, Said, Stop, TurnAt, actor_of,
+    ASKED, Asked, CLEARED, ChatEvent, ChatJob, ChatKind, ChatRow, ChatTurnFn, EARLIER_CAP,
+    HISTORY_TURNS, Order, SINCE_HEAD, STOP, STOPPED, Said, Stop, TurnAt, actor_of,
 };
 use crate::events::CoreEvent;
 use crate::logf;
@@ -130,7 +130,18 @@ pub(crate) struct ChatQueue {
     started: Instant,
     /// Questions each kind of scan queued (tests), by [`Why`].
     scanned: [AtomicU64; 4],
+    /// What the held session has seen (card 8).
     session: Mutex<Session>,
+    /// Who watches each queued or running turn over the mesh (card #1107).
+    streams: Mutex<HashMap<String, TurnStream>>,
+}
+
+/// One turn's watchers on other devices: what it has said so far, and a
+/// sender of whole frames ([`mesh::assistant_stream::frame`]) for each.
+#[derive(Default)]
+struct TurnStream {
+    so_far: String,
+    subs: Vec<std::sync::mpsc::Sender<Vec<u8>>>,
 }
 
 impl ChatQueue {
@@ -146,7 +157,57 @@ impl ChatQueue {
             started: Instant::now(),
             scanned: Default::default(),
             session: Mutex::new(Session::default()),
+            streams: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Opens the frames of `turn` for a device that asked it: the text so
+    /// far as one delta, then each event until the turn ends. `None` when
+    /// the turn is neither queued nor running here. Taken under the
+    /// streams' lock, so a turn that ends meanwhile can't leave a watcher.
+    pub(crate) fn stream_open(&self, turn: &str) -> Option<std::sync::mpsc::Receiver<Vec<u8>>> {
+        let mut w = lock(&self.streams);
+        if !lock(&self.q).busy.contains(turn) {
+            return None;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let t = w.entry(turn.to_string()).or_default();
+        if !t.so_far.is_empty() {
+            let _ = tx.send(mesh::assistant_stream::frame(
+                mesh::assistant_stream::T_DELTA,
+                t.so_far.as_bytes(),
+            ));
+        }
+        t.subs.push(tx);
+        Some(rx)
+    }
+
+    /// Tells `turn`'s watchers one event.
+    pub(crate) fn stream_send(&self, turn: &str, ev: &ChatEvent) {
+        use mesh::assistant_stream as a;
+        let kind = match ev.kind.as_str() {
+            "delta" => a::T_DELTA,
+            "tool" => a::T_TOOL,
+            "changed" => a::T_CHANGED,
+            "done" => a::T_DONE,
+            "error" => a::T_ERROR,
+            _ => return,
+        };
+        let mut w = lock(&self.streams);
+        // The text so far is kept from the first delta, watched or not, so
+        // a watcher that opens late starts with it.
+        let t = w.entry(turn.to_string()).or_default();
+        if kind == a::T_DELTA {
+            t.so_far.push_str(&ev.text);
+        }
+        let f = a::frame(kind, ev.text.as_bytes());
+        t.subs.retain(|s| s.send(f.clone()).is_ok());
+    }
+
+    /// `turn` is over (answered, dropped or failed): its watchers' frames
+    /// end. Called after it left `busy`.
+    pub(crate) fn stream_end(&self, turn: &str) {
+        lock(&self.streams).remove(turn);
     }
 }
 
@@ -483,6 +544,8 @@ impl Services {
             let mut q = lock(&self.chat.q);
             q.running = None;
             q.busy.remove(&p.turn);
+            drop(q);
+            self.chat.stream_end(&p.turn);
         }
     }
 
@@ -730,7 +793,11 @@ impl Services {
             session,
         };
         let c = cancel.clone();
-        let done = hook(&job, &move |_| !c.load(Ordering::SeqCst));
+        let turn_id = p.turn.clone();
+        let done = hook(&job, &move |ev| {
+            self.chat.stream_send(&turn_id, &ev);
+            !c.load(Ordering::SeqCst)
+        });
         // The person stopped it, or a New chat ended it: not Irori closing.
         let by_person = self
             .assistant_chat

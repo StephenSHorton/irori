@@ -131,36 +131,66 @@ pub async fn roster_revive(w: W<'_>, session_id: String) -> R<String> {
     blocking(&w, move |w| w.revive(&session_id)).await
 }
 
-/// A check slot held now (card #437): the run in it (check.sh's name for
-/// itself) and when its lease ends unless the run renews it.
+/// One slot held now in a pool (card #1167): the pool's name as its creator
+/// gave it, the run holding the slot, and the slot's number out of `limit`.
 #[derive(Debug, Clone, serde::Serialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct CheckSlot {
-    pub resource: String,
+pub struct SlotHeld {
+    pub pool: String,
     pub run: String,
+    pub slot: i64,
+    pub limit: i64,
     pub until: String,
 }
 
-/// This device's check slots held now, by `scripts/check.sh` runs.
+/// The pool a slot lease belongs to and its number: `<pool>/slot-<n>`.
+fn split_slot(resource: &str) -> Option<(&str, i64)> {
+    let (pool, n) = resource.rsplit_once("/slot-")?;
+    let n = n.parse::<i64>().ok().filter(|n| *n > 0)?;
+    Some((pool, n))
+}
+
+/// A pool as a person reads it: a trailing `/<host>` naming this machine is
+/// the creator's way of keeping hosts apart, not part of the name.
+fn pool_label(pool: &str, host: &str) -> String {
+    match pool.rsplit_once('/') {
+        Some((name, h)) if !name.is_empty() && h == host => name.to_string(),
+        _ => pool.to_string(),
+    }
+}
+
+/// This machine's name the way `POST /v1/slots` callers spell it: short,
+/// lower case.
+fn slot_host() -> String {
+    let h = gethostname::gethostname().to_string_lossy().to_lowercase();
+    h.split('.').next().unwrap_or("").to_string()
+}
+
+/// Every slot of any pool held now by a run on this device, pools in name
+/// order, slots in number order.
 #[tauri::command]
 #[specta::specta]
-pub async fn roster_check_slots(w: W<'_>) -> R<Vec<CheckSlot>> {
+pub async fn roster_slots(w: W<'_>) -> R<Vec<SlotHeld>> {
     let dev = w.core.device_id().to_string();
+    let prefix = format!("{dev}/{}", coord::RUN_HOLDER);
+    let host = slot_host();
     let mut out = Vec::new();
     for l in w.core.coord().leases() {
-        let Some(run) = l
-            .holder
-            .strip_prefix(&format!("{dev}/{}", coord::RUN_HOLDER))
-            .filter(|_| l.resource.starts_with("check/"))
-        else {
+        let Some(run) = l.holder.strip_prefix(&prefix) else {
             continue;
         };
-        out.push(CheckSlot {
-            resource: l.resource.clone(),
+        let Some((pool, slot)) = split_slot(&l.resource) else {
+            continue;
+        };
+        out.push(SlotHeld {
+            pool: pool_label(pool, &host),
             run: run.to_string(),
+            slot,
+            limit: l.slots.max(slot),
             until: l.until.format_rfc3339(),
         });
     }
+    out.sort_by(|a, b| (&a.pool, a.slot).cmp(&(&b.pool, b.slot)));
     Ok(out)
 }
 
@@ -2420,7 +2450,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             roster_recent,
             roster_gone,
             roster_revive,
-            roster_check_slots,
+            roster_slots,
             inbox_list,
             inbox_held,
             inbox_held_history,
@@ -2835,8 +2865,9 @@ pub async fn assistant_chat_import(
 }
 
 /// Streams a turn's reply as this computer runs it: from now until the turn
-/// ends, starting with what it has said so far. Only the assistant's
-/// computer runs turns, so elsewhere nothing comes (card 7 streams there).
+/// ends, starting with what it has said so far. On another device the
+/// events come over the mesh from the assistant's computer (card 7); if
+/// that stream fails, nothing comes and the `said` row is the reply.
 #[tauri::command]
 #[specta::specta]
 pub async fn assistant_chat_watch(
