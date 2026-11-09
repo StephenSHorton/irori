@@ -1453,3 +1453,81 @@ fn board_give_under_ask_me_refuses_new_tasks_but_gives_cards() {
     has(&out, &["Gave 1 cards to "]);
     assert!(r.cards()[0].given.is_some());
 }
+
+// --- the Office Assistant's Needs you (decision 69, S6) ---
+
+/// The window's assistant, reading and acting as the person.
+fn assistant() -> tools::Caller {
+    tools::Caller {
+        sender: inbox::Sender::new(USER, "you", tools::CLIENT_ASSISTANT),
+        path: String::new(),
+    }
+}
+
+#[test]
+fn the_assistants_given_card_writes_are_its_own_and_give_acts_as_the_person() {
+    let r = rig();
+    r.h.b
+        .known
+        .lock()
+        .unwrap()
+        .insert("person:pBlake".into(), "Blake".into());
+    // Nothing given yet: needs_you says so, under the fence note.
+    let out = r.h.ok(&assistant(), "needs_you", "{}");
+    assert!(out.starts_with(tools::SENDER_NOTE), "{out}");
+    has(&out, &["Nothing is given to you."]);
+    // Only the assistant has the writes.
+    for name in [
+        "assistant_start",
+        "assistant_not_now",
+        "assistant_give_back",
+    ] {
+        r.h.failsj(
+            &call_a(),
+            name,
+            json!({"task_id": "mlg#1"}),
+            &["only the window's assistant"],
+        );
+    }
+    r.h.failsj(
+        &call_a(),
+        "assistant_give",
+        json!({"to": "person:pBlake", "task_ids": ["mlg#1"]}),
+        &["only the window's assistant"],
+    );
+    // A card of Stephen's on the board, given to Blake, marked as the
+    // assistant's give.
+    let mine = r
+        .fake
+        .co
+        .create_task(
+            ME,
+            NewTask {
+                title: "Mine to give".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    let out = r.h.okj(
+        &assistant(),
+        "assistant_give",
+        json!({"to": "person:pBlake", "task_ids": [mine.short_ref()]}),
+    );
+    has(&out, &["Gave Blake 1 card on mlg as one batch: mlg#1."]);
+    assert!(out.ends_with("Visible to: Stephen, Blake"), "{out}");
+    let g = r.fake.co.get_task(&mine.id).unwrap().given.unwrap();
+    assert_eq!(g.person, "pBlake");
+    assert!(g.assistant, "the assistant's give is marked");
+    // Not to an agent; and Stephen's needs_you still lists nothing given
+    // to him.
+    r.h.failsj(
+        &assistant(),
+        "assistant_give",
+        json!({"to": "agent:cb1", "task_ids": ["mlg#1"]}),
+        &["give to a person"],
+    );
+    has(
+        &r.h.ok(&assistant(), "needs_you", "{}"),
+        &["Nothing is given to you."],
+    );
+}
