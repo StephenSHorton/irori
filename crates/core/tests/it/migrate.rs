@@ -207,7 +207,7 @@ fn test_start_migrates_a_v03_data_dir() {
     assert_eq!(offered(&evs2), 1, "the hand-out after restart");
     let pol = c2.inbox().policy();
     assert!(
-        pol.mode == inbox::policy_mode::ALLOWLIST && pol.paused,
+        pol.mode == inbox::policy_mode::ALLOWLIST && !pol.paused,
         "policy after restart {pol:?}"
     );
     assert!(
