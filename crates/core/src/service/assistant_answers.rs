@@ -366,7 +366,8 @@ impl Services {
                 if text.is_empty() {
                     return self.post_waiting(&b, &card, q, "owner");
                 }
-                let why = scrub::board_reasons(&text);
+                let mut why = scrub::board_reasons(&text);
+                why.extend(assistant_packet::held_reasons(&text));
                 if !why.is_empty() {
                     self.hold(
                         &b.id,

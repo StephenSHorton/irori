@@ -271,6 +271,30 @@ pub fn normalise(s: &str) -> String {
     cap(s.trim(), MAX_REPLY)
 }
 
+/// Why an answer can't be posted beyond the scrub's reasons: an email
+/// address. The packet never holds one on purpose, but Claude Code tells
+/// every turn the signed-in account, so one in an answer may be the
+/// owner's. Empty when it holds none.
+pub fn held_reasons(s: &str) -> Vec<String> {
+    let email = s
+        .split(|c: char| c.is_whitespace() || "<>()[]{},;:\"'`".contains(c))
+        .any(|w| {
+            let w = w.trim_matches(|c: char| !c.is_alphanumeric());
+            let Some((user, host)) = w.split_once('@') else {
+                return false;
+            };
+            !user.is_empty()
+                && !host.contains('@')
+                && host.split('.').count() >= 2
+                && host.split('.').all(|p| !p.is_empty())
+        });
+    if email {
+        vec!["an email address".into()]
+    } else {
+        Vec::new()
+    }
+}
+
 /// `s` at most `max` characters, the last an ellipsis when cut.
 pub fn cap(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
@@ -945,6 +969,20 @@ mod tests {
         assert!(n.ends_with('\u{2026}'));
         assert!(!n.contains('\u{E0041}'));
         assert_eq!(normalise("  short  "), "short");
+    }
+
+    #[test]
+    fn an_email_address_is_held() {
+        for t in [
+            "mail bob@example.com",
+            "(Bob <bob.lee@mail.co.uk>)",
+            "x a@b.io.",
+        ] {
+            assert_eq!(held_reasons(t), ["an email address"], "{t}");
+        }
+        for t in ["@Juno can you", "PR #41 @ 3pm", "a@b", "user@", "fine"] {
+            assert!(held_reasons(t).is_empty(), "{t}");
+        }
     }
 
     #[test]

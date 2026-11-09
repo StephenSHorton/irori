@@ -901,6 +901,11 @@ pub struct Job {
     /// The screen snapshot's one-line label (card #1009), which the
     /// "Looking at your screen" status carries; empty when none was sent.
     pub look: String,
+    /// Load no setting sources at all (assistants talk, card 5): no
+    /// CLAUDE.md from the folders above the run dir (`~/CLAUDE.md` would
+    /// otherwise load) and no project settings, for a turn another person
+    /// drives. Only a job with no tools reads it.
+    pub no_settings: bool,
 }
 
 impl Job {
@@ -926,6 +931,7 @@ impl Job {
             timeout: TIMEOUT,
             tools: true,
             look: String::new(),
+            no_settings: false,
         })
     }
 
@@ -948,6 +954,7 @@ impl Job {
             timeout: NAMES_TIMEOUT,
             tools: false,
             look: String::new(),
+            no_settings: false,
         })
     }
 
@@ -1006,6 +1013,7 @@ impl Job {
             timeout: LOOK_TIMEOUT,
             tools: false,
             look: String::new(),
+            no_settings: false,
         })
     }
 }
@@ -1024,6 +1032,7 @@ fn answer_job(mut job: Job, model: &str, effort: &str) -> Job {
     job.tools = false;
     job.secret = String::new();
     job.exe = PathBuf::new();
+    job.no_settings = true;
     job
 }
 /// How long an answering turn may take.
@@ -1151,7 +1160,7 @@ fn bare_args(job: &Job) -> Vec<String> {
         &job.model,
         "--no-session-persistence",
         "--setting-sources",
-        "project",
+        if job.no_settings { "" } else { "project" },
         "--strict-mcp-config",
         "--tools",
         "",
@@ -2775,6 +2784,7 @@ mod tests {
             timeout,
             tools: true,
             look: String::new(),
+            no_settings: false,
         }
     }
 
@@ -2914,6 +2924,7 @@ mod tests {
             timeout: NAMES_TIMEOUT,
             tools: false,
             look: String::new(),
+            no_settings: false,
         }
     }
 
@@ -2940,6 +2951,9 @@ mod tests {
         let i = a.iter().position(|x| x == "--model").unwrap();
         assert_eq!(&a[i + 1..i + 4], ["sonnet", "--effort", "low"]);
         assert!(!a.iter().any(|x| x.contains("s3cret")));
+        // No setting sources: no CLAUDE.md from the folders above.
+        let i = a.iter().position(|x| x == "--setting-sources").unwrap();
+        assert_eq!(a[i + 1], "");
         prepare(&job).unwrap();
         assert!(!job.dir.join(MCP_FILE).exists(), "no MCP config, no secret");
     }
@@ -3022,6 +3036,7 @@ mod tests {
             timeout,
             tools: false,
             look: String::new(),
+            no_settings: false,
         }
     }
 

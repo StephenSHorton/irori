@@ -683,6 +683,8 @@ fn clipping_needs_owner_scrub_and_hidden_characters() {
             "Sure, Bob will review it tomorrow.".into()
         } else if q.contains("SECRET:") {
             format!("REASON: it was asked.\nANSWER: the token is {reply_token}")
+        } else if q.contains("EMAIL:") {
+            "REASON: it was asked.\nANSWER: write to bob.lee@example.com".into()
         } else if q.contains("PATH:") {
             "REASON: it was asked.\nANSWER: it's in /Users/bob/notes/plan.txt".into()
         } else {
@@ -728,7 +730,11 @@ fn clipping_needs_owner_scrub_and_hidden_characters() {
     }
 
     // A reply the scrub holds posts nothing, and a held line says why.
-    for (marker, why) in [("SECRET:", "github"), ("PATH:", "absolute path")] {
+    for (marker, why) in [
+        ("SECRET:", "github"),
+        ("PATH:", "absolute path"),
+        ("EMAIL:", "email address"),
+    ] {
         let q = question(&w, &format!("{marker} what is it?"));
         send(&w, &q, 0);
         wait_for(WAIT, "the answer is held", || {
@@ -737,7 +743,8 @@ fn clipping_needs_owner_scrub_and_hidden_characters() {
                 .iter()
                 .any(|h| h.post_id == q.post_id && h.text.contains(why))
         });
-        control(&w);
+        // Held before posting: nothing will follow. (No control question:
+        // seven questions stay under the rate limit of eight.)
         assert!(answers(b1, &w.conv, &q.post_id).is_empty(), "{marker}");
     }
     assert!(
