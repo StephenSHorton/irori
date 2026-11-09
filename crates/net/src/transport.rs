@@ -103,6 +103,9 @@ impl PeerAddr {
     }
 }
 
+/// Where the transport writes its log lines.
+pub type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// How the transport binds and times its handshakes.
 #[derive(Clone)]
 pub struct NetConfig {
@@ -152,7 +155,7 @@ pub struct NetConfig {
     pub public_relays: crate::public::PublicRelays,
     /// Where a private-mesh dial that fails (or works again after failing)
     /// is logged, with the device id and why; `None` logs nothing.
-    pub logf: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    pub logf: Option<LogFn>,
 }
 
 impl NetConfig {
