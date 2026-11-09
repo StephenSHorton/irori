@@ -1156,7 +1156,8 @@ pub(crate) struct People {
     /// Agents' own faces by name key (card #407).
     faces: HashMap<String, String>,
     /// Live agents Irori started for a card (card #448).
-    spawned: std::collections::HashSet<String>,
+    /// and the cards each one serves (agent-continuity A.3).
+    spawned: HashMap<String, Vec<String>>,
     /// Where the spawn queue stands here (card #450): each waiting card's
     /// place, a usage-limit hold.
     queue: irori_core::spawn_limits::SpawnQueue,
@@ -1310,8 +1311,13 @@ impl Window {
             p.spawned = p
                 .by_key
                 .keys()
-                .filter(|k| co.is_spawned(k))
-                .cloned()
+                .filter_map(|k| {
+                    let m = co.spawned(k)?;
+                    let mut ids: Vec<String> =
+                        m.items.iter().map(|i| i.task_id.clone()).collect();
+                    ids.push(m.task_id.clone());
+                    Some((k.clone(), ids))
+                })
                 .collect();
             // Shared boards' cards wait on a usage hold whatever the
             // private board's switch says.
@@ -1433,6 +1439,12 @@ impl People {
         self.seen.borrow_mut().take().unwrap_or_default()
     }
 
+    /// Whether spawned agent `key` serves card `id`: its origin or one of
+    /// the items it took (agent-continuity A.3).
+    pub(crate) fn serves(&self, key: &str, id: &str) -> bool {
+        self.spawned.get(key).is_some_and(|v| v.iter().any(|i| i == id))
+    }
+
     /// One key as the window shows it, with its face (card #407).
     pub(crate) fn ref_(&self, key: &str) -> AgentRef {
         if let Some(seen) = self.seen.borrow_mut().as_mut()
@@ -1442,7 +1454,7 @@ impl People {
             seen.push(key.to_string());
         }
         let mut r = self.ref_plain(key);
-        r.spawned = self.spawned.contains(key);
+        r.spawned = self.spawned.contains_key(key);
         // Another person's agent wears the face its board card carries;
         // never one of this person's faces that shares its name.
         let theirs = !self.by_key.contains_key(key) && self.board.contains_key(key);
@@ -2039,6 +2051,7 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
     }
     for h in &t.holders {
         let mut r = p.ref_(h);
+        r.spawned = r.spawned && p.serves(h, &t.id);
         r.assigned = t.assigned.contains(h);
         if r.assigned {
             r.handoff = t.handoffs.get(h).cloned().unwrap_or_default();
@@ -2048,6 +2061,7 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
     }
     for k in &t.co_holders {
         let mut r = p.ref_(k);
+        r.spawned = r.spawned && p.serves(k, &t.id);
         r.steps = t
             .steps
             .iter()

@@ -3258,14 +3258,14 @@ impl Services {
             let listed = agents.iter().any(|a| a.session_id == sess);
             let holds = open
                 .iter()
-                .any(|t| t.id == m.task_id && (t.holders.contains(&k) || t.assigned.contains(&k)));
+                .any(|t| m.serves(&t.id) && (t.holders.contains(&k) || t.assigned.contains(&k)));
             if !listed && !holds {
                 continue;
             }
             if holds
                 && let Err(e) = self
                     .coord
-                    .add_comment(SWEEPER, &m.task_id, RESTARTED, false)
+                    .add_comment(SWEEPER, m.current(), RESTARTED, false)
             {
                 logf(format_args!("spawn cleanup {k}: {e}"));
             }
@@ -3385,11 +3385,11 @@ impl Services {
             // A card made from its thread is on it (card #1208): wanted, so
             // not ended while that card is open, whatever the thread's state.
             if self.open_cards().iter().any(|c| {
-                c.from == m.task_id && (c.holders.contains(&a.key) || c.assigned.contains(&a.key))
+                m.serves(&c.from) && (c.holders.contains(&a.key) || c.assigned.contains(&a.key))
             }) {
                 continue;
             }
-            let Some(t) = self.coord.get_task(&m.task_id) else {
+            let Some(t) = self.coord.get_task(m.current()) else {
                 // A shared board's card (card #455): it goes when its work
                 // there is done for it.
                 if let Some((co, t, k)) = self.spawn_card_of(&a.key)
@@ -3597,8 +3597,8 @@ impl Services {
         };
         let n = Notice {
             kind: "spawn.end".into(),
-            task_id: m.task_id.clone(),
-            reference: format!("task:{}", m.task_id),
+            task_id: m.current().to_string(),
+            reference: format!("task:{}", m.current()),
             by: SWEEPER.into(),
             to: vec![key.to_string()],
             wake: true,
@@ -3623,18 +3623,21 @@ impl Services {
             return false;
         };
         let key = key.as_str();
+        // Since it took up the item it serves now: the mark for the
+        // origin, its `agent.took` for a later one (agent-continuity A.3).
+        let since = m.current_since();
         // Its done check's proof, or a helper's proof to its lead (§3).
         if t.blockers.iter().any(|b| {
             (b.done_check || b.question == coord::PART_QUESTION)
                 && b.raised_by == key
-                && !before(&b.at, &m.at)
+                && !before(&b.at, &since)
         }) {
             return true;
         }
-        co.comments(&m.task_id)
+        co.comments(m.current())
             .unwrap_or_default()
             .iter()
-            .any(|c| c.by == key && !before(&c.at, &m.at))
+            .any(|c| c.by == key && !before(&c.at, &since))
     }
 
     /// Ends the agents asked for their hand-off once they gave it, or the

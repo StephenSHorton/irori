@@ -607,7 +607,7 @@ impl Services {
     pub(crate) fn spawn_card_of(&self, key: &str) -> Option<(Arc<Coord>, Task, String)> {
         let m = self.coord.spawned(key)?;
         if m.board.is_empty() {
-            let t = self.coord.get_task(&m.task_id)?;
+            let t = self.coord.get_task(m.current())?;
             return Some((self.coord.clone(), t, key.to_string()));
         }
         // The board the mark names, only; its card there must be this
@@ -616,7 +616,7 @@ impl Services {
             return None;
         }
         let b = self.board(&m.board).ok()?;
-        let t = b.coord().get_task(&m.task_id)?;
+        let t = b.coord().get_task(m.current())?;
         if !b.coord().mine_to_serve(&t) {
             return None;
         }

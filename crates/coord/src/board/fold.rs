@@ -95,7 +95,7 @@ pub const SUB_BUFFER: usize = 64;
 /// fold only these kinds, and so does [`super::Coord::fold_live`], so a
 /// test that folds a kind missing here fails as production would (card
 /// #614; `pr.state` was missed until #542).
-pub const FOLLOW_KINDS: [&str; 16] = [
+pub const FOLLOW_KINDS: [&str; 17] = [
     "task.",
     "lease.",
     "blocker.",
@@ -122,6 +122,9 @@ pub const FOLLOW_KINDS: [&str; 16] = [
     // What GitHub said about a card's PR (card #542): a phone has no gh, so
     // these rows are all it knows, and a restart must keep them.
     kinds::PR_STATE,
+    // The multi-item mark (agent-continuity A.3): the exact kind, not
+    // "agent.".
+    kinds::AGENT_TOOK,
 ];
 
 /// Whether coord folds `kind`.
@@ -983,7 +986,7 @@ impl Fold {
                     // A spawned agent of this card that went away without
                     // finishing crashed (card #447); any other leave of
                     // one breaks the run.
-                    if self.spawned.get(&p.who).is_some_and(|m| m.task_id == t.id) {
+                    if self.spawned.get(&p.who).is_some_and(|m| m.serves(&t.id)) {
                         if p.reason == LEFT_GONE {
                             t.spawn_crashes += 1;
                             t.note_retry(RETRY_CRASH, &p.who, p.at.unix_nano());
@@ -1149,6 +1152,7 @@ impl Fold {
             kinds::TASK_OFFERED => self.fold_offered(ev, &at),
             kinds::TASK_SPAWN => self.fold_spawn(ev, &at),
             kinds::TASK_SPAWNED => self.fold_spawned(ev, &at),
+            kinds::AGENT_TOOK => self.fold_took(ev, &at),
             // Where the work is (card #137): no thread line and no
             // updated_at, so a commit doesn't reorder the grid.
             kinds::TASK_WHERE => {
@@ -2449,7 +2453,7 @@ impl Fold {
             }),
             // A spawned agent's request and mark (card #455): from a device
             // of the person it serves, which spawn_writer_ok checks itself.
-            kinds::TASK_SPAWN | kinds::TASK_SPAWNED => true,
+            kinds::TASK_SPAWN | kinds::TASK_SPAWNED | kinds::AGENT_TOOK => true,
             // Irori's line on a card about its spawned agent (ended on a
             // usage limit, no hand-off, a kept worktree; card #576): from a
             // device of the card's author, the only one that runs its agent.
@@ -2477,7 +2481,7 @@ impl Fold {
                     let serves = self.serving_person(t);
                     !serves.is_empty()
                         && serves == dp(&ev.device_id)
-                        && self.spawned.get(&a.to).is_some_and(|s| s.task_id == t.id)
+                        && self.spawned.get(&a.to).is_some_and(|s| s.serves(&t.id))
                 })
             }
             kinds::BLOCKER_RESOLVED if self.raiser_closes(ev) => true,

@@ -433,7 +433,7 @@ impl Window {
             .coord()
             .spawned(key)
             .ok_or_else(|| format!("{key} wasn't started by Irori"))?;
-        Ok((sp.task_id, session.to_string()))
+        Ok((sp.current().to_string(), session.to_string()))
     }
 
     /// Logs on an agent Irori started (card #456, sa-2): its recent
@@ -508,15 +508,24 @@ impl Window {
         key: &str,
         sp: &coord::Spawned,
     ) -> (Option<coord::Task>, Option<coord::Spawn>) {
-        let t = if sp.board.is_empty() {
-            self.core.coord().get_task(&sp.task_id)
-        } else {
-            self.core
-                .board_coord(&sp.board)
-                .ok()
-                .and_then(|b| b.get_task(&sp.task_id))
+        let get = |id: &str| {
+            if sp.board.is_empty() {
+                self.core.coord().get_task(id)
+            } else {
+                self.core
+                    .board_coord(&sp.board)
+                    .ok()
+                    .and_then(|b| b.get_task(id))
+            }
         };
-        let req = t.as_ref().and_then(|t| {
+        let t = get(sp.current());
+        // The request that started it is the origin card's.
+        let origin = if sp.current() == sp.task_id {
+            t.clone()
+        } else {
+            get(&sp.task_id)
+        };
+        let req = origin.as_ref().and_then(|t| {
             t.spawns
                 .iter()
                 .find(|s| s.key == key)
@@ -555,6 +564,7 @@ impl Window {
                 a.device_id.clone()
             };
             cards.insert(sp.task_id.clone());
+            cards.extend(sp.items.iter().map(|i| i.task_id.clone()));
             out.push(RunningAgent {
                 key: a.key.clone(),
                 name: if a.name.is_empty() {

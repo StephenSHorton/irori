@@ -3330,6 +3330,24 @@ fn my_spawned_agent_is_never_offered_another_persons_card() {
     b.c.fold_live(&[ev]);
     sync(&a, &b);
     assert_eq!(a.c.spawned(CARD1).map(|m| m.task_id), Some(mine.id.clone()));
+    // Nor can their Irori add their card to my agent's items (A.3).
+    let ev =
+        b.st.append(
+            "irori",
+            kinds::AGENT_TOOK,
+            &raw(&format!(
+                r#"{{"key":"{CARD1}","taskId":"{}","life":1,"by":"irori","at":"2026-10-26T12:00:00Z"}}"#,
+                theirs.id
+            )),
+        )
+        .unwrap();
+    b.c.fold_live(&[ev]);
+    sync(&a, &b);
+    for s in [&a, &b] {
+        let m = s.c.spawned(CARD1).unwrap();
+        assert_eq!(m.items.len(), 1, "on {}", s.c.device_id());
+        assert!(!m.serves(&theirs.id), "on {}", s.c.device_id());
+    }
 }
 
 // Card #573: a card another person gives you. p2 made it on dev-b and gives

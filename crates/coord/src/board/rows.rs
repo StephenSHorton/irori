@@ -825,6 +825,19 @@ crate::go_struct! {
 }
 
 crate::go_struct! {
+    /// agent.took (agent-continuity A.3, card #1214): agent `key`, marked
+    /// by `task.spawned`, took up card `taskId` in its life `life`.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct AgentTookRow {
+        pub key: String = "key",
+        pub task_id: String = "taskId",
+        pub life: i64 = "life" "omit",
+        pub by: String = "by",
+        pub at: GoTime = "at",
+    }
+}
+
+crate::go_struct! {
     /// task.comment.edited (card #105): the person's new text for their
     /// comment, written before any agent read it.
     #[derive(Debug, Clone, Default, PartialEq)]

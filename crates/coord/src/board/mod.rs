@@ -1758,7 +1758,8 @@ impl Coord {
     /// The card agent `key` was started for, if Irori spawned it; still
     /// there after the agent goes (card #452).
     pub fn spawned_card(&self, key: &str) -> Option<String> {
-        self.lock().spawned_for(key).map(|s| s.task_id.clone())
+        let f = self.lock();
+        f.spawned_for(key).map(|s| f.spawned_now(s).to_string())
     }
     /// Whether this log's cards get a spawned agent each (its spawning
     /// switch, card #446).
@@ -1918,7 +1919,11 @@ impl Coord {
         self.lock().thread_agents(id)
     }
     pub fn spawned(&self, key: &str) -> Option<Spawned> {
-        self.lock().spawned_for(key).cloned()
+        let f = self.lock();
+        f.spawned_for(key).map(|s| Spawned {
+            now: f.spawned_now(s).to_string(),
+            ..s.clone()
+        })
     }
     /// Writes card `a.task_id`'s next spawn request; Ok(None) when one is
     /// pending already or the card no longer needs an agent.
