@@ -135,18 +135,21 @@ impl Activity {
             reviews: self.reviews.clone(),
             paths: self.paths.clone(),
             paths_cut: self.paths_cut,
+            head: self.head.clone(),
             ..PrCheck::default()
         }
     }
 }
 
 /// The check for an open PR with nothing new from GitHub's comments: the
-/// card follows its PR (a close, a reopen) and keeps what it knows.
-pub fn open_check(url: &str, decision: &str) -> PrCheck {
+/// card follows its PR (a close, a reopen) and its head (§12.5), and keeps
+/// what it knows.
+pub fn open_check(url: &str, decision: &str, head: &str) -> PrCheck {
     PrCheck {
         pr: url.into(),
         state: coord::PR_OPEN.into(),
         review: decision.into(),
+        head: head.into(),
         ..PrCheck::default()
     }
 }
@@ -536,6 +539,7 @@ mod tests {
             "review words aren't comments"
         );
         assert_eq!(c.reviews.len(), 2);
+        assert_eq!(c.head, "abc123", "the head rides on pr.state");
         // Nothing parsed from nothing.
         let none = parse_activity(&serde_json::json!({}));
         assert_eq!(none, Activity::default());

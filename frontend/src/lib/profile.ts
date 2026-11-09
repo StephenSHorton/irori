@@ -34,7 +34,8 @@ async function readMe(): Promise<Me> {
 export function useMe(): Me {
   const { value, reload } = useLatest<Me>(
     readMe,
-    inWails() ? { name: "", color: "", avatar: "" } : sampleMe
+    inWails() ? { name: "", color: "", avatar: "" } : sampleMe,
+    "me"
   )
   useEffect(() => {
     void reload()

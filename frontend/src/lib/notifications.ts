@@ -219,7 +219,11 @@ export function useNotifications(): {
       inWails() ? NotificationService.List() : sampleNotifications(),
     []
   )
-  const { value, loading, error, reload } = useLatest<Notification[]>(load, [])
+  const { value, loading, error, reload } = useLatest<Notification[]>(
+    load,
+    [],
+    "notifications"
+  )
   // A read ends the answers it agrees with once it is shown (useCards).
   useEffect(() => {
     if (!loading && !error) pending.observeNotifications(value)
@@ -264,7 +268,7 @@ export function useUnreadNotifications(): number {
         : unreadCount(sampleNotifications()),
     []
   )
-  const { value, reload } = useLatest<number>(load, 0)
+  const { value, reload } = useLatest<number>(load, 0, "unread")
   useEffect(() => {
     void reload()
     if (!inWails()) {

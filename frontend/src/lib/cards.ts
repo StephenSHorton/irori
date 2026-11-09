@@ -15,6 +15,7 @@ import {
 
 import { agentsNowDefault } from "./agents-now"
 import { BoardService, Browser, Events } from "./host"
+import { timedRead } from "./window-log"
 import { checkUploads, uploadOf } from "./uploads"
 import {
   AnswerResult,
@@ -873,7 +874,10 @@ export function useCardRef(r: string): RefTarget | null | undefined {
     let live = true
     let e = refCache.get(r)
     if (!e || Date.now() - e.at > RefTTL) {
-      e = { at: Date.now(), v: cardRef(r).catch(() => null) }
+      e = {
+        at: Date.now(),
+        v: timedRead("refs", () => cardRef(r)).catch(() => null),
+      }
       refCache.set(r, e)
     }
     void e.v.then((v) => live && setGot({ r, v }))
@@ -2614,7 +2618,7 @@ export async function cardsById(ids: string[]): Promise<Map<string, CardSlot>> {
     const s = held.get(id)
     if (s?.rev && s.detail && !s.error) have.set(id, s.rev)
   }
-  const got = await readCards(ids, have)
+  const got = await timedRead("cardsById", () => readCards(ids, have))
   const out = new Map<string, CardSlot>()
   for (const [id, slot] of got) {
     if (!slot.same) {
@@ -2781,7 +2785,11 @@ export function useIdleReport(
       inWails() ? BoardService.IdleReport() : sampleIdleReport(sampleIdle),
     [sampleIdle]
   )
-  const { value, error, reload } = useLatest<IdleReport>(load, IdleReport())
+  const { value, error, reload } = useLatest<IdleReport>(
+    load,
+    IdleReport(),
+    "idle"
+  )
   useFresh(reload, error)
   const statuses = agents
     .map((a) => `${a.status}/${a.deviceState ?? ""}`)
@@ -2877,7 +2885,9 @@ export function useDoneCards(active: boolean, scope = ""): DoneState {
   const reload = useCallback(async () => {
     const n = ++req.current
     try {
-      const p = await loadDone(shown.current, "", scope)
+      const p = await timedRead("done", () =>
+        loadDone(shown.current, "", scope)
+      )
       if (n !== req.current) return
       setSt({ cards: p.cards ?? [], next: p.next, loading: false, error: null })
     } catch (err) {
@@ -3008,7 +3018,9 @@ async function readCards(
 // and a few seconds after a failed read; a newly watched id is read at
 // once. One read runs at a time; what comes in meanwhile waits for it,
 // then reads again.
-export const cardStore = createCardStore(readCards)
+export const cardStore = createCardStore((ids, have) =>
+  timedRead("cardStore", () => readCards(ids, have))
+)
 
 export function createCardStore(
   read: (

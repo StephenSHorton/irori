@@ -1357,6 +1357,14 @@ pub(crate) fn board_review(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Ok(v) => v,
         Err(e) => return map_err(e),
     };
+    // Merge desk §12.5: a PR with a PR card gets its reviewer from the
+    // author's device, so nothing was asked.
+    if rs.is_empty() {
+        return format!(
+            "Irori picks this PR's reviewer from the PR author's device; to review it yourself, run review_claim pr={}",
+            one_line(pr, 200)
+        );
+    }
     let asked: Vec<String> = rs.iter().map(|r| r.to.clone()).collect();
     format!(
         "Asked {} to review {} for {}: an idle agent is woken now, a busy one hears at its next turn, and if their person has Ask me on, their person is asked first. They review with their own gh (Irori never posts reviews or merges). Their review shows in prs once they post it.\n{}",

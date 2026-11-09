@@ -10,6 +10,7 @@
 // captions and the transcript an ended huddle leaves.
 
 import { CallService, Events, ShareService } from "./host"
+import { timedRead } from "./window-log"
 import { inWails } from "./irori"
 import { nameOr, unknownPerson } from "./names"
 import { previewFlag } from "./preview"
@@ -334,7 +335,7 @@ export function findLines(
 // loadTranscript reads an ended (or running) huddle's transcript.
 export async function loadTranscript(callId: string): Promise<TalkTranscript> {
   if (!inWails()) return previewTranscript(callId)
-  return CallService.Transcript(callId)
+  return timedRead("transcript", () => CallService.Transcript(callId))
 }
 
 // ---- screen share (#658) --------------------------------------------------------

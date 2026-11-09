@@ -5,7 +5,8 @@ import "./index.css"
 import App from "./App.tsx"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster, toast } from "@/components/ui/toast"
-import { commands } from "./gen/bindings"
+import { commands as bindings } from "./gen/bindings"
+import { counted } from "./lib/ipc-count"
 import { inHost } from "./lib/irori"
 import {
   applyAppearance,
@@ -26,6 +27,9 @@ followInsets()
 // variant in index.css keys off this to turn that off on a Mac only, so
 // scroll chaining on touch and Windows stays as it was.
 if (isMac()) document.documentElement.dataset.os = "mac"
+
+// Counted for the lists line in irori.log (ipc-count.ts).
+const commands = counted(bindings)
 
 // Card #232: index.html shows the opening screen while the Core starts on
 // its own thread (a fully synced log takes a while on a phone); every

@@ -15,7 +15,7 @@ use super::Services;
 use super::boards::{BoardLog, lock};
 
 /// An agent's name, cut and cleaned for the fixed text of a result.
-fn clean_name(n: &str) -> String {
+pub(super) fn clean_name(n: &str) -> String {
     let s: String = n
         .chars()
         .filter(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.'))
