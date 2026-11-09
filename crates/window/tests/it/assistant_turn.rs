@@ -406,7 +406,7 @@ fn the_owner_ok_turn_lists_read_tools_only_and_never_begins_grants() {
 fn the_owner_ok_turn_stops_on_cancel_and_fails_in_plain_words() {
     let r = Rig::new();
     let d = tempfile::tempdir().unwrap();
-    let bin = fake(d.path(), &[delta("partial")], "sleep 30");
+    let bin = fake(d.path(), &[delta("partial")], "exec sleep 30");
     let job = owner_ok_job("ok:r2");
     let cancel = job.cancel.clone();
     let c = cancel.clone();
