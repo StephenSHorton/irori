@@ -232,7 +232,7 @@ Irori writes `agent.wake` just before starting the process. Resume keeps the ses
 
 **Names.** A resting agent keeps its word for its whole life. The namer neither gives the word to another agent nor renames the agent (`core/src/namer.rs`: `NAMES_BUSY` is 2 hours today, and `settle()` can rename). On retire, today's protection applies: 7 days before the word is reused, 30 days in the lists.
 
-**If resume doesn't hold up.** The first doing card is a spike on a scratch build. It checks five things:
+**If resume doesn't hold up.** The first doing card (#1211) is a live spike with plain `claude`. It checks five things:
 - that the transcript is found after the folder is recreated;
 - that the session id stays the same;
 - that the name, model, effort and settings stick;
@@ -379,14 +379,14 @@ If the person still finds it noisy, the next step is a shorter quiet day, not re
 
 The cards sit on the Board after #1209. Each has steps, files and done-when, and each can be built without more design.
 
-1. **Spike: resume a stopped spawned agent.** Live, on a scratch build. Gates 5 and 6.
-2. **Context measure** in presence, carried on `agent.status` and `agent.rest`.
-3. **Budget setting and the shared `reusable` check.** After 2.
-4. **The multi-item mark** (`agent.took`; Appendix A.3).
-5. **Rest instead of end**: rows, roster state, letting go, drop-off, restart, cap, names, retire rules. After 1, 3 and 4. It ships together with 6, or with §7's fallback until 6 lands, so a resting agent is never stranded.
-6. **Wake a resting agent**: the wake rule, who may, start gates, flags and permissions, folder, races. After 1 and 5.
-7. **The next item**: last agent first, thread cards, same-repo offer, no double start, next-item brief, worktree switch, reopen guard, wording. After 3, 4 and 6, and after #1208 has merged.
-8. **Roster, hover and Settings.** After 2 to 6.
+1. **#1211 Spike: resume a stopped spawned agent.** Live, with plain `claude` in a throwaway worktree. Gates 5 and 6.
+2. **#1212 Context measure** in presence, carried on `agent.status` and `agent.rest`.
+3. **#1213 Budget setting and the shared `reusable` check.** After 2.
+4. **#1214 The multi-item mark** (`agent.took`; Appendix A.3).
+5. **#1215 Rest instead of end**: rows, roster state, letting go, drop-off, restart, cap, names, retire rules. After 1, 3 and 4. It ships together with 6, or with §7's fallback until 6 lands, so a resting agent is never stranded.
+6. **#1216 Wake a resting agent**: the wake rule, who may, start gates, flags and permissions, folder, races. After 1 and 5.
+7. **#1217 The next item**: last agent first, thread cards, same-repo offer, no double start, next-item brief, worktree switch, reopen guard, wording. After 3, 4 and 6, and after #1208 has merged.
+8. **#1218 Roster, hover and Settings.** After 2 to 6.
 
 ## Appendix A: notes for builders
 
