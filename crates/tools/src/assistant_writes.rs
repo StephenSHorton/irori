@@ -84,40 +84,58 @@ impl Grants {
         s.run
     }
 
-    /// Spends the grant for this write; `false` when there is none.
-    pub fn take(&self, tool: &str, task_id: &str, step_id: &str) -> bool {
-        let card = norm_ref(task_id);
-        let want = match tool {
-            TOOL_CLOSE => Grant::Close { card },
-            TOOL_TICK => Grant::Tick {
-                card,
-                step: step_id.trim().to_lowercase(),
-            },
-            _ => return false, // send and comment go through take_text
-        };
+    /// Spends the grant for this write and gives back the card it is for,
+    /// as `task:<id>`; `None` when there is none. `resolve` turns a ref into
+    /// its card id across every space the person can see (card #1198), so
+    /// "close mlg#12" matches the model sending `mlg#12` or `task:<id>`.
+    /// The card comes from the person's ref, never the model's: a grant
+    /// whose ref doesn't name exactly one card matches nothing.
+    pub fn take(
+        &self,
+        tool: &str,
+        task_id: &str,
+        step_id: &str,
+        resolve: &dyn Fn(&str) -> Option<String>,
+    ) -> Option<String> {
+        let step = step_id.trim().to_lowercase();
+        let want = resolve(&typed_ref(task_id))?;
         let mut s = self.lock();
-        match s.open.iter().position(|g| *g == want) {
-            Some(i) => {
-                s.open.remove(i);
-                true
+        let i = s.open.iter().position(|g| match (tool, g) {
+            (TOOL_CLOSE, Grant::Close { card }) => same_card(card, &want, resolve),
+            (TOOL_TICK, Grant::Tick { card, step: st }) => {
+                *st == step && same_card(card, &want, resolve)
             }
-            None => false,
-        }
+            _ => false, // send and comment go through take_text
+        })?;
+        s.open.remove(i);
+        Some(format!("task:{want}"))
     }
 
     /// Spends the send or comment grant for `target` (an agent's name or a
     /// card's ref) and gives back the target as granted with the person's
-    /// words to send: the model never supplies them.
-    pub fn take_text(&self, tool: &str, target: &str) -> Option<(String, String)> {
+    /// words to send: the model never supplies them. A card comes back as
+    /// `task:<id>`, resolved from the person's ref as [`Grants::take`] does.
+    pub fn take_text(
+        &self,
+        tool: &str,
+        target: &str,
+        resolve: &dyn Fn(&str) -> Option<String>,
+    ) -> Option<(String, String)> {
+        let want = match tool {
+            TOOL_COMMENT => Some(resolve(&typed_ref(target))?),
+            _ => None,
+        };
         let mut s = self.lock();
         let i = s.open.iter().position(|g| match (tool, g) {
             (TOOL_SEND, Grant::Send { to, .. }) => *to == norm_agent(target),
-            (TOOL_COMMENT, Grant::Comment { card, .. }) => *card == norm_ref(target),
+            (TOOL_COMMENT, Grant::Comment { card, .. }) => want
+                .as_deref()
+                .is_some_and(|w| same_card(card, w, resolve)),
             _ => false,
         })?;
         match s.open.remove(i) {
             Grant::Send { to, text } => Some((to, text)),
-            Grant::Comment { card, text } => Some((card, text)),
+            Grant::Comment { text, .. } => Some((format!("task:{}", want?), text)),
             _ => None,
         }
     }
@@ -306,6 +324,18 @@ fn is_ref(w: &str) -> bool {
 
 fn is_number(w: &str) -> bool {
     !w.is_empty() && w.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Whether the person's granted `card` ref names card `id`.
+fn same_card(card: &str, id: &str, resolve: &dyn Fn(&str) -> Option<String>) -> bool {
+    resolve(card).is_some_and(|c| c == id)
+}
+
+/// A ref the model sent, to resolve: as typed, since a card's full id is
+/// case-sensitive, but a bare number is that card's `#12`.
+fn typed_ref(s: &str) -> String {
+    let t = s.trim();
+    if is_number(t) { format!("#{t}") } else { t.to_string() }
 }
 
 /// A ref as grants compare it.
@@ -912,25 +942,77 @@ mod tests {
         assert_eq!(grants_for("close it", &[]), vec![]);
     }
 
+    /// A resolver for tests without a board: every ref names itself.
+    fn as_typed(r: &str) -> Option<String> {
+        Some(r.to_string())
+    }
+
+    /// Card #1198: a grant matches the card the person named in any
+    /// space, however the model spells it, and never an ambiguous one.
+    #[test]
+    fn a_grant_matches_the_card_its_ref_resolves_to() {
+        // mlg#12 and Personal's #3 are cards; a bare #12 is on two boards.
+        let resolve = |r: &str| -> Option<String> {
+            match r {
+                "mlg#12" | "task:t-mlg12" => Some("t-mlg12".into()),
+                "#3" | "task:t-p3" => Some("t-p3".into()),
+                _ => None,
+            }
+        };
+        let g = Grants::default();
+        let run = g.begin(grants_for("close mlg#12", &[]));
+        assert_eq!(g.take(TOOL_CLOSE, "#3", "", &resolve), None);
+        assert_eq!(g.take(TOOL_CLOSE, "task:t-p3", "", &resolve), None);
+        assert_eq!(g.take(TOOL_CLOSE, "#12", "", &resolve), None);
+        assert_eq!(
+            g.take(TOOL_CLOSE, " task:t-mlg12 ", "", &resolve),
+            Some("task:t-mlg12".into())
+        );
+        assert_eq!(g.take(TOOL_CLOSE, "mlg#12", "", &resolve), None, "spent");
+        g.end(run);
+
+        let run = g.begin(grants_for("tick s1 on mlg#12", &[]));
+        assert_eq!(g.take(TOOL_TICK, "mlg#12", "s2", &resolve), None);
+        assert_eq!(
+            g.take(TOOL_TICK, "mlg#12", "S1", &resolve),
+            Some("task:t-mlg12".into())
+        );
+        g.end(run);
+
+        let run = g.begin(grants_for("comment on mlg#12: ship it", &[]));
+        assert_eq!(g.take_text(TOOL_COMMENT, "#3", &resolve), None);
+        assert_eq!(
+            g.take_text(TOOL_COMMENT, "task:t-mlg12", &resolve),
+            Some(("task:t-mlg12".into(), "ship it".into()))
+        );
+        g.end(run);
+
+        // The person's bare #12 names two cards: the model can't pick one.
+        let run = g.begin(grants_for("close #12", &[]));
+        assert_eq!(g.take(TOOL_CLOSE, "mlg#12", "", &resolve), None);
+        assert_eq!(g.take(TOOL_CLOSE, "task:t-mlg12", "", &resolve), None);
+        g.end(run);
+    }
+
     #[test]
     fn a_grant_is_spent_once_and_ends_with_the_run() {
         let g = Grants::default();
         let run = g.begin(vec![close("#5"), tick("#6", "s2")]);
-        assert!(!g.take(TOOL_CLOSE, "#7", ""));
-        assert!(!g.take(TOOL_CLOSE, "#6", ""));
-        assert!(!g.take(TOOL_TICK, "#6", "s3"));
-        assert!(!g.take("board_status", "#5", ""));
-        assert!(g.take(TOOL_CLOSE, "5", ""));
-        assert!(!g.take(TOOL_CLOSE, "#5", ""));
+        assert!(g.take(TOOL_CLOSE, "#7", "", &as_typed).is_none());
+        assert!(g.take(TOOL_CLOSE, "#6", "", &as_typed).is_none());
+        assert!(g.take(TOOL_TICK, "#6", "s3", &as_typed).is_none());
+        assert!(g.take("board_status", "#5", "", &as_typed).is_none());
+        assert!(g.take(TOOL_CLOSE, "5", "", &as_typed).is_some());
+        assert!(g.take(TOOL_CLOSE, "#5", "", &as_typed).is_none());
         g.changed("Closed #5.");
         assert_eq!(g.end(run), vec!["Closed #5.".to_string()]);
-        assert!(!g.take(TOOL_TICK, "#6", "s2"));
+        assert!(g.take(TOOL_TICK, "#6", "s2", &as_typed).is_none());
 
         // A stopped run ending late doesn't take the next run's grant.
         let old = g.begin(vec![close("#1")]);
         let new = g.begin(vec![close("#2")]);
         assert_eq!(g.end(old), Vec::<String>::new());
-        assert!(g.take(TOOL_CLOSE, "#2", ""));
+        assert!(g.take(TOOL_CLOSE, "#2", "", &as_typed).is_some());
         g.end(new);
     }
 
@@ -1017,27 +1099,27 @@ mod tests {
     fn a_send_or_comment_is_spent_once_for_the_one_it_names() {
         let g = Grants::default();
         let run = g.begin(vec![send("ringo", "hi there"), comment("#5", "fine")]);
-        assert_eq!(g.take_text(TOOL_SEND, "ahab"), None);
-        assert_eq!(g.take_text(TOOL_SEND, "#5"), None);
-        assert_eq!(g.take_text(TOOL_COMMENT, "#6"), None);
-        assert_eq!(g.take_text(TOOL_COMMENT, "ringo"), None);
+        assert_eq!(g.take_text(TOOL_SEND, "ahab", &as_typed), None);
+        assert_eq!(g.take_text(TOOL_SEND, "#5", &as_typed), None);
+        assert_eq!(g.take_text(TOOL_COMMENT, "#6", &as_typed), None);
+        assert_eq!(g.take_text(TOOL_COMMENT, "ringo", &as_typed), None);
         // Not through the close path, nor by another tool's name.
-        assert!(!g.take(TOOL_CLOSE, "#5", ""));
-        assert!(!g.take(TOOL_SEND, "ringo", ""));
-        assert_eq!(g.take_text(TOOL_CLOSE, "#5"), None);
+        assert!(g.take(TOOL_CLOSE, "#5", "", &as_typed).is_none());
+        assert!(g.take(TOOL_SEND, "ringo", "", &as_typed).is_none());
+        assert_eq!(g.take_text(TOOL_CLOSE, "#5", &as_typed), None);
         assert_eq!(
-            g.take_text(TOOL_SEND, " @Ringo "),
+            g.take_text(TOOL_SEND, " @Ringo ", &as_typed),
             Some(("ringo".into(), "hi there".into()))
         );
-        assert_eq!(g.take_text(TOOL_SEND, "ringo"), None);
+        assert_eq!(g.take_text(TOOL_SEND, "ringo", &as_typed), None);
         assert_eq!(
-            g.take_text(TOOL_COMMENT, "5"),
-            Some(("#5".into(), "fine".into()))
+            g.take_text(TOOL_COMMENT, "5", &as_typed),
+            Some(("task:#5".into(), "fine".into()))
         );
-        assert_eq!(g.take_text(TOOL_COMMENT, "#5"), None);
+        assert_eq!(g.take_text(TOOL_COMMENT, "#5", &as_typed), None);
         g.end(run);
         let run = g.begin(vec![send("ringo", "x")]);
         g.end(run);
-        assert_eq!(g.take_text(TOOL_SEND, "ringo"), None);
+        assert_eq!(g.take_text(TOOL_SEND, "ringo", &as_typed), None);
     }
 }

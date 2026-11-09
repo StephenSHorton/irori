@@ -362,6 +362,116 @@ fn a_send_and_a_comment_say_the_persons_words_to_who_they_named() {
     assert_eq!(rig.core.assistant_grants().end(run).len(), 1);
 }
 
+/// Card #1198: the person's grant reaches a card in a shared space, by its
+/// tag#N or its full id, and never the same number on another board.
+#[test]
+fn a_write_reaches_a_card_in_another_space() {
+    let rig = common::Rig::new();
+    let secret = rig.core.assistant_secret().to_string();
+    let me = format!("user:{}", rig.core.device_id());
+    let h = [(HEADER_ASSISTANT, secret.as_str())];
+    let personal = cards(&rig, &me, "a Personal card");
+    let board = rig.core.create_board("mlg farming", "mlg").unwrap();
+    let co = rig.core.board_coord(&board).unwrap();
+    let actor = rig.core.board_key(&board, &me).unwrap();
+    let step = |text: &str| coord::Step {
+        text: text.into(),
+        ..Default::default()
+    };
+    let new_card = |title: &str| {
+        let t = co
+            .create_task(
+                &actor,
+                coord::NewTask {
+                    title: title.into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        co.set_steps(&actor, &t.id, vec![step("one"), step("two")])
+            .unwrap()
+    };
+    let space = new_card("a space card");
+    let (s, p) = (space.short_ref(), personal.short_ref());
+    assert!(s.starts_with("mlg#"), "{s}");
+    let bare = format!("#{}", s.split_once('#').unwrap().1);
+    assert_eq!(bare, p, "the same number on both boards");
+    let full = format!("task:{}", space.id);
+    let state = |id: &str| co.get_task(id).unwrap().state;
+    let before = state(&space.id);
+
+    // A bare #N on two boards names neither: the model's pick is refused.
+    let run = rig
+        .core
+        .assistant_grants()
+        .begin(tools::grants_for(&format!("close {bare}"), &[]));
+    for r in [s.as_str(), full.as_str()] {
+        let (code, text) = call(&rig, &h, "assistant_close", json!({ "task_id": r }));
+        assert_eq!(code, 403, "{r}: {text}");
+    }
+    assert_eq!(state(&space.id), before);
+    rig.core.assistant_grants().end(run);
+
+    // Named by its tag: not Personal's card of the same number.
+    let run = rig.core.assistant_grants().begin(tools::grants_for(
+        &format!("tick s1 on {s} and close {s}"),
+        &[],
+    ));
+    let personal_full = format!("task:{}", personal.id);
+    for r in [p.as_str(), personal_full.as_str()] {
+        let (code, text) = call(&rig, &h, "assistant_close", json!({ "task_id": r }));
+        assert_eq!(code, 403, "{r}: {text}");
+    }
+    assert_eq!(
+        rig.core.coord().get_task(&personal.id).unwrap().state,
+        personal.state
+    );
+    // The model may send the full id the board tool shows beside each ref.
+    let (code, text) = call(
+        &rig,
+        &h,
+        "assistant_tick",
+        json!({ "task_id": full, "step_id": "s1" }),
+    );
+    assert_eq!(code, 200, "{text}");
+    assert!(text.starts_with("Ticked step s1 on mlg#"), "{text}");
+    assert!(co.get_task(&space.id).unwrap().steps[0].done);
+    let (code, text) = call(
+        &rig,
+        &h,
+        "assistant_close",
+        json!({ "task_id": s.to_uppercase() }),
+    );
+    assert_eq!(code, 200, "{text}");
+    assert!(text.starts_with("Closed mlg#"), "{text}");
+    assert_eq!(state(&space.id), coord::COMPLETED);
+    rig.core.assistant_grants().end(run);
+
+    // A comment lands on the space's card in the person's own words.
+    let other = new_card("another space card");
+    let o = other.short_ref();
+    let run = rig
+        .core
+        .assistant_grants()
+        .begin(tools::grants_for(&format!("comment on {o}: looks good"), &[]));
+    let (code, text) = call(
+        &rig,
+        &h,
+        "assistant_comment",
+        json!({ "task_id": format!("task:{}", other.id), "text": "the model's" }),
+    );
+    assert_eq!(code, 200, "{text}");
+    let said: Vec<String> = co
+        .comments(&other.id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| c.text)
+        .collect();
+    assert_eq!(said, vec!["looks good".to_string()]);
+    let lines = rig.core.assistant_grants().end(run);
+    assert!(lines[0].contains(&o), "{lines:?}");
+}
+
 #[test]
 fn the_write_tools_are_only_the_assistants() {
     let rig = common::Rig::new();

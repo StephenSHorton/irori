@@ -162,6 +162,11 @@ fn a_second_question_goes_to_the_same_process_alone() {
     assert_eq!(r.w.chat_held_starts(), 1);
 }
 
+/// No board here: every ref names itself.
+fn as_typed(r: &str) -> Option<String> {
+    Some(r.to_string())
+}
+
 #[test]
 fn grants_begin_and_end_with_each_message() {
     let f = tempfile::tempdir().unwrap();
@@ -171,22 +176,22 @@ fn grants_begin_and_end_with_each_message() {
     let t1 = r.core.assistant_chat_ask("close #5", "", "").unwrap();
     wait_for("the first message", 20, || messages(f.path()).len() == 1);
     // While the first question runs, its grant is open and nothing else.
-    assert!(!g.take(CLOSE, "#9", ""));
-    assert!(g.take(CLOSE, "#5", ""));
+    assert!(g.take(CLOSE, "#9", "", &as_typed).is_none());
+    assert!(g.take(CLOSE, "#5", "", &as_typed).is_some());
     std::fs::write(f.path().join("go-1"), "").unwrap();
     replied(&r, &t1);
     let t2 = r.core.assistant_chat_ask("close #9", "", "").unwrap();
     wait_for("the second message", 20, || messages(f.path()).len() == 2);
-    assert!(!g.take(CLOSE, "#5", ""), "the first message's grant ended");
-    assert!(g.take(CLOSE, "#9", ""));
+    assert!(g.take(CLOSE, "#5", "", &as_typed).is_none(), "the first message's grant ended");
+    assert!(g.take(CLOSE, "#9", "", &as_typed).is_some());
     // Spent once: a second close of #9 has no grant.
-    assert!(!g.take(CLOSE, "#9", ""));
+    assert!(g.take(CLOSE, "#9", "", &as_typed).is_none());
     std::fs::write(f.path().join("go-2"), "").unwrap();
     replied(&r, &t2);
     // The second message's grants end with it.
     let t3 = r.core.assistant_chat_ask("thanks", "", "").unwrap();
     wait_for("the third message", 20, || messages(f.path()).len() == 3);
-    assert!(!g.take(CLOSE, "#9", ""));
+    assert!(g.take(CLOSE, "#9", "", &as_typed).is_none());
     std::fs::write(f.path().join("go-3"), "").unwrap();
     replied(&r, &t3);
     assert_eq!(starts(f.path()), 1, "all three on one process");
