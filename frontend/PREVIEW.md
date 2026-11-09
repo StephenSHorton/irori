@@ -196,6 +196,18 @@ and the right-hand buttons look cut off when they aren't. `check:phone` sets
 the width through DevTools' device emulation and fails if the page doesn't
 see 390.
 
+## Idle renders (card #1137)
+
+With the preview running, `bun scripts/idle-render.ts home '?thread=sample-thread-1' '#talk/sample-ch-suzuri'`
+opens each page in a headless Chrome, lets it settle, then counts 10 s
+(`IDLE_MS`) of nothing happening: React commits, components rendered and DOM
+mutations (`IDLE_NAMES=1` lists the busiest components and what rendered at
+the top of each commit). An idle window should render only what is live
+(meters, "42s ago" labels). The window's clock is `src/lib/clock.ts`: relative
+times are `<Ago at=…/>`, which re-render alone; never pass `now` down from App.
+Before the change Home rendered ~3900 components in 10 s (App every second);
+after, ~100.
+
 ## Screenshots
 
 With the preview running, `bun scripts/loading-shots.ts` saves each loading

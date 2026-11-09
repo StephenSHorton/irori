@@ -1,5 +1,6 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react"
 
+import { Ago } from "@/components/common/ago"
 import { Badge } from "@/components/ui/badge"
 import { AttachmentList } from "@/components/attachments"
 import { Button } from "@/components/ui/button"
@@ -11,7 +12,7 @@ import {
   type CardMessage,
   type CardThreadItem,
 } from "@/lib/cards"
-import { parseTime, plainBlock, plainLine, relativeTime } from "@/lib/irori"
+import { parseTime, plainBlock, plainLine } from "@/lib/irori"
 import { errorText, talk } from "@/lib/talk"
 import {
   FocusComment,
@@ -44,7 +45,6 @@ import { ReplyingRow } from "@/components/talk/replying-row"
 export function Thread({
   cardId,
   items,
-  now,
   earlier = 0,
   historyTrimmed,
   empty = "Nothing yet.",
@@ -57,7 +57,6 @@ export function Thread({
 }: {
   cardId?: string
   items: CardThreadItem[]
-  now: Date
   // earlier counts entries older than the ones sent (BoardService.Card
   // sends the newest MaxThreadView).
   earlier?: number
@@ -175,7 +174,7 @@ export function Thread({
               <ThreadRow
                 cardId={cardId}
                 item={it}
-                now={now}
+
                 inBlocker={inBlocker}
                 startable={it.id === startId}
                 starting={starting}
@@ -305,14 +304,12 @@ function UndoLink({ hint, undo }: { hint: string; undo: () => Promise<void> }) {
 function ThreadRow({
   cardId,
   item,
-  now,
   inBlocker,
   startable,
   starting,
 }: {
   cardId?: string
   item: CardThreadItem
-  now: Date
   inBlocker?: boolean
   starting?: boolean
   // "Start an agent with this" (card #452): the person's latest comment
@@ -344,7 +341,7 @@ function ThreadRow({
       dateTime={at?.toISOString()}
       title={at?.toLocaleString()}
     >
-      {relativeTime(at, now)}
+      <Ago at={at} />
     </time>
   )
   // A revision of its blocker: what the item asks now, under the reply it

@@ -87,7 +87,6 @@ export function BoardPage({
   onQuery,
   selected,
   onOpen,
-  now,
 }: {
   boardId: string
   // The board open in the space (card #558); none is the space's page.
@@ -104,7 +103,6 @@ export function BoardPage({
   onQuery: (q: string) => void
   selected: string
   onOpen: (id: string) => void
-  now: Date
 }) {
   const { boards, loaded } = useBoards()
   const { threads } = useThreads(boardId)
@@ -163,7 +161,7 @@ export function BoardPage({
         onQuery={onQuery}
         selected={selected}
         onOpen={onOpen}
-        now={now}
+
         header={
           <>
             {open && (
@@ -172,7 +170,7 @@ export function BoardPage({
                 board={open}
                 boards={openBoards(boardsOf(b))}
                 open={shown}
-                now={now}
+
                 onOpen={onOpen}
               />
             )}
@@ -202,7 +200,7 @@ export function BoardPage({
               here from its page.
             </p>
           ) : (
-            <SpaceBoards space={b} cards={cards} now={now} />
+            <SpaceBoards space={b} cards={cards} />
           )
         }
         nothingDecide="Nothing on this board waits on you."

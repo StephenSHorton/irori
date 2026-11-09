@@ -7,6 +7,7 @@
 // connected, an Ask box. Roster takes its data as props so the
 // server-rendered tests can feed them.
 
+import { useToday } from "@/lib/clock"
 import { lazy, Suspense, useEffect, useRef, useState } from "react"
 import {
   ChevronLeftIcon,
@@ -387,15 +388,14 @@ type Tab = "canvas" | "transcript" | "people"
 // onOpenConv opens the conversation it was in.
 export function HuddlePage({
   callId,
-  now,
   onBack,
   onOpenConv,
 }: {
   callId: string
-  now: Date
   onBack: () => void
   onOpenConv: (convId: string) => void
 }) {
+  const today = useToday()
   const narrow = useNarrow()
   const { huddles, loading, error } = useHuddles()
   const h = huddles.find((x) => x.callId === callId)
@@ -532,7 +532,7 @@ export function HuddlePage({
     </div>
   )
   const transcript = t ? (
-    <TranscriptView t={t} now={now} wide />
+    <TranscriptView t={t} wide />
   ) : (
     <p
       role={tError ? "alert" : undefined}
@@ -593,7 +593,7 @@ export function HuddlePage({
             >
               {placeText(h)}
             </button>
-            {whenOf(h, now) && <span>· {whenOf(h, now)}</span>}
+            {whenOf(h, today) && <span>· {whenOf(h, today)}</span>}
             <span
               className={cn(live && "font-medium text-success")}
               data-live={live ? "on" : "over"}

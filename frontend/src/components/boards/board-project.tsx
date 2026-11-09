@@ -5,6 +5,7 @@
 // board and its edit dialog, the Close board dialog, a closed board's
 // Reopen, and the Closed boards fold under a space's tiles.
 
+import { Ago } from "@/components/common/ago"
 import { useEffect, useState, type FormEvent, type ReactNode } from "react"
 import { ChevronRightIcon } from "lucide-react"
 
@@ -33,7 +34,7 @@ import {
   type SpaceBoard,
 } from "@/lib/boards"
 import type { CardSummary } from "@/lib/cards"
-import { plainBlock, plainLine, relativeTime } from "@/lib/irori"
+import { plainBlock, plainLine } from "@/lib/irori"
 import { previewFlag } from "@/lib/preview"
 import { Personal } from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
@@ -344,7 +345,6 @@ export function BoardTop({
   board: x,
   boards,
   open,
-  now,
   onOpen,
 }: {
   // The space's id, or Personal.
@@ -354,7 +354,6 @@ export function BoardTop({
   boards: SpaceBoard[]
   // The board's open cards.
   open: CardSummary[]
-  now: Date
   onOpen: (id: string) => void
 }) {
   const [editing, setEditing] = useState(
@@ -393,9 +392,14 @@ export function BoardTop({
             <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
               <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                 Closed
-                {closedAt && !Number.isNaN(closedAt.getTime())
-                  ? ` ${relativeTime(closedAt, now)}`
-                  : ""}
+                {closedAt && !Number.isNaN(closedAt.getTime()) ? (
+                  <>
+                    {" "}
+                    <Ago at={closedAt} />
+                  </>
+                ) : (
+                  ""
+                )}
               </span>
               <span className="text-muted-foreground">
                 {x.mayClose
