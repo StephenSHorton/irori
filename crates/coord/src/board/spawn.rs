@@ -1471,6 +1471,77 @@ impl Fold {
         Ok(())
     }
 
+    /// Starts review card `id`, given to the person, without stopping to
+    /// ask (merge-desk §12.10, Stephen's ruling on #1022): the person's
+    /// switch is on, so Irori raises "OK to start an agent on this?" and
+    /// answers it Start an agent as them in the same breath. It is the same
+    /// two rows a click would write, so the asker, the generation and the
+    /// one-yes-one-agent rules stand. Any card that is not a review card
+    /// still asks.
+    pub(crate) fn start_given(&mut self, by: &str, id: &str, context: &str) -> Result<()> {
+        let t = self.open_task(id)?.clone();
+        if t.review_of.is_empty() || t.given.is_none() {
+            return self.ask_given(by, id, context);
+        }
+        let Some(p) = t.given.as_ref().map(|g| g.person.clone()) else {
+            return Ok(());
+        };
+        let now = self.stamp();
+        let opt = |answer: &str, why: &str| BlockerOption {
+            answer: answer.into(),
+            why: why.into(),
+            by: by.to_string(),
+            at: now,
+            recommended: false,
+            link: None,
+        };
+        let (nt, b) = self.raise_locked(
+            by,
+            &t,
+            GIVEN_QUESTION,
+            GIVEN_QUESTION,
+            context,
+            vec![
+                opt(GIVEN_START, "A read-only reviewer starts on this computer."),
+                opt(GIVEN_NOT_NOW, "The card stays yours, with no agent."),
+            ],
+            Some(BlockedBy {
+                kind: BLOCKED_ON_PERSON.into(),
+                reference: format!("{}{p}", kinds::PERSON_ACTOR_PREFIX),
+            }),
+            false,
+            now,
+            Vec::new(),
+            Vec::new(),
+            false,
+            false,
+        )?;
+        // The question stands only if it is theirs on this device.
+        if nt.given.as_ref().is_none_or(|g| g.question != b.id) {
+            return Ok(());
+        }
+        let restored = if super::cards::count_open(&nt) == 1 {
+            self.restore_for(&nt).to_string()
+        } else {
+            String::new()
+        };
+        self.write(
+            by,
+            kinds::BLOCKER_RESOLVED,
+            &BlockerResolvedRow {
+                task_id: id.into(),
+                blocker_id: b.id.clone(),
+                answer: GIVEN_START.into(),
+                option: 0,
+                by: by.into(),
+                restored,
+                at: self.stamp(),
+                ..BlockerResolvedRow::default()
+            },
+        )?;
+        Ok(())
+    }
+
     /// Whether card t's last request lets a new one go now: none is
     /// pending, and a failed one here has waited or the card changed.
     fn spawn_due(&self, t: &Task, now: &GoTime) -> bool {

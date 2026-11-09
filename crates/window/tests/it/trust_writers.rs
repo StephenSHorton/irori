@@ -143,6 +143,43 @@ fn only_the_window_sets_reviews_without_asking() {
     assert!(spawn.contains("ev.actor != \"user\""));
 }
 
+/// "Start a reviewer on this machine when nobody else fits" (merge-desk
+/// §12.10) is the person's alone too: only the window's Settings command
+/// calls the Core's setter, and the tools hold no way to it.
+#[test]
+fn only_the_window_sets_review_starts() {
+    let mut files = Vec::new();
+    rust_files(&root().join("crates"), &mut files);
+    rust_files(&root().join("app"), &mut files);
+    for f in files {
+        let text = std::fs::read_to_string(&f).unwrap_or_default();
+        if !text.contains(".set_review_starts(") {
+            continue;
+        }
+        let f = f
+            .strip_prefix(root())
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        assert!(
+            f == "crates/window/src/agents.rs"
+                || f == "crates/core/src/service.rs"
+                || f.starts_with("crates/window/tests/")
+                || f.starts_with("crates/core/tests/"),
+            "{f} sets review starts: only the app's Settings may"
+        );
+    }
+    let core = std::fs::read_to_string(root().join("crates/core/src/service.rs")).unwrap();
+    assert_eq!(core.matches(".set_review_starts(").count(), 1);
+    let tools = std::fs::read_to_string(root().join("crates/tools/src/lib.rs")).unwrap();
+    assert!(
+        !tools.contains("fn set_review_starts"),
+        "the tools' Backend can't set it"
+    );
+    let spawn = std::fs::read_to_string(root().join("crates/core/src/service/spawn.rs")).unwrap();
+    assert!(spawn.contains("ev.actor != \"user\""));
+}
+
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     for e in std::fs::read_dir(dir).unwrap() {
         let p = e.unwrap().path();

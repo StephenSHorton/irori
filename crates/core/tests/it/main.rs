@@ -61,6 +61,7 @@ mod prefetch;
 mod prwatch;
 mod review_choice;
 mod review_pick;
+mod review_start;
 mod reviews_setting;
 mod search;
 mod space_boards;

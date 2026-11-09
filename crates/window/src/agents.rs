@@ -645,6 +645,18 @@ impl Window {
         Ok(self.agents_reviews())
     }
 
+    /// "Start a reviewer on this machine when nobody else fits"
+    /// (merge-desk §12.10): on unless the person turned it off.
+    pub fn agents_review_starts(&self) -> bool {
+        self.core.review_starts()
+    }
+
+    /// The person changes it: the app only, never a tool.
+    pub fn agents_review_starts_set(&self, on: bool) -> Result<bool, String> {
+        self.core.set_review_starts(on)?;
+        Ok(self.agents_review_starts())
+    }
+
     /// Pause agents, as the top nav shows it (card #665).
     pub fn agents_pause(&self) -> AgentsPauseView {
         let p = self.core.agents_pause();

@@ -46,6 +46,12 @@ pub const AGENT_STARTS_ROW: &str = "agents";
 pub const REVIEWS_ROW: &str = "reviews";
 /// On when there is no row (decision 52).
 pub const REVIEWS_ON: bool = true;
+/// The reserved `spawn.cap` device the person's "Start a reviewer on this
+/// machine when nobody else fits" rides on (merge-desk §12.10, card
+/// #1082). Hex device ids never match it.
+pub const REVIEW_STARTS_ROW: &str = "review-starts";
+/// On when there is no row (decision 52).
+pub const REVIEW_STARTS_ON: bool = true;
 /// On for a new person (Stephen, #575 b1).
 pub const AGENT_STARTS_ON: bool = true;
 /// The maximum for a new person (Stephen, #575 b1).
@@ -103,6 +109,36 @@ impl Services {
             .spawn
             .reviews_off
             .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Whether a review card given to this person starts without "OK to
+    /// start an agent on this?" (merge-desk §12.10).
+    pub(crate) fn review_starts(&self) -> bool {
+        !self
+            .spawn
+            .review_starts_off
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The person sets "Start a reviewer on this machine when nobody else
+    /// fits", from the app only: no tool reaches this.
+    pub(crate) fn set_review_starts(&self, on: bool) -> Result<(), String> {
+        let row = SpawnCap {
+            device: REVIEW_STARTS_ROW.into(),
+            cap: 0,
+            on: Some(on),
+            by: format!("user:{}", self.device.id),
+            at: (self.now)(),
+        };
+        let rows = self.spawn.rows.lock().unwrap_or_else(|e| e.into_inner());
+        self.store
+            .append("user", kinds::SPAWN_CAP, &row)
+            .map_err(|e| e.to_string())?;
+        self.spawn
+            .review_starts_off
+            .store(!on, std::sync::atomic::Ordering::SeqCst);
+        drop(rows);
+        Ok(())
     }
 
     /// Hands the setting to the inbox, whose fence reads it.

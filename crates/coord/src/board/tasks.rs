@@ -57,6 +57,8 @@ pub(crate) struct CleanTask {
     pub title_by_person: bool,
     /// Makes it a PR card (merge desk §12.2).
     pub pr_card: Option<PrCard>,
+    /// The PR card it reviews (merge desk §12.10).
+    pub review_of: String,
     /// Its weight from the start and why (card #964); "" is none.
     pub weight: String,
     pub weight_reason: String,
@@ -154,6 +156,7 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
         later: nt.later.clone(),
         title_by_person: nt.title_by_person,
         pr_card,
+        review_of: nt.review_of.trim().to_string(),
         parent: String::new(),
         spawn: false,
         from: String::new(),
@@ -238,6 +241,20 @@ impl Fold {
         if ct.pr_card.is_some() && !self.is_owner(by) {
             return Err(not_allowed("only a person makes a PR card"));
         }
+        // A review card is the PR card's creator's, made by their person
+        // on the PR card's board (merge desk §12.10).
+        if !ct.review_of.is_empty() {
+            let ok = self.is_owner(by)
+                && self
+                    .tasks
+                    .get(&ct.review_of)
+                    .is_some_and(|c| c.pr_card.is_some() && c.created_by == by);
+            if !ok {
+                return Err(not_allowed(
+                    "only a PR card's creator makes a review card for it",
+                ));
+            }
+        }
         if let Some(p) = self.tasks.get(&ct.parent) {
             ct.board = p.board.clone();
         }
@@ -283,6 +300,7 @@ impl Fold {
                     .as_ref()
                     .map(|c| c.author.clone())
                     .unwrap_or_default(),
+                review_of: ct.review_of.clone(),
                 by: by.into(),
                 at,
                 ask: None,
@@ -528,7 +546,9 @@ impl Fold {
             self.unreviewed_refusal(&t)?;
         }
         // Card #208: nor while a PR it links is open on GitHub.
-        if s == COMPLETED && self.is_agent_key(&by) {
+        // A review card links an open PR by design, and its agent never
+        // lands it (merge desk §12.10).
+        if s == COMPLETED && self.is_agent_key(&by) && t.review_of.is_empty() {
             self.open_pr_refusal(&t)?;
         }
         let cascade = self.parent_state_refusal(&t, s)?;
@@ -555,7 +575,15 @@ impl Fold {
         if s == COMPLETED && self.is_agent_key(&by) && lead.is_empty() && self.lead_coming(&t) {
             return self.ask_lead(&by, &t, "", &note, files);
         }
-        if s == COMPLETED && self.done_check && self.is_agent_key(&by) && lead.is_empty() {
+        // A review card's Done goes to nobody (merge desk §12.10): the
+        // author is not asked whether a reviewer's review is done; the card
+        // closes with its agent's completed.
+        if s == COMPLETED
+            && self.done_check
+            && self.is_agent_key(&by)
+            && lead.is_empty()
+            && t.review_of.is_empty()
+        {
             return self.ask_done(&by, &t, &note, files, need_proof);
         }
         if t.state == s && t.note == note {

@@ -650,6 +650,12 @@ pub struct Task {
     /// [`pr_card`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pr_card: Option<PrCard>,
+    /// The PR card this is a review card for (merge desk §12.10), set only
+    /// from a person's creation row of that PR card's own creator. Empty on
+    /// every other card. A review card is never handed out; it is given to
+    /// the reviewer's person and starts on their machine.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub review_of: String,
     /// How many times Irori's assistant named it (card #782): it names a
     /// new thread once and retitles it at most once more.
     #[serde(skip_serializing_if = "omit")]
@@ -980,6 +986,9 @@ pub struct NewTask {
     /// Makes it a PR card (merge desk §12.2). Only a person can: an agent's
     /// is refused.
     pub pr_card: Option<PrCard>,
+    /// Makes it a review card for this PR card (merge desk §12.10), by task
+    /// id. Only the PR card's own creator, a person, can.
+    pub review_of: String,
     /// Its weight from the start (card #964): light, normal or heavy, or
     /// empty for none (normal). Written with the card, so it is weighed
     /// before Irori hands it out.
