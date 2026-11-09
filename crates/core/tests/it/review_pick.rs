@@ -244,3 +244,500 @@ fn a_busy_agent_with_no_signal_is_not_asked_and_tier_7_waits() {
     assert!(review_rows(&t.sa()).is_empty(), "a busy agent was asked");
     assert!(note().starts_with("nobody"), "{:?}", note());
 }
+
+// ---- Bob's side: agents put on, asks and pings delivered, the catch-up ----
+
+/// A third session of Bob's, "gamma"; its key.
+fn bobs_third(t: &Two) -> String {
+    let sess = "cccccccc-3333-4333-8333-000000000003";
+    crate::common::write_session(
+        &t.rb.claude.join("sessions"),
+        "900003.json",
+        sess,
+        "gamma",
+        &t.rb.data,
+    );
+    let key = format!("{}/{sess}", t.b().device_id());
+    wait_for(10, "presence lists gamma", || {
+        t.b().local_agents().iter().any(|a| a.key == key)
+    });
+    key
+}
+
+/// Puts Bob's sessions `keys` on the board; their board keys, once Alice's
+/// side reads them idle.
+fn bobs_on(t: &Two, keys: &[&str]) -> Vec<String> {
+    let out: Vec<String> = keys
+        .iter()
+        .map(|k| t.b().board_key(&t.board, k).unwrap())
+        .collect();
+    t.sync();
+    let refs: Vec<&str> = out.iter().map(String::as_str).collect();
+    wait_cards(t.a(), &t.board, &refs);
+    out
+}
+
+/// Each of Bob's agents `keys` comments on the PR card (tier 1, same
+/// work), and Alice's side has the comments.
+fn comment_on(t: &Two, card: &Task, keys: &[String]) {
+    let bco = t.b().board_coord(&t.board).unwrap();
+    wait_for(10, "bob folds the PR card", || {
+        bco.get_task(&card.id).is_some()
+    });
+    for k in keys {
+        bco.add_comment(k, &card.id, "this touches my loader work", false)
+            .unwrap();
+    }
+    t.sync();
+    let aco = t.a().board_coord(&t.board).unwrap();
+    wait_for(10, "alice has the comments", || {
+        aco.pick_facts(&card.id).is_some_and(|f| {
+            f.related
+                .iter()
+                .any(|r| keys.iter().all(|k| r.commenters.contains(k)))
+        })
+    });
+}
+
+/// The asks (pings left out) and the pings in `st`.
+fn asks_and_pings(st: &Store) -> (Vec<serde_json::Value>, Vec<serde_json::Value>) {
+    review_rows(st)
+        .into_iter()
+        .partition(|r| r.get("look").is_none())
+}
+
+/// Bob's idle agent goes on the board for Alice's PR card by itself
+/// (card_idle_agents), one only; Alice's poll asks it and it hears the ask
+/// woken, from Alice's person. Alice's agents never go on for her own PR
+/// and never hear the ask.
+#[test]
+fn bobs_idle_agent_comes_on_for_alices_pr_and_is_asked() {
+    let gh = alices_gh();
+    let t = pick_world(&gh, |_| {});
+    for (c, k) in [
+        (t.a(), &t.ra.key_a),
+        (t.a(), &t.ra.key_b),
+        (t.b(), &t.rb.key_a),
+        (t.b(), &t.rb.key_b),
+    ] {
+        c.set_agent_offer(k, true).unwrap();
+    }
+    let card = make_pr_card(&t);
+    t.sync();
+    wait_for(10, "bob folds the PR card", || {
+        pr_card(t.b(), &t.board).is_some()
+    });
+    let cards_by = |dev: &str| {
+        t.sb()
+            .list(&Filter {
+                kinds: vec![store::kinds::AGENT_CARD.into()],
+                limit: 10_000,
+                ..Default::default()
+            })
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.device_id == dev)
+            .map(|e| e.actor)
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let bob_dev = t.b().device_id().to_string();
+    wait_for(10, "bob's agent on the board", || {
+        t.b().sweep_coord().ok();
+        !cards_by(&bob_dev).is_empty()
+    });
+    // One is enough: once it reads idle there, no more come.
+    for _ in 0..3 {
+        t.b().sweep_coord().ok();
+    }
+    let on = cards_by(&bob_dev);
+    assert_eq!(on.len(), 1, "{on:?}");
+    let b1 = on.into_iter().next().unwrap();
+    let local = t.b().private_key(&b1);
+    assert!(local == t.rb.key_a || local == t.rb.key_b, "{local}");
+
+    // Alice's own agents stay off her PR's board.
+    t.a().sweep_coord().ok();
+    t.sync();
+    wait_cards(t.a(), &t.board, &[&b1]);
+    t.a().sweep_coord().ok();
+    assert!(
+        cards_by(t.a().device_id()).is_empty(),
+        "alice's agents went on for her own PR"
+    );
+
+    poll(t.a());
+    let (asks, _) = asks_and_pings(&t.sa());
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert_eq!(asks[0]["to"], b1.as_str());
+    t.sync();
+    let ds = crate::bridge2::wait_bridged(t.b(), &local, 1);
+    let d = &ds[0];
+    assert_eq!(d.message.board.kind, row_kind::REVIEW);
+    assert_eq!(d.mode, mode::WAKE, "{d:?}");
+    assert_eq!(d.hold, "", "{d:?}");
+    assert!(d.message.board.card_id.is_empty(), "from Alice's person");
+    assert_eq!(d.message.board.person_id, t.a().person().id);
+    assert_eq!(d.message.ref_, format!("task:{}", card.id));
+    let text = &d.message.text;
+    assert!(
+        text.contains("Irori picked you to review")
+            && text.contains(&format!("review_claim pr={}", url(1)))
+            && text.contains(&format!("gh pr view {} --comments", url(1))),
+        "{text}"
+    );
+    settle_bridged(t.b(), &local, 1);
+    for k in [&t.ra.key_a, &t.ra.key_b] {
+        assert!(bridged(t.a(), k).is_empty(), "alice's {k} heard it");
+    }
+}
+
+/// Under receive Ask me, Bob's idle agents don't go on for Alice's PR
+/// card; one put on by hand and asked has the ask held for Bob.
+#[test]
+fn under_ask_me_no_agent_comes_on_and_the_ask_is_held() {
+    let gh = alices_gh();
+    let t = pick_world(&gh, |_| {});
+    crate::bridge2::set_receive(t.b(), &t.board, inbox::receive::ASK);
+    t.b().set_agent_offer(&t.rb.key_a, true).unwrap();
+    t.b().set_agent_offer(&t.rb.key_b, true).unwrap();
+    let card = make_pr_card(&t);
+    t.sync();
+    wait_for(10, "bob folds the PR card", || {
+        pr_card(t.b(), &t.board).is_some()
+    });
+    for _ in 0..3 {
+        t.b().sweep_coord().ok();
+    }
+    let bob_cards = t
+        .sb()
+        .list(&Filter {
+            kinds: vec![store::kinds::AGENT_CARD.into()],
+            limit: 10_000,
+            ..Default::default()
+        })
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.device_id == t.b().device_id())
+        .count();
+    assert_eq!(bob_cards, 0, "an agent went on under Ask me");
+
+    bobs_on(&t, &[&t.rb.key_a]);
+    poll(t.a());
+    assert_eq!(asks_and_pings(&t.sa()).0.len(), 1);
+    t.sync();
+    let ds = crate::bridge2::wait_bridged(t.b(), &t.rb.key_a, 1);
+    assert_eq!(ds[0].message.board.kind, row_kind::REVIEW);
+    assert_eq!(ds[0].hold, inbox::hold::CROSS_PERSON, "{:?}", ds[0]);
+    assert_eq!(ds[0].message.ref_, format!("task:{}", card.id));
+}
+
+/// A ping reaches a related agent at its next turn, never woken, even when
+/// a forged row asks to wake; each related agent is pinged once across two
+/// picks.
+#[test]
+fn a_ping_never_wakes_and_goes_once_per_agent() {
+    let gh = alices_gh();
+    let t = pick_world(&gh, |_| {});
+    let kc = bobs_third(&t);
+    let keys = bobs_on(&t, &[&t.rb.key_a, &t.rb.key_b, &kc]);
+    let card = make_pr_card(&t);
+    t.sync();
+    comment_on(&t, &card, &keys);
+
+    // Pick 1: one ask, both others pinged.
+    poll(t.a());
+    let (asks, pings) = asks_and_pings(&t.sa());
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert_eq!(pings.len(), 2, "{pings:?}");
+    let first = asks[0]["to"].as_str().unwrap().to_string();
+    let mut pinged: Vec<String> = pings
+        .iter()
+        .map(|p| p["to"].as_str().unwrap().to_string())
+        .collect();
+    pinged.sort();
+    let mut others: Vec<String> = keys.iter().filter(|k| **k != first).cloned().collect();
+    others.sort();
+    assert_eq!(pinged, others);
+    assert!(pings.iter().all(|p| p.get("wake").is_none()), "{pings:?}");
+
+    // Bob's side: the ask wakes, the pings come at the next turn.
+    t.sync();
+    let local = |k: &str| t.b().private_key(k);
+    let ds = crate::bridge2::wait_bridged(t.b(), &local(&first), 1);
+    assert_eq!(ds[0].mode, mode::WAKE);
+    let agent = t
+        .b()
+        .roster()
+        .agents()
+        .into_iter()
+        .find(|a| a.key == local(&first))
+        .unwrap()
+        .name;
+    for k in &others {
+        let ds = crate::bridge2::wait_bridged(t.b(), &local(k), 1);
+        let d = &ds[0];
+        assert_eq!(d.message.board.kind, row_kind::REVIEW);
+        assert_eq!(d.mode, mode::NEXT_TURN, "{d:?}");
+        assert!(
+            d.message.text.contains("Irori: look at")
+                && d.message.text.contains(&format!("{agent} has the review")),
+            "{}",
+            d.message.text
+        );
+    }
+
+    // The asked agent declines: pick 2 asks one of the pinged, and pings
+    // nobody again.
+    let bco = t.b().board_coord(&t.board).unwrap();
+    bco.decline_review(&first, &url(1), "not my area").unwrap();
+    t.sync();
+    let aco = t.a().board_coord(&t.board).unwrap();
+    wait_for(10, "alice folds the decline", || {
+        aco.review_phase(&card.id) == ReviewPhase::Waiting
+    });
+    poll(t.a());
+    let (asks, pings) = asks_and_pings(&t.sa());
+    assert_eq!(asks.len(), 2, "{asks:?}");
+    assert_eq!(pings.len(), 2, "pinged again: {pings:?}");
+    let second = asks[1]["to"].as_str().unwrap().to_string();
+    assert!(others.contains(&second), "{second}");
+
+    // A forged ping that says wake still comes at the next turn.
+    let quiet = others.iter().find(|k| **k != second).unwrap().clone();
+    let forged = coord::rows::ReviewRequestedRow {
+        task_id: card.id.clone(),
+        pr: url(1),
+        from: Two::person(t.a()),
+        to: quiet.clone(),
+        at: gocompat::time::GoTime::from_system(std::time::SystemTime::now()),
+        wake: true,
+        look: true,
+    };
+    t.sa()
+        .append(&Two::person(t.a()), store::kinds::REVIEW_REQUESTED, &forged)
+        .unwrap();
+    t.sync();
+    let ds = crate::bridge2::wait_bridged(t.b(), &local(&quiet), 2);
+    assert!(ds.iter().all(|d| d.mode == mode::NEXT_TURN), "{ds:?}");
+}
+
+/// Bob's two sessions on the board under cards his device hasn't mapped to
+/// them yet (as when a card's card-of row is late): his bridge can't tell
+/// whose they are, so Alice's ask and ping to them are missed live. Then
+/// the mappings come. Returns the world, the card, the asked and pinged
+/// agents' board keys and the ask's row key.
+fn missed_world(gh: &Arc<FakeGh>) -> (Two, Task, String, String, String) {
+    let t = pick_world(gh, |_| {});
+    let cards = [
+        (
+            "c0ffee00000000000000000000000001",
+            "alpha",
+            t.rb.key_a.clone(),
+        ),
+        (
+            "c0ffee00000000000000000000000002",
+            "beta",
+            t.rb.key_b.clone(),
+        ),
+    ];
+    for (id, name, _) in &cards {
+        t.sb()
+            .append(
+                &format!("agent:{id}"),
+                store::kinds::AGENT_CARD,
+                &serde_json::json!({
+                    "cardId": id, "name": name, "kind": "claude",
+                    "personId": t.b().person().id, "status": "idle",
+                }),
+            )
+            .unwrap();
+    }
+    let keys: Vec<String> = cards
+        .iter()
+        .map(|(id, _, _)| format!("agent:{id}"))
+        .collect();
+    t.sync();
+    let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
+    wait_cards(t.a(), &t.board, &refs);
+    let card = make_pr_card(&t);
+    t.sync();
+    comment_on(&t, &card, &keys);
+    poll(t.a());
+    let evs = t
+        .sa()
+        .list(&Filter {
+            kinds: vec![store::kinds::REVIEW_REQUESTED.into()],
+            limit: 100,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(evs.len(), 2, "one ask and one ping");
+    let row = |look: bool| {
+        evs.iter()
+            .find(|e| {
+                let v: serde_json::Value = serde_json::from_slice(&e.payload).unwrap();
+                v.get("look").is_some() == look
+            })
+            .unwrap()
+    };
+    let ask = row(false);
+    let to = |e: &store::Event| {
+        let v: serde_json::Value = serde_json::from_slice(&e.payload).unwrap();
+        v["to"].as_str().unwrap().to_string()
+    };
+    let (asked, pinged) = (to(ask), to(row(true)));
+    let key = format!("{}/{}", ask.device_id, ask.seq);
+    t.sync();
+    let bco = t.b().board_coord(&t.board).unwrap();
+    wait_for(10, "bob folds the ask", || {
+        matches!(bco.review_phase(&card.id), ReviewPhase::Asked { .. })
+    });
+    for k in [&t.rb.key_a, &t.rb.key_b] {
+        settle_bridged(t.b(), k, 0);
+    }
+    // Now Bob's device knows whose cards they are.
+    for (id, _, agent) in &cards {
+        t.b()
+            .store()
+            .append(
+                "irori",
+                store::kinds::BOARD_CARD_OF,
+                &serde_json::json!({"boardId": t.board, "cardId": id, "agentKey": agent}),
+            )
+            .unwrap();
+    }
+    wait_for(10, "bob maps his cards", || {
+        cards
+            .iter()
+            .all(|(id, _, agent)| t.b().private_key(&format!("agent:{id}")) == *agent)
+    });
+    (t, card, asked, pinged, key)
+}
+
+/// An ask missed live comes through the catch-up once, under the live
+/// row's key; the missed ping never comes as an ask.
+#[test]
+fn an_ask_missed_live_comes_once_through_the_catch_up() {
+    let gh = alices_gh();
+    let (t, card, asked, pinged, key) = missed_world(&gh);
+    let (la, lp) = (t.b().private_key(&asked), t.b().private_key(&pinged));
+    t.b().check_prs();
+    let ds = crate::bridge2::wait_bridged(t.b(), &la, 1);
+    let d = &ds[0];
+    assert_eq!(d.message.board.kind, row_kind::REVIEW);
+    assert_eq!(d.mode, mode::WAKE, "{d:?}");
+    assert_eq!(d.message.board.row, key);
+    assert_eq!(d.message.ref_, format!("task:{}", card.id));
+    assert!(
+        d.message.text.contains("Irori picked you to review"),
+        "{}",
+        d.message.text
+    );
+    assert!(t.b().inbox().bridged(&t.board, &key, &la));
+    t.b().check_prs();
+    settle_bridged(t.b(), &la, 1);
+    settle_bridged(t.b(), &lp, 0);
+}
+
+/// Once the asked agent claims the PR, a missed ask is never delivered.
+#[test]
+fn a_missed_ask_is_not_caught_up_once_the_pr_is_claimed() {
+    let gh = alices_gh();
+    let (t, card, asked, _, _) = missed_world(&gh);
+    let bco = t.b().board_coord(&t.board).unwrap();
+    bco.claim_pr(&asked, &url(1)).unwrap();
+    assert!(matches!(
+        bco.review_phase(&card.id),
+        ReviewPhase::Claimed { .. }
+    ));
+    t.b().check_prs();
+    for k in [&t.rb.key_a, &t.rb.key_b] {
+        settle_bridged(t.b(), k, 0);
+    }
+}
+
+/// A mention on a PR card tells the agent to answer on the PR by its URL,
+/// never to join the card.
+#[test]
+fn a_mention_on_a_pr_card_points_at_the_pr() {
+    let gh = alices_gh();
+    let t = pick_world(&gh, |_| {});
+    let card = make_pr_card(&t);
+    let b1 = bobs_on(&t, &[&t.rb.key_a]).remove(0);
+    let aco = t.a().board_coord(&t.board).unwrap();
+    aco.person_comment(
+        &Two::person(t.a()),
+        &card.id,
+        "@alpha what do you make of this?",
+        false,
+        &[coord::Mention {
+            key: b1.clone(),
+            name: "alpha".into(),
+            gone: false,
+        }],
+        None,
+    )
+    .unwrap();
+    t.sync();
+    let ds = wait_for_kind(t.b(), &t.rb.key_a, row_kind::COMMENT);
+    let text = &ds.message.text;
+    assert!(
+        text.contains(&format!("gh pr view {} --comments", url(1)))
+            && text.contains(&format!("review_claim pr={}", url(1))),
+        "{text}"
+    );
+    assert!(!text.contains("board_join"), "{text}");
+}
+
+/// The first bridged delivery of `kind` to `agent`.
+fn wait_for_kind(c: &Core, agent: &str, kind: &str) -> inbox::Delivery {
+    wait_for(10, "the delivery", || {
+        bridged(c, agent)
+            .iter()
+            .any(|d| d.message.board.kind == kind)
+    });
+    bridged(c, agent)
+        .into_iter()
+        .find(|d| d.message.board.kind == kind)
+        .unwrap()
+}
+
+/// A card one device mints for an agent on the person's other device names
+/// that device as the host, in the row and in both devices' folds.
+#[test]
+fn a_card_minted_for_another_devices_agent_names_its_host() {
+    use crate::common::pair::paired;
+    let (a, b) = paired();
+    let board = a.core.create_board("Hosts", "host").unwrap();
+    wait_for(45, "b opens the board", || {
+        b.core.board_coord(&board).is_ok()
+    });
+    let av = a.core.board_verifier(&board).unwrap();
+    wait_for(45, "a knows b's device on the board", || {
+        av.person_of(b.core.device_id()).as_deref() == Some(a.core.person().id.as_str())
+    });
+    wait_for(45, "a's roster lists b's agent", || {
+        a.core.roster().agents().iter().any(|x| x.key == b.agent)
+    });
+    let key = a.core.board_key(&board, &b.agent).unwrap();
+    let row = a
+        .core
+        .board_store(&board)
+        .unwrap()
+        .list(&Filter {
+            kinds: vec![store::kinds::AGENT_CARD.into()],
+            ..Default::default()
+        })
+        .unwrap()
+        .into_iter()
+        .find(|e| e.actor == key)
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&row.payload).unwrap();
+    assert_eq!(row.device_id, a.core.device_id(), "a minted it");
+    assert_eq!(v["host"], b.core.device_id());
+    assert_eq!(a.core.board_card_host(&board, &key), b.core.device_id());
+    wait_for(45, "b folds the card", || {
+        !b.core.board_card_host(&board, &key).is_empty()
+    });
+    assert_eq!(b.core.board_card_host(&board, &key), b.core.device_id());
+}

@@ -214,8 +214,13 @@ pub(crate) struct BoardCard {
     /// another. Written by the person's own device with the card.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub spawned: bool,
-    /// The device that wrote its newest row: the session's host, as only
-    /// that device writes a card's status (card #372). Never in the row.
+    /// The agent's own device, stamped when another device of its person
+    /// mints the card (merge desk §12.5); empty when the writer is it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub host: String,
+    /// The session's host: `host` when a device of the card's person, else
+    /// the device that wrote its newest row, as only the host writes a
+    /// card's status (card #372). Never in the row.
     #[serde(skip)]
     pub device_id: String,
 }
@@ -340,11 +345,20 @@ impl BoardLog {
             return;
         }
         hlcs.insert(p.card_id.clone(), ev.hlc);
+        let person = owner.unwrap_or(p.person_id.clone());
+        // The stamped host counts only as a device of the card's person.
+        let device_id = if !p.host.is_empty()
+            && self.verifier.person_of(&p.host).as_deref() == Some(person.as_str())
+        {
+            p.host.clone()
+        } else {
+            ev.device_id.clone()
+        };
         cards.insert(
             p.card_id.clone(),
             BoardCard {
-                device_id: ev.device_id.clone(),
-                person_id: owner.unwrap_or(p.person_id.clone()),
+                device_id,
+                person_id: person,
                 ..p
             },
         );
@@ -1930,6 +1944,12 @@ impl Services {
         } else {
             card.agent.clone()
         };
+        // The agent's own device, stamped when it isn't this one: a row
+        // this device writes names it already.
+        let host = Some(irori_identity::owner::device_of(agent))
+            .filter(|d| !d.is_empty() && *d != self.device.id)
+            .unwrap_or_default()
+            .to_string();
         let row = BoardCard {
             card_id: id.clone(),
             name: card.name.clone(),
@@ -1938,7 +1958,12 @@ impl Services {
             status: card_status(Some(&card.status)).into(),
             avatar: self.faces.get(&card.name),
             spawned: self.coord.is_spawned(agent),
-            device_id: self.device.id.clone(),
+            device_id: if host.is_empty() {
+                self.device.id.clone()
+            } else {
+                host.clone()
+            },
+            host,
         };
         // The mapping first: a card whose session nobody knows is worse
         // than a mapping to a card that failed to append (it is retried).
@@ -2007,6 +2032,7 @@ impl Services {
                     status: "idle".into(),
                     avatar: String::new(),
                     spawned: false,
+                    host: String::new(),
                     device_id: self.device.id.clone(),
                 };
                 b.store.append(
@@ -2076,10 +2102,13 @@ impl Services {
                 if card.status == status && card.avatar == avatar && card.spawned == spawned {
                     continue;
                 }
+                // Only the host writes here, so its row needs no stamp.
                 let row = BoardCard {
                     status: status.into(),
                     avatar,
                     spawned,
+                    host: String::new(),
+                    device_id: me.into(),
                     ..card.clone()
                 };
                 match b.store.append(
@@ -2445,15 +2474,14 @@ impl Services {
     /// one per unheld card there that nobody on the board is free to take
     /// (card #337: Stephen, "a board's pool includes the person's own idle
     /// agents when the person is on that board"). The idle longest go
-    /// first; the hand-out sweep that follows picks among them.
+    /// first; the hand-out sweep that follows picks among them. A board
+    /// with another person's PR card that wants a reviewer gets one too
+    /// (merge desk §12.5), unless one of them is already there and free.
     fn card_idle_agents(&self, b: &BoardLog) {
         if self.inbox.policy().paused {
             return;
         }
         let n = b.coord().unserved_offers(&self.board_ask_agents(b));
-        if n == 0 {
-            return;
-        }
         let me = self.device.id.as_str();
         let mut idle: Vec<AgentCard> = {
             let m = lock(&b.maps);
@@ -2475,12 +2503,59 @@ impl Services {
                 })
                 .collect()
         };
+        if idle.is_empty() {
+            return;
+        }
+        // Read the PR cards only with an agent to offer and nothing else
+        // to put it on for.
+        let n = if n == 0 && self.wants_reviewer(b) {
+            1
+        } else {
+            n
+        };
         idle.sort_by_key(|a| (a.updated_at.unix_nano(), a.key.clone()));
         for a in idle.into_iter().take(n) {
             if let Err(e) = self.card_for(b, &a.key) {
                 logf(format_args!("board {}: put {} on it: {e}", b.id, a.key));
             }
         }
+    }
+
+    /// Whether `b` has an open PR card of another person's, waiting for a
+    /// reviewer or asked, whose ask would wake this person's agents under
+    /// their receive setting, and none of their agents on `b` reads idle
+    /// and live (§12.5). Under Closed or Ask me an asked agent would sit
+    /// with no turn, so none is put on for it.
+    fn wants_reviewer(&self, b: &BoardLog) -> bool {
+        let me = self.person_id();
+        let wanting = b.coord().wanting_review();
+        let woken = wanting.iter().any(|(_, author)| {
+            if author.is_empty() || *author == me {
+                return false;
+            }
+            let from = inbox::BoardFrom {
+                board_id: b.id.clone(),
+                person_id: author.clone(),
+                kind: inbox::row_kind::REVIEW.into(),
+                wake: true,
+                ..inbox::BoardFrom::default()
+            };
+            let set = self.inbox.receive_setting(&b.id, author);
+            let (md, hold, _) = inbox::receive_decision(&set, &from, false);
+            md == inbox::mode::WAKE && hold.is_empty()
+        });
+        if !woken {
+            return false;
+        }
+        let roster = roster_of(self, b);
+        let m = lock(&b.maps);
+        !roster.iter().any(|a| {
+            a.status == "idle"
+                && a.device_state != coord::roster::OFFLINE
+                && a.key
+                    .strip_prefix(AGENT_ACTOR_PREFIX)
+                    .is_some_and(|id| m.by_id.contains_key(id))
+        })
     }
 
     fn sweep_boards_with(&self, notices: bool) -> std::result::Result<(), String> {
@@ -2669,6 +2744,21 @@ impl super::Core {
         }
         key.strip_prefix(AGENT_ACTOR_PREFIX)
             .and_then(|id| lock(&b.maps).cards.get(id).map(|c| c.person_id.clone()))
+            .unwrap_or_default()
+    }
+
+    /// The host device board `board_id`'s fold gives agent card `key`
+    /// (`agent:<cardId>`), `""` for none (tests).
+    #[doc(hidden)]
+    pub fn board_card_host(&self, board_id: &str, key: &str) -> String {
+        let Ok(b) = self.s.board(board_id) else {
+            return String::new();
+        };
+        let id = key.strip_prefix(AGENT_ACTOR_PREFIX).unwrap_or(key);
+        lock(&b.maps)
+            .cards
+            .get(id)
+            .map(|c| c.device_id.clone())
             .unwrap_or_default()
     }
 

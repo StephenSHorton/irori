@@ -4628,11 +4628,13 @@ impl Services {
         // First, while another person's row is still theirs alone: a poll
         // here hearing the same would count as this person's word for it.
         self.tell_pr_news();
+        self.tell_missed_reviews();
         if let Some(checker) = self.pr_checker.clone().filter(|c| c.ready()) {
             self.ask_github(checker.as_ref(), now);
         }
         // And what folded while gh answered.
         self.tell_pr_news();
+        self.tell_missed_reviews();
     }
 
     /// [`tools::Backend::recheck_prs`] (card #970): asks GitHub about each

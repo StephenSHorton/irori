@@ -24,7 +24,9 @@
 //!   reads the fold ([`Services::tell_pr_news`]), so a row that came ahead
 //!   of the card's holder still reaches them. It crosses as a comment
 //!   does, under the receive setting: only that person's device vouches
-//!   for it.
+//!   for it;
+//! - a review ask this device missed live (merge desk §12.8), read from
+//!   the fold on the same tick ([`Services::tell_missed_reviews`]).
 //!
 //! The person's own rows don't cross here: the tool that wrote one already
 //! routed its notice. Rows met on a resync aren't bridged either, so a
@@ -40,6 +42,7 @@ use store::kinds::{self, AGENT_ACTOR_PREFIX, PERSON_ACTOR_PREFIX};
 
 use super::Services;
 use super::boards::BoardLog;
+use super::review_claim::clean_name;
 use crate::logf;
 
 /// The fields of a board row the bridge reads; each kind fills some.
@@ -54,6 +57,8 @@ struct RowFields {
     /// A task.created's ask: a board thread's mentions (card #187).
     ask: Option<RowAsk>,
     wake: bool,
+    /// A review ping (merge desk §12.7): look at the PR, no review asked.
+    look: bool,
     to: String,
     answer: String,
     note: String,
@@ -199,7 +204,12 @@ impl Services {
             let mention = (!mentioned.is_empty())
                 .then(|| mention_plan(ev, &f, &t, mentioned.clone()))
                 .flatten();
-            if let Some(mut p) = row_plan(co, &me, ev, f, &t) {
+            let reviewer = if ev.kind == kinds::REVIEW_REQUESTED && f.look {
+                reviewer_name(b, co, &t.id)
+            } else {
+                String::new()
+            };
+            if let Some(mut p) = row_plan(co, &me, ev, f, &t, reviewer) {
                 // One notice each: a mentioned agent hears the mention only.
                 p.to.retain(|k| !mentioned.contains(k));
                 plans.push(p);
@@ -254,6 +264,50 @@ impl Services {
         }
     }
 
+    /// Delivers the review asks this device's agents may have missed live
+    /// (merge desk §12.8): a resync skips rows, and an ask can come before
+    /// the asked agent's card-of row. Each is the newest ask of a PR card
+    /// still asked, sent under the live row's key, so the inbox's
+    /// bridged-once set makes it arrive once whichever path runs first.
+    /// Asks this person's devices wrote are theirs to have routed.
+    pub(crate) fn tell_missed_reviews(&self) {
+        let me = self.person_id();
+        for b in self.shown_boards() {
+            let co = b.coord();
+            for m in co.missed_review_asks() {
+                let Some(person) = b
+                    .verifier
+                    .person_of(&m.pos.dev)
+                    .filter(|p| !p.is_empty() && *p != me)
+                else {
+                    continue;
+                };
+                let Some(t) = co.get_task(&m.card) else {
+                    continue;
+                };
+                let card_id = m
+                    .from
+                    .strip_prefix(AGENT_ACTOR_PREFIX)
+                    .unwrap_or_default()
+                    .to_string();
+                let by_person = m.from.starts_with(PERSON_ACTOR_PREFIX);
+                let who = self.board_person_name(&b, &person);
+                let (pr, title, short) = (m.pr, gocompat::quote::quote(&t.title), t.short_ref());
+                let plan = Plan {
+                    kind: row_kind::REVIEW,
+                    card_id,
+                    to: vec![m.to],
+                    row: format!("{}/{}", m.pos.dev, m.pos.seq),
+                    wake: m.wake,
+                    text: Box::new(move |name| {
+                        review_ask_text(name, by_person, false, &pr, &title, &short, "")
+                    }),
+                };
+                self.send_ref(&b, &person, &who, 0, plan, format!("task:{}", t.id));
+            }
+        }
+    }
+
     /// [`Services::send_plan`] for a row whose message refers to `ref_`
     /// (a card's `task:<id>`, a channel's `talk:<conv>`).
     fn send_ref(&self, b: &BoardLog, person: &str, who: &str, hop: i64, p: Plan, ref_: String) {
@@ -280,14 +334,17 @@ impl Services {
         if to.is_empty() {
             return;
         }
-        let who = who.to_string();
+        // A review ask's text is fixed but for names, clipped (§12.3).
+        let review = p.kind == row_kind::REVIEW;
+        let clip = |n: &str| if review { clean_name(n) } else { n.to_string() };
+        let who = clip(who);
         let name = if p.card_id.is_empty() {
             who.clone()
         } else {
             let card = super::boards::lock(&b.maps)
                 .cards
                 .get(&p.card_id)
-                .map(|c| c.name.clone())
+                .map(|c| clip(&c.name))
                 .unwrap_or_default();
             if card.is_empty() {
                 format!("{who}'s agent")
@@ -811,7 +868,13 @@ fn mention_plan(ev: &Event, f: &RowFields, t: &Task, to: Vec<String>) -> Option<
     let title = gocompat::quote::quote(&t.title);
     let (refs, short) = (t.refs(), t.short_ref());
     let held = t.holders.iter().any(|h| to.contains(h));
-    let ending = if t.holders.is_empty() {
+    let ending = if let Some(c) = &t.pr_card {
+        // A PR card has no holders: the talk is on the PR (§12.4).
+        format!(
+            "This is the card for pull request {0}. Read it with `gh pr view {0} --comments` and answer there, on the PR by its URL; to review it, run review_claim pr={0} first.",
+            c.pr
+        )
+    } else if t.holders.is_empty() {
         format!(
             "Nobody holds it. If the work is yours, board_join {short}; else answer on the card with board_comment if it asks you."
         )
@@ -833,6 +896,66 @@ fn mention_plan(ev: &Event, f: &RowFields, t: &Task, to: Vec<String>) -> Option<
     })
 }
 
+/// What a review ask or ping says (merge desk §12.4, §12.7): fixed text,
+/// the PR's URL, the card's title and ref, and names clipped by the
+/// sender. `by_person` for an ask from the PR author's person (their
+/// Irori picked the agent); `reviewer` is who has the review, for a ping.
+/// The live bridge and the catch-up both word it here.
+fn review_ask_text(
+    name: &str,
+    by_person: bool,
+    look: bool,
+    pr: &str,
+    title: &str,
+    short: &str,
+    reviewer: &str,
+) -> String {
+    const CLAIM: &str = "if someone else holds it, comment on the PR instead.";
+    if look {
+        let who = if by_person {
+            format!("{name}'s Irori")
+        } else {
+            name.to_string()
+        };
+        return format!(
+            "{who}: look at {pr} ({title}, {short}) and comment on the PR if your work bears on it (`gh pr view {pr} --comments`); {reviewer} has the review."
+        );
+    }
+    if by_person {
+        format!(
+            "{name}'s Irori picked you to review {pr} for {title} ({short}). Run review_claim pr={pr} first; {CLAIM} Read it with `gh pr view {pr} --comments` and answer on the PR by its URL; Irori never posts reviews or merges."
+        )
+    } else {
+        format!(
+            "{name} asks you to review {pr} for {title} ({short}). Run review_claim pr={pr} first; {CLAIM} Read it with `gh pr view {pr} --comments`, review it with your own gh and answer on the PR by its URL ({pr}); Irori never posts reviews or merges."
+        )
+    }
+}
+
+/// Who has the review of PR card `card`, for a ping (§12.7): the live
+/// claim's holder, else the newest ask's agent, by its card's clipped
+/// name. The coord folds on its own thread, so the log is folded first
+/// when it knows neither yet.
+fn reviewer_name(b: &BoardLog, co: &Coord, card: &str) -> String {
+    let who = |co: &Coord| {
+        co.pick_facts(card).and_then(|f| {
+            f.live_claim
+                .map(|l| l.holder)
+                .or_else(|| f.asks.last().map(|a| a.to.clone()))
+        })
+    };
+    let key = who(co).or_else(|| co.catch_up().ok().and_then(|()| who(co)));
+    key.and_then(|k| {
+        let id = k.strip_prefix(AGENT_ACTOR_PREFIX)?.to_string();
+        super::boards::lock(&b.maps)
+            .cards
+            .get(&id)
+            .map(|c| clean_name(&c.name))
+    })
+    .filter(|n| !n.is_empty())
+    .unwrap_or_else(|| "another agent".into())
+}
+
 /// Whether the card links the PR (by its exact URL): a review ask for any
 /// other is refused on receipt.
 fn links_pr(t: &Task, pr: &str) -> bool {
@@ -842,8 +965,16 @@ fn links_pr(t: &Task, pr: &str) -> bool {
 }
 
 /// A card row's plan: a comment, an assignment, a blocker change, a review
-/// request or a release request.
-fn row_plan(co: &Coord, me: &str, ev: &Event, f: RowFields, t: &Task) -> Option<Plan> {
+/// request or a release request. `reviewer` names who has the review, for
+/// a ping.
+fn row_plan(
+    co: &Coord,
+    me: &str,
+    ev: &Event,
+    f: RowFields,
+    t: &Task,
+    reviewer: String,
+) -> Option<Plan> {
     let release =
         ev.kind == kinds::TASK_COMMENT && !f.to.is_empty() && f.text.starts_with(RELEASE_REQUEST);
     let kind = match ev.kind.as_str() {
@@ -888,19 +1019,21 @@ fn row_plan(co: &Coord, me: &str, ev: &Event, f: RowFields, t: &Task) -> Option<
     let title = gocompat::quote::quote(&t.title);
     let short = t.short_ref();
     let k = ev.kind.clone();
+    // A ping never wakes, whatever the row says (§12.7).
+    let look = ev.kind == kinds::REVIEW_REQUESTED && f.look;
+    let by_person = card_id.is_empty();
     Some(Plan {
         kind,
         card_id,
         to,
         row: format!("{}/{}", ev.device_id, ev.seq),
-        wake: f.wake,
+        wake: f.wake && !look,
         text: Box::new(move |name| match k.as_str() {
             kinds::TASK_COMMENT => f.text,
             kinds::TASK_ASSIGNED => format!("{name} assigned you {title}."),
-            kinds::REVIEW_REQUESTED => format!(
-                "{name} asks you to review {0} for {title} ({short}). Read it with `gh pr view {0} --comments`, review it with your own gh and answer on the PR by its URL ({0}); Irori never posts reviews or merges.",
-                f.pr
-            ),
+            kinds::REVIEW_REQUESTED => {
+                review_ask_text(name, by_person, look, &f.pr, &title, &short, &reviewer)
+            }
             kinds::BLOCKER_OPTION => {
                 format!("{name} recommends an answer on {title}: {}", f.answer)
             }

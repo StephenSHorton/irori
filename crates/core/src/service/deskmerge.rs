@@ -71,6 +71,7 @@ impl Services {
         }
         // A shared board's holders on this device hear it here too.
         self.tell_pr_news();
+        self.tell_missed_reviews();
     }
 
     /// When an agent on any device ran `gh pr merge` since the last look:
