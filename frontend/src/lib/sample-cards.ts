@@ -172,7 +172,7 @@ export function sampleCardRuns(id: string, now: Date): CardRun[] {
   const GB = 1024 ** 3
   const { mink, otter, wren } = sampleAgents
   const r = (x: Partial<CardRun> & Pick<CardRun, "who" | "run" | "cmd">) =>
-    sampleRun({
+    sampleRun(id, {
       kind: "bash",
       started: ago(4),
       exit: null,

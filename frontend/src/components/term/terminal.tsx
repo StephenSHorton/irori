@@ -13,10 +13,18 @@ import {
 import { GOHU_FONT, mount, type TermView } from "suzuri-view"
 import "suzuri-view/view.css"
 
+import { ConfirmButton } from "@/components/common/confirm-button"
 import { Button } from "@/components/ui/button"
 import { cards } from "@/lib/cards"
 import { copyText } from "@/lib/clipboard"
-import { attachTerm, detachTerm, termHost, type TermMsg } from "@/lib/term"
+import { endText, running, stopRun, type CardRun } from "@/lib/runs"
+import {
+  attachTerm,
+  detachTerm,
+  termHost,
+  type TailInfo,
+  type TermMsg,
+} from "@/lib/term"
 import {
   clampHeight,
   defaultHeight,
@@ -33,6 +41,9 @@ export function Terminal({
   onRestart,
   fill = false,
   onCwd,
+  tail,
+  run,
+  onEnded,
 }: {
   id: number
   cwd: string
@@ -42,6 +53,13 @@ export function Terminal({
   fill?: boolean
   // onCwd hears the folder the shell is in each time it reports one.
   onCwd?: (cwd: string) => void
+  // tail: a run's output, read only (card #1249, live-tasks.md §5.2):
+  // typing does nothing, it never takes focus, and its end reads
+  // "Exited with code N" or "Stopped" with no Restart. run is the card's
+  // record of it, for Stop; onEnded hears the run end.
+  tail?: TailInfo
+  run?: CardRun
+  onEnded?: () => void
 }) {
   const box = useRef<HTMLDivElement>(null)
   // The latest onCwd, so a new callback doesn't remount the view.
@@ -49,7 +67,17 @@ export function Terminal({
   useEffect(() => {
     cwdTo.current = onCwd
   })
-  const [exit, setExit] = useState<{ code: number | null } | null>(null)
+  const [exit, setExit] = useState<{ code: number | null } | null>(() =>
+    // A run tab mounted after its run ended shows the end at once.
+    tail && tail.exit !== undefined ? { code: tail.exit } : null
+  )
+  // Stop pressed here: the end that follows reads "Stopped".
+  const [stopped, setStopped] = useState(false)
+  const isTail = !!tail
+  const endedTo = useRef(onEnded)
+  useEffect(() => {
+    endedTo.current = onEnded
+  })
   const [clip, setClip] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   // The box's height (card #730): the one last chosen on this device.
@@ -60,10 +88,13 @@ export function Terminal({
   useEffect(() => {
     const el = box.current
     if (!el) return
-    const host = termHost(id, {
+    const base = termHost(id, {
       onError: (e) => setError(e.message),
       openUrl: (url) => void cards.openURL(url),
     })
+    // A run tab is read only: scrolling and selecting work (so not the
+    // view's readOnly), typing and pasting go nowhere.
+    const host = isTail ? { ...base, write: () => {}, paste: () => {} } : base
     const view: TermView = mount(el, host)
     view.setStyle({
       bg: "#0c0c0c",
@@ -76,6 +107,7 @@ export function Terminal({
         if (m.cwd) cwdTo.current?.(m.cwd)
       } else if (m.t === "exit") {
         setExit({ code: m.code })
+        endedTo.current?.()
       } else if (m.t === "clip") {
         // A program's copy is offered, never written for it (design 5).
         setClip(m.text)
@@ -86,12 +118,14 @@ export function Terminal({
     attachTerm(id, (f) => view.feed(f), onMsg).catch((e: Error) =>
       setError(e.message)
     )
-    view.focus()
+    // A run tab never takes focus from the person's tab or the comment
+    // box (card #1249).
+    if (!isTail) view.focus()
     return () => {
       detachTerm(id)
       view.unmount()
     }
-  }, [id])
+  }, [id, isTail])
 
   // Dragging the bottom edge follows the pointer on the window rather than
   // through pointer capture, which WKWebView drops after the first move
@@ -225,7 +259,16 @@ export function Terminal({
           </Button>
         </div>
       )}
-      {exit && (
+      {tail && (
+        <TailFooter
+          ended={exit !== null}
+          code={exit?.code ?? null}
+          stopped={stopped || tail.stopped || !!run?.stopped}
+          run={run}
+          onStop={() => setStopped(true)}
+        />
+      )}
+      {exit && !tail && (
         <div className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
           <span>
             The shell ended{exit.code !== null ? ` (exit ${exit.code})` : ""}.
@@ -241,6 +284,46 @@ export function Terminal({
         </div>
       )}
       {error && <p className="text-[12.5px] text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+// TailFooter is a run tab's line: Stop while it runs (on the device it
+// runs on), then how it ended.
+function TailFooter({
+  ended,
+  code,
+  stopped,
+  run,
+  onStop,
+}: {
+  ended: boolean
+  code: number | null
+  stopped: boolean
+  run?: CardRun
+  onStop: () => void
+}) {
+  if (ended)
+    return (
+      <p className="text-[12.5px] text-muted-foreground">
+        {endText({ exit: code, stopped })}
+      </p>
+    )
+  return (
+    <div className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+      <span>Running. Read only: the agent's run, not a shell.</span>
+      {run && running(run) && run.who.here && (
+        <ConfirmButton
+          label="Stop"
+          variant="destructive"
+          question={`Stop ${run.cmd || "this run"}?`}
+          confirmLabel="Stop it"
+          onConfirm={() => {
+            onStop()
+            return stopRun(run)
+          }}
+        />
+      )}
     </div>
   )
 }

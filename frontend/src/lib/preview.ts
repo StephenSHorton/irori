@@ -65,6 +65,10 @@
 //                   machine, =device this machine's Stop here mid-run
 //                   (lib/wind-down.ts, cards #773, #787)
 //   ?agentspause=on Stop here on (lib/agents.ts, card #665)
+//   ?runs=<state>   live tasks on cards (card #1249, lib/runs.ts): the sample
+//                   cards carry runs by default (chips, Busy now, Running,
+//                   a run tab with ?term); none has none, exited or stopped
+//                   ends sample-card-job's build that way
 
 import { inWails } from "./irori"
 

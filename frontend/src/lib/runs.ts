@@ -321,10 +321,21 @@ const sampleRuns: CardRun[] = []
 const sampleTails = new Map<string, TailInfo>()
 const sampleExit = new Set<(run: string) => void>()
 
-// sampleRun registers one of the sample's runs.
-export function sampleRun(r: CardRun): CardRun {
+const sampleByCard = new Map<string, CardRun[]>()
+
+// sampleRun registers one of the sample's runs on its card. A run made
+// again (the sample is rebuilt) is the one already there, so a Stop holds.
+export function sampleRun(card: string, r: CardRun): CardRun {
+  const had = sampleRuns.find((x) => x.run === r.run)
+  if (had) return had
   sampleRuns.push(r)
+  sampleByCard.set(card, [...(sampleByCard.get(card) ?? []), r])
   return r
+}
+
+// sampleRunsOn is the runs registered on a sample card.
+export function sampleRunsOn(card: string): CardRun[] {
+  return sampleByCard.get(card) ?? []
 }
 
 export function sampleTail(r: CardRun): TailInfo {
@@ -341,7 +352,10 @@ export function onSampleExit(fn: (run: string) => void): () => void {
 }
 
 function sampleStop(r: CardRun) {
-  for (const held of [r, ...sampleRuns.filter((x) => x.run === r.run)]) {
+  for (const held of new Set([
+    r,
+    ...sampleRuns.filter((x) => x.run === r.run),
+  ])) {
     held.stopped = true
     held.ended = Date.now()
   }
@@ -368,11 +382,11 @@ export function sampleLoadAt(r: CardRun, t: number): RunLoad {
   const s = t / 1000
   const wave = (period: number) =>
     (Math.sin((s / period) * 2 * Math.PI) + 1) / 2
-  const base = r.cpuCores ?? 0
   return {
     key: r.who.key,
     run: r.run,
-    cores: Math.max(0, base * (0.85 + 0.25 * wave(13))),
+    // No reading stays none (an agent run is claude's own process).
+    cores: r.cpuCores == null ? null : r.cpuCores * (0.85 + 0.25 * wave(13)),
     memBytes: (r.memBytes ?? 0) * (0.95 + 0.1 * wave(31)),
     at: t,
     device: r.device,

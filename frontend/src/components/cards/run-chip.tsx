@@ -7,9 +7,10 @@
 
 import { ActivityIcon } from "lucide-react"
 
-import { Tick } from "@/components/common/ago"
+import { useClockValue } from "@/lib/clock"
 import {
   heavyRuns,
+  remote,
   runChipText,
   runId,
   runsOf,
@@ -52,16 +53,17 @@ function Chips({
 }
 
 function Chip({ run, short }: { run: CardRun; short: boolean }) {
+  const full = useClockValue((now) => runChipText(run, now.getTime()))
   return (
     <span
       className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground tabular-nums"
       // CPU and memory are summed over the run's processes, read every
       // 2 s: about, not exact.
-      title={`About: ${runChipText(run, Date.now())}`}
+      title={`About: ${full}`}
     >
       <ActivityIcon className="size-3 shrink-0" aria-hidden />
       <span className="truncate">
-        <Tick of={(now) => runChipText(run, now.getTime(), short)} />
+        {short && !remote(run) ? runChipText(run, 0, true) : full}
       </span>
     </span>
   )
