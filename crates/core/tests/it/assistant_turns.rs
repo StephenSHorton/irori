@@ -140,7 +140,7 @@ fn home_here(c: &Core) {
 }
 
 fn ask(c: &Core, text: &str) -> String {
-    c.assistant_chat_ask(text, "", "").unwrap()
+    c.assistant_chat_ask(text, "", "", "").unwrap()
 }
 
 /// Writes a question row as the window would, with `at` given.

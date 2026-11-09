@@ -149,7 +149,12 @@ fn covers(have: &Vector, want: &Vector) -> bool {
 /// `render_prompt` (rows carry no files): the last [`HISTORY_TURNS`] turns
 /// as a plain transcript, then the question, then the age note of a late
 /// one.
-pub(crate) fn chat_prompt(history: &[(bool, String)], text: &str, note: Option<&str>) -> String {
+pub(crate) fn chat_prompt(
+    history: &[(bool, String)],
+    text: &str,
+    note: Option<&str>,
+    huddle: Option<&str>,
+) -> String {
     let skip = history.len().saturating_sub(HISTORY_TURNS);
     let turns: Vec<&(bool, String)> = history
         .iter()
@@ -157,6 +162,15 @@ pub(crate) fn chat_prompt(history: &[(bool, String)], text: &str, note: Option<&
         .filter(|(_, t)| !t.trim().is_empty())
         .collect();
     let mut b = String::new();
+    // A Divide turn (call-agents §9): the huddle goes in first, fenced.
+    if let Some(h) = huddle {
+        b.push_str(h.trim_end());
+        b.push_str(
+            "
+
+",
+        );
+    }
     if !turns.is_empty() {
         b.push_str("The conversation so far:\n\n");
         for (mine, t) in turns {
@@ -615,9 +629,19 @@ impl Services {
         };
         let note = late.then(|| self.chat_late_note(&turn.asked_on, asked_ms, p.took_ms));
         let history = self.assistant_chat.history_before(&t.at);
+        // Divide with my assistant: the huddle the question was asked from.
+        let huddle = (!turn.asked.call_id.is_empty()).then(|| {
+            self.huddle_divide_context(&turn.asked.call_id)
+                .unwrap_or_else(|e| format!("(The huddle can't be shown here: {e}.)"))
+        });
         let job = ChatJob {
             turn: p.turn.clone(),
-            prompt: chat_prompt(&history, &turn.asked.text, note.as_deref()),
+            prompt: chat_prompt(
+                &history,
+                &turn.asked.text,
+                note.as_deref(),
+                huddle.as_deref(),
+            ),
             screen: turn.asked.screen.clone(),
             grants,
             cancel: cancel.clone(),
@@ -658,10 +682,10 @@ mod tests {
 
     #[test]
     fn the_prompt_is_the_last_twelve_turns_then_the_question() {
-        assert_eq!(chat_prompt(&[], "hi", None), "The person: hi\n");
+        assert_eq!(chat_prompt(&[], "hi", None, None), "The person: hi\n");
         let history: Vec<(bool, String)> =
             (0..20).map(|i| (i % 2 == 1, format!("turn {i}"))).collect();
-        let p = chat_prompt(&history, "what's blocked?", None);
+        let p = chat_prompt(&history, "what's blocked?", None, None);
         assert!(p.starts_with("The conversation so far:\n\n"));
         assert!(!p.contains("turn 7\n"));
         assert!(p.contains("The person: turn 8\n"));
@@ -673,8 +697,30 @@ mod tests {
 
     #[test]
     fn a_late_question_carries_its_note_after_it() {
-        let p = chat_prompt(&[], "close #12", Some("(Asked on Phone at 14:02; …)"));
+        let p = chat_prompt(&[], "close #12", Some("(Asked on Phone at 14:02; …)"), None);
         assert_eq!(p, "The person: close #12\n(Asked on Phone at 14:02; …)\n");
+    }
+
+    #[test]
+    fn a_divide_turn_puts_the_huddle_before_everything() {
+        let history = [(false, "hi".to_string()), (true, "hello".to_string())];
+        let p = chat_prompt(
+            &history,
+            "divide it",
+            None,
+            Some(
+                "<irori-data>
+x
+</irori-data>
+",
+            ),
+        );
+        assert!(p.starts_with("<irori-data>"));
+        assert!(p.find("</irori-data>") < p.find("The conversation so far"));
+        assert!(p.ends_with(
+            "The person: divide it
+"
+        ));
     }
 
     #[test]

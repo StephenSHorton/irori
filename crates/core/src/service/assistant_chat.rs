@@ -884,15 +884,22 @@ impl Core {
     /// question's row with a new turn, this device and the time, and
     /// returns the turn. The assistant's computer answers it, wherever
     /// that is. `screen` is this device's snapshot; `again` the turn it
-    /// asks again (Ask again), or "".
+    /// asks again (Ask again), or "". `call_id` is the huddle it is asked
+    /// from (Divide with my assistant, call-agents §9), or "": the
+    /// assistant's computer then puts the huddle in the prompt.
     pub fn assistant_chat_ask(
         &self,
         text: &str,
         screen: &str,
         again: &str,
+        call_id: &str,
     ) -> Result<String, String> {
         if text.trim().is_empty() {
             return Err("ask something first".into());
+        }
+        let call_id = call_id.trim();
+        if !call_id.is_empty() {
+            self.s.huddle_divide_context(call_id)?;
         }
         let now = (self.s.now)();
         let turn = coord::new_id(&now);
@@ -903,6 +910,7 @@ impl Core {
             device: self.s.device.id.clone(),
             at: now.unix_milli_value(),
             again: again.trim().to_string(),
+            call_id: call_id.to_string(),
             ..Asked::default()
         }))?;
         Ok(turn)
