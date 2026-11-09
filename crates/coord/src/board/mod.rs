@@ -56,6 +56,7 @@ pub use spawn::{
 };
 mod resource;
 mod review;
+mod review_pick;
 pub mod rows;
 mod said;
 pub use said::{SAID_CHARS, SAID_DAYS, SAID_MAX, SAID_PER_CARD, Said};
@@ -120,6 +121,10 @@ pub use resource::{
 };
 pub use review::{
     NOTICE_REVIEW, REVIEW_REQUESTED, Review, ReviewRequest, VERDICT_APPROVED, VERDICT_CHANGES,
+};
+pub use review_pick::{
+    CLAIM_TALLY, ClaimCounts, ClaimSeen, MissedAsk, PastClaim, PickFacts, RELATED_LINKS,
+    RELATED_PARENT, RELATED_PR_CARD, RELATED_SIBLING, RelatedCard, ReviewPhase,
 };
 pub use rows::PrReview;
 pub use runs::RunTally;
@@ -1430,6 +1435,56 @@ impl Coord {
         to: &str,
     ) -> Result<(Vec<ReviewRequest>, Notice)> {
         self.lock().request_review(by, id, pr, to)
+    }
+    /// The person's own ask (or, with `look`, ping) on their PR card,
+    /// written only while the newest ask is still `after` (merge desk
+    /// §12.5); None when nothing was written.
+    pub fn pick_ask(
+        &self,
+        by: &str,
+        card: &str,
+        to: &str,
+        look: bool,
+        after: Option<RowPos>,
+    ) -> Result<Option<ReviewRequest>> {
+        self.lock().pick_ask(by, card, to, look, after)
+    }
+    /// Where a PR card's review stands, from rows alone (merge desk §12.5).
+    pub fn review_phase(&self, card: &str) -> ReviewPhase {
+        self.lock().review_phase(card)
+    }
+    /// Claim counts by person: live `pr/` claims, and distinct PRs claimed
+    /// in the last 14 days (merge desk §12.6).
+    pub fn claim_counts(&self) -> std::collections::BTreeMap<String, ClaimCounts> {
+        let f = self.lock();
+        let now = f.stamp();
+        f.claim_counts(&now)
+    }
+    /// Each agent's newest decline of a PR card's PR.
+    pub fn declined(&self, card: &str) -> std::collections::BTreeMap<String, RowPos> {
+        self.lock().declined(card)
+    }
+    /// Everything the author's poll device ranks a PR card's candidates
+    /// from, under one lock; None for a card that is no PR card.
+    pub fn pick_facts(&self, card: &str) -> Option<PickFacts> {
+        self.lock().pick_facts(card)
+    }
+    /// Standing open PR cards in Waiting or Asked, with their author's
+    /// person.
+    pub fn wanting_review(&self) -> Vec<(String, String)> {
+        self.lock().wanting_review()
+    }
+    /// The newest ask on each PR card still in Asked (merge desk §12.8).
+    pub fn missed_review_asks(&self) -> Vec<MissedAsk> {
+        self.lock().missed_review_asks()
+    }
+    /// Whether the fold took the review row at `pos` on card `id`.
+    pub fn review_row_folded(&self, id: &str, pos: &RowPos) -> bool {
+        self.lock().review_row_folded(id, pos)
+    }
+    /// A card's creation row.
+    pub fn created_pos(&self, id: &str) -> Option<RowPos> {
+        self.lock().created_pos.get(id).cloned()
     }
     /// The person dedicating one of their agents as reviewer for the board
     /// or one repo (empty reviewer: none).

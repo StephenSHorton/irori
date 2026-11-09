@@ -101,6 +101,12 @@ pub struct PrState {
     /// Which row those came from: its time and device, to pick the newest.
     #[serde(skip)]
     pub activity_from: (GoTime, String),
+    /// The PR's head commit (merge desk §12.5), from the newest row that
+    /// carried one.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub head: String,
+    #[serde(skip)]
+    pub head_from: (GoTime, String),
     #[serde(skip)]
     pub error_at: GoTime,
     /// Everything GitHub was heard to say of it, oldest first, whatever
@@ -237,6 +243,8 @@ pub struct PrCheck {
     pub reviews: Vec<PrReview>,
     pub paths: Vec<String>,
     pub paths_cut: bool,
+    /// The PR's head commit; "" not asked, which keeps what is known.
+    pub head: String,
 }
 
 impl PrCheck {
@@ -252,6 +260,15 @@ impl PrCheck {
 
 /// The PR states by card, then by PR URL.
 pub(crate) type PrStates = BTreeMap<String, BTreeMap<String, PrState>>;
+
+/// Whether a row from `from` (time, device) is newer than `was`, or
+/// nothing was: every device ends on the same row.
+fn newer_from(from: &(GoTime, String), was: &(GoTime, String)) -> bool {
+    was.0.is_zero()
+        || crate::gotime::cmp(&from.0, &was.0)
+            .then_with(|| from.1.cmp(&was.1))
+            .is_gt()
+}
 
 /// pr.state rows a board keeps for a card whose holder or wait hasn't
 /// folded yet, at most (card #548).
@@ -331,16 +348,21 @@ impl Fold {
                 st.paths.clone(),
                 st.paths_cut,
             ),
+            st.head.clone(),
         );
+        // Merge desk §12.5: the head too, from the newest row carrying one.
+        if !p.head.is_empty() {
+            let from = (p.at, ev.device_id.clone());
+            if newer_from(&from, &st.head_from) {
+                st.head = p.head.clone();
+                st.head_from = from;
+            }
+        }
         // Merge desk §12.4: the newest row that carries any wins, by time
         // then device, so every device ends on the same one.
         if !p.commenters.is_empty() || !p.reviews.is_empty() || !p.paths.is_empty() || p.paths_cut {
             let from = (p.at, ev.device_id.clone());
-            let newer = st.activity_from.0.is_zero()
-                || crate::gotime::cmp(&from.0, &st.activity_from.0)
-                    .then_with(|| from.1.cmp(&st.activity_from.1))
-                    .is_gt();
-            if newer {
+            if newer_from(&from, &st.activity_from) {
                 st.commenters = p.commenters.clone();
                 st.reviews = p.reviews.clone();
                 st.paths = p.paths.clone();
@@ -408,6 +430,7 @@ impl Fold {
                     st.paths.clone(),
                     st.paths_cut,
                 ),
+                st.head.clone(),
             )
         {
             return;
@@ -581,6 +604,8 @@ impl Fold {
                 && old.reviews == c.reviews
                 && old.paths == c.paths
                 && old.paths_cut == c.paths_cut);
+        // A push alone is a change (merge desk §12.5).
+        let same_head = c.head.is_empty() || old.head == c.head;
         let unchanged = !new_sha
             && (!beside_open && certainty(&c.state) < certainty(&old.state)
                 || if c.error.is_empty() {
@@ -588,6 +613,7 @@ impl Fold {
                         && old.state == c.state
                         && old.review == c.review
                         && same_activity
+                        && same_head
                         && !old.at.is_zero()
                 } else {
                     // Said once: a later failure stays quiet until it is heard again.
@@ -633,6 +659,7 @@ impl Fold {
                 reviews: c.reviews.clone(),
                 paths: c.paths.clone(),
                 paths_cut: c.paths_cut,
+                head: c.head.clone(),
             },
         )?;
         // A row this log didn't take (a board's writer rules) changes
@@ -942,28 +969,24 @@ impl Fold {
         let Some(t) = self.tasks.get(id) else {
             return;
         };
-        let now: Vec<(String, String)> = t
-            .holders
-            .iter()
-            .chain(&t.co_holders)
-            .map(|h| (String::new(), h.clone()))
-            .chain(
-                t.blockers
-                    .iter()
-                    .filter_map(|b| b.pr_wait().map(|pr| (pr, b.raised_by.clone()))),
-            )
-            .collect();
-        // The creator of a PR card vouches for its PR's state (merge desk
-        // §12.2): nobody holds it, and Irori's row from the author's
-        // devices has to fold on every device.
-        let now: Vec<(String, String)> = now
-            .into_iter()
-            .chain(
-                t.pr_card
-                    .as_ref()
-                    .map(|_| (String::new(), t.created_by.clone())),
-            )
-            .collect();
+        // A PR card's PR state is vouched for by its creator alone (merge
+        // desk §12.2): nobody holds it, and anyone else who joined, held or
+        // raised a wait on it could feed rows that end claims or fake
+        // verdicts.
+        let now: Vec<(String, String)> = if t.pr_card.is_some() {
+            vec![(String::new(), t.created_by.clone())]
+        } else {
+            t.holders
+                .iter()
+                .chain(&t.co_holders)
+                .map(|h| (String::new(), h.clone()))
+                .chain(
+                    t.blockers
+                        .iter()
+                        .filter_map(|b| b.pr_wait().map(|pr| (pr, b.raised_by.clone()))),
+                )
+                .collect()
+        };
         let vs = self.pr_vouchers.entry(id.to_string()).or_default();
         for v in now {
             if !vs.contains(&v) {
@@ -1022,7 +1045,7 @@ impl Fold {
                     && t.subtasks.is_empty()
                     && t.open_ask().is_none()
                     && self.hands_out(t)
-                    && !(self.on_board && self.reviews.get(&t.id).is_some_and(|r| !r.is_empty()))
+                    && !(self.on_board && self.review_asks(&t.id).next().is_some())
                     && !self
                         .pr_states_of(t)
                         .iter()

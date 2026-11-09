@@ -71,6 +71,7 @@ impl Services {
         }
         // A shared board's holders on this device hear it here too.
         self.tell_pr_news();
+        self.tell_missed_reviews();
     }
 
     /// When an agent on any device ran `gh pr merge` since the last look:
@@ -109,7 +110,8 @@ impl Services {
         }
         for d in self.polled_desks() {
             let k = d.settings.repo_key;
-            if let Err(e) = self.poll_desk(&k) {
+            // Not a counted poll: the pick waits for the next one.
+            if let Err(e) = self.poll_desk(&k, false) {
                 logf(format_args!("desk {k}: {e}"));
             }
         }

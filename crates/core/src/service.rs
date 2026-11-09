@@ -72,6 +72,7 @@ pub(crate) mod calls;
 mod calls_over;
 pub(crate) mod calls_share;
 pub mod card_weights;
+mod desk_review;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
@@ -89,7 +90,9 @@ pub mod name_themes;
 pub mod notes;
 mod notifications;
 mod prcard;
+mod review_choice;
 mod review_claim;
+mod review_pick;
 pub mod space_move;
 pub mod spaces;
 pub mod spawn;
@@ -381,6 +384,8 @@ struct Services {
     chat: assistant_turns::ChatQueue,
     /// Irori's assistant weighing new cards (card #965).
     weighing: card_weights::Weighing,
+    /// The assistant's turn on a PR's reviewer (card #1081).
+    choosing: review_choice::Choosing,
     /// The two huddle switches (card #1053).
     huddle_switches: huddle_settings::HuddleSwitches,
     /// Office Assistants answering other people (assistants-talk card 4).
@@ -675,6 +680,9 @@ impl tools::TaskRouter for ToolsView {
         reason: &str,
     ) -> Result<tools::ClaimAnswer, String> {
         self.0.review_claim(key, pr, action, reason)
+    }
+    fn pr_reviews(&self, repo: &str) -> Vec<tools::PrReviewLine> {
+        self.0.pr_review_lines(repo)
     }
     fn comment_coord(&self, id: &str) -> Option<Arc<Coord>> {
         // Not a hidden DM space's (card #538): no agent works there.
@@ -1725,6 +1733,7 @@ impl Core {
             assistant_home: assistant_home::HomeState::default(),
             chat: assistant_turns::ChatQueue::new(chat_heard),
             weighing,
+            choosing: Default::default(),
             huddle_switches,
             asst: Default::default(),
             held: Default::default(),
@@ -2572,6 +2581,18 @@ impl Core {
             self.spawn("assistant-weighs-run", move || s3.weighs_loop(rx));
         }
         {
+            // The assistant's turn on a PR's reviewer (card #1081): one
+            // worker, off the poll thread.
+            let (tx, rx) = std::sync::mpsc::channel();
+            s.choose_queue(Some(tx));
+            let reg = self.on_stop(s, |s| s.choose_queue(None));
+            let s2 = s.clone();
+            self.spawn("assistant-review-choice", move || {
+                let _reg = reg;
+                s2.choose_loop(rx);
+            });
+        }
+        {
             let sub = Arc::new(s.capture.subscribe());
             let reg = self.on_stop(&sub, |s| s.cancel());
             let s = s.clone();
@@ -3062,6 +3083,12 @@ impl Core {
     /// Installs the turn that weighs a new card (card #965).
     pub fn set_weigher(&self, n: Option<thread_names::Namer>) {
         self.s.set_weigher(n);
+    }
+
+    /// Installs the turn that picks related agents and a reviewer for a PR
+    /// (merge desk §12.5, card #1081). A device without one skips it.
+    pub fn set_review_chooser(&self, n: Option<thread_names::Namer>) {
+        self.s.set_review_chooser(n);
     }
 
     /// Installs the turn that answers other people's questions to the
@@ -3667,7 +3694,7 @@ impl Core {
     /// was written; an error when this device doesn't poll it or GitHub
     /// couldn't be asked.
     pub fn poll_desk(&self, repo_key: &str) -> Result<bool, String> {
-        self.s.poll_desk(repo_key)
+        self.s.poll_desk(repo_key, true)
     }
 
     /// How polling `repo_key`'s desk stands on this device: the last poll,
@@ -3690,6 +3717,12 @@ impl Core {
     /// poller's write.
     pub fn desk_verdicts(&self, repo_key: &str) -> Vec<crate::deskmap::DeskAuthor> {
         self.s.desk_verdicts(repo_key)
+    }
+
+    /// Each person's open and 14-day review claims across the spaces this
+    /// device shows (merge desk §12.9, card #1080).
+    pub fn desk_claim_counts(&self) -> Vec<crate::deskmap::ClaimCount> {
+        self.s.claim_counts_all()
     }
 
     /// The inbox sweep (every [`inbox::SWEEP_INTERVAL`]).
@@ -4728,8 +4761,9 @@ impl Services {
                 };
                 match judge(&PrRef::of(&repo, p), &tasks, &author, &trust) {
                     Verdict::NotOurs => return None,
-                    Verdict::NewCard(_) => {}
+                    Verdict::NewCard(_) => a.review = self.pr_review(repo_key, p),
                     Verdict::Card(m) => {
+                        a.review = self.pr_review(repo_key, p);
                         if let Some(t) = tasks.iter().find(|t| t.id == m.task_id) {
                             if a.agent.is_empty() {
                                 a.agent = t.holders.first().cloned().unwrap_or_default();
@@ -4884,11 +4918,13 @@ impl Services {
         // First, while another person's row is still theirs alone: a poll
         // here hearing the same would count as this person's word for it.
         self.tell_pr_news();
+        self.tell_missed_reviews();
         if let Some(checker) = self.pr_checker.clone().filter(|c| c.ready()) {
             self.ask_github(checker.as_ref(), now);
         }
         // And what folded while gh answered.
         self.tell_pr_news();
+        self.tell_missed_reviews();
     }
 
     /// [`tools::Backend::recheck_prs`] (card #970): asks GitHub about each
@@ -5142,13 +5178,15 @@ impl Services {
             if !self.desk_watch.due(&k, now) {
                 continue;
             }
-            if let Err(e) = self.poll_desk(&k) {
+            if let Err(e) = self.poll_desk(&k, true) {
                 logf(format_args!("desk {k}: {e}"));
             }
         }
     }
 
-    fn poll_desk(self: &Arc<Self>, repo_key: &str) -> Result<bool, String> {
+    /// One desk poll; `pick` for a counted one, which picks reviewers
+    /// (§12.5): a re-poll after a merge is no gap for their waits.
+    fn poll_desk(self: &Arc<Self>, repo_key: &str, pick: bool) -> Result<bool, String> {
         let Some(lister) = self.desk_lister.clone() else {
             return Err("this Irori polls no merge desk".into());
         };
@@ -5189,7 +5227,11 @@ impl Services {
                     self.post_desk(repo_key, &v);
                     // Merge desk §12.2 (card #1077): the PR card in a
                     // shared space, and what GitHub says on the PR.
-                    self.pr_cards(repo_key, &v);
+                    let standing = self.pr_cards(repo_key, &v);
+                    // §12.5 (card #1079): pick a reviewer for them.
+                    if pick {
+                        self.review_pick(repo_key, &standing);
+                    }
                     // Card #421: a PR that left the list may have merged.
                     self.settle_gone_prs(repo_key);
                 }

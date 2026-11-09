@@ -194,6 +194,7 @@ pub struct Window {
     /// runner, so they never take the chat's.
     names: assistant::Runner,
     weighs: assistant::Runner,
+    chooses: assistant::Runner,
     rewrites: assistant::Runner,
     /// The turns that answer other people's questions to the person's
     /// assistant (assistants talk, card 4): their own runner, so a peer
@@ -228,6 +229,7 @@ impl Window {
             assistant: assistant::Runner::new(),
             names: assistant::Runner::new(),
             weighs: assistant::Runner::new(),
+            chooses: assistant::Runner::new(),
             rewrites: assistant::Runner::new(),
             answers: assistant::Runner::new(),
             huddles,

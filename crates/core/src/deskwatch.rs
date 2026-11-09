@@ -360,6 +360,10 @@ pub(crate) struct DeskWatch {
     activity_at: Mutex<HashMap<String, (i64, crate::prcard::Activity)>>,
     /// Why a PR has no review card yet, by `repo\0number` (card #1077).
     notes: Mutex<HashMap<String, String>>,
+    /// Polls each standing PR card has had a pick pass at, by `card\0pr`
+    /// (merge desk §12.5, card #1079): tier 7 waits for three. A restart
+    /// counts again, which only delays it.
+    pick_polls: Mutex<HashMap<String, u32>>,
 }
 
 /// Polls a "checks failed" post waits for its checks and logs before it
@@ -488,6 +492,14 @@ impl DeskWatch {
             Some(n) => m.insert(k, n.clone()).as_ref() != Some(&n),
             None => m.remove(&k).is_some(),
         }
+    }
+
+    /// Counts one more pick pass for PR card `card`; how many it has had.
+    pub(crate) fn bump_pick_poll(&self, card: &str, pr: &str) -> u32 {
+        let mut m = self.pick_polls.lock().unwrap_or_else(|e| e.into_inner());
+        let n = m.entry(format!("{card}\0{pr}")).or_insert(0);
+        *n = n.saturating_add(1);
+        *n
     }
 
     /// [`Self::set_note`]'s line for PR `number`, "" when none.

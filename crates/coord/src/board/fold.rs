@@ -13,7 +13,7 @@ use store::{Event, Store, kinds};
 
 use super::asks::AskBook;
 use super::error::{Error, ErrorKind, Result};
-use super::resource::{Resource, normalize_resource, parse_resource};
+use super::resource::{Resource, is_pr_claim, normalize_resource, parse_resource};
 use super::rows::*;
 use super::types::*;
 use super::util::{SWEEPER, cmp_str, collapse_space, contains, cut, remove_str};
@@ -411,6 +411,12 @@ pub struct Fold {
     pub(crate) runs: HashMap<String, HashMap<i64, super::runs::Run>>,
     /// A board's review requests by card, and its dedicated reviewers.
     pub(crate) reviews: BTreeMap<String, Vec<super::review::ReviewRequest>>,
+    /// Every `pr/` claim seen on a board, by (holder, resource): its
+    /// newest acquired_at and the row that first carried it (merge desk
+    /// §12.6). Kept after the claim ends.
+    pub(crate) pr_claims: BTreeMap<(String, String), super::review_pick::ClaimSeen>,
+    /// Each card's creation row.
+    pub(crate) created_pos: HashMap<String, RowPos>,
     /// Agents whose device reads offline, for the presence notices (card
     /// #372). In memory only.
     pub(crate) away: HashMap<String, super::presence::Away>,
@@ -584,6 +590,8 @@ impl Fold {
             weights: HashMap::new(),
             runs: HashMap::new(),
             reviews: BTreeMap::new(),
+            pr_claims: BTreeMap::new(),
+            created_pos: HashMap::new(),
             away: HashMap::new(),
             reviewers: BTreeMap::new(),
             notes: BTreeMap::new(),
@@ -813,6 +821,11 @@ impl Fold {
                 if p.by.is_empty() {
                     return;
                 }
+                if self.tasks.get(&p.task_id).is_some_and(pr_card) {
+                    // Nobody holds a PR card (merge desk §12.2).
+                    self.ignore(&ev.device_id);
+                    return;
+                }
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
                     return;
                 };
@@ -841,6 +854,10 @@ impl Fold {
                     return;
                 };
                 if p.to.is_empty() {
+                    return;
+                }
+                if self.tasks.get(&p.task_id).is_some_and(pr_card) {
+                    self.ignore(&ev.device_id);
                     return;
                 }
                 let gave = self.gave_to_person(ev, &p);
@@ -917,6 +934,11 @@ impl Fold {
                     return;
                 };
                 if p.who.is_empty() {
+                    return;
+                }
+                if ev.kind == kinds::TASK_JOINED && self.tasks.get(&p.task_id).is_some_and(pr_card)
+                {
+                    self.ignore(&ev.device_id);
                     return;
                 }
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
@@ -1241,6 +1263,9 @@ impl Fold {
                 {
                     return;
                 }
+                if self.on_board && is_pr_claim(&res.name) {
+                    self.see_claim(&p.holder, &res.name, p.acquired_at, RowPos::of(ev));
+                }
                 let mut rec = LeaseRec {
                     lease: p,
                     res,
@@ -1326,6 +1351,9 @@ impl Fold {
         if !self.tasks.contains_key(&p.task_id) {
             self.next_order += 1;
             self.order.insert(p.task_id.clone(), self.next_order);
+            self.created_pos
+                .entry(p.task_id.clone())
+                .or_insert_with(|| RowPos::of(ev));
         }
         let mut links: Vec<Link> = Vec::new();
         for l in &p.links {
@@ -1425,7 +1453,10 @@ impl Fold {
         if !valid_state(&p.state) || !self.tasks.contains_key(&p.task_id) {
             return;
         }
-        if p.state == CANCELED
+        // On a PR card every end counts only from where a cancel does: the
+        // creator's person (which follows the PR) or the board's owner
+        // (merge desk §12.2).
+        if (p.state == CANCELED || (is_terminal(&p.state) && pr_card(&self.tasks[&p.task_id])))
             && !self.may_cancel(
                 &self.tasks[&p.task_id],
                 &ev.device_id,
@@ -1639,7 +1670,9 @@ impl Fold {
             ..Comment::default()
         };
         cm.unheard = p.unheard && person;
-        if p.to.is_empty() {
+        // Only the declining agent's own row (merge desk §12.3): a member
+        // can't decline for another person's agent.
+        if p.to.is_empty() && self.agent_own_row(ev, &p.by) {
             cm.declines = p.declines.clone();
         }
         if self.verdict_counts(&p) {
@@ -2040,10 +2073,6 @@ impl Fold {
     /// the clock skew), so a member who went away can't hold a resource
     /// past it.
     pub(crate) fn live(&self, l: &LeaseRec, now: &GoTime) -> bool {
-        // A claim on a PR that merged or closed is over (merge desk §12.3).
-        if self.pr_claim_over(&l.lease.resource) {
-            return false;
-        }
         // A claim on a PR that merged or closed is over (merge desk §12.3).
         if self.pr_claim_over(&l.lease.resource) {
             return false;

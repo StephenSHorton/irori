@@ -4,6 +4,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use coord::roster::{AgentCard, Agents};
 use coord::{Coord, Options, RowPos};
 use gocompat::json::RawJson;
 use store::{OpenOptions, Store, kinds};
@@ -14,6 +15,11 @@ pub const P1: &str = "person:p1";
 pub const P2: &str = "person:p2";
 pub const CARD1: &str = "agent:c1";
 pub const CARD2: &str = "agent:c2";
+/// p2's second agent, on the board only after [`three_people`].
+pub const CARD3: &str = "agent:c3";
+/// p3 and its agent, from [`three_people`].
+pub const P3: &str = "person:p3";
+pub const CARD4: &str = "agent:c4";
 
 /// The people who own the board now.
 pub type Owners = Arc<Mutex<Vec<String>>>;
@@ -31,24 +37,51 @@ pub struct Side {
 impl Side {
     /// A new coord over the same store, as after a restart.
     pub fn restart(&mut self) {
-        self.c = coord_for(&self.st, &self.clk, &self.person, &self.owners);
+        self.c = coord_for(&self.st, &self.clk, &self.person, &self.owners, None);
+    }
+
+    /// A new coord over the same store that sees `agents` as the board's
+    /// roster.
+    pub fn with_roster(&mut self, agents: Vec<AgentCard>) {
+        let r: Arc<dyn Agents> = Arc::new(FixedRoster(agents));
+        self.c = coord_for(&self.st, &self.clk, &self.person, &self.owners, Some(r));
+    }
+}
+
+struct FixedRoster(Vec<AgentCard>);
+
+impl Agents for FixedRoster {
+    fn agents(&self) -> Vec<AgentCard> {
+        self.0.clone()
     }
 }
 
 fn key_person(k: &str) -> String {
     match k {
         P1 | CARD1 => "p1".into(),
-        P2 | CARD2 => "p2".into(),
+        P2 | CARD2 | CARD3 => "p2".into(),
+        P3 | CARD4 => "p3".into(),
         _ => String::new(),
     }
 }
 
+/// dev-a2, dev-b2 and dev-c2 write no rows of their own here: tests forge
+/// rows from them.
 fn device_person(d: &str) -> String {
     match d {
-        "dev-a" => "p1".into(),
-        "dev-b" => "p2".into(),
+        "dev-a" | "dev-a2" | "dev-a3" => "p1".into(),
+        "dev-b" | "dev-b2" => "p2".into(),
+        "dev-c" | "dev-c2" => "p3".into(),
         _ => String::new(),
     }
+}
+
+/// Another device of `person` holding the same log: it pulls everything
+/// `from` has.
+pub fn device(dev: &str, person: &str, from: &Side) -> Side {
+    let s = side(dev, person, &from.owners);
+    pull(from, &s);
+    s
 }
 
 fn side(dev: &str, person: &str, owners: &Owners) -> Side {
@@ -68,7 +101,7 @@ fn side(dev: &str, person: &str, owners: &Owners) -> Side {
         )
         .unwrap(),
     );
-    let c = coord_for(&st, &clk, person, owners);
+    let c = coord_for(&st, &clk, person, owners, None);
     Side {
         clk,
         person: person.into(),
@@ -79,7 +112,13 @@ fn side(dev: &str, person: &str, owners: &Owners) -> Side {
     }
 }
 
-fn coord_for(st: &Arc<Store>, clk: &Clk, person: &str, owners: &Owners) -> Coord {
+fn coord_for(
+    st: &Arc<Store>,
+    clk: &Clk,
+    person: &str,
+    owners: &Owners,
+    roster: Option<Arc<dyn Agents>>,
+) -> Coord {
     let me = person.to_string();
     let who = owners.clone();
     let o = Options {
@@ -95,7 +134,7 @@ fn coord_for(st: &Arc<Store>, clk: &Clk, person: &str, owners: &Owners) -> Coord
         })),
         ..Options::default()
     };
-    Coord::new(st.clone(), None, o).unwrap()
+    Coord::new(st.clone(), roster, o).unwrap()
 }
 
 fn raw(s: &str) -> RawJson {
@@ -134,6 +173,46 @@ pub fn two_people() -> (Side, Side, Owners) {
     .unwrap();
     sync(&a, &b);
     (a, b, owners)
+}
+
+/// two_people, with p2's second agent c3 and a third member p3 on dev-c
+/// with its agent c4.
+pub fn three_people() -> (Side, Side, Side, Owners) {
+    let (a, b, owners) = two_people();
+    let c = side("dev-c", P3, &owners);
+    a.st.append(
+        P1,
+        kinds::BOARD_MEMBER_ADDED,
+        &raw(r#"{"personId":"p3","role":"member"}"#),
+    )
+    .unwrap();
+    b.st.append(
+        CARD3,
+        kinds::AGENT_CARD,
+        &raw(r#"{"cardId":"c3","personId":"p2","status":"active"}"#),
+    )
+    .unwrap();
+    sync(&a, &b);
+    pull(&a, &c);
+    c.st.append(
+        CARD4,
+        kinds::AGENT_CARD,
+        &raw(r#"{"cardId":"c4","personId":"p3","status":"active"}"#),
+    )
+    .unwrap();
+    sync_all(&[&a, &b, &c]);
+    (a, b, c, owners)
+}
+
+/// Syncs every pair, twice, so all sides hold everything.
+pub fn sync_all(sides: &[&Side]) {
+    for _ in 0..2 {
+        for (i, x) in sides.iter().enumerate() {
+            for y in &sides[i + 1..] {
+                sync(x, y);
+            }
+        }
+    }
 }
 
 /// Moves what each side lacks from the other, both ways, and folds it.

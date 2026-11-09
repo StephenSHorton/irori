@@ -23,36 +23,44 @@ use crate::prcard::{self, RepoCard, SpaceFacts};
 use crate::{logf, notice};
 
 /// A PR card found on a board.
-struct Found {
-    board: Arc<BoardLog>,
-    task: Task,
+#[derive(Clone)]
+pub(super) struct Found {
+    pub(super) board: Arc<BoardLog>,
+    pub(super) task: Task,
 }
 
 impl Services {
     /// The PR cards of the PRs in `repo_key`'s desk snapshot that the
     /// person opened (§12.2). `verdicts` is what [`Services::map_desk`]
-    /// just said: the author card a relayed comment goes to.
-    pub(super) fn pr_cards(self: &Arc<Self>, repo_key: &str, verdicts: &[(i64, Verdict)]) {
+    /// just said: the author card a relayed comment goes to. Returns the
+    /// cards that stood before this pass, with their PRs, for the pick
+    /// (§12.5): a card made now waits for the next poll.
+    pub(super) fn pr_cards(
+        self: &Arc<Self>,
+        repo_key: &str,
+        verdicts: &[(i64, Verdict)],
+    ) -> Vec<(Found, DeskPr)> {
+        let mut standing = Vec::new();
         let Some(lister) = self.desk_lister.clone() else {
-            return;
+            return standing;
         };
         let Some(desk) = self.coord.desk(repo_key) else {
-            return;
+            return standing;
         };
         let (Some(snap), Some(repo)) = (desk.prs.as_ref(), coord::github_repo(repo_key)) else {
-            return;
+            return standing;
         };
         // The switch (§12.2): off, the repo behaves like a solo one.
         if desk.settings.reviews_off {
-            return;
+            return standing;
         }
         let own = self.own_github_login();
         if own.is_empty() {
-            return;
+            return standing;
         }
         let boards = self.visible_boards();
         if boards.is_empty() {
-            return;
+            return standing;
         }
         let me = self.person_actor();
         let found = self.pr_cards_found(&boards);
@@ -76,6 +84,7 @@ impl Services {
                 self.cancel_duplicates(&me, keep, &cards);
                 self.desk_watch.set_note(repo_key, p.number, None);
                 self.follow_pr_card(&lister, &repo, p, keep, verdicts);
+                standing.push((keep.clone(), p.clone()));
                 continue;
             }
             if !prcard::needs_card(p, &[]) {
@@ -131,10 +140,11 @@ impl Services {
                 Err(e) => logf(format_args!("desk: PR #{} card: {e}", p.number)),
             }
         }
+        standing
     }
 
     /// Every PR card on the boards this device shows, open or not.
-    fn pr_cards_found(&self, boards: &[Arc<BoardLog>]) -> Vec<Found> {
+    pub(super) fn pr_cards_found(&self, boards: &[Arc<BoardLog>]) -> Vec<Found> {
         let mut out = Vec::new();
         for b in boards {
             for t in b.coord().list_tasks(&TaskFilter::default()) {
@@ -151,7 +161,7 @@ impl Services {
 
     /// What [`prcard::choose_space`] needs of each space the person is in
     /// (§12.2).
-    fn space_facts(&self, boards: &[Arc<BoardLog>], repo_key: &str) -> Vec<SpaceFacts> {
+    pub(super) fn space_facts(&self, boards: &[Arc<BoardLog>], repo_key: &str) -> Vec<SpaceFacts> {
         let me = self.person_id();
         boards
             .iter()
@@ -229,7 +239,7 @@ impl Services {
         let co = f.board.coord();
         let id = &f.task.id;
         let updated = p.updated_at.unix_milli_value();
-        let mut check = prcard::open_check(&p.url, &p.review_decision);
+        let mut check = prcard::open_check(&p.url, &p.review_decision, &p.head_ref_oid);
         let mut act = None;
         // Only a live card has anything to read: a closed card waits for
         // its PR to reopen.
@@ -237,6 +247,9 @@ impl Services {
             match lister.activity(repo, p.number) {
                 Ok(a) => {
                     check = a.check(&p.url, &p.review_decision);
+                    if check.head.is_empty() {
+                        check.head = p.head_ref_oid.clone();
+                    }
                     act = Some(a);
                 }
                 Err(e) => logf(format_args!("desk: PR #{} comments: {e}", p.number)),
