@@ -99,6 +99,38 @@ fn slot_arguments_are_checked() {
 }
 
 #[test]
+fn an_agents_slot_is_renewed_when_under_half_spent_and_freed_when_it_is_gone() {
+    let e = Env::new();
+    e.c.acquire_slot(ALICE, "check/mac", 2, mins(10)).unwrap();
+    // Over half left: nothing to renew.
+    assert_eq!(e.c.renew_slots(ALICE, mins(10)).unwrap(), 0);
+    e.clk.add(mins(6));
+    assert_eq!(e.c.renew_slots(ALICE, mins(10)).unwrap(), 1);
+    // Another holder's slot and a plain lease are left alone.
+    e.c.acquire(ALICE, "gpu/qwen", mins(30), false).unwrap();
+    assert_eq!(e.c.renew_slots(BOB, mins(10)).unwrap(), 0);
+    e.clk.add(mins(9));
+    assert_eq!(holders(&e).len(), 2);
+    // A gone agent's slot is swept like its other leases.
+    e.ros.set(ALICE, "gone");
+    for _ in 0..3 {
+        e.c.sweep().unwrap();
+        e.clk.add(GONE_GRACE);
+    }
+    e.c.sweep().unwrap();
+    assert!(holders(&e).is_empty(), "{:?}", holders(&e));
+}
+
+#[test]
+fn slot_resources_are_told_apart() {
+    assert!(is_slot_resource("check/mac/slot-1"));
+    assert!(!is_slot_resource("check/mac/slot-"));
+    assert!(!is_slot_resource("check/mac"));
+    assert!(!is_slot_resource("/slot-1"));
+    assert!(!is_slot_resource("a/slot-x"));
+}
+
+#[test]
 fn a_slot_lease_stores_its_pools_limit() {
     let e = Env::new();
     let a = e.c.acquire_slot(RUN1, "test-server", 3, mins(5)).unwrap();
