@@ -1041,10 +1041,7 @@ fn a_holder_is_named_and_can_be_ended_on_unix() {
     assert_eq!(h.len(), 1, "{h:?}");
     assert_eq!(h[0].pid, child.id());
     assert_eq!(h[0].name, "sleep");
-    assert_eq!(
-        irori_core::treeclean::held_by(&h),
-        format!("held by sleep (pid {})", child.id())
-    );
+    assert_eq!(held_by(&h), format!("held by sleep (pid {})", child.id()));
     assert!(end_holder(&tree, std::process::id()).is_err());
     let other = tempfile::tempdir().unwrap();
     assert!(end_holder(&other.path().to_string_lossy(), child.id()).is_err());
