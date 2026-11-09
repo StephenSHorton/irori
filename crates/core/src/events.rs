@@ -73,11 +73,13 @@ pub enum CoreEvent {
     /// What a device is called changed (card #184), here or on another of
     /// the person's devices.
     Devices,
-    /// A `talk.*` row folded, here or synced, or a message was sent (it
-    /// may show as a DM) (card #389).
-    Talk,
-    /// A notification was kept or read (card #377), here or synced.
-    Notifications,
+    /// A `talk.*` or `call.*` row folded, here or synced, or an agent's
+    /// message showed as a DM (card #389). It names what changed
+    /// (list-signals.md §3.2).
+    Talk(TalkChange),
+    /// A notification was kept or read (card #377), here or synced, by
+    /// key.
+    Notifications(NotifChange),
     /// A row of the assistant's conversation folded, here or synced
     /// (card #1102). It says only that the fold changed, never a reply's
     /// text.
@@ -104,8 +106,8 @@ impl CoreEvent {
             CoreEvent::Capture(_) => Topic::Capture,
             CoreEvent::Asks(_) => Topic::Asks,
             CoreEvent::Devices => Topic::Devices,
-            CoreEvent::Talk => Topic::Talk,
-            CoreEvent::Notifications => Topic::Notifications,
+            CoreEvent::Talk(_) => Topic::Talk,
+            CoreEvent::Notifications(_) => Topic::Notifications,
             CoreEvent::AssistantChat => Topic::AssistantChat,
             CoreEvent::Usage => Topic::Usage,
             CoreEvent::Call => Topic::Call,
@@ -113,6 +115,132 @@ impl CoreEvent {
             CoreEvent::Resync => return None,
         })
     }
+}
+
+/// What a [`CoreEvent::Talk`] changed (list-signals.md §3.2): the
+/// conversations (a channel, a DM, a thread's read cursor) and the calls it
+/// touched, or `all`. There is no empty default: a change that names
+/// nothing means "read everything" to its reader, so a site that forgets
+/// its ids costs a full read, never a stale row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TalkChange {
+    pub convs: Vec<String>,
+    pub calls: Vec<String>,
+    pub all: bool,
+}
+
+impl TalkChange {
+    /// Everything Talk shows may have changed.
+    pub fn all() -> TalkChange {
+        TalkChange {
+            convs: Vec::new(),
+            calls: Vec::new(),
+            all: true,
+        }
+    }
+
+    /// These conversations changed (empty ids are left out).
+    pub fn convs<S: Into<String>>(convs: impl IntoIterator<Item = S>) -> TalkChange {
+        TalkChange::of(convs, std::iter::empty::<String>())
+    }
+
+    /// These calls changed (empty ids are left out).
+    pub fn calls<S: Into<String>>(calls: impl IntoIterator<Item = S>) -> TalkChange {
+        TalkChange::of(std::iter::empty::<String>(), calls)
+    }
+
+    /// These conversations and calls changed (empty ids are left out).
+    pub fn of<A: Into<String>, B: Into<String>>(
+        convs: impl IntoIterator<Item = A>,
+        calls: impl IntoIterator<Item = B>,
+    ) -> TalkChange {
+        TalkChange {
+            convs: ids(convs),
+            calls: ids(calls),
+            all: false,
+        }
+    }
+
+    /// Whether a reader must read everything: `all`, or no ids at all.
+    pub fn is_all(&self) -> bool {
+        self.all || (self.convs.is_empty() && self.calls.is_empty())
+    }
+
+    /// What one folded `talk.*` or `call.*` row touched (coord's
+    /// `talk::KINDS`, or a space's row after `space_talk_row`, which keeps
+    /// the conv and call ids). A thread's read cursor keeps its conv id as
+    /// written (`thread:<task id>` from the window). `talk.card` names only
+    /// a post, so it is `all`, as is a row that names nothing.
+    pub fn of_row(ev: &store::Event) -> TalkChange {
+        use store::kinds as k;
+        let Ok(v) = serde_json::from_slice::<serde_json::Value>(&ev.payload) else {
+            return TalkChange::all();
+        };
+        let s = |p: &str| {
+            v.pointer(p)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
+        let t = match ev.kind.as_str() {
+            k::TALK_CHANNEL_CREATED | k::TALK_CHANNEL_EDITED => {
+                TalkChange::convs([s("/channelId")])
+            }
+            k::TALK_MEMBER | k::TALK_READ => TalkChange::convs([s("/convId")]),
+            // A huddle's start or end mark, or a transcript fallback post.
+            k::TALK_POST => {
+                TalkChange::of([s("/convId")], [s("/call/callId"), s("/transcript/callId")])
+            }
+            k::CALL_SEGMENT | k::CALL_TITLE | k::CALL_ASSIST | k::CALL_ITEM | k::CALL_ITEM_SET => {
+                TalkChange::of([s("/convId")], [s("/callId")])
+            }
+            _ => return TalkChange::all(),
+        };
+        if t.is_all() { TalkChange::all() } else { t }
+    }
+}
+
+/// What a [`CoreEvent::Notifications`] changed: the notification keys, or
+/// `all`. As [`TalkChange`], no empty default, and empty means all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotifChange {
+    pub keys: Vec<String>,
+    pub all: bool,
+}
+
+impl NotifChange {
+    /// Every notification may have changed (a store resync).
+    pub fn all() -> NotifChange {
+        NotifChange {
+            keys: Vec::new(),
+            all: true,
+        }
+    }
+
+    /// These notifications changed (empty keys are left out).
+    pub fn keys<S: Into<String>>(keys: impl IntoIterator<Item = S>) -> NotifChange {
+        NotifChange {
+            keys: ids(keys),
+            all: false,
+        }
+    }
+
+    /// Whether a reader must read everything: `all`, or no keys.
+    pub fn is_all(&self) -> bool {
+        self.all || self.keys.is_empty()
+    }
+}
+
+/// Non-empty ids, each once, in first-seen order.
+fn ids<S: Into<String>>(it: impl IntoIterator<Item = S>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for s in it {
+        let s = s.into();
+        if !s.is_empty() && !out.contains(&s) {
+            out.push(s);
+        }
+    }
+    out
 }
 
 struct Sub {

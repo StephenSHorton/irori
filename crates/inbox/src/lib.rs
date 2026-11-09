@@ -578,6 +578,10 @@ pub enum ChangeKind {
     MovedAway,
     /// Anything else; UIs refresh.
     Updated,
+    /// This reader lost changes when its queue was full: re-read
+    /// everything (list-signals.md §3.1). It comes in place of the next
+    /// change that fits, with empty `to` and `delivery_id`.
+    Resync,
 }
 
 impl ChangeKind {
@@ -588,6 +592,7 @@ impl ChangeKind {
             ChangeKind::HeldNew => "held",
             ChangeKind::MovedAway => "moved",
             ChangeKind::Updated => "updated",
+            ChangeKind::Resync => "resync",
         }
     }
 }
@@ -606,6 +611,11 @@ pub struct Change {
     pub to: String,
     #[serde(rename = "deliveryId", skip_serializing_if = "String::is_empty")]
     pub delivery_id: String,
+    /// The delivery's first row folded here: it was made, or it reached
+    /// this device (Talk shows an agent's message as a DM from then,
+    /// list-signals.md §3.2).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub created: bool,
 }
 
 /// The presence fields the inbox routes against (presence.AgentCard;

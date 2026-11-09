@@ -66,6 +66,7 @@ impl Inner {
             kind: ChangeKind::Updated,
             to: String::new(),
             delivery_id: String::new(),
+            created: false,
         });
     }
 

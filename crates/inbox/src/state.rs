@@ -722,7 +722,7 @@ pub(crate) struct Inner {
     pub appendable: HashMap<String, bool>,
     pub visible_at: HashMap<String, GoTime>,
     pub held_first: HashSet<String>,
-    pub subs: Vec<Arc<Queue<Change>>>,
+    pub subs: Vec<Sub>,
 
     pub replaying: bool,
     pub changes: Vec<Change>,
@@ -936,9 +936,18 @@ impl Inbox {
     /// queue drops the change and the reader should re-read).
     pub fn subscribe(&self) -> Subscription {
         let q = Arc::new(Queue::new(SUB_BUFFER));
-        lock(&self.inner).subs.push(q.clone());
+        lock(&self.inner).subs.push(Sub {
+            q: q.clone(),
+            lost: false,
+        });
         Subscription { q }
     }
+}
+
+/// One subscriber's queue and whether it lost a change.
+pub struct Sub {
+    q: Arc<Queue<Change>>,
+    lost: bool,
 }
 
 impl Inner {
@@ -1330,12 +1339,13 @@ impl Inner {
             self.known.entry(to.clone()).or_default();
         }
         self.touch(&[&prev_to, &to]);
+        let created = !existed;
         if state == st::HELD && (!existed || prev_state != st::HELD) {
-            self.note(ChangeKind::HeldNew, &to, &id);
+            self.note_delivery(ChangeKind::HeldNew, &to, &id, created);
         } else if state == st::MOVED {
-            self.note(ChangeKind::MovedAway, &prev_to, &id);
+            self.note_delivery(ChangeKind::MovedAway, &prev_to, &id, created);
         } else {
-            self.note(ChangeKind::Updated, &to, &id);
+            self.note_delivery(ChangeKind::Updated, &to, &id, created);
         }
     }
 
@@ -1363,11 +1373,17 @@ impl Inner {
     }
 
     pub(crate) fn note(&mut self, kind: ChangeKind, to: &str, did: &str) {
+        self.note_delivery(kind, to, did, false);
+    }
+
+    /// [`Self::note`], saying whether this was the delivery's first row.
+    fn note_delivery(&mut self, kind: ChangeKind, to: &str, did: &str, created: bool) {
         if !self.replaying {
             self.changes.push(Change {
                 kind,
                 to: to.into(),
                 delivery_id: did.into(),
+                created,
             });
         }
     }
@@ -1383,6 +1399,7 @@ impl Inner {
                     kind: ChangeKind::WakeReady,
                     to: agent.clone(),
                     delivery_id: String::new(),
+                    created: false,
                 });
             }
             self.submit.insert(agent.clone(), now);
@@ -1392,14 +1409,27 @@ impl Inner {
                     kind: ChangeKind::AppendReady,
                     to: agent.clone(),
                     delivery_id: String::new(),
+                    created: false,
                 });
             }
             self.appendable.insert(agent, app);
         }
-        self.subs.retain(|q| !q.is_closed());
+        self.subs.retain(|s| !s.q.is_closed());
         for c in self.changes.drain(..) {
-            for q in &self.subs {
-                let _ = q.push(c.clone()); // slow reader; it re-reads
+            for s in &mut self.subs {
+                // A full reader loses it and gets a Resync in place of the
+                // next one that fits (list-signals.md §3.1).
+                let msg = if s.lost {
+                    Change {
+                        kind: ChangeKind::Resync,
+                        to: String::new(),
+                        delivery_id: String::new(),
+                        created: false,
+                    }
+                } else {
+                    c.clone()
+                };
+                s.lost = !s.q.push(msg);
             }
         }
     }

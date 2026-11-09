@@ -28,6 +28,7 @@
 //! `roster:changed` follows this device's presence only, as Go's
 //! (`Core.Changes` is `presence.Subscribe`).
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -98,19 +99,30 @@ fn add_once(list: &mut Vec<String>, v: &str) {
 
 /// The nudge Go's inbox pump takes on its `kick` channel: a policy write
 /// that re-queues nothing still emits. It pushes a resync into the pump's
-/// feed.
+/// feed, which wakes the pump, and sets a flag the pump takes each batch,
+/// so a kick still counts when the feed was full (list-signals.md §3.1).
 #[derive(Default)]
-pub(crate) struct Kick(Mutex<Option<Arc<Queue<CoreEvent>>>>);
+pub(crate) struct Kick {
+    q: Mutex<Option<Arc<Queue<CoreEvent>>>>,
+    kicked: AtomicBool,
+}
 
 impl Kick {
     pub(crate) fn set(&self, q: Arc<Queue<CoreEvent>>) {
-        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(q);
+        *self.q.lock().unwrap_or_else(|e| e.into_inner()) = Some(q);
     }
 
     pub(crate) fn notify(&self) {
-        if let Some(q) = self.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        self.kicked.store(true, Ordering::SeqCst);
+        if let Some(q) = self.q.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             q.push(CoreEvent::Resync);
         }
+    }
+
+    /// Whether a kick came since the last take: the pump's batch reads
+    /// everything then.
+    pub(crate) fn take(&self) -> bool {
+        self.kicked.swap(false, Ordering::SeqCst)
     }
 }
 
@@ -210,6 +222,9 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
         out.push(spawn("irori-window-inbox", move || {
             let q = feed.queue().clone();
             coalesce(&q, INBOX_EMIT_EVERY, &stop, |_| {
+                // A kick means everything; the payload names nothing yet
+                // (card 4), so it is only taken here.
+                let _all = w.inbox_kicked();
                 let c = w.refresh_inbox().counts;
                 w.emit(EVENT_INBOX_CHANGED, &c);
                 w.counts_changed(c);
@@ -220,11 +235,12 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
     {
         let (w, stop) = (w.clone(), stop.clone());
         let feed = w.core.feed(&[Topic::Board]);
-        // Every shared board's changes go through the same coalescing, and
-        // a board opening, going or renamed is boards:changed (Go
+        // Every board's card changes, shared or private, come on the Board
+        // feed, and so does a board opening, going or renamed, as a resync
+        // (list-signals.md §3.1). That is also boards:changed (Go
         // pumpBoards).
         {
-            let (w, board_q) = (w.clone(), feed.queue().clone());
+            let w = w.clone();
             let q = w.core.subscribe_boards();
             // boards:changed is coalesced too (card #233): a board synced
             // from another device moves once per board.* / member.* row.
@@ -246,11 +262,11 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
             }
             out.push(spawn("irori-window-boards", move || {
                 let _reg = reg;
-                while let Some(ch) = q.recv() {
-                    if ch.kind.is_empty() && ch.task_id.is_empty() {
-                        moved_q.push(CoreEvent::Resync);
-                    }
-                    board_q.push(CoreEvent::Board(ch));
+                // Only zero Changes come here now; a lost one is a zero
+                // Change too (Boards::tell), and boards:changed always
+                // reads the whole list, so a full moved_q loses nothing.
+                while q.recv().is_some() {
+                    moved_q.push(CoreEvent::Resync);
                 }
             }));
         }

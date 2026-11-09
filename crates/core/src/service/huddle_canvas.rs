@@ -26,7 +26,7 @@ use coord::talk::{CanvasItem, NewItem, NewItemSet, is_person_key};
 use super::Services;
 use super::huddle_packet::{self, DATA_TAG, Packet};
 use super::huddle_rules::{Block, Kind, Layer, Look, admit, is_duplicate};
-use crate::events::CoreEvent;
+use crate::events::{CoreEvent, TalkChange};
 
 /// `logf` with format arguments.
 macro_rules! logf {
@@ -216,12 +216,14 @@ impl Services {
     fn canvas_done<T>(
         &self,
         call: &str,
+        conv: &str,
         what: &str,
         r: Result<T, coord::Error>,
     ) -> Result<T, String> {
         match r {
             Ok(v) => {
-                self.hub.publish(CoreEvent::Talk);
+                self.hub
+                    .publish(CoreEvent::Talk(TalkChange::of([conv], [call])));
                 Ok(v)
             }
             Err(e) => {
@@ -261,7 +263,7 @@ impl Services {
             },
             &self.canvas_me(),
         );
-        let item = self.canvas_done(call, "item", r)?;
+        let item = self.canvas_done(call, &conv, "item", r)?;
         self.huddle_route_question(call, &item);
         Ok(item)
     }
@@ -289,7 +291,7 @@ impl Services {
             },
             &self.canvas_me(),
         );
-        self.canvas_done(call, "item set", r)
+        self.canvas_done(call, &conv, "item set", r)
     }
 
     /// The Ask box: the person puts a question to their assistant. It is a
@@ -310,6 +312,7 @@ impl Services {
         let me = self.canvas_me();
         let item = self.canvas_done(
             call,
+            &conv,
             "ask",
             self.talk.write_item(
                 &conv,
@@ -365,7 +368,8 @@ impl Services {
             &me,
         ) {
             Ok(i) => {
-                self.hub.publish(CoreEvent::Talk);
+                self.hub
+                    .publish(CoreEvent::Talk(TalkChange::of([conv], [call])));
                 self.canvas_mem(call, |m| {
                     m.known_items.insert(i.item_id.clone());
                 });
@@ -394,7 +398,9 @@ impl Services {
             &me,
         );
         match r {
-            Ok(_) => self.hub.publish(CoreEvent::Talk),
+            Ok(_) => self
+                .hub
+                .publish(CoreEvent::Talk(TalkChange::of([conv], [call]))),
             Err(e) => logf!("huddle {call}: placeholder {id}: {e}"),
         }
     }

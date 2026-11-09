@@ -1331,7 +1331,7 @@ impl Core {
         // private board counts.
         let svc_cell: Arc<OnceLock<Weak<Services>>> = Arc::new(OnceLock::new());
         let spawn_state = spawn::SpawnState::default();
-        spawn::load_spawn(&st, &spawn_state);
+        let _ = spawn::load_spawn(&st, &spawn_state);
         ib.set_reviews_unasked(
             !spawn_state
                 .reviews_off
@@ -2143,7 +2143,8 @@ impl Core {
                         load_notifications(&s.store, &s.notifications);
                         s.settle_notifications();
                         s.hub.publish(CoreEvent::Devices);
-                        s.hub.publish(CoreEvent::Notifications);
+                        s.hub
+                            .publish(CoreEvent::Notifications(crate::events::NotifChange::all()));
                         let before = s.store.vector().unwrap_or_default();
                         s.assistant_chat.reload(&s.store);
                         s.hub.publish(CoreEvent::AssistantChat);
@@ -2153,7 +2154,8 @@ impl Core {
                             logf(format_args!("dm spaces: load: {e}"));
                         }
                         let _ = s.talk.load();
-                        s.hub.publish(CoreEvent::Talk);
+                        s.hub
+                            .publish(CoreEvent::Talk(crate::events::TalkChange::all()));
                         s.follow_call_settings();
                         s.follow_names_themes();
                         s.follow_names_on();
@@ -2189,22 +2191,13 @@ impl Core {
                         // A write here was folded when it was written; the
                         // window still hears it (card #389).
                         s.talk.apply(&ev);
-                        s.hub.publish(CoreEvent::Talk);
+                        s.hub
+                            .publish(CoreEvent::Talk(crate::events::TalkChange::of_row(&ev)));
                         if ev.kind == kinds::TALK_POST {
                             s.talk_note(&ev);
                         }
                         // A live line feeds the assistant (card #1050).
                         s.huddle_line_row(&ev);
-                    } else if ev.kind == kinds::MESSAGE_SENT {
-                        // Agents' messages show as DMs (card #389); a
-                        // notice, a stop or a mention's wake never does,
-                        // so it doesn't make the window rebuild Talk's
-                        // list from the whole inbox (card #468).
-                        if inbox::decode_message(&ev.payload)
-                            .map_or(true, |m| tools::talk::mirrors(&m))
-                        {
-                            s.hub.publish(CoreEvent::Talk);
-                        }
                     } else if assistant_chat::KINDS.contains(&ev.kind.as_str()) {
                         // The assistant's conversation (card #1102); a row
                         // written here was folded when it was written.
@@ -2217,7 +2210,7 @@ impl Core {
                         // This device's own rows were folded when written;
                         // folding again changes nothing.
                         if s.notifications.apply(&ev) {
-                            s.hub.publish(CoreEvent::Notifications);
+                            s.hub.publish(notifications::notif_change(&ev));
                             // Another device kept one this one can see is
                             // already resolved.
                             if ev.kind == coord::notifications::POSTED {
@@ -2225,7 +2218,11 @@ impl Core {
                             }
                         }
                     } else if ev.kind == coord::devcolor::KIND {
-                        s.colors.apply(&ev);
+                        // Cards and the header show device colours
+                        // (list-signals.md §3.2).
+                        if s.colors.apply(&ev) {
+                            s.hub.publish(CoreEvent::Devices);
+                        }
                     } else if ev.kind == coord::avatar::KIND {
                         if s.faces.apply(&ev) {
                             s.hub.publish(CoreEvent::Devices);
@@ -2449,6 +2446,14 @@ impl Core {
             self.spawn("feed-inbox", move || {
                 let _reg = reg;
                 while let Some(ch) = sub.recv() {
+                    // An agent's message shows as a DM from its delivery's
+                    // first row (list-signals.md §3.2).
+                    let d = (!ch.delivery_id.is_empty())
+                        .then(|| s.inbox.get(&ch.delivery_id))
+                        .flatten();
+                    if let Some(t) = dm_change(&ch, d.as_ref()) {
+                        s.hub.publish(CoreEvent::Talk(t));
+                    }
                     s.hub.publish(CoreEvent::Inbox(ch));
                     // A message replied to, read or released (card #482).
                     s.settle_notifications();
@@ -2477,6 +2482,25 @@ impl Core {
                     s2.hub.publish(CoreEvent::Board(ch));
                     // A blocker answered or a done check marked, by anyone.
                     s2.settle_notifications();
+                }
+            });
+        }
+        {
+            // A shared board opened, went, was renamed or changed members,
+            // or a DM space was hidden (`Boards::moved`): an opened board's
+            // cards come by replay, which notes nothing, so every card list
+            // reads again (list-signals.md §3.1). Through the hub, so a
+            // full feed's lost flag covers it.
+            let q = s.boards.subscribe();
+            let reg = self.on_stop(&q, |q| q.close());
+            let s = s.clone();
+            self.spawn("feed-boards", move || {
+                let _reg = reg;
+                while q.recv().is_some() {
+                    s.hub.publish(CoreEvent::Board(coord::Change {
+                        kind: coord::RESYNC.into(),
+                        ..coord::Change::default()
+                    }));
                 }
             });
         }
@@ -4053,6 +4077,45 @@ fn ignored_by(
         }
     }
     out
+}
+
+/// The DMs an inbox change shows an agent's message in (list-signals.md
+/// §3.2), as Talk lists them (`tools::talk::mirrored`): only on the
+/// delivery's first row, or a move, which takes the message from the old
+/// recipient's DM to the new one's. A notice, a stop or a mention's wake
+/// never shows. `d` is the delivery now.
+pub(crate) fn dm_change(
+    ch: &inbox::Change,
+    d: Option<&inbox::Delivery>,
+) -> Option<crate::events::TalkChange> {
+    use crate::events::TalkChange;
+    use inbox::ChangeKind as K;
+    // Lost changes may have held a delivery's first row.
+    if ch.kind == K::Resync {
+        return Some(TalkChange::all());
+    }
+    if ch.delivery_id.is_empty() || !(ch.created || ch.kind == K::MovedAway) {
+        return None;
+    }
+    let d = d?;
+    let m = &d.message;
+    // The delivery came from another device before its message did.
+    if m.id.is_empty() {
+        return Some(TalkChange::all());
+    }
+    if !tools::talk::mirrors(m) {
+        return None;
+    }
+    let dm = |to: &str| {
+        (!to.is_empty() && coord::talk::canon(&m.from.key) != coord::talk::canon(to))
+            .then(|| coord::talk::dm_id(&m.from.key, to))
+    };
+    let mut convs: Vec<String> = dm(&d.to).into_iter().collect();
+    if ch.kind == K::MovedAway {
+        // moved_to is the new recipient's key.
+        convs.extend(dm(&d.moved_to));
+    }
+    (!convs.is_empty()).then(|| TalkChange::convs(convs))
 }
 
 fn load_notifications(st: &Store, h: &coord::notifications::History) {

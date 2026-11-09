@@ -508,6 +508,12 @@ pub(crate) fn created_task_id(ev: &Event) -> String {
         .task_id
 }
 
+/// One [`Boards::subscribe`] queue and whether it lost a change.
+struct MovedSub {
+    q: Weak<Queue<Change>>,
+    lost: bool,
+}
+
 /// The Core's set of board logs, the taskId index and step 4's state. It
 /// is made before the mesh; each open board's connections run on its own
 /// `BoardMesh` (`Core::open_board_net`).
@@ -516,7 +522,9 @@ pub(crate) struct Boards {
     pub(crate) inner: Mutex<BoardsInner>,
     /// One reconcile of board.joined and board.forgot at a time.
     pub(crate) rec: Mutex<()>,
-    subs: Mutex<Vec<Weak<Queue<Change>>>>,
+    /// Who hears a board open, go or move ([`Boards::moved`]), each with
+    /// its lost flag.
+    subs: Mutex<Vec<MovedSub>>,
     follow: OnceLock<()>,
     /// Kicks every open board's `BoardMesh` when a board opens or a row
     /// lands, so its member devices pull now.
@@ -678,24 +686,35 @@ impl Boards {
     pub(crate) fn subscribe(&self) -> Arc<Queue<Change>> {
         let q = Arc::new(Queue::new(64));
         let mut s = lock(&self.subs);
-        s.retain(|w| w.strong_count() > 0);
-        s.push(Arc::downgrade(&q));
+        s.retain(|m| m.q.strong_count() > 0);
+        s.push(MovedSub {
+            q: Arc::downgrade(&q),
+            lost: false,
+        });
         q
     }
 
-    /// Hands every subscriber `ch`; a slow reader redraws on the next one.
-    pub(crate) fn tell(&self, ch: Change) {
+    /// Hands every subscriber `ch`. A full reader loses it, and gets a zero
+    /// Change in place of the next one that fits (list-signals.md §3.1):
+    /// a zero Change is "re-read the boards and every card".
+    fn tell(&self, ch: Change) {
         let mut s = lock(&self.subs);
-        s.retain(|w| match w.upgrade() {
+        s.retain_mut(|m| match m.q.upgrade() {
             Some(q) if !q.is_closed() => {
-                q.push(ch.clone());
+                let msg = if m.lost {
+                    Change::default()
+                } else {
+                    ch.clone()
+                };
+                m.lost = !q.push(msg);
                 true
             }
             _ => false,
         });
     }
 
-    /// Tells the window a board opened, went or was renamed.
+    /// Tells the window a board opened, went or was renamed: a zero Change,
+    /// which the Core's `feed-boards` pump turns into a Board resync.
     pub(crate) fn moved(&self) {
         self.tell(Change::default());
     }
@@ -1600,7 +1619,7 @@ impl Services {
     }
 
     /// The board's threads: coord's Follow, the taskId and card fold, and
-    /// its changes to [`Boards::subscribe`].
+    /// its changes to the hub's Board topic.
     fn start_board(self: &Arc<Self>, b: &Arc<BoardLog>) {
         {
             let sub = Arc::new(b.store.subscribe());
@@ -1675,7 +1694,9 @@ impl Services {
                             }) {
                                 s.asks_kick.kick();
                             }
-                            s.boards.tell(ch);
+                            // Through the hub, so a full feed's lost flag
+                            // covers it (list-signals.md §3.1).
+                            s.hub.publish(crate::events::CoreEvent::Board(ch));
                             // A shared card's blocker resolved (card #482).
                             s.settle_notifications();
                         }
@@ -1715,7 +1736,9 @@ impl Services {
             // The person left it on another device: its channels leave
             // Talk here too (card #461).
             if self.board_leaving(b) && self.talk.drop_space(&b.id) {
-                self.hub.publish(crate::events::CoreEvent::Talk);
+                self.hub.publish(crate::events::CoreEvent::Talk(
+                    crate::events::TalkChange::all(),
+                ));
             }
         }
         if ev.seq == 0 {
@@ -1742,7 +1765,9 @@ impl Services {
         } else if ev.seq == 0 {
             // The space's channels fold again with everything else.
             let _ = self.talk.load();
-            self.hub.publish(crate::events::CoreEvent::Talk);
+            self.hub.publish(crate::events::CoreEvent::Talk(
+                crate::events::TalkChange::all(),
+            ));
         } else if hidden && irori_identity::kinds::is_membership_kind(&ev.kind) {
             self.dm_refold(b);
         } else if ev.kind == kinds::BOARD_MEMBER_ADDED {
@@ -1753,7 +1778,9 @@ impl Services {
             // A space's channel row (card #392). One this device wrote was
             // folded when it was written; the window still hears it.
             self.talk.apply(&row);
-            self.hub.publish(crate::events::CoreEvent::Talk);
+            self.hub.publish(crate::events::CoreEvent::Talk(
+                crate::events::TalkChange::of_row(&row),
+            ));
             // A live line feeds the assistant (card #1050).
             self.huddle_line_row(&row);
             // A DM from the other person rings here (card #538); the
@@ -2738,8 +2765,9 @@ impl super::Core {
         self.s.board_views(f)
     }
 
-    /// Every board coord's changes, and a zero Change when a board opens,
-    /// goes or is renamed (the window's pump). Close the queue to stop.
+    /// A zero Change when a board opens, goes or is renamed (the window's
+    /// boards:changed). Card changes, shared or private, are on
+    /// [`super::Core::feed`]'s Board topic. Close the queue to stop.
     pub fn subscribe_boards(&self) -> Arc<Queue<Change>> {
         self.s.boards.subscribe()
     }

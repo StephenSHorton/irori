@@ -1739,6 +1739,12 @@ impl Fold {
             let mut line = line_of(ev, at, by, &format!("mentioned this in {src}"));
             line.kind = MENTIONED_KIND.into();
             self.touch_line(&ti, line, true, Vec::new());
+            // The named card's activity has the line (list-signals.md §3.2).
+            self.note(Change {
+                kind: TASK_CHANGED.into(),
+                task_id: ti.id,
+                ..Change::default()
+            });
         }
     }
 

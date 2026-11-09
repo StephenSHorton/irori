@@ -41,7 +41,7 @@ use mesh::owncalls::OwnCalls;
 use super::calls_over::{self, Heard, OverInput};
 use super::calls_share::{ShareHub, ShareNote, ShareNow, ShareSink, ShareSource};
 use super::{Core, Services};
-use crate::events::CoreEvent;
+use crate::events::{CoreEvent, TalkChange};
 
 /// A ring nobody answers stops after this long.
 const RING_FOR: Duration = Duration::from_secs(60);
@@ -936,7 +936,9 @@ impl Services {
             .write_title(&conv, call_id, title, assistant, &self.user_sender().key)
             .map_err(|e| e.to_string());
         match &r {
-            Ok(_) => self.hub.publish(CoreEvent::Talk),
+            Ok(_) => self
+                .hub
+                .publish(CoreEvent::Talk(TalkChange::of([conv.as_str()], [call_id]))),
             Err(e) => crate::logf(format_args!("call {call_id}: title: {e}")),
         }
         r
@@ -1848,7 +1850,8 @@ impl Services {
                 true,
             ) {
                 Ok(_) => {
-                    self.hub.publish(CoreEvent::Talk);
+                    self.hub
+                        .publish(CoreEvent::Talk(TalkChange::of([conv], [call_id])));
                     // The follows hear this row too; the feed drops the
                     // second sighting by the line's id.
                     self.huddle_line(&super::huddle_feed::Heard {
@@ -2104,7 +2107,10 @@ impl Services {
                 ..NewPost::default()
             };
             match self.talk.post(p) {
-                Ok(_) => self.hub.publish(CoreEvent::Talk),
+                Ok(_) => self.hub.publish(CoreEvent::Talk(TalkChange::of(
+                    [a.conv_id.as_str()],
+                    [a.call_id.as_str()],
+                ))),
                 Err(e) => crate::logf(format_args!("call {}: transcript post: {e}", a.call_id)),
             }
         }
@@ -2211,7 +2217,11 @@ impl Services {
                 ..NewPost::default()
             })
             .map_err(|e| e.to_string())?;
-        self.hub.publish(crate::events::CoreEvent::Talk);
+        self.hub
+            .publish(crate::events::CoreEvent::Talk(TalkChange::of(
+                [p.conv_id.as_str()],
+                p.call.as_ref().map(|c| c.call_id.as_str()),
+            )));
         Ok(p)
     }
 }

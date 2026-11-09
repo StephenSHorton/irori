@@ -1042,6 +1042,10 @@ pub const RESYNC: &str = "resync";
 pub const BOARD_PIN_CHANGED: &str = "board_pin";
 /// The pin-row key prefix of a shared board's sidebar pin (card #135).
 pub const BOARD_PIN_PREFIX: &str = "board:";
+/// A merge desk changed (list-signals.md §3.2): its settings, where its
+/// repo was seen, its PR list or which repos are the person's. The repo
+/// key is in `resource`; empty means every desk. No card changed.
+pub const DESK_CHANGED: &str = "desk";
 
 /// A notification for transports and the UI.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
