@@ -4,10 +4,9 @@
 // only channels and DMs. In a plain browser everything runs on the sample
 // below, and posting changes it in memory so the page can be tried.
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { Events, TalkService } from "./host"
-import { onChange } from "./changes"
 import {
   TalkCall,
   TalkConversation,
@@ -20,7 +19,7 @@ import {
 } from "./models"
 import { inWails, plainLine } from "./irori"
 import { isKeyLike } from "./names"
-import { useLatest } from "./talk"
+import { usePatched, type Follow, type Want } from "./patched"
 import { namesLine, threads } from "./cards"
 import { previewFlag } from "./preview"
 import { checkUploads, uploadOf } from "./uploads"
@@ -174,9 +173,19 @@ export async function readAll(convs: readonly Conversation[]): Promise<void> {
   )
 }
 
+// The thread rows are left out: Talk's list never shows them, and threads
+// come from useAllThreads (card #1150, design list-signals.md §6.4).
 export const talkApi = {
   conversations: (): Promise<Conversation[]> =>
-    inWails() ? TalkService.Conversations() : Promise.resolve(sampleConvs()),
+    inWails()
+      ? TalkService.Conversations(false)
+      : Promise.resolve(sampleConvs()),
+  // conversationsById is the rows of just `ids`, as conversations() has
+  // them; an id with no row is not in the answer.
+  conversationsById: (ids: string[]): Promise<Conversation[]> =>
+    inWails()
+      ? TalkService.ConversationsById(ids, false)
+      : Promise.resolve(sampleConvs().filter((c) => ids.includes(c.convId))),
   posts: (convId: string, before: string | null = null): Promise<Post[]> =>
     inWails()
       ? TalkService.Posts(convId, before, PostsPage)
@@ -264,20 +273,52 @@ export const talkApi = {
       : Promise.resolve(sampleLeave(convId, member)),
 }
 
-// useTalkFresh reloads on every Talk change, on focus, and on the sample's.
-function useTalkFresh(reload: () => Promise<void>) {
-  useEffect(() => {
-    void reload()
-    if (!inWails()) {
-      sampleListeners.add(reload)
-      return () => {
-        sampleListeners.delete(reload)
-      }
-    }
-    // Focus is the module's: a full read at most once a minute.
-    return onChange(EventTalkChanged, () => void reload(), { focus: true })
-  }, [reload])
+// The ids a Talk change names, as the patch hook keys them.
+const convsKey = `${EventTalkChanged}.convs`
+
+// byLastAt is the list's order: newest first, then by id, as the Core has it.
+function byLastAt(a: Conversation, b: Conversation): number {
+  return a.lastAt < b.lastAt
+    ? 1
+    : a.lastAt > b.lastAt
+      ? -1
+      : a.convId.localeCompare(b.convId)
 }
+
+// ConvPatch is one read's answer: the whole list, or the rows of the ids
+// asked for and the ids with none (gone).
+export type ConvPatch =
+  | { full: true; rows: Conversation[] }
+  | { full: false; rows: Conversation[]; gone: string[] }
+
+// mergeConversations puts a read into the rows on screen.
+export function mergeConversations(
+  current: Conversation[],
+  patch: ConvPatch
+): Conversation[] {
+  if (patch.full) return patch.rows
+  const drop = new Set([...patch.gone, ...patch.rows.map((c) => c.convId)])
+  return [...current.filter((c) => !drop.has(c.convId)), ...patch.rows].sort(
+    byLastAt
+  )
+}
+
+// readConversations reads what a notice wants: everything, or the rows of
+// the conversations it named.
+export async function readConversations(want: Want): Promise<ConvPatch> {
+  const ids = want.ids[convsKey] ?? []
+  if (want.full || ids.length === 0)
+    return { full: true, rows: await talkApi.conversations() }
+  const rows = await talkApi.conversationsById(ids)
+  const got = new Set(rows.map((c) => c.convId))
+  return { full: false, rows, gone: ids.filter((id) => !got.has(id)) }
+}
+
+const ConvFollow: readonly Follow[] = [
+  { signal: EventTalkChanged, buckets: ["convs"], focus: true },
+]
+const convRows = (cs: Conversation[]): Array<[string, unknown]> =>
+  cs.map((c) => [c.convId, c])
 
 export function useConversations(): {
   conversations: Conversation[]
@@ -285,27 +326,72 @@ export function useConversations(): {
   loading: boolean
   error: string | null
 } {
-  const load = useCallback(() => talkApi.conversations(), [])
-  const { value, loading, error, reload } = useLatest<Conversation[]>(
-    load,
-    [],
-    "conversations"
-  )
-  useTalkFresh(reload)
+  const { value, loading, error, reload } = usePatched<
+    Conversation[],
+    ConvPatch
+  >({
+    name: "conversations",
+    initial: [],
+    follow: ConvFollow,
+    read: readConversations,
+    merge: mergeConversations,
+    rows: convRows,
+  })
+  // The browser preview has no host events: its samples reload it.
+  useEffect(() => {
+    if (inWails()) return
+    sampleListeners.add(reload)
+    return () => {
+      sampleListeners.delete(reload)
+    }
+  }, [reload])
   return { conversations: value, loading, error }
 }
 
+// readPosts reads conversation `id`'s posts for what a read wants: all of
+// them for a full read or a notice naming `id`; null, with no read, for a
+// notice that named other conversations only.
+export async function readPosts(
+  id: string,
+  want: Want,
+  load: (id: string) => Promise<Post[]> = (x) => talkApi.posts(x)
+): Promise<Post[] | null> {
+  if (!id) return []
+  if (!want.full && !(want.ids[convsKey] ?? []).includes(id)) return null
+  return load(id)
+}
+
+const PostsFollow: readonly Follow[] = [
+  { signal: EventTalkChanged, buckets: ["convs"], focus: true },
+]
+
+// usePosts reads a conversation's posts, again only when a Talk change
+// names it (or says `all`, or a read of it failed): a post in another
+// conversation reads nothing (card #1150).
 export function usePosts(convId: string): {
   posts: Post[]
   loading: boolean
   error: string | null
 } {
-  const load = useCallback(
-    () => (convId ? talkApi.posts(convId) : Promise.resolve([])),
-    [convId]
-  )
-  const { value, loading, error, reload } = useLatest<Post[]>(load, [], "posts")
-  useTalkFresh(reload)
+  const idRef = useRef(convId)
+  useEffect(() => {
+    idRef.current = convId
+  })
+  const { value, loading, error, reload } = usePatched<Post[], Post[] | null>({
+    name: "posts",
+    initial: [],
+    rekey: convId,
+    follow: PostsFollow,
+    read: (want) => readPosts(idRef.current, want),
+    merge: (cur, patch) => patch ?? cur,
+  })
+  useEffect(() => {
+    if (inWails()) return
+    sampleListeners.add(reload)
+    return () => {
+      sampleListeners.delete(reload)
+    }
+  }, [reload])
   return { posts: value, loading, error }
 }
 

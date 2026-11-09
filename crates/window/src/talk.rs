@@ -350,6 +350,40 @@ pub struct TalkReplier {
 const MAX_LIMIT: i64 = coord::talk::MAX_PAGE as i64;
 const DEFAULT_LIMIT: i64 = 50;
 
+/// A Core conversation as the window's row.
+fn conversation_row(c: tools::talk::Conversation) -> TalkConversation {
+    let pinned = coord::talk::is_assistants_channel(&c.conv_id, &c.space_id);
+    TalkConversation {
+        conv_id: c.conv_id,
+        kind: c.kind,
+        name: c.name,
+        topic: (!c.topic.is_empty()).then_some(c.topic),
+        unread: c.unread as i64,
+        mentions: c.mentions as i64,
+        members: c
+            .members
+            .into_iter()
+            .map(|m| TalkMember {
+                kind: m.kind,
+                key: m.key,
+                name: m.name,
+                status: m.status,
+                owner: m.owner,
+                assistant: m.assistant,
+                assistant_name: m.assistant_name,
+            })
+            .collect(),
+        last_at: c.last_at,
+        last_text: c.last_text,
+        last_by: c.last_by,
+        read_only: c.read_only,
+        agents_now: c.agents_now,
+        pinned,
+        space_id: c.space_id,
+        waiting: c.waiting,
+    }
+}
+
 fn is_thread_id(conv: &str) -> bool {
     !coord::talk::is_channel(conv) && !coord::talk::is_dm(conv)
 }
@@ -380,46 +414,26 @@ impl Window {
             .collect()
     }
 
-    /// Talk's list: every open channel, every DM (agents' own read-only)
-    /// and every open thread, newest first.
-    pub fn talk_conversations(&self) -> Result<Vec<TalkConversation>, String> {
-        let cs = self.core.talk_conversations(&self.me())?;
-        Ok(cs
-            .into_iter()
-            .map(|c| {
-                let pinned = coord::talk::is_assistants_channel(&c.conv_id, &c.space_id);
-                (c, pinned)
-            })
-            .map(|(c, pinned)| TalkConversation {
-                conv_id: c.conv_id,
-                kind: c.kind,
-                name: c.name,
-                topic: (!c.topic.is_empty()).then_some(c.topic),
-                unread: c.unread as i64,
-                mentions: c.mentions as i64,
-                members: c
-                    .members
-                    .into_iter()
-                    .map(|m| TalkMember {
-                        kind: m.kind,
-                        key: m.key,
-                        name: m.name,
-                        status: m.status,
-                        owner: m.owner,
-                        assistant: m.assistant,
-                        assistant_name: m.assistant_name,
-                    })
-                    .collect(),
-                last_at: c.last_at,
-                last_text: c.last_text,
-                last_by: c.last_by,
-                read_only: c.read_only,
-                agents_now: c.agents_now,
-                pinned,
-                space_id: c.space_id,
-                waiting: c.waiting,
-            })
-            .collect())
+    /// Talk's list: every open channel and DM, and every open thread when
+    /// `threads` (the window's list leaves them out, card #1150), newest
+    /// first.
+    pub fn talk_conversations(&self, threads: bool) -> Result<Vec<TalkConversation>, String> {
+        let cs = self.core.talk_conversations_with(&self.me(), threads)?;
+        Ok(cs.into_iter().map(conversation_row).collect())
+    }
+
+    /// The rows of just `convs` (channel and DM ids, bare thread ids), as
+    /// the full list has them. One with no row is left out: the page
+    /// drops it (card #1150).
+    pub fn talk_conversations_by_id(
+        &self,
+        convs: &[String],
+        threads: bool,
+    ) -> Result<Vec<TalkConversation>, String> {
+        let cs = self
+            .core
+            .talk_conversations_by_id(&self.me(), convs, threads)?;
+        Ok(cs.into_iter().map(conversation_row).collect())
     }
 
     /// Up to `limit` posts of `conv` before post `before` (none: the
