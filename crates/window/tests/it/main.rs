@@ -5,6 +5,7 @@
 
 mod assistant_turn;
 mod boards;
+mod chat_held_measure;
 mod cards;
 mod common;
 mod crash_answer;
