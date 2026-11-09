@@ -16,7 +16,7 @@
   },
   {
     "name": "search",
-    "description": "Search what Irori recorded: turns (prompts and replies), edits, commits, pull requests, decisions, Board cards and comments, and messages you sent or received. Every word must match; an empty query lists the newest; a card's short ref (#12) finds that card first. One line per hit with its ref; expand one with show, page with offset.",
+    "description": "Search what Irori recorded: turns (prompts and replies), edits, commits, pull requests, decisions, Board cards and comments (in every space you can see), and messages you sent or received. Every word must match; an empty query lists the newest; a card's short ref (#12, or tag#12 for a shared space's card) finds that card first. One line per hit with its ref; expand one with show, page with offset.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -72,13 +72,13 @@
   },
   {
     "name": "show",
-    "description": "Show one item in detail by its ref, as other tools print it: #12 or task:\u003cid\u003e for a card, comment:\u003cid\u003e, msg:\u003cid\u003e, turn:\u003cid\u003e, edit:\u003cid\u003e, commit:\u003csha\u003e, pr:\u003cowner\u003e/\u003cname\u003e#\u003cn\u003e, decision:\u003cid\u003e or agent:\u003ckey\u003e. Long items come in pages (offset); related refs are listed.",
+    "description": "Show one item in detail by its ref, as other tools print it: #12, tag#12 (a card in a shared space) or task:\u003cid\u003e for a card, comment:\u003cid\u003e, msg:\u003cid\u003e, turn:\u003cid\u003e, edit:\u003cid\u003e, commit:\u003csha\u003e, pr:\u003cowner\u003e/\u003cname\u003e#\u003cn\u003e, decision:\u003cid\u003e or agent:\u003ckey\u003e. Long items come in pages (offset); related refs are listed.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "ref": {
           "type": "string",
-          "description": "The ref to show, e.g. #12, task:01J… or commit:3fa2c1d."
+          "description": "The ref to show, e.g. #12, mlg#12, task:01J… or commit:3fa2c1d."
         },
         "offset": {
           "type": "integer",
@@ -448,6 +448,10 @@
         "done": {
           "type": "boolean",
           "description": "List the newest done cards too (default false: only their count)."
+        },
+        "space": {
+          "type": "string",
+          "description": "Only one space's cards: personal, a shared space's name, or the tag of one of its boards (the list at the end names them). Default: every space."
         }
       },
       "required": [],

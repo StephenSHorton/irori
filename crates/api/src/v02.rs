@@ -186,7 +186,7 @@ fn tool(h: &Handler, name: &str) -> Resp {
             None => {
                 return http::error(
                     403,
-                    "the person's message didn't ask for that: say it plainly, naming the card or agent (close #12, tick s2 on #12, tell ringo ..., comment on #12: ...)",
+                    "the person's message didn't ask for that: say it plainly, naming the card or agent (close #12, tick s2 on #12, tell ringo ..., comment on #12: ...; tag#12 for a space's card, and a bare #12 that is on two boards needs its tag)",
                 );
             }
         }
@@ -234,9 +234,12 @@ fn assistant_write_allowed(h: &Handler, name: &str, args: &[u8]) -> Option<Vec<u
         return None;
     }
     let arg = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or_default();
+    // Card #1198: grants match the card a ref names in any space, and the
+    // tool runs on that card by id, so the model's spelling never picks it.
+    let resolve = |r: &str| h.s.b.card_id(r);
     match name {
         tools::TOOL_SEND => {
-            let (to, text) = g.take_text(name, arg("to"))?;
+            let (to, text) = g.take_text(name, arg("to"), &resolve)?;
             Some(
                 serde_json::json!({ "to": to, "text": text })
                     .to_string()
@@ -244,16 +247,29 @@ fn assistant_write_allowed(h: &Handler, name: &str, args: &[u8]) -> Option<Vec<u
             )
         }
         tools::TOOL_COMMENT => {
-            let (card, text) = g.take_text(name, arg("task_id"))?;
+            let (card, text) = g.take_text(name, arg("task_id"), &resolve)?;
             Some(
                 serde_json::json!({ "task_id": card, "text": text })
                     .to_string()
                     .into_bytes(),
             )
         }
-        _ => g
-            .take(name, arg("task_id"), arg("step_id"))
-            .then(|| args.to_vec()),
+        tools::TOOL_TICK => {
+            let card = g.take(name, arg("task_id"), arg("step_id"), &resolve)?;
+            Some(
+                serde_json::json!({ "task_id": card, "step_id": arg("step_id") })
+                    .to_string()
+                    .into_bytes(),
+            )
+        }
+        _ => {
+            let card = g.take(name, arg("task_id"), "", &resolve)?;
+            Some(
+                serde_json::json!({ "task_id": card })
+                    .to_string()
+                    .into_bytes(),
+            )
+        }
     }
 }
 

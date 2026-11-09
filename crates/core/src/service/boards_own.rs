@@ -1591,6 +1591,43 @@ impl Services {
     /// knows it and every key in the result as this device knows it. A
     /// viewer on no card of a board gets that board's view with nothing for
     /// it.
+    /// Every shared space's cards and comments as search docs (card
+    /// #1198), from the same boards [`Self::board_views`] shows: a card
+    /// taken back to Personal is left out (Personal's log has it), and
+    /// each doc's agent is its key on this device, as search's agent
+    /// filter and names read it.
+    pub(crate) fn space_search_docs(&self) -> Vec<search::Doc> {
+        let mut out = Vec::new();
+        for b in self.visible_boards() {
+            if !b.verifier.membership().created {
+                continue;
+            }
+            let co = b.coord();
+            let docs =
+                search::Source::search_docs(&**co, GoTime::ZERO, usize::MAX).unwrap_or_default();
+            for mut d in docs {
+                let task = match d.kind {
+                    search::Kind::Task => search::parse_ref(&d.r#ref)
+                        .ok()
+                        .and_then(|(_, id)| co.get_task(&id)),
+                    search::Kind::Comment => search::parse_ref(&d.r#ref)
+                        .ok()
+                        .and_then(|(_, id)| co.get_comment(&id))
+                        .and_then(|c| co.get_task(&c.task_id)),
+                    _ => None,
+                };
+                if task.is_some_and(|t| t.withdrawn) {
+                    continue;
+                }
+                if !d.agent.is_empty() {
+                    d.agent = self.private_key(&d.agent);
+                }
+                out.push(d);
+            }
+        }
+        out
+    }
+
     pub(crate) fn board_views(&self, f: &BoardFilter) -> Vec<BoardView> {
         let mut out = Vec::new();
         for b in self.visible_boards() {
