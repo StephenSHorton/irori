@@ -90,6 +90,7 @@ pub mod name_themes;
 pub mod notes;
 mod notifications;
 mod prcard;
+mod review_choice;
 mod review_claim;
 mod review_pick;
 pub mod space_move;
@@ -383,6 +384,8 @@ struct Services {
     chat: assistant_turns::ChatQueue,
     /// Irori's assistant weighing new cards (card #965).
     weighing: card_weights::Weighing,
+    /// The assistant's turn on a PR's reviewer (card #1081).
+    choosing: review_choice::Choosing,
     /// The two huddle switches (card #1053).
     huddle_switches: huddle_settings::HuddleSwitches,
     /// Office Assistants answering other people (assistants-talk card 4).
@@ -1730,6 +1733,7 @@ impl Core {
             assistant_home: assistant_home::HomeState::default(),
             chat: assistant_turns::ChatQueue::new(chat_heard),
             weighing,
+            choosing: Default::default(),
             huddle_switches,
             asst: Default::default(),
             held: Default::default(),
@@ -2548,6 +2552,18 @@ impl Core {
             self.spawn("assistant-weighs-run", move || s3.weighs_loop(rx));
         }
         {
+            // The assistant's turn on a PR's reviewer (card #1081): one
+            // worker, off the poll thread.
+            let (tx, rx) = std::sync::mpsc::channel();
+            s.choose_queue(Some(tx));
+            let reg = self.on_stop(s, |s| s.choose_queue(None));
+            let s2 = s.clone();
+            self.spawn("assistant-review-choice", move || {
+                let _reg = reg;
+                s2.choose_loop(rx);
+            });
+        }
+        {
             let sub = Arc::new(s.capture.subscribe());
             let reg = self.on_stop(&sub, |s| s.cancel());
             let s = s.clone();
@@ -3038,6 +3054,12 @@ impl Core {
     /// Installs the turn that weighs a new card (card #965).
     pub fn set_weigher(&self, n: Option<thread_names::Namer>) {
         self.s.set_weigher(n);
+    }
+
+    /// Installs the turn that picks related agents and a reviewer for a PR
+    /// (merge desk §12.5, card #1081). A device without one skips it.
+    pub fn set_review_chooser(&self, n: Option<thread_names::Namer>) {
+        self.s.set_review_chooser(n);
     }
 
     /// Installs the turn that answers other people's questions to the

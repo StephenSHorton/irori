@@ -21,6 +21,7 @@ use store::kinds::{self, AGENT_ACTOR_PREFIX};
 use super::Services;
 use super::boards::{BoardCard, BoardLog, each_row, lock, roster_of};
 use super::prcard::Found;
+use super::review_choice::{AskCand, Turn, choose_ask};
 use super::spaces::ReadsLevel;
 use crate::logf;
 use crate::prcard::{self, PrComment};
@@ -55,9 +56,8 @@ pub(crate) struct Cand {
     pub tiers: [bool; 4],
 }
 
-/// The assistant's word (tier 5). B4 always passes Skip.
+/// The assistant's word (tier 5): Skip when it has none to give.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)] // Nobody and Pick come with B6.
 pub(crate) enum Tier5 {
     Skip,
     Nobody,
@@ -495,7 +495,38 @@ impl Services {
             c.tiers = tiers(&c.key, &c.person, &l, &facts);
         }
         let login_of = |k: &str| b.verifier.profile_github_login(&key_person(b, k));
-        let r = decide(&facts, &live, left_out.as_deref(), &login_of, &Tier5::Skip);
+        // The assistant's turn (§12.5, card #1081): once per PR, off this
+        // thread. The pick waits for it and goes on at a later poll.
+        let out = excluded(&facts, &login_of);
+        let eligible: Vec<&Cand> = live
+            .iter()
+            .filter(|c| Some(c.key.as_str()) != left_out.as_deref() && !out.contains(&c.key))
+            .collect();
+        let (tier5, named) = if eligible.is_empty() {
+            (Tier5::Skip, Vec::new())
+        } else {
+            let want_pick = !eligible.iter().any(|c| c.tiers.iter().any(|t| *t));
+            let turn = self.choose_review(&format!("{id}\0{}", p.url), want_pick, || {
+                let cands = self.ask_cands(b, &roster, &facts, &eligible);
+                (
+                    choose_ask(&p.title, &facts.pr_state.paths, &cands, want_pick),
+                    cands,
+                )
+            });
+            match turn {
+                Turn::Skip => (Tier5::Skip, Vec::new()),
+                Turn::Wait => {
+                    logf(format_args!(
+                        "desk: PR #{}: waiting on the assistant's turn",
+                        p.number
+                    ));
+                    return Ok(());
+                }
+                Turn::Done(c) => (c.tier5, c.ping),
+            }
+        };
+        let mut r = decide(&facts, &live, left_out.as_deref(), &login_of, &tier5);
+        add_named(&mut r, &named, &eligible);
         let Some(pick) = r.pick else {
             // Tier 7: B7 starts a new reviewer; for now the desk says so.
             let member = polls < TIER7_POLLS && member_card_since(self, b, &facts);
@@ -527,6 +558,73 @@ impl Services {
             }
         }
         Ok(())
+    }
+}
+
+/// The agents the assistant named join the related ones (§12.7): only
+/// candidates this pick may ask, never the pick itself.
+pub(crate) fn add_named(r: &mut Ranked, named: &[String], eligible: &[&Cand]) {
+    for k in named {
+        if Some(k) != r.pick.as_ref()
+            && !r.related.contains(k)
+            && eligible.iter().any(|c| c.key == *k)
+        {
+            r.related.push(k.clone());
+        }
+    }
+}
+
+impl Services {
+    /// The candidates as the assistant's turn sees them: name, person and
+    /// the titles of the open cards they work on that bear on this PR.
+    fn ask_cands(
+        &self,
+        b: &BoardLog,
+        roster: &[AgentCard],
+        facts: &PickFacts,
+        eligible: &[&Cand],
+    ) -> Vec<AskCand> {
+        let co = b.coord();
+        eligible
+            .iter()
+            .map(|c| {
+                let name = roster
+                    .iter()
+                    .find(|a| a.key == c.key)
+                    .map(|a| {
+                        if a.name.trim().is_empty() {
+                            a.title.clone()
+                        } else {
+                            a.name.clone()
+                        }
+                    })
+                    .unwrap_or_default();
+                let has = |v: &[String]| v.contains(&c.key);
+                let cards = facts
+                    .related
+                    .iter()
+                    .filter(|r| {
+                        !coord::is_terminal(&r.state)
+                            && (has(&r.holders)
+                                || has(&r.co_holders)
+                                || has(&r.assigned)
+                                || has(&r.watchers)
+                                || has(&r.commenters))
+                    })
+                    .filter_map(|r| co.get_task(&r.id).map(|t| t.title))
+                    .collect();
+                AskCand {
+                    key: c.key.clone(),
+                    name: if name.trim().is_empty() {
+                        c.key.clone()
+                    } else {
+                        name
+                    },
+                    person: b.verifier.profile(&c.person).unwrap_or_default(),
+                    cards,
+                }
+            })
+            .collect()
     }
 }
 
