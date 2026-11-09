@@ -596,6 +596,7 @@ impl Window {
     /// Changes a canvas item as the person (card #1051): its text (their own
     /// item's), its status (`open`, `settled`, `dropped`; `carded` only once
     /// the huddle is over), or its place. Each field is optional.
+    #[allow(clippy::too_many_arguments)]
     pub fn huddle_item_set(
         &self,
         call_id: &str,

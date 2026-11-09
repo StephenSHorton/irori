@@ -1942,6 +1942,7 @@ pub async fn huddle_item_add(
 /// huddle is over, the card it became (card #1054).
 #[tauri::command]
 #[specta::specta]
+#[allow(clippy::too_many_arguments)]
 pub async fn huddle_item_set(
     w: W<'_>,
     call_id: String,
