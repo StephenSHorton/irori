@@ -9,7 +9,7 @@
 //
 // PREVIEW_URL (default: frontend/.preview-url, which preview:look writes), BROWSER_EXE, PHONE_WIDTH
 // (390), PHONE_HEIGHT (844; taller shows more of a long page), PHONE_DPR (1),
-// PHONE_OUT (the folder), PHONE_TRACE=1 (where a cut sits), PHONE_MOBILE=0 for a narrow desktop window instead.
+// PHONE_OUT (the folder), PHONE_WAIT (ms before each shot, 1800), PHONE_TRACE=1 (where a cut sits), PHONE_MOBILE=0 for a narrow desktop window instead.
 //
 // Why not `preview-shots.sh` with --window-size=390,…: Chrome won't make a
 // headless window narrower than 500 px, so the page lays out at 500 and the
@@ -35,6 +35,12 @@ const width = Number(process.env.PHONE_WIDTH ?? 390)
 const height = Number(process.env.PHONE_HEIGHT ?? 844)
 const dpr = Number(process.env.PHONE_DPR ?? 1)
 const mobile = process.env.PHONE_MOBILE !== "0"
+// PHONE_MODE=light (or dark, system) shoots that palette (the preview's
+// ?mode=, without saving it).
+const mode = process.env.PHONE_MODE ?? ""
+// How long a page gets to load before its shot (ms): a cold preview's
+// first page can still be on the splash at the default.
+const wait = Number(process.env.PHONE_WAIT ?? 1800)
 const out =
   process.env.PHONE_OUT ?? join(import.meta.dir, "..", "preview-shots", "phone")
 
@@ -59,15 +65,39 @@ const PAGES: Array<[name: string, query: string]> = [
   ["settings-agents", "?settings=agents"],
   ["settings-devices", "?settings=devices"],
   ["settings-appearance", "?settings=appearance"],
+  ["settings-notifications", "?settings=notifications"],
+  ["settings-people", "?settings=people"],
+  ["settings-desks", "?settings=desks"],
+  ["settings-app", "?settings=app"],
   ["talk", "#talk"],
   ["channel", "#talk/sample-ch-suzuri"],
   ["dm", "#talk/sample-dm-heron"],
+  // Card #780: a thread opens in its ask card view.
   ["thread", "?thread=sample-thread-1"],
+  // Card #779: the title's rename field, open, on a card and a thread.
+  ["card-rename", "?rename=sample-card-10&open=board:task:sample-card-10"],
+  ["thread-rename", "?rename=sample-thread-1&thread=sample-thread-1"],
   ["new-space", "?boards"],
   ["boards", "#boards"],
   ["board-mlg", "#board/sample-board-mlg"],
   ["board-net", "#board/sample-board-mlg/sample-board-mlg-net"],
   ["personal", "#board/personal"],
+  // Board descriptions and Close board (card #690): descriptions on tiles
+  // and over a board, Close board with open cards, a closed board and the
+  // Closed boards folds.
+  ["board-closed-fold", "?closed#board/sample-board-mlg"],
+  ["board-art", "#board/sample-board-mlg/sample-board-mlg-art"],
+  [
+    "board-close",
+    "?close=sample-board-mlg-net#board/sample-board-mlg/sample-board-mlg-net",
+  ],
+  [
+    "board-description",
+    "?description=sample-board-mlg-net#board/sample-board-mlg/sample-board-mlg-net",
+  ],
+  ["board-proto", "#board/sample-board-mlg/sample-board-mlg-proto"],
+  ["personal-closed", "?closed#board/personal"],
+  ["board-new", "?addboard#board/sample-board-mlg"],
   // Freshness lines (card #580): a space's Home, Personal's, every log a few
   // days behind, and the space menu open with each one's.
   ["home-space", "?space=sample-board-mlg"],
@@ -83,13 +113,36 @@ const PAGES: Array<[name: string, query: string]> = [
   ["huddle-sheet", "?call=sheet#talk/sample-ch-netcode"],
   ["talk-huddle", "?call=start#talk"],
   ["call-transcript", "?call=transcript#talk/sample-ch-suzuri"],
+  // Huddles as places (card #1044): the page of one that's on and of one
+  // that ended, and Talk's Huddles list with one on.
+  ["huddle-live", "?call=start#huddle/preview-call-sample-ch-netcode"],
+  ["huddle-ended", "#huddle/sample-call-2"],
+  ["huddle-list", "?call=live#talk"],
   ["later-home", "?later=only"],
   ["later-open", "?later=only&notyet"],
   ["later-board", "?later=board#board/sample-board-mlg"],
   ["later-card", "?later=1&open=board:task:sample-card-later-90"],
   ["later-order", "?later=1&open=board:task:sample-card-order-82"],
   ["later-hold", "?later=hold&open=board:task:sample-card-1"],
+  // Ask Irori (card #783): the chat open on a sample conversation, a reply
+  // being written, an empty chat, and the button above a call's bar.
+  ["assistant", "?assistant=open"],
+  ["assistant-busy", "?assistant=busy#talk/sample-ch-suzuri"],
+  ["assistant-new", "?assistant=new&open=board:task:sample-card-1"],
+  ["assistant-draft", "?assistant=draft"],
+  ["assistant-follow", "?assistant=follow"],
+  ["assistant-go", "?assistant=go"],
+  // Card #999: files in the chat, in the narrow bubbles.
+  ["assistant-files", "?assistant=files"],
+  ["assistant-call", "?call=live#talk"],
 ]
+
+// withMode adds ?mode= ahead of any #hash.
+function withMode(url: string): string {
+  if (!mode) return url
+  const [path, hash] = url.split("#")
+  return `${path}${path.includes("?") ? "&" : "?"}mode=${mode}${hash === undefined ? "" : `#${hash}`}`
+}
 
 function findBrowser(): string {
   const c = [
@@ -244,8 +297,8 @@ async function main() {
           s
         )
       }
-      await cdp.send("Page.navigate", { url: base + query }, s)
-      await Bun.sleep(1800)
+      await cdp.send("Page.navigate", { url: withMode(base + query) }, s)
+      await Bun.sleep(wait)
       const { result, exceptionDetails } = await cdp.send(
         "Runtime.evaluate",
         { expression: PROBE, returnByValue: true },

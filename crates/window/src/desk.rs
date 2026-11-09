@@ -24,6 +24,10 @@ pub struct DeskSettings {
     pub trusted: Vec<String>,
     #[serde(default)]
     pub per_pr_ok: bool,
+    /// Other people's agents don't review this repo's PRs (card #1077):
+    /// off, it behaves like a solo repo. On (false here) when unset.
+    #[serde(default)]
+    pub reviews_off: bool,
     #[serde(default)]
     pub by: String,
     #[serde(default)]
@@ -91,6 +95,9 @@ pub struct DeskAuthorView {
     pub card_ref: String,
     /// The agent behind it; "" none.
     pub agent: String,
+    /// Why the PR has no review card in a shared space yet (card #1077);
+    /// "" when nothing waits.
+    pub review_note: String,
 }
 
 /// One repo's desk.
@@ -124,6 +131,7 @@ fn settings_of(r: coord::RepoDeskRow) -> DeskSettings {
         poll_device: r.poll_device,
         trusted: r.trusted,
         per_pr_ok: r.per_pr_ok,
+        reviews_off: r.reviews_off,
         by: r.by,
         at: r.at,
     }
@@ -142,6 +150,7 @@ fn row_of(s: DeskSettings) -> coord::RepoDeskRow {
             .filter(|t| !t.is_empty())
             .collect(),
         per_pr_ok: s.per_pr_ok,
+        reviews_off: s.reviews_off,
         ..coord::RepoDeskRow::default()
     }
 }
@@ -180,6 +189,7 @@ impl Window {
                         card: a.card,
                         card_ref: a.card_ref,
                         agent: a.agent,
+                        review_note: a.review_note,
                     })
                     .collect();
                 let ours: std::collections::HashSet<i64> = authors.iter().map(|a| a.pr).collect();

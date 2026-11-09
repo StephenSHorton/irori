@@ -13,6 +13,7 @@ import {
   bareToolName,
   describePolicy,
   editPolicy,
+  deviceReminder,
   heldReminder,
   sideReminder,
   nextBackoff,
@@ -24,6 +25,8 @@ import {
   MAX_USAGE_WINDOWS,
   measureMovedLimits,
   usageBody,
+  accountFromConfig,
+  claudeConfigPath,
 } from '../hooks/lib'
 import type { Policy, TrackedAppend } from '../types'
 
@@ -281,11 +284,43 @@ describe('sideReminder', () => {
   })
 })
 
+describe('deviceReminder', () => {
+  test('names the tool and says a failure means check, not retry', () => {
+    const r = deviceReminder()
+    expect(r).toContain('device_free')
+    expect(r).toContain('not to retry in a loop')
+  })
+})
+
 describe('Claude usage (card #599)', () => {
   test('posts only when the rate-limit windows moved', () => {
     expect(measureMovedLimits(['context', 'rateLimits'])).toBe(true)
     expect(measureMovedLimits(['context', 'cost'])).toBe(false)
     expect(measureMovedLimits(undefined)).toBe(false)
+  })
+
+  test('the account is the login record\'s ids, never the email (card #1040)', () => {
+    const rec = (o: unknown) => JSON.stringify({ oauthAccount: o })
+    expect(accountFromConfig(rec({ accountUuid: 'a1', organizationUuid: 'o1', emailAddress: 'x@y.z' }))).toBe('a1/o1')
+    expect(accountFromConfig(rec({ accountUuid: ' a1 ' }))).toBe('a1')
+    expect(accountFromConfig(rec({ accountUuid: '' }))).toBeUndefined()
+    expect(accountFromConfig(rec({ organizationUuid: 'o1' }))).toBeUndefined()
+    expect(accountFromConfig(rec(null))).toBeUndefined()
+    expect(accountFromConfig('{}')).toBeUndefined()
+    expect(accountFromConfig('junk')).toBeUndefined()
+    expect(accountFromConfig(undefined)).toBeUndefined()
+    expect(usageBody([{ kind: 'five_hour', percentUsed: 1 }], 'a1')).toEqual({
+      rateLimits: [{ kind: 'five_hour', percentUsed: 1 }],
+      account: 'a1',
+    })
+    expect(usageBody([{ kind: 'five_hour', percentUsed: 1 }])).toEqual({ rateLimits: [{ kind: 'five_hour', percentUsed: 1 }] })
+  })
+
+  test('the login record is in CLAUDE_CONFIG_DIR, else the home directory', () => {
+    expect(claudeConfigPath('C:\\cfg\\', 'C:\\Users\\p')).toBe('C:\\cfg/.claude.json')
+    expect(claudeConfigPath(undefined, '/home/p/')).toBe('/home/p/.claude.json')
+    expect(claudeConfigPath('  ', '/home/p')).toBe('/home/p/.claude.json')
+    expect(claudeConfigPath(undefined, undefined)).toBeNull()
   })
 
   test('the body keeps well-formed windows as Claude Code gives them', () => {

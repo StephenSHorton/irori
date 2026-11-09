@@ -1880,3 +1880,535 @@ fn a_fallback_rings_only_past_the_cursor() {
         "read past it"
     );
 }
+
+/// Assistants talk 1 (design §4): a space's #office-assistants has an id
+/// every member computes, and a row carried by another space (or Personal)
+/// naming it is refused, whichever copy folds first.
+#[test]
+fn the_assistants_channel_id_is_the_spaces_and_no_other_space_can_make_it() {
+    let (s1, s2) = (
+        talk::assistants_channel_id("s1"),
+        talk::assistants_channel_id("s2"),
+    );
+    assert_ne!(s1, s2);
+    assert!(s1.starts_with("ch_oa_") && talk::is_channel(&s1));
+    assert!(talk::is_assistants_channel(&s1, "s1"));
+    assert!(!talk::is_assistants_channel(&s1, "s2"));
+    assert!(!talk::is_assistants_channel(&s1, ""));
+
+    let t = Talk::new(None, None);
+    let t0 = hlc_at(fixed_now());
+    let made = |seq: i64, id: &str, space: &str| {
+        let p = serde_json::json!({
+            "channelId": id, "name": "office-assistants", "by": "irori", "spaceId": space
+        });
+        row(
+            "dev-b",
+            seq,
+            t0 + seq as u64,
+            "irori",
+            kinds::TALK_CHANNEL_CREATED,
+            &p,
+        )
+    };
+    // S2 carries S1's id first: refused, so S1's own copy still folds.
+    assert!(!t.apply(&made(10, &s1, "s2")), "S1's id in S2");
+    assert!(!t.apply(&made(11, &s1, "")), "S1's id in Personal");
+    assert!(t.channel(&s1).is_none());
+    assert!(t.apply(&made(12, &s1, "s1")));
+    assert_eq!(t.channel(&s1).unwrap().space_id, "s1");
+    // A made-up id in the range is refused too.
+    assert!(!t.apply(&made(13, "ch_oa_0000000000000000", "s1")));
+}
+
+/// Assistants talk 1: `ensure_assistants_channel` writes it once, in the
+/// space asked and never in Personal, and an archived one stays so.
+#[test]
+fn ensure_assistants_channel_writes_once_and_an_archived_one_stays() {
+    let (e, sp) = (Env::new(), Env::on("dev-a"));
+    let t = talk(&e);
+    t.set_spaces(std::sync::Arc::new(ManySpaces { st: sp.st.clone() }));
+    assert!(!t.ensure_assistants_channel("").unwrap(), "Personal");
+    assert!(t.ensure_assistants_channel("s1").unwrap());
+    assert!(!t.ensure_assistants_channel("s1").unwrap(), "twice");
+    let id = talk::assistants_channel_id("s1");
+    let c = t.channel(&id).unwrap();
+    assert_eq!(
+        (c.name.as_str(), c.space_id.as_str()),
+        ("office-assistants", "s1")
+    );
+    assert!(!c.archived);
+    assert!(t.channel(&talk::assistants_channel_id("s2")).is_none());
+
+    let ev = row(
+        "dev-a",
+        900,
+        hlc_at(fixed_now()) + 900,
+        "irori",
+        kinds::TALK_CHANNEL_EDITED,
+        &serde_json::json!({"channelId": id, "archived": true, "spaceId": "s1"}),
+    );
+    assert!(t.apply(&ev));
+    assert!(t.channel(&id).unwrap().archived);
+    assert!(
+        !t.ensure_assistants_channel("s1").unwrap(),
+        "not brought back"
+    );
+    assert!(t.channel(&id).unwrap().archived);
+}
+
+// ---- a huddle's title and who took part (card #1043) -------------------------
+
+/// Another person in a space, as their rows name them.
+const PEER: &str = "person:alice";
+
+#[allow(clippy::too_many_arguments)]
+fn title_row(
+    dev: &str,
+    seq: i64,
+    at: u64,
+    conv: &str,
+    call: &str,
+    title: &str,
+    assistant: bool,
+    by: &str,
+) -> store::Event {
+    row(
+        dev,
+        seq,
+        at,
+        "user",
+        kinds::CALL_TITLE,
+        &serde_json::json!({
+            "callId": call, "convId": conv, "title": title,
+            "assistant": assistant, "by": by,
+        }),
+    )
+}
+
+fn info(t: &Talk, call: &str) -> talk::CallInfo {
+    t.calls()
+        .into_iter()
+        .find(|c| c.call_id == call)
+        .expect("the huddle is listed")
+}
+
+/// A person's newest title wins; an assistant's shows only while no person
+/// has set one, and never replaces one; the newest of each kind counts,
+/// whichever order the rows arrive in.
+#[test]
+fn a_persons_title_beats_an_assistants() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    line(&t, &c.id, 0, 0, "hello").unwrap();
+    assert_eq!(info(&t, "call_1").title, "");
+    assert_eq!(t.call_title("call_1"), None);
+
+    let t0 = hlc_at(fixed_now());
+    assert!(t.apply(&title_row(
+        "dev-b",
+        1,
+        t0 + 10,
+        &c.id,
+        "call_1",
+        "Standup?",
+        true,
+        PEER
+    )));
+    let i = info(&t, "call_1");
+    assert_eq!((i.title.as_str(), i.title_by_assistant), ("Standup?", true));
+
+    // A person's title replaces it, and a later assistant title doesn't.
+    assert_eq!(
+        t.write_title(&c.id, "call_1", "  Signing plan ", false, USER)
+            .unwrap(),
+        "Signing plan"
+    );
+    assert!(t.apply(&title_row(
+        "dev-b",
+        2,
+        t0 + 5_000_000,
+        &c.id,
+        "call_1",
+        "Wrap-up",
+        true,
+        PEER
+    )));
+    let i = info(&t, "call_1");
+    assert_eq!(
+        (i.title.as_str(), i.title_by_assistant),
+        ("Signing plan", false)
+    );
+    // A newer person's title wins; an older one arriving late doesn't.
+    assert!(t.apply(&title_row(
+        "dev-b",
+        3,
+        t0 + 6_000_000,
+        &c.id,
+        "call_1",
+        "Signing, v2",
+        false,
+        PEER
+    )));
+    assert!(!t.apply(&title_row(
+        "dev-c",
+        1,
+        t0 + 7,
+        &c.id,
+        "call_1",
+        "stale",
+        false,
+        PEER
+    )));
+    assert_eq!(info(&t, "call_1").title, "Signing, v2");
+    assert_eq!(t.call_title("call_1").as_deref(), Some("Signing, v2"));
+
+    // A fresh fold of only the stored rows (the applied ones above aren't in
+    // the store) reads what they say.
+    let again = Talk::new(Some(e.st.clone()), None);
+    again.load().unwrap();
+    assert_eq!(info(&again, "call_1").title, "Signing plan");
+}
+
+/// A title naming another conversation than the huddle's is dropped, even
+/// when it arrives before the huddle's first line; an agent's, an empty and
+/// an over-long one are dropped.
+#[test]
+fn a_title_for_the_wrong_conversation_is_dropped() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    let other = t.create_channel(USER, "other", "").unwrap();
+    let t0 = hlc_at(fixed_now());
+    // It arrives first, naming the wrong conversation: it can't bind the
+    // huddle to it.
+    assert!(t.apply(&title_row(
+        "dev-b",
+        1,
+        t0 + 10,
+        &other.id,
+        "call_1",
+        "Forged",
+        false,
+        PEER
+    )));
+    assert!(t.calls().is_empty(), "a title alone isn't a huddle");
+    line(&t, &c.id, 0, 0, "hello").unwrap();
+    assert_eq!(t.call_conv("call_1").as_deref(), Some(c.id.as_str()));
+    assert_eq!(
+        info(&t, "call_1").title,
+        "",
+        "not this huddle's conversation"
+    );
+    assert!(t.apply(&title_row(
+        "dev-b",
+        2,
+        t0 + 20,
+        &c.id,
+        "call_1",
+        "Real",
+        false,
+        PEER
+    )));
+    assert_eq!(info(&t, "call_1").title, "Real");
+
+    assert!(!t.apply(&title_row(
+        "dev-b",
+        3,
+        t0 + 30,
+        &c.id,
+        "call_1",
+        "  ",
+        false,
+        PEER
+    )));
+    assert!(!t.apply(&title_row(
+        "dev-b",
+        4,
+        t0 + 40,
+        &c.id,
+        "call_1",
+        &"x".repeat(talk::MAX_TITLE + 1),
+        false,
+        PEER
+    )));
+    assert!(!t.apply(&title_row(
+        "dev-b",
+        5,
+        t0 + 50,
+        &c.id,
+        "call_1",
+        "By agent",
+        false,
+        "agent:k"
+    )));
+    assert!(!t.apply(&title_row(
+        "dev-b",
+        6,
+        t0 + 60,
+        &c.id,
+        "",
+        "No call",
+        false,
+        PEER
+    )));
+    assert_eq!(info(&t, "call_1").title, "Real");
+    // Writing one for a huddle that is in another conversation is refused.
+    assert_eq!(
+        kind_of(t.write_title(&other.id, "call_1", "Nope", false, USER)),
+        ErrorKind::Invalid
+    );
+    assert_eq!(
+        kind_of(t.write_title(&c.id, "call_1", "", false, USER)),
+        ErrorKind::Invalid
+    );
+    assert_eq!(
+        kind_of(t.write_title(&c.id, "call_1", "x", false, "agent:k")),
+        ErrorKind::NotAllowed
+    );
+}
+
+fn kind_of<T: std::fmt::Debug>(r: coord::Result<T>) -> ErrorKind {
+    r.expect_err("refused").kind()
+}
+
+/// Who took part: the end mark's people once it ended; before, and after a
+/// crash that wrote no end mark, whoever started it and whoever spoke.
+#[test]
+fn a_huddles_people_come_from_the_end_mark_or_from_who_spoke() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    call_post(
+        &t,
+        &c.id,
+        talk::CallMark {
+            call_id: "call_1".into(),
+            op: talk::CALL_START.into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(info(&t, "call_1").people, [USER]);
+    line(&t, &c.id, 0, 0, "mine").unwrap();
+    let theirs = row(
+        "dev-b",
+        1,
+        hlc_at(fixed_now()) + 100,
+        "user",
+        kinds::CALL_SEGMENT,
+        &serde_json::json!({
+            "callId": "call_1", "convId": c.id, "seg": 0, "startMs": T0 + 2000,
+            "endMs": T0 + 2500, "text": "theirs", "by": PEER,
+        }),
+    );
+    assert!(t.apply(&theirs));
+    let i = info(&t, "call_1");
+    assert_eq!(i.people, [USER, PEER], "each once, no end mark");
+    assert!(i.end.is_none());
+    assert!(i.last_line.is_some());
+    call_post(
+        &t,
+        &c.id,
+        talk::CallMark {
+            call_id: "call_1".into(),
+            op: talk::CALL_END.into(),
+            people: vec![USER.into()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(info(&t, "call_1").people, [USER]);
+}
+
+/// A line's `agents` mark is stored and folded; a row without it reads
+/// false.
+#[test]
+fn a_lines_agents_mark_folds() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    line(&t, &c.id, 0, 0, "plain").unwrap();
+    let marked = row(
+        "dev-b",
+        1,
+        hlc_at(fixed_now()) + 100,
+        "user",
+        kinds::CALL_SEGMENT,
+        &serde_json::json!({
+            "callId": "call_1", "convId": c.id, "seg": 0, "startMs": T0 + 2000,
+            "endMs": T0 + 2500, "text": "marked", "by": PEER, "agents": true,
+        }),
+    );
+    assert!(t.apply(&marked));
+    let by_text = |s: &str| {
+        t.call_posts("call_1")
+            .into_iter()
+            .find(|p| p.text == s)
+            .unwrap()
+            .agents
+    };
+    assert!(!by_text("plain"));
+    assert!(by_text("marked"));
+}
+
+// ---- who hosts a person's assistant in a huddle (card #1049) -----------------
+
+#[allow(clippy::too_many_arguments)]
+fn assist_row(
+    dev: &str,
+    seq: i64,
+    at: u64,
+    conv: &str,
+    call: &str,
+    device: &str,
+    state: &str,
+    by: &str,
+) -> store::Event {
+    row(
+        dev,
+        seq,
+        at,
+        "user",
+        kinds::CALL_ASSIST,
+        &serde_json::json!({
+            "callId": call, "convId": conv, "device": device,
+            "state": state, "chair": false, "by": by,
+        }),
+    )
+}
+
+fn assist_of(t: &Talk, call: &str) -> Vec<(String, bool)> {
+    let mut v: Vec<(String, bool)> = t
+        .call_assists(call)
+        .into_iter()
+        .map(|a| (a.device, a.on))
+        .collect();
+    v.sort();
+    v
+}
+
+/// The newest row per device wins whichever order rows arrive in; a device
+/// speaks only for itself; a row naming another conversation, a bad state or
+/// an agent is dropped; the write path refuses an agent and a wrong
+/// conversation.
+#[test]
+fn call_assist_rows_fold_newest_per_device() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    let other = t.create_channel(USER, "other", "").unwrap();
+    line(&t, &c.id, 0, 0, "hello").unwrap();
+    assert!(assist_of(&t, "call_1").is_empty());
+
+    let t0 = hlc_at(fixed_now());
+    assert!(t.apply(&assist_row(
+        "dev-b",
+        1,
+        t0 + 10,
+        &c.id,
+        "call_1",
+        "dev-b",
+        "on",
+        PEER
+    )));
+    assert!(t.apply(&assist_row(
+        "dev-c",
+        1,
+        t0 + 20,
+        &c.id,
+        "call_1",
+        "dev-c",
+        "on",
+        PEER
+    )));
+    assert_eq!(
+        assist_of(&t, "call_1"),
+        vec![("dev-b".into(), true), ("dev-c".into(), true)]
+    );
+    // b stops; an older row arriving late changes nothing.
+    assert!(t.apply(&assist_row(
+        "dev-b",
+        2,
+        t0 + 30,
+        &c.id,
+        "call_1",
+        "dev-b",
+        "off",
+        PEER
+    )));
+    assert!(!t.apply(&assist_row(
+        "dev-b",
+        0,
+        t0 + 5,
+        &c.id,
+        "call_1",
+        "dev-b",
+        "on",
+        PEER
+    )));
+    assert_eq!(
+        assist_of(&t, "call_1"),
+        vec![("dev-b".into(), false), ("dev-c".into(), true)]
+    );
+    // A device speaks only for itself; states are on or off; people only.
+    assert!(!t.apply(&assist_row(
+        "dev-d",
+        1,
+        t0 + 40,
+        &c.id,
+        "call_1",
+        "dev-b",
+        "on",
+        PEER
+    )));
+    assert!(!t.apply(&assist_row(
+        "dev-d",
+        2,
+        t0 + 41,
+        &c.id,
+        "call_1",
+        "dev-d",
+        "maybe",
+        PEER
+    )));
+    assert!(!t.apply(&assist_row(
+        "dev-d",
+        3,
+        t0 + 42,
+        &c.id,
+        "call_1",
+        "dev-d",
+        "on",
+        "agent:x/y"
+    )));
+    // A row naming another conversation can't add a host to this huddle.
+    assert!(t.apply(&assist_row(
+        "dev-e",
+        1,
+        t0 + 50,
+        &other.id,
+        "call_1",
+        "dev-e",
+        "on",
+        PEER
+    )));
+    assert_eq!(
+        assist_of(&t, "call_1"),
+        vec![("dev-b".into(), false), ("dev-c".into(), true)]
+    );
+
+    // The write path.
+    assert!(
+        t.write_assist(&other.id, "call_1", "dev-a", true, USER)
+            .is_err()
+    );
+    assert!(
+        t.write_assist(&c.id, "call_1", "dev-a", true, "agent:x/y")
+            .is_err()
+    );
+    assert!(t.write_assist(&c.id, "call_1", "", true, USER).is_err());
+    t.write_assist(&c.id, "call_1", "dev-a", true, USER)
+        .unwrap();
+}

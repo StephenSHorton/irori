@@ -52,7 +52,8 @@ export function agentsNowFor(mentioned: readonly { kind: string }[]): boolean {
   return mentioned.some((m) => m.kind === "agent")
 }
 
-// listed sorts channels by name and DMs newest first, as the Talk list
+// listed sorts channels by name (a pinned one, a space's #office-assistants,
+// first) and DMs newest first, as the Talk list
 // shows them; threads are left out (they come from useThreads).
 export function listed(convs: readonly Conversation[]): {
   channels: Conversation[]
@@ -60,7 +61,10 @@ export function listed(convs: readonly Conversation[]): {
 } {
   const channels = convs
     .filter((c) => c.kind === "channel")
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort(
+      (a, b) =>
+        Number(!!b.pinned) - Number(!!a.pinned) || a.name.localeCompare(b.name)
+    )
   const dms = convs
     .filter((c) => c.kind === "dm")
     .sort((a, b) => (a.lastAt < b.lastAt ? 1 : a.lastAt > b.lastAt ? -1 : 0))
@@ -269,7 +273,7 @@ function useTalkFresh(reload: () => Promise<void>) {
         sampleListeners.delete(reload)
       }
     }
-    const off = Events.On(EventTalkChanged, () => void reload())
+    const off = Events.OnShown(EventTalkChanged, () => void reload())
     const onFocus = () => void reload()
     window.addEventListener("focus", onFocus)
     return () => {

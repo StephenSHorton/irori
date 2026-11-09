@@ -1016,3 +1016,20 @@ fn scrub_urls_cuts_queries() {
         "fetch https://relay.example/cred?… failed"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn syncing_is_true_while_rows_move_and_falls_after_a_second() {
+    let net = FakeNet::new();
+    let (mut a, mut b) = (Dev::new(&net, "pc"), Dev::new(&net, "mac"));
+    b.join(&a).await;
+    a.start();
+    b.start();
+    eventually("connected", || a.peer(&b.id()).state == "connected").await;
+    // Let the hello exchange settle, then wait the flag out: idle is false.
+    eventually("quiet", || !a.node().syncing() && !b.node().syncing()).await;
+    // b writes a row; a receives it, so a is syncing (and so is b, sending).
+    let e = b.append(store::kinds::AGENT_SEEN, seen(&b, "badge"));
+    eventually("a took the row", || a.has(&e)).await;
+    assert!(a.node().syncing(), "a took rows and must show syncing");
+    eventually("falls once quiet", || !a.node().syncing()).await;
+}

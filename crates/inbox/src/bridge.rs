@@ -90,6 +90,8 @@ pub mod row_kind {
     pub const ASK: &str = "ask";
     /// A lease release request (§5.4).
     pub const LEASE: &str = "lease";
+    /// A review ask on a PR the card links (§12.12 B1b).
+    pub const REVIEW: &str = "review";
 }
 
 /// The reason on a wake request the receive setting turned into next turn.
@@ -284,7 +286,7 @@ pub fn receive_decision(
             // person decides first (member_lease, §5.4).
             let h = if f.kind == row_kind::LEASE {
                 hold::MEMBER_LEASE
-            } else if bypass_recipient || agent_assign {
+            } else if bypass_recipient || agent_assign || f.kind == row_kind::REVIEW {
                 hold::CROSS_PERSON
             } else if f.wake {
                 hold::MEMBER_WAKE
@@ -312,6 +314,11 @@ fn bridged_key(board_id: &str, row: &str, to: &str) -> String {
 }
 
 impl Inner {
+    /// [`Inbox::saw_others`] under the lock.
+    pub(crate) fn saw_others_of(&self, agent: &str) -> bool {
+        self.sawn.has(agent)
+    }
+
     /// The receive setting that applies to a row from person on board:
     /// (board, person), then board, then person, then everything, then
     /// Open.
@@ -614,6 +621,29 @@ impl Inbox {
                     }
                 })
         })
+    }
+
+    /// Whether `agent` has read another person's text in its session (card
+    /// #1075): a board row (wake, append or `inbox` read), a send from a
+    /// session that had, or a mark core made (a spawn with others' text or
+    /// on a shared board, `review_claim`). Sticky: nothing clears it.
+    pub fn saw_others(&self, agent: &str) -> bool {
+        self.sawn.has(agent)
+    }
+
+    /// The flags themselves, for a caller that may not take the inbox's
+    /// lock (a coord's write: see [`SawOthers`]).
+    pub fn saw_others_handle(&self) -> std::sync::Arc<crate::SawOthers> {
+        self.sawn.clone()
+    }
+
+    /// Marks `agent` as having read another person's text. In memory:
+    /// core marks its spawned agents again after a restart.
+    pub fn mark_saw_others(&self, agent: &str) {
+        if agent.is_empty() {
+            return;
+        }
+        self.sawn.add(agent);
     }
 
     /// The receive setting that applies to rows from person on board.

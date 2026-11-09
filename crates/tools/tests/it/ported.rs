@@ -212,6 +212,7 @@ fn test_unbound_caller() {
         "board_assign",
         "board_status",
         "board_link",
+        "board_move",
         "board_edit",
         "board_later",
         "board_steps",
@@ -432,6 +433,7 @@ fn test_specs() {
         "board_assign",
         "board_status",
         "board_link",
+        "board_move",
         "board_edit",
         "board_later",
         "board_steps",
@@ -443,7 +445,9 @@ fn test_specs() {
         "ask_close",
         "lease",
         "leases",
+        "device_free",
         "release",
+        "review_claim",
         "timeline",
         "why",
         "commits",
@@ -490,6 +494,7 @@ fn test_specs() {
         "inbox",
         "board",
         "leases",
+        "device_free",
         "timeline",
         "why",
         "commits",
@@ -499,6 +504,7 @@ fn test_specs() {
         "talk_list",
         "notes_search",
         "agents_started",
+        "screen",
     ];
     for sp in s.specs("") {
         assert_eq!(
@@ -610,7 +616,10 @@ fn test_specs() {
             "“Can I merge PR #N (covers #a, #b)?”",
             "options Merge it (recommended) and Not yet",
             "merge it yourself",
-            "Never sit on an external wait for a merge",
+            // Card #970: never a wait on a PR; a refused completed after a
+            // merge is retried once GitHub says merged.
+            "Never raise a wait on a PR, nor set completed while it is open",
+            "Retry once gh pr view says merged",
         ],
     );
     has(&desc("reply"), &["also goes on that card's thread"]);
@@ -720,6 +729,57 @@ fn test_events_redacts_text() {
     let out = h.okj(&c, "events", json!({"limit": 500}));
     has_not(&out, &["the secret plan"]);
     has(&out, &["newest first"]);
+}
+
+/// The assistant's conversation (card #1102): the events tool shows its
+/// rows, never their text, whether asked for by kind or not.
+#[test]
+fn test_events_leave_out_the_assistants_conversation() {
+    let h = new_harness();
+    let c = call_c();
+    h.b.st
+        .append(
+            "user",
+            store::kinds::ASSISTANT_CHAT_ASKED,
+            &json!({"turn": "t1", "text": "my private question", "screen": "the board I see", "device": "dev1", "at": 1}),
+        )
+        .unwrap();
+    h.b.st
+        .append(
+            "irori",
+            store::kinds::ASSISTANT_CHAT_SAID,
+            &json!({"turn": "t1", "text": "the private answer", "changed": ["closed the secret card"], "error": "", "device": "dev1", "at": 2}),
+        )
+        .unwrap();
+    h.b.st
+        .append(
+            "irori",
+            store::kinds::ASSISTANT_ANSWER_DRAFT,
+            &json!({"request": "r1", "text": "a drafted reply", "device": "dev1", "at": 3}),
+        )
+        .unwrap();
+    let secret = [
+        "my private question",
+        "the board I see",
+        "the private answer",
+        "closed the secret card",
+        "a drafted reply",
+    ];
+    let out = h.okj(&c, "events", json!({"kinds": ["assistant."]}));
+    has(
+        &out,
+        &[
+            "3 events",
+            "assistant.chat.asked",
+            "assistant.chat.said",
+            "assistant.answer.draft",
+            "[left out]",
+            "t1",
+        ],
+    );
+    has_not(&out, &secret);
+    let out = h.okj(&c, "events", json!({"limit": 500}));
+    has_not(&out, &secret);
 }
 
 #[test]

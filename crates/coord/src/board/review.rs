@@ -279,6 +279,7 @@ impl Fold {
                     from: by.clone(),
                     to: to.clone(),
                     at,
+                    wake: true,
                 },
             )?;
             out.push(ReviewRequest {
@@ -344,6 +345,8 @@ impl Fold {
             from: by.into(),
             to: to.into(),
             at,
+            // Private: the notice wakes the reviewer once.
+            wake: false,
         };
         self.write(by, kinds::REVIEW_REQUESTED, &row)?;
         self.enter_review(by, &t.id)?;

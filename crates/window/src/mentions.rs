@@ -47,6 +47,12 @@ pub struct MentionCandidate {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub board: String,
+    /// `assistant` for an Office Assistant (kind assistant and its owner's
+    /// profile points at it); the picker offers one only in
+    /// #office-assistants. "" for everything else.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub kind: String,
 }
 
 /// The person's mentions checked: what the log stores, and the outcome of
@@ -171,6 +177,7 @@ impl Window {
                     repo_label(&a.repo_key)
                 },
                 board: String::new(),
+                kind: String::new(),
             };
             if a.status == "gone" {
                 gone.push((a.updated_at.unix_milli_value(), c));
@@ -212,6 +219,11 @@ impl Window {
                 MentionCandidate {
                     who: p.ref_(&a.key),
                     board: a.board_id,
+                    kind: if a.assistant {
+                        "assistant".into()
+                    } else {
+                        String::new()
+                    },
                     ..MentionCandidate::default()
                 },
             ));

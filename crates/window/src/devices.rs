@@ -120,19 +120,6 @@ fn is_zero(n: &i64) -> bool {
     *n == 0
 }
 
-/// The advanced relay line (D4: no iroh meaning, always "none").
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RelayView {
-    #[serde(skip_serializing_if = "String::is_empty")]
-    #[specta(optional)]
-    pub credential_url: String,
-    pub state: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    #[specta(optional)]
-    pub detail: String,
-}
-
 /// The device that is joining (Go `pair.Joiner`).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -246,6 +233,23 @@ impl Window {
         self.core.set_person_color(color)
     }
 
+    /// DevicesService.AssistantName: the name the person gave their
+    /// assistant, "" for the default (card #1045).
+    pub fn assistant_name(&self) -> String {
+        self.core.assistant_name()
+    }
+
+    /// DevicesService.AssistantLabel: the name as shown for the person's
+    /// own assistant, the default when none is chosen.
+    pub fn assistant_label(&self) -> String {
+        self.core.assistant_name_or_default()
+    }
+
+    /// DevicesService.SetAssistantName ("" goes back to the default).
+    pub fn set_assistant_name(&self, name: &str) -> Result<(), String> {
+        self.core.set_assistant_name(name)
+    }
+
     /// DevicesService.PersonAvatar: the person's avatar on shared spaces,
     /// a small image data URL, "" for none (card #393).
     pub fn person_avatar(&self) -> String {
@@ -285,22 +289,6 @@ impl Window {
     pub fn set_public_relays(&self, on: bool) -> Result<HomeServerView, String> {
         self.seams.mesh.set_public_relays(on)?;
         Ok(self.home_server())
-    }
-
-    /// DevicesService.Relay: D4 dropped the TURN relay, so there is none.
-    pub fn relay(&self) -> RelayView {
-        RelayView {
-            state: "none".into(),
-            ..RelayView::default()
-        }
-    }
-
-    /// DevicesService.SetRelay: refused (D4).
-    pub fn set_relay(&self, credential_url: &str) -> Result<RelayView, String> {
-        if crate::trim(credential_url).is_empty() {
-            return Ok(self.relay());
-        }
-        Err("this Irori connects through your home server; a separate TURN relay isn't used any more".into())
     }
 
     /// DevicesService.RemoveDevice.

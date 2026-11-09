@@ -45,10 +45,12 @@
 //!   attach or member secret resolved to.
 
 mod args;
+pub mod assistant_writes;
 mod attachments;
 mod avatar;
 mod board;
 mod capturetools;
+mod devicefree;
 mod explore;
 mod format;
 mod later;
@@ -58,6 +60,7 @@ mod notes;
 pub mod notice;
 pub mod notify;
 mod observe;
+mod review_claim;
 mod room;
 mod shared;
 mod specs;
@@ -95,6 +98,36 @@ pub const MAX_RESULT: usize = 8 << 10;
 pub const CLIENT_CLAUDE: &str = "claude";
 /// The client kind of `irori mcp` (`irori_<name>`).
 pub const CLIENT_GROK: &str = "grok";
+/// The window's assistant (card #783): `irori mcp` run by a headless
+/// `claude -p` for the corner chat, reading as the person. It lists and
+/// may call only [`ASSISTANT_TOOLS`].
+pub const CLIENT_ASSISTANT: &str = "assistant";
+
+/// The tools the window's assistant may read with (card #783), all
+/// read-only (its two writes are [`ASSISTANT_WRITE_TOOLS`], card #987):
+/// the API refuses any other for its caller, and `GET
+/// /v1/tools?client=assistant` lists exactly these. None of them marks
+/// anything delivered or read (inbox and talk_* are left out for that).
+pub const ASSISTANT_TOOLS: [&str; 15] = [
+    "search",
+    "show",
+    "board",
+    "overview",
+    "agents",
+    "agents_started",
+    "commits",
+    "prs",
+    "notes_search",
+    "timeline",
+    "why",
+    "leases",
+    "waits",
+    "events",
+    // Card #1009: what the window is showing (the window sends it with each ask).
+    "screen",
+];
+
+pub use assistant_writes::{ASSISTANT_WRITE_TOOLS, Grant, Grants, grants_for};
 
 /// Who is calling, established by the transport (attach secret or member
 /// secret), never by the arguments.
@@ -179,6 +212,20 @@ pub trait TaskRouter: Send + Sync {
             format_args!("no shared space holds a lease on {resource}"),
         ))
     }
+    /// `review_claim` (merge desk §12.3): the one claim per PR. The Core
+    /// finds the PR's card on a shared board the caller's person belongs
+    /// to, checks who may claim, and writes the `pr/` lease straight to
+    /// that board's log. An `Err` is a refusal, in fixed words.
+    fn review_claim(
+        &self,
+        key: &str,
+        pr: &str,
+        action: &str,
+        reason: &str,
+    ) -> Result<ClaimAnswer, String> {
+        let _ = (key, pr, action, reason);
+        Err("review claims need a shared space with a card for this PR.".into())
+    }
     /// The shared board's coord holding comment `id`, or `None` when no
     /// shared board has it (card #189: show reads a shared card's comments
     /// from its board's log, which capture doesn't index).
@@ -186,6 +233,43 @@ pub trait TaskRouter: Send + Sync {
         let _ = id;
         None
     }
+}
+
+/// What a `review_claim` came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClaimOutcome {
+    /// The caller holds the claim (taken now, or renewed).
+    Claimed,
+    /// Someone else holds it: comment on the PR instead.
+    Held,
+    /// `confirm`: the caller still holds it.
+    Yours,
+    /// `confirm`: the caller does not hold it.
+    NotYours,
+    Released,
+    /// `release`: it held none.
+    NotHeld,
+    Declined,
+}
+
+/// `review_claim`'s answer, as fields: the tool words it in fixed text and
+/// never quotes a card or PR title.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClaimAnswer {
+    pub outcome: ClaimOutcome,
+    /// The PR's full URL, as its card names it.
+    pub pr: String,
+    /// The PR card's short ref.
+    pub card: String,
+    /// The holder's name, clipped, for `Held`; empty otherwise.
+    pub holder: String,
+    /// When the claim lapses unless renewed, RFC 3339; empty if none.
+    pub until: String,
+    /// The On go-ahead (§12.8): the setting is on and the caller's person
+    /// already works in this repo in that space.
+    pub go_ahead: bool,
+    /// `confirm`: the caller's own person signed off (the Off text).
+    pub signed_off: bool,
 }
 
 /// Another member's agent on a shared board ([`Backend::board_agents`]).
@@ -196,6 +280,9 @@ pub struct BoardAgent {
     /// Its person's name on the board, "" when unknown.
     pub person: String,
     pub card: presence::AgentCard,
+    /// Its owner's Office Assistant, verified (kind `assistant` and the
+    /// owner's profile points at it): the chosen name, "" for the default.
+    pub assistant: Option<String>,
 }
 
 /// "My agents may start agents on my cards", as an agent may read it.
@@ -225,6 +312,16 @@ pub trait BoardViewer: Send + Sync {
 
 /// What the tools act on (Go `Backend`); the Core provides it.
 pub trait Backend: Send + Sync {
+    /// This device's id (`deviceId` in `irori.json`); empty when the backend
+    /// has none, which turns heavy slots off.
+    fn device_id(&self) -> String {
+        String::new()
+    }
+    /// This device's free room for the folder `path` (empty: Irori's data
+    /// dir), read now; `None` when this backend can't read it.
+    fn device_free(&self, _path: &str) -> Option<DeviceFree> {
+        None
+    }
     /// This device's roster (presence plus Grok members).
     fn agents(&self) -> Vec<presence::AgentCard>;
     /// Whether this device's session `key` has a live attach stream
@@ -256,6 +353,11 @@ pub trait Backend: Send + Sync {
         Vec::new()
     }
     fn events(&self, f: &store::Filter) -> Result<Vec<store::Event>, String>;
+    /// What the window last said it shows (card #1009): the plain-text
+    /// snapshot the assistant's `screen` tool returns; empty when none.
+    fn assistant_screen(&self) -> String {
+        String::new()
+    }
     fn inbox(&self) -> &inbox::Inbox;
     fn coord(&self) -> &Arc<coord::Coord>;
     /// Every agent key → the last name it went by, gone agents included
@@ -275,9 +377,29 @@ pub trait Backend: Send + Sync {
     fn spawn_wait(&self, _task_id: &str, _asked: bool) -> String {
         String::new()
     }
+    /// Asks GitHub now about each PR card `task_id` (in `co`) links that is
+    /// last heard open, and records a merge or a closing (card #970):
+    /// agent `caller` is setting it completed, likely just after its own
+    /// `gh pr merge`, which the poll may not have heard yet. Default: none.
+    fn recheck_prs(&self, _co: &Arc<coord::Coord>, _caller: &str, _task_id: &str) {}
     /// Asks for an agent on card `task_id` for agent `caller` (card #575):
     /// what happens next, or why not.
     fn agent_start(&self, _caller: &str, _task_id: &str) -> Result<String, String> {
+        Err("agents can't start agents here".into())
+    }
+    /// What `agent_start` would refuse before anything is made, for a
+    /// thread `caller` is about to open for a fresh agent (card #1027).
+    fn thread_agent_check(&self, _caller: &str) -> Result<(), String> {
+        Err("agents can't start agents here".into())
+    }
+    /// Gives thread `task_id` that `caller` opened to a fresh agent, gated
+    /// as `agent_start` is (card #1027): what happens next, or why not.
+    fn thread_new_agent(
+        &self,
+        _caller: &str,
+        _task_id: &str,
+        _watch: bool,
+    ) -> Result<String, String> {
         Err("agents can't start agents here".into())
     }
     /// Ends agent `key` for agent `caller`, with its hand-off: the card it
@@ -372,6 +494,23 @@ pub(crate) struct Inner {
     pub(crate) board_requests: Mutex<shared::Requests>,
 }
 
+pub use devicefree::DeviceFree;
+
+/// Heavy slots per device (device-free plan §2): advisory, fixed at two.
+pub const HEAVY_SLOTS: usize = 2;
+
+/// The name of this device's heavy family, `heavy/<first 8 hex of the
+/// device id>`; `None` when the id is unknown.
+pub fn heavy_family(device_id: &str) -> Option<String> {
+    let id: String = device_id
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .take(8)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    (id.len() == 8).then(|| format!("heavy/{id}"))
+}
+
 /// The read-only tools that read as the caller.
 const CALLER_READS: [&str; 8] = [
     "inbox",
@@ -385,7 +524,7 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 59] = [
+    let list: [(&'static str, Handler); 65] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -393,6 +532,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("agents_pause", started::agents_pause),
         ("agents", observe::agents),
         ("events", observe::events),
+        ("screen", observe::screen),
         ("send", messages::send),
         ("reply", messages::reply),
         ("inbox", messages::inbox),
@@ -410,8 +550,11 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("board_unblock", board::board_unblock),
         ("board_join", board::board_join),
         ("board_leave", board::board_leave),
+        ("board_move", board::board_move),
         ("board_assign", board::board_assign),
         ("board_status", board::board_status),
+        ("assistant_close", assistant_writes::assistant_close),
+        ("assistant_tick", assistant_writes::assistant_tick),
         ("board_link", board::board_link),
         ("board_edit", board::board_edit),
         ("board_later", later::board_later),
@@ -428,7 +571,9 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("prs", explore::prs),
         ("lease", board::lease),
         ("leases", board::leases),
+        ("device_free", devicefree::device_free),
         ("release", board::release),
+        ("review_claim", review_claim::review_claim),
         ("timeline", capturetools::timeline),
         ("why", capturetools::why),
         ("join", join),
@@ -496,11 +641,24 @@ impl Set {
     }
 
     /// The tools for a client kind (`"claude"` or `"grok"`); `""` lists
-    /// every tool.
+    /// every tool, and [`CLIENT_ASSISTANT`] lists [`ASSISTANT_TOOLS`].
     pub fn specs(&self, client: &str) -> Vec<Spec> {
+        if client == CLIENT_ASSISTANT {
+            return self
+                .inner
+                .specs
+                .iter()
+                .filter(|sp| {
+                    ASSISTANT_TOOLS.contains(&sp.name.as_str())
+                        || ASSISTANT_WRITE_TOOLS.contains(&sp.name.as_str())
+                })
+                .cloned()
+                .collect();
+        }
         self.inner
             .specs
             .iter()
+            .filter(|sp| !ASSISTANT_WRITE_TOOLS.contains(&sp.name.as_str()))
             .filter(|sp| client.is_empty() || sp.clients.iter().any(|c| c == client))
             .cloned()
             .collect()
@@ -739,6 +897,14 @@ impl Names<'_> {
         let k = format::one_line(key, 120);
         if self.owner(key) {
             return format!("the person ({k})");
+        }
+        // Another person (a huddle's speaker) is never a gone agent: they
+        // print by name, or as "another person" when this device has none.
+        if coord::talk::is_other_person_key(key) {
+            return match self.known.get(key).filter(|n| !n.trim().is_empty()) {
+                Some(name) => format::one_line(name, 80),
+                None => "another person".into(),
+            };
         }
         if let Some(c) = self.cards.get(key) {
             let name = format::one_line(&c.name, 80);

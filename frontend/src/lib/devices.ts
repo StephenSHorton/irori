@@ -12,12 +12,11 @@ import {
   HomeServerView,
   PairJoiner as Joiner,
   PairStatus,
-  RelayView,
 } from "./models"
 import { EventDevicesChanged, EventRosterChanged, inWails } from "./irori"
 import { useLatest } from "./talk"
 
-export { DeviceView, HomeServerView, PairStatus, RelayView }
+export { DeviceView, HomeServerView, PairStatus }
 
 // EventPairingChanged mirrors the Go constant in devices_service.go.
 export const EventPairingChanged = "devices:pairing"
@@ -58,7 +57,6 @@ const SampleKey = "3f9a 0c21 77de 41b0"
 let sampleDevices: DeviceView[] | null = null
 let samplePair = PairStatus({ mode: "", state: "" })
 let sampleTimer: number | undefined
-let sampleRelay = RelayView({ state: "none" })
 let sampleHome = HomeServerView({
   can: true,
   publicRelays: true,
@@ -351,21 +349,6 @@ export const devices = {
     sampleHome = HomeServerView({ ...sampleHome, publicRelays: on })
     return sampleHome
   },
-  // relay is the advanced TURN relay setting: state "none" is none set.
-  async relay(): Promise<RelayView> {
-    if (inWails()) return DevicesService.Relay()
-    return sampleRelay
-  },
-  // setRelay sets the advanced relay's TURN REST credential URL ("" removes
-  // it).
-  async setRelay(url: string): Promise<RelayView> {
-    if (inWails()) return DevicesService.SetRelay(url)
-    sampleRelay = RelayView({
-      credentialUrl: url.replace(/[?#].*$/, "?…") || undefined,
-      state: url ? "pending" : "none",
-    })
-    return sampleRelay
-  },
   // remove revokes a device: its later rows are refused everywhere and the
   // person key rotates on the devices that remain (decision D8).
   async remove(deviceId: string): Promise<void> {
@@ -399,6 +382,23 @@ export const devices = {
     if (inWails()) return DevicesService.SetPersonAvatar(avatar)
     samplePersonAvatar = avatar
   },
+  // assistantName is the name the person gave their Office Assistant (card
+  // #1045), "" for the default.
+  async assistantName(): Promise<string> {
+    if (inWails()) return DevicesService.AssistantName()
+    return sampleAssistantName
+  },
+  // assistantLabel is the name as shown for their own assistant: the chosen
+  // name, else "<name>'s assistant".
+  async assistantLabel(): Promise<string> {
+    if (inWails()) return DevicesService.AssistantLabel()
+    return sampleAssistantName || "Sam's assistant"
+  },
+  // setAssistantName sets it; "" goes back to the default.
+  async setAssistantName(name: string): Promise<void> {
+    if (inWails()) return DevicesService.SetAssistantName(name)
+    sampleAssistantName = name.trim()
+  },
   // sideNames is every work/personal side named on a device or a card
   // (card #494), for this device's pin to choose from.
   async sideNames(): Promise<string[]> {
@@ -421,6 +421,7 @@ export const devices = {
 
 let samplePersonColor = ""
 let samplePersonAvatar = ""
+let sampleAssistantName = ""
 
 // MaxDeviceName mirrors coord::devname::MAX_LEN.
 export const MaxDeviceName = 40
@@ -522,10 +523,10 @@ export function useDevices(active: boolean): DevicesState {
     const id = window.setInterval(() => void reload(), RefreshMs)
     const offPair = onPairing(() => void reload())
     const offRoster = inWails()
-      ? Events.On(EventRosterChanged, () => void reload())
+      ? Events.OnShown(EventRosterChanged, () => void reload())
       : () => {}
     const offDevices = inWails()
-      ? Events.On(EventDevicesChanged, () => void reload())
+      ? Events.OnShown(EventDevicesChanged, () => void reload())
       : () => {}
     return () => {
       window.clearInterval(id)

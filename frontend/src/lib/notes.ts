@@ -303,7 +303,7 @@ function useNotesFresh(reload: () => Promise<void>) {
       void reload()
     }
     const off = inWails()
-      ? Events.On(EventBoardChanged, () => void reload())
+      ? Events.OnShown(EventBoardChanged, () => void reload())
       : () => {}
     return () => {
       listeners.delete(reloadFn)

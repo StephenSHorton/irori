@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use irori_identity::owner::device_of;
 use store::{Event, Filter, MAX_LIST_LIMIT, Subscription as StoreSub};
 
-use crate::messages::{bad_state, dismissed, not_found_delivery};
+use crate::messages::{bad_state, dismissed, not_found_delivery, not_reached, wind_down_off};
 use crate::policy::placed;
 use crate::state::{DecidedRow, Drec, Inner, REPLAY_KINDS, decode_decided, decode_delivery};
 use crate::{ChangeKind, Error, ErrorKind, Inbox, Policy, Result, choice, hold, kinds, st};
@@ -199,6 +199,10 @@ impl Inner {
             choice::RELEASE if state == st::HELD => self.release_locked(&r.delivery_id, &r.by),
             choice::DISMISS if state == st::HELD => {
                 let row = dismissed(&self.dels[&r.delivery_id]);
+                self.put_delivery(row, &r.by)
+            }
+            choice::CANCEL if not_reached(&state) && self.wind_down(&self.dels[&r.delivery_id]) => {
+                let row = wind_down_off(&self.dels[&r.delivery_id]);
                 self.put_delivery(row, &r.by)
             }
             choice::MOVE => {

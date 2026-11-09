@@ -191,7 +191,9 @@ impl Env {
             .unwrap()
     }
 
-    /// Inserts a row as another device (not folded).
+    /// Inserts a row as another device (not folded). The store refuses it
+    /// unless `seq` is the device's last plus one and `at` is after that
+    /// device's last row.
     pub fn insert<P: serde::Serialize>(
         &self,
         dev: &str,
