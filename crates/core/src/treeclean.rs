@@ -1345,10 +1345,19 @@ pub fn end_holder(tree: &str, pid: u32) -> Result<Holder, String> {
     if pid == std::process::id() {
         return Err("that is Irori itself".into());
     }
-    let h = holders(tree)?
-        .into_iter()
-        .find(|h| h.pid == pid)
-        .ok_or_else(|| format!("pid {pid} isn't in {tree} any more"))?;
+    // The process list can miss a process for a moment on a busy machine
+    // (Git's `sh` listing `/proc`): look a few times before saying it went.
+    let mut found = None;
+    for n in 0..4 {
+        if n > 0 {
+            std::thread::sleep(Duration::from_millis(400));
+        }
+        found = holders(tree)?.into_iter().find(|h| h.pid == pid);
+        if found.is_some() {
+            break;
+        }
+    }
+    let h = found.ok_or_else(|| format!("pid {pid} isn't in {tree} any more"))?;
     kill_pid(pid)?;
     Ok(h)
 }
