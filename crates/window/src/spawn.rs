@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::roster::{TrustSet, copy_capped, find_claude, hide_console, strip_ansi};
+use crate::roster::{TrustSet, copy_capped, find_claude, hide_console, no_autoupdate, strip_ansi};
 
 /// How long `claude --bg` may take to print its id (it returns in about a
 /// second; the first one also starts Claude Code's background service).
@@ -136,6 +136,7 @@ pub(crate) fn spawn_in(bin: &Path, spec: &SpawnSpec, t: &TrustSet) -> Result<Spa
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     hide_console(&mut cmd);
+    no_autoupdate(&mut cmd);
     let (ok, text) = run(cmd)?;
     if !ok {
         return Err(format!("claude --bg failed: {text}"));
@@ -266,6 +267,7 @@ fn stop_only(bin: &Path, job: &str, why: &str) -> Result<String, String> {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     hide_console(&mut cmd);
+    no_autoupdate(&mut cmd);
     let (_, stopped) = run(cmd)?;
     if no_job(&stopped) {
         return Ok(format!("{GONE_JOB} {job}"));
@@ -325,6 +327,7 @@ pub(crate) fn logs_with(bin: &Path, id: &str) -> Result<String, String> {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     hide_console(&mut cmd);
+    no_autoupdate(&mut cmd);
     let (ok, out) = run_bytes(cmd, Keep::Tail(LOGS_CAP))?;
     if !ok {
         return Err(format!("claude logs {id}: {}", plain_text(&out)));
@@ -365,6 +368,7 @@ pub(crate) fn end_with(bin: &Path, id: &str, patience: Duration) -> Result<Strin
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         hide_console(&mut cmd);
+        no_autoupdate(&mut cmd);
         run(cmd)
     };
     let (_, stopped) = call("stop")?;
@@ -434,6 +438,7 @@ pub(crate) fn list_agents_within(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
     hide_console(&mut cmd);
+    no_autoupdate(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| format!("claude agents: {e}"))?;
     let mut stdout = child.stdout.take().ok_or("claude agents: no stdout")?;
     // Read on a thread, so a full pipe can't stall the wait; on a hang it
@@ -1176,7 +1181,8 @@ mod tests {
             std::fs::write(
                 &p,
                 format!(
-                    "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\"; done > '{}'\necho 'Starting background service…'\necho 'backgrounded · 0a1b2c3d · fake'\n",
+                    "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\"; done > '{}'\nprintf '%s' \"$DISABLE_AUTOUPDATER\" > '{}.env'\necho 'Starting background service…'\necho 'backgrounded · 0a1b2c3d · fake'\n",
+                    log.display(),
                     log.display()
                 ),
             )
@@ -1184,6 +1190,34 @@ mod tests {
             std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
             p
         }
+    }
+
+    /// Claude Code's updater racing on the global install removed it (#321).
+    #[cfg(unix)]
+    #[test]
+    fn a_spawned_claude_has_its_auto_updater_off() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = plain(std::fs::canonicalize(tmp.path()).unwrap());
+        let repo = base.join("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        let bin = fake_claude(&base);
+        let spec = SpawnSpec {
+            cwd: repo.clone(),
+            name: "pawpaw".into(),
+            brief: "Card #1220.".into(),
+            permission_mode: "acceptEdits".into(),
+            brief_dir: base.join("briefs"),
+            ..Default::default()
+        };
+        spawn_in(&bin, &spec, &cfg(&base, &[&repo])).unwrap();
+        let env = std::fs::read_to_string(base.join("argv.txt.env")).unwrap();
+        assert_eq!(env, "1");
+    }
+
+    #[test]
+    fn the_missing_claude_error_says_a_failed_update_may_have_removed_it() {
+        assert!(crate::roster::CLAUDE_MISSING.contains("failed update"));
+        assert!(crate::roster::CLAUDE_MISSING.contains("reinstall"));
     }
 
     #[test]
