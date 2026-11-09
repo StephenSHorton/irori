@@ -736,6 +736,18 @@ impl Fold {
         ttl: Duration,
         steal: bool,
     ) -> Result<Lease> {
+        self.acquire_pooled(holder, resource, ttl, steal, 0)
+    }
+
+    /// [`Self::acquire`] for one slot of a pool limited to `pool` (0: no pool).
+    fn acquire_pooled(
+        &mut self,
+        holder: &str,
+        resource: &str,
+        ttl: Duration,
+        steal: bool,
+        pool: i64,
+    ) -> Result<Lease> {
         let holder = trim_space(holder).to_string();
         if holder.is_empty() {
             return Err(invalid("no holder"));
@@ -811,6 +823,7 @@ impl Fold {
             acquired_at: now,
             stolen_from: from.join(","),
             conflict: String::new(),
+            slots: pool,
         };
         if let Some(old) = self.held.get(&res.name)
             && old.lease.holder == holder
@@ -878,7 +891,7 @@ impl Fold {
                 who.join(", ")
             )));
         };
-        self.acquire(&holder, &name, ttl, false)
+        self.acquire_pooled(&holder, &name, ttl, false, slots as i64)
     }
 
     /// Renews every slot lease `holder` holds whose time left is under

@@ -10,6 +10,7 @@ description = "The window's backend: every service method the frontend calls as 
 name = "irori_window"
 
 [dependencies]
+gethostname.workspace = true
 irori-blob.workspace = true
 # voice.rs: the call transcriber behind the call's seam (#656).
 irori-call.workspace = true
