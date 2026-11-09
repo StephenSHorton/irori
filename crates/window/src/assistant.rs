@@ -1389,6 +1389,7 @@ fn command_with(bin: &Path, job: &Job, args: Vec<String>) -> Command {
         .env_remove("CLAUDECODE")
         .env_remove("CLAUDE_CODE_ENTRYPOINT")
         .env("ENABLE_CLAUDEAI_MCP_SERVERS", "false")
+        .env("DISABLE_AUTOUPDATER", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -2957,6 +2958,19 @@ mod tests {
             }),
             got,
         )
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_assistant_command_turns_the_auto_updater_off() {
+        let tmp = tempfile::tempdir().unwrap();
+        let job = job(tmp.path(), Duration::from_secs(5));
+        let cmd = command_with(Path::new("claude"), &job, vec![]);
+        let v = cmd
+            .get_envs()
+            .find(|(k, _)| *k == "DISABLE_AUTOUPDATER")
+            .and_then(|(_, v)| v);
+        assert_eq!(v, Some(std::ffi::OsStr::new("1")));
     }
 
     #[test]
