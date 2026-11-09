@@ -912,9 +912,13 @@ function DivideBar() {
       className="flex shrink-0 items-center gap-2 border-b border-border bg-secondary/40 px-4 py-1.5 text-[12px]"
       data-divide-bar=""
     >
-      <span className="min-w-0 flex-1 truncate">
-        Dividing <span className="font-medium">{divide.title}</span>. Nothing is
-        made until you tap.
+      <span className="grid min-w-0 flex-1 gap-0.5">
+        <span className="truncate">
+          Dividing <span className="font-medium">{divide.title}</span>
+        </span>
+        <span className="text-muted-foreground">
+          Nothing is made until you tap.
+        </span>
       </span>
       <Button
         type="button"
