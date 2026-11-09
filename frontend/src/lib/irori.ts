@@ -84,6 +84,8 @@ export function useRoster(): Roster {
     mounted.current = true
     if (state.source === "sample") {
       const sample = sampleRoster(new Date())
+      // The sample is a one-time load of static data, not a cascade.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setState((s) => ({ ...s, ...sample, loading: false }))
       return () => {
         mounted.current = false
