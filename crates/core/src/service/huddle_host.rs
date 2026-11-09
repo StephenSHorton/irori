@@ -466,7 +466,7 @@ impl Services {
             .cloned()
             .collect();
         let rows: Vec<AssistInfo> = self
-            .call_assists_now(call, "")
+            .call_assists_now(call)
             .into_iter()
             .filter(|a| is_person_key(&a.by))
             .collect();
@@ -592,7 +592,7 @@ impl Services {
                 format!("{}{p}", store::kinds::PERSON_ACTOR_PREFIX)
             });
         }
-        let rows = self.call_assists_now(call, &space);
+        let rows = self.call_assists_now(call);
         for r in &rows {
             add(norm(&r.by));
         }
@@ -653,22 +653,11 @@ impl Services {
             .collect()
     }
 
-    /// `call`'s `call.assist` rows, a removed device's read as off (card
-    /// #1240): this person's by its chain, another's by `space`'s board.
-    pub(super) fn call_assists_now(&self, call: &str, space: &str) -> Vec<AssistInfo> {
-        let board = if space.is_empty() {
-            None
-        } else {
-            self.mesh.board(space)
-        };
+    /// `call`'s `call.assist` rows, one from a device this person removed
+    /// read as off (card #1240).
+    pub(super) fn call_assists_now(&self, call: &str) -> Vec<AssistInfo> {
         off_if_removed(self.talk.call_assists(call), |r| {
-            if is_person_key(&r.by) {
-                self.chain.cut(&r.device).is_some()
-            } else {
-                board
-                    .as_ref()
-                    .is_some_and(|m| m.verifier().cut(&r.device).is_some())
-            }
+            self.chain.cut(&r.device).is_some()
         })
     }
 

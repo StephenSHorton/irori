@@ -329,6 +329,8 @@ impl Servers {
     pub async fn follow(&self, st: Arc<Store>, cancel: CancellationToken) {
         let sub = st.subscribe();
         let _ = self.load(&st);
+        // A device removed before this run is forgotten too (card #1240).
+        self.forget_revoked();
         loop {
             let ev = tokio::select! {
                 _ = cancel.cancelled() => return,
@@ -337,6 +339,7 @@ impl Servers {
             let Some(ev) = ev else { return };
             if ev.seq == 0 {
                 let _ = self.load(&st);
+                self.forget_revoked();
             } else if ev.kind == KIND_NODE_ADDR {
                 fold_addr(&mut self.lock().rows, &ev);
                 self.changed();

@@ -62,7 +62,7 @@ impl Services {
         let info = self.huddle_info(call)?;
         let me_id = self.person_id();
         let (live, space) = self.call_people_now(call);
-        let rows = self.call_assists_now(call, &space);
+        let rows = self.call_assists_now(call);
         let mut away = self.own_away_for(
             &self
                 .spawn

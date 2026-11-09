@@ -239,3 +239,35 @@ async fn unreachable_signaling_leaves_a_working_device() {
     );
     assert!(a.has(&ev), "a row written with the net down is missing");
 }
+
+/// Card #1240: a home server removed before this run (its revoke already in
+/// the log) loses its `hub-addrs.json` entry once the directory loads.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_removed_server_leaves_the_cache_file() {
+    let net = FakeNet::new();
+    let (pc, _mac, nd) = trio(&net).await;
+    let file = pc.dir.join(mesh::servers::SERVERS_FILE);
+    let before = Servers::new(&pc.id(), Some(pc.chain.clone()), Some(&pc.dir));
+    before.hint(&nd.id(), &["192.168.1.20:24817".to_string()]);
+    assert!(std::fs::read_to_string(&file).unwrap().contains(&nd.id()));
+    pc.node().revoke(&nd.id(), "test").await.unwrap();
+
+    let dir = Arc::new(Servers::new(
+        &pc.id(),
+        Some(pc.chain.clone()),
+        Some(&pc.dir),
+    ));
+    let cancel = CancellationToken::new();
+    {
+        let (dir, st, c) = (dir.clone(), pc.st.clone(), cancel.clone());
+        tokio::spawn(async move { dir.follow(st, c).await });
+    }
+    eventually("the removed server leaves hub-addrs.json", || {
+        !std::fs::read_to_string(&file)
+            .unwrap_or_default()
+            .contains(&nd.id())
+    })
+    .await;
+    assert!(dir.addrs(&nd.id()).is_empty());
+    cancel.cancel();
+}
