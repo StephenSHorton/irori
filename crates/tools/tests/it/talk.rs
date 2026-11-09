@@ -2156,3 +2156,235 @@ fn a_late_line_said_earlier_is_still_unread() {
     );
     has(&h.okj(&a, "talk_list", json!({})), &["3 lines, live)\n"]);
 }
+
+/// One line said in the live huddle `CALL` in `conv` (no end mark).
+fn live_huddle(h: &Harness, conv: &str) {
+    h.b.talk
+        .write_segment_marked(
+            conv,
+            CALL,
+            0,
+            1_000,
+            2_000,
+            "Who has the PC build?",
+            USER,
+            false,
+        )
+        .unwrap();
+}
+
+const STILL_GOING: &str = "This huddle is still going. What's said may change";
+
+#[test]
+fn huddle_tools_read_a_live_huddle_and_say_it_is_going() {
+    let h = new_harness();
+    let a = call_a();
+    let ch = h.b.talk.create_channel(USER, "general", "").unwrap();
+    h.okj(&a, "talk_join", json!({"conv": "#general"}));
+    live_huddle(&h, &ch.id);
+    let conv = format!("call:{CALL}");
+
+    let out = h.okj(&a, "huddle_status", json!({"call": CALL}));
+    has(
+        &out,
+        &[
+            "in #general: live",
+            "1 line said",
+            "0 canvas items",
+            STILL_GOING,
+        ],
+    );
+    // The talk_read result ends with the same line.
+    let out = h.okj(&a, "talk_read", json!({"conv": conv}));
+    has(&out, &["Who has the PC build?", STILL_GOING]);
+    // Nothing on the canvas yet.
+    has(
+        &h.okj(&a, "huddle_canvas", json!({"call": conv})),
+        &["Nothing on the canvas", STILL_GOING],
+    );
+
+    // A note is open, signed by the agent, and shows on the canvas.
+    let out = h.okj(
+        &a,
+        "huddle_note",
+        json!({"call": CALL, "kind": "answer", "text": "Alpha has the PC build."}),
+    );
+    has(&out, &["Added answer", "It is open"]);
+    let out = h.okj(&a, "huddle_canvas", json!({"call": CALL}));
+    has(
+        &out,
+        &["answer open", "Alpha has the PC build.", STILL_GOING],
+    );
+    let items = h.b.talk.call_items(CALL);
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].status, "open");
+    assert_eq!(items[0].by, KEY_A);
+    assert!(!items[0].assistant);
+    has(
+        &h.okj(&a, "huddle_status", json!({"call": CALL})),
+        &["1 canvas item (1 open)"],
+    );
+
+    // A reply points at an item that exists.
+    let id = items[0].item_id.clone();
+    h.okj(
+        &a,
+        "huddle_note",
+        json!({"call": CALL, "kind": "note", "text": "Thanks.", "reply": id}),
+    );
+    h.failsj(
+        &a,
+        "huddle_note",
+        json!({"call": CALL, "kind": "note", "text": "x", "reply": "nope"}),
+        &["no item nope"],
+    );
+    // A bad kind, empty text, an unknown huddle, a person.
+    h.failsj(
+        &a,
+        "huddle_note",
+        json!({"call": CALL, "kind": "chat", "text": "x"}),
+        &["an item is one of"],
+    );
+    h.failsj(
+        &a,
+        "huddle_note",
+        json!({"call": "feedbeef", "kind": "note", "text": "x"}),
+        &["no huddle feedbeef"],
+    );
+    h.failsj(
+        &person(),
+        "huddle_note",
+        json!({"call": CALL, "kind": "note", "text": "x"}),
+        &["for agents"],
+    );
+    // Paging: since names the last item shown.
+    has(
+        &h.okj(&a, "huddle_canvas", json!({"call": CALL, "since": id})),
+        &["Thanks."],
+    );
+    h.failsj(
+        &a,
+        "huddle_canvas",
+        json!({"call": CALL, "since": "nope"}),
+        &["no item nope"],
+    );
+}
+
+#[test]
+fn huddle_reads_carry_no_live_line_once_it_ended() {
+    let h = new_harness();
+    let a = call_a();
+    let ch = h.b.talk.create_channel(USER, "general", "").unwrap();
+    h.okj(&a, "talk_join", json!({"conv": "#general"}));
+    huddle(&h, &ch.id, USER);
+    let out = h.okj(&a, "huddle_status", json!({"call": CALL}));
+    has(&out, &["in #general: over", "2 lines said"]);
+    assert!(!out.contains(STILL_GOING), "{out}");
+    h.okj(
+        &a,
+        "huddle_note",
+        json!({"call": CALL, "kind": "task", "text": "Follow up."}),
+    );
+    let out = h.okj(&a, "huddle_canvas", json!({"call": CALL}));
+    has(&out, &["task open", "Follow up."]);
+    assert!(!out.contains(STILL_GOING), "{out}");
+    assert!(
+        !h.okj(&a, "talk_read", json!({"conv": format!("call:{CALL}")}))
+            .contains(STILL_GOING)
+    );
+}
+
+#[test]
+fn a_canvas_page_is_budgeted_before_it_advances() {
+    let h = new_harness();
+    let a = call_a();
+    let ch = h.b.talk.create_channel(USER, "general", "").unwrap();
+    h.okj(&a, "talk_join", json!({"conv": "#general"}));
+    live_huddle(&h, &ch.id);
+    let long = "w ".repeat(290);
+    for _ in 0..30 {
+        h.okj(
+            &a,
+            "huddle_note",
+            json!({"call": CALL, "kind": "note", "text": long}),
+        );
+    }
+    // Every page fits under the clip, ends with the line, and the pages
+    // together hold every item once.
+    let mut seen = 0;
+    let mut since = String::new();
+    loop {
+        let out = h.okj(&a, "huddle_canvas", json!({"call": CALL, "since": since}));
+        assert!(out.len() < tools::MAX_RESULT, "{} bytes", out.len());
+        assert!(out.contains(STILL_GOING), "{out}");
+        seen += out.matches("- [item_").count();
+        match out.split("huddle_canvas call=").nth(1) {
+            Some(rest) => {
+                since = rest
+                    .split("since=")
+                    .nth(1)
+                    .unwrap()
+                    .lines()
+                    .next()
+                    .unwrap()
+                    .to_string();
+            }
+            None => break,
+        }
+    }
+    assert_eq!(seen, 30);
+}
+
+#[test]
+fn huddle_note_is_refused_in_a_person_dm() {
+    let (h, _) = bobs_harness();
+    h.b.roster
+        .put(card(KEY_A, "alpha", "", "bypassPermissions"));
+    let a = call_a();
+    let user = inbox::Sender::new(USER, "you", "user");
+    tools::talk::post(&*h.b, &user, &bob_dm(), "hi", &[], false, None, &[]).unwrap();
+    let dm = bob_dm().id().to_string();
+    huddle_marked(&h, &dm, USER, true);
+    // Read under the mark, never written.
+    has(
+        &h.okj(&a, "huddle_status", json!({"call": CALL})),
+        &["over"],
+    );
+    h.failsj(
+        &a,
+        "huddle_note",
+        json!({"call": CALL, "kind": "note", "text": "x"}),
+        &["theirs"],
+    );
+    assert!(h.b.talk.call_items(CALL).is_empty());
+}
+
+#[test]
+fn huddle_note_is_refused_under_ask_me() {
+    let h = new_harness();
+    let a = call_a();
+    let ch = h.b.talk.create_channel(USER, "general", "").unwrap();
+    h.okj(&a, "talk_join", json!({"conv": "#general"}));
+    live_huddle(&h, &ch.id);
+    h.b.ib
+        .set_autonomy(
+            inbox::AutonomySetting {
+                board_id: String::new(),
+                preset: inbox::autonomy::ASK.into(),
+            },
+            USER,
+        )
+        .unwrap();
+    h.failsj(
+        &a,
+        "huddle_note",
+        json!({"call": CALL, "kind": "note", "text": "x"}),
+        &["Ask me"],
+    );
+    assert!(h.b.talk.call_items(CALL).is_empty());
+    // Reading is not a write.
+    has(
+        &h.okj(&a, "huddle_canvas", json!({"call": CALL})),
+        &["Nothing on the canvas"],
+    );
+}
