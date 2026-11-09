@@ -131,7 +131,8 @@ pub const ASSISTANT_TOOLS: [&str; 15] = [
 ];
 
 pub use assistant_writes::{
-    ASSISTANT_WRITE_TOOLS, Grant, Grants, TOOL_COMMENT, TOOL_SEND, grants_for,
+    ASSISTANT_WRITE_TOOLS, Grant, Grants, TOOL_CLOSE, TOOL_COMMENT, TOOL_SEND, TOOL_TICK,
+    grants_for,
 };
 
 /// Who is calling, established by the transport (attach secret or member
@@ -368,6 +369,12 @@ pub struct OwnDevice {
 /// Shared boards to show (Go `BoardViewer`).
 pub trait BoardViewer: Send + Sync {
     fn board_views(&self, f: &coord::BoardFilter) -> Vec<coord::BoardView>;
+    /// The search docs of every shared space's cards and comments the
+    /// person can see, their keys as this device knows them (card #1198):
+    /// capture indexes only Personal's log, so search adds these.
+    fn space_docs(&self) -> Vec<search::Doc> {
+        Vec::new()
+    }
 }
 
 /// A huddle as the Core sees it now (card #1055).
@@ -792,7 +799,7 @@ Claude Code: the Irori mod attaches your session; reload it if this persists.",
         if !trim(&c.sender.key).is_empty() && name != "slot_release" {
             slots::renew(x, c);
         }
-        let out = x.around_board(name, args, || h(x, c, args));
+        let out = x.around_board(c, name, args, || h(x, c, args));
         Ok(clip(&out, MAX_RESULT))
     }
 }
