@@ -1753,7 +1753,12 @@ impl Services {
                 a.status != "gone"
                     && keys.contains(&a.key)
                     && irori_identity::owner::device_of(&a.key) == me
-                    && !self.spawn.removed.lock().unwrap_or_else(|e| e.into_inner()).contains(&a.key)
+                    && !self
+                        .spawn
+                        .removed
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .contains(&a.key)
                     && !self.coord.ended_by_irori(&a.key)
             }) else {
                 continue;
@@ -2852,8 +2857,7 @@ impl Services {
             // A card made from its thread is on it (card #1208): wanted, so
             // not ended while that card is open, whatever the thread's state.
             if self.open_cards().iter().any(|c| {
-                c.from == m.task_id
-                    && (c.holders.contains(&a.key) || c.assigned.contains(&a.key))
+                c.from == m.task_id && (c.holders.contains(&a.key) || c.assigned.contains(&a.key))
             }) {
                 continue;
             }

@@ -63,7 +63,14 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
 
 fn git(dir: &Path, args: &[&str]) {
     let out = std::process::Command::new("git")
-        .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+        ])
         .args(args)
         .current_dir(dir)
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -86,7 +93,10 @@ fn agent_in_repo(r: &Rig) -> tempfile::TempDir {
         "gamma",
         &dir,
     );
-    let key = format!("{}/dddddddd-4444-4444-8444-000000000004", r.core.device_id());
+    let key = format!(
+        "{}/dddddddd-4444-4444-8444-000000000004",
+        r.core.device_id()
+    );
     wait_for(60, "the agent in the repo listed with its repo", || {
         r.core
             .local_agents()
@@ -217,8 +227,9 @@ fn with_the_threads_agent_gone_the_card_gets_a_fresh_spawn() {
     wait_for(90, "a fresh agent for the card", || {
         s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
         s.fake.started.lock().unwrap().iter().any(|r| {
-            std::fs::read_to_string(&r.brief_path)
-                .is_ok_and(|b| b.contains("Irori started you to work card") && b.contains("Sort the board by age"))
+            std::fs::read_to_string(&r.brief_path).is_ok_and(|b| {
+                b.contains("Irori started you to work card") && b.contains("Sort the board by age")
+            })
         })
     });
     assert!(!co.get_task(&c.id).unwrap().assigned.contains(&s.agent));

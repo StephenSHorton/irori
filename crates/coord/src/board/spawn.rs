@@ -239,7 +239,9 @@ impl Fold {
     /// [`Fold::takes_handout`].
     pub(crate) fn may_hand_to(&self, key: &str, t: &Task) -> bool {
         match self.spawned_for(key) {
-            Some(s) => s.task_id == t.id || t.parent == s.task_id || self.made_from_agents_thread(s, t),
+            Some(s) => {
+                s.task_id == t.id || t.parent == s.task_id || self.made_from_agents_thread(s, t)
+            }
             None => self.offers.as_ref().is_none_or(|f| f(key)),
         }
     }
@@ -287,9 +289,10 @@ impl Fold {
     pub(crate) fn made_from_agents_thread(&self, s: &Spawned, t: &Task) -> bool {
         !t.from.is_empty()
             && t.from == s.task_id
-            && self.tasks.get(&s.task_id).is_some_and(|th| {
-                th.open_ask().is_some() && !is_terminal(&th.state)
-            })
+            && self
+                .tasks
+                .get(&s.task_id)
+                .is_some_and(|th| th.open_ask().is_some() && !is_terminal(&th.state))
     }
 
     /// Whether a `task.spawn`/`task.spawned` row came from someone who may
