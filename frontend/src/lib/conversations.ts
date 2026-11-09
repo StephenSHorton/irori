@@ -308,7 +308,7 @@ export function usePosts(convId: string): {
     () => (convId ? talkApi.posts(convId) : Promise.resolve([])),
     [convId]
   )
-  const { value, loading, error, reload } = useLatest<Post[]>(load, [])
+  const { value, loading, error, reload } = useLatest<Post[]>(load, [], "posts")
   useTalkFresh(reload)
   return { posts: value, loading, error }
 }

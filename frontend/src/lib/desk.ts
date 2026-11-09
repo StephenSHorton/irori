@@ -12,6 +12,7 @@ import { useSyncExternalStore } from "react"
 import { sameAs } from "@/lib/talk"
 
 import { DeskService, Events } from "./host"
+import { timedRead } from "./window-log"
 import { inWails, parseTime } from "./irori"
 import type { DeskView } from "./models"
 import { previewFlag } from "./preview"
@@ -381,7 +382,7 @@ const shownDesks: { current: string | null } = { current: null }
 // refresh reads every desk from the window again.
 function refresh(): void {
   if (!inWails()) return
-  DeskService.List()
+  timedRead("desk", () => DeskService.List())
     .then((list) => {
       const first = !hostRead
       hostRead = true

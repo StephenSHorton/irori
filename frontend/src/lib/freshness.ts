@@ -11,6 +11,7 @@ import { useSyncExternalStore } from "react"
 
 import { EventBoardsChanged } from "./boards"
 import { Events, SyncService } from "./host"
+import { timedRead } from "./window-log"
 import { inWails, parseTime, relativeTime } from "./irori"
 import { previewFlag } from "./preview"
 import { Personal } from "./spaces"
@@ -109,12 +110,14 @@ function sampleFreshness(): Freshness[] {
 
 async function load(): Promise<Freshness[]> {
   if (!inWails()) return sampleFreshness()
-  return (await SyncService.Freshness()).map((f) => ({
-    log: f.log,
-    at: f.at,
-    with: f.with || undefined,
-    shared: f.shared,
-  }))
+  return (await timedRead("freshness", () => SyncService.Freshness())).map(
+    (f) => ({
+      log: f.log,
+      at: f.at,
+      with: f.with || undefined,
+      shared: f.shared,
+    })
+  )
 }
 
 // One reader for the whole window, polling while anything shows a line.

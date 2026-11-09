@@ -13,9 +13,14 @@ import { emit, listen } from "@tauri-apps/api/event"
 import { readImage, writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { openUrl } from "@tauri-apps/plugin-opener"
 
-import { commands } from "../gen/bindings"
+import { commands as bindings } from "../gen/bindings"
 import type * as B from "../gen/bindings"
+import { counted } from "./ipc-count"
 import { whileShown } from "./shown"
+
+// commands is the bindings, each call counted by command for the lists line
+// in irori.log (ipc-count.ts). main.tsx and card-look.ts use it too.
+export const commands = counted(bindings)
 
 // asError makes a Tauri rejection (the command's error text) an Error.
 export function asError(err: unknown): Error {

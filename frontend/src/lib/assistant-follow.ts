@@ -25,6 +25,7 @@ import {
   type ThreadSummary,
 } from "./cards"
 import { plainLine } from "./irori"
+import { timedRead } from "./window-log"
 
 // ---- what the follower sees -----------------------------------------------------
 
@@ -334,9 +335,16 @@ export function workThread(
 // readWork reads the followed threads: each id's work, null when the
 // thread is gone (deleted, or no longer on this device). Throws when the
 // Board couldn't be read at all, so the round is tried again later.
-export async function readWork(
+export function readWork(
   ids: string[],
   known: ReadonlyMap<string, readonly string[]> = new Map()
+): Promise<Map<string, WorkThread | null>> {
+  return timedRead("follower", () => readWorkRound(ids, known))
+}
+
+async function readWorkRound(
+  ids: string[],
+  known: ReadonlyMap<string, readonly string[]>
 ): Promise<Map<string, WorkThread | null>> {
   const rows = await threads.byId(ids)
   const byId = new Map(rows.map((r) => [r.id, r]))

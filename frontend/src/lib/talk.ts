@@ -617,10 +617,11 @@ export function useHeld(history: boolean): HeldState {
     ])
     return { held: held ?? [], history: past ?? [] }
   }, [history])
-  const { value, loading, error, reload } = useLatest<HeldValue>(load, {
-    held: [],
-    history: [],
-  })
+  const { value, loading, error, reload } = useLatest<HeldValue>(
+    load,
+    { held: [], history: [] },
+    "held"
+  )
 
   useEffect(() => {
     void reload()
@@ -650,7 +651,8 @@ async function loadRepoNames(): Promise<Array<[string, string]>> {
 export function useRepoNames(): (key: string) => string {
   const { value, reload } = useLatest<Array<[string, string]>>(
     loadRepoNames,
-    []
+    [],
+    "repo names"
   )
   useEffect(() => {
     void reload()
@@ -675,7 +677,11 @@ export function useGone(): {
   error: string | null
   reload: () => Promise<void>
 } {
-  const { value, error, reload } = useLatest<GoneSession[]>(loadGone, [])
+  const { value, error, reload } = useLatest<GoneSession[]>(
+    loadGone,
+    [],
+    "gone"
+  )
   const timer = useRef<number | undefined>(undefined)
 
   useEffect(() => {

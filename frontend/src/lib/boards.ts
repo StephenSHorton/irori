@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react"
 
 import { BoardsService, Events } from "./host"
+import { timedRead } from "./window-log"
 import {
   BoardSettings,
   BoardSummary,
@@ -1015,7 +1016,11 @@ export async function reloadBoards(): Promise<void> {
   const n = ++listState.req
   let next: BoardsList
   try {
-    next = { boards: await boards.list(), error: null, loaded: true }
+    next = {
+      boards: await timedRead("boards", () => boards.list()),
+      error: null,
+      loaded: true,
+    }
   } catch (err) {
     next = { ...listState.value, error: errorText(err), loaded: true }
   }
@@ -1077,7 +1082,7 @@ export function usePersonalBoards(): {
   })
   const reload = useCallback(async () => {
     try {
-      const list = await boards.personal()
+      const list = await timedRead("personal boards", () => boards.personal())
       setState({ boards: list, error: null })
     } catch (err) {
       setState((s) => ({ ...s, error: errorText(err) }))
