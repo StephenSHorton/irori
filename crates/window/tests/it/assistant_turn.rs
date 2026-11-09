@@ -105,6 +105,26 @@ fn a_whole_draft_posts_one_thread() {
     assert_eq!(kinds.last().map(String::as_str), Some("done"));
 }
 
+/// A draft whose closing line the model got slightly wrong ("</</thread>>",
+/// as it did after 0.12.10) still posts by itself.
+#[test]
+fn a_near_miss_closing_line_still_posts() {
+    let r = Rig::new();
+    let d = tempfile::tempdir().unwrap();
+    let reply = "Posting it.\n<<thread>>\nFix the lobby.\n</</thread>>";
+    let bin = fake(d.path(), &[delta(reply), SUCCESS.into()], "");
+    asked(&r, "t9", "post the lobby fix");
+    let done = r.w.chat_turn_with(Ok(bin), &job("t9"), &|_| true);
+    assert_eq!(done.error, "", "{done:?}");
+    let p = done.posted.expect("the draft was posted");
+    let t = format!("{:?}", r.w.core.coord().get_task(&p.id).expect("in my log"));
+    assert!(t.contains("Fix the lobby."), "{t}");
+    assert!(
+        !t.contains("thread>"),
+        "the closing line isn't in the thread: {t}"
+    );
+}
+
 /// A run for a turn that already has a reply, or a posted thread, posts
 /// nothing: another computer got there first.
 #[test]

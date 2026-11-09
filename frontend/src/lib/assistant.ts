@@ -86,6 +86,9 @@ export type ChatEntry = {
   device?: string
   again?: string
   retry?: boolean
+  // The reply was stopped or failed before it ended, so a draft it never
+  // closed is cut short (splitDraft's ended).
+  cutOff?: boolean
 }
 
 export type Posted = { id: string; short: string; tag?: string }
@@ -650,6 +653,7 @@ export function entriesFrom(page: readonly AssistantChatItem[]): ChatEntry[] {
           ...(t.posted.tag ? { tag: t.posted.tag } : {}),
         }
       if (r.looked) a.looked = r.looked
+      if (r.error.trim()) a.cutOff = true
       out.push(a)
     }
     r.changed.forEach((line, n) => {
@@ -1021,7 +1025,8 @@ export type Split = {
   text: string
   // The drafted thread, "" when there is none.
   draft: string
-  // The draft is still being written (its closing line hasn't come).
+  // The draft is still being written, or was cut off (its closing line
+  // never came).
   partial: boolean
   // The person asked to check it first: only a tap posts it.
   check: boolean
@@ -1035,9 +1040,25 @@ function cutMarkerTail(s: string, marker: string): string {
   return s
 }
 
+// draftClose finds a closing line, near misses too: models sometimes
+// write "</</thread>>", "</thread>>", "<</thread>" or "<</ thread>>"
+// (crates/core/src/assistant_draft.rs, find_close).
+const draftClose = /<{1,2}\s*\/?\s*<?\s*\/\s*thread\s*>{1,2}/i
+
+// cutCloseLine drops a last line that can only be a closing line's start
+// or a mangled one ("<</thr", "</thread"), so it never shows in the draft.
+function cutCloseLine(s: string): string {
+  const start = s.lastIndexOf("\n") + 1
+  return /^[ \t]*<[<>/ \tthread]*$/i.test(s.slice(start))
+    ? s.slice(0, start)
+    : s
+}
+
 // splitDraft takes a reply's drafted thread out of its text. The history
-// keeps the reply whole; the chat splits it as it shows it.
-export function splitDraft(raw: string): Split {
+// keeps the reply whole; the chat splits it as it shows it. ended: the
+// reply ended by itself (not stopped, failed or still being written), so
+// a draft it never closed runs to its end rather than being cut short.
+export function splitDraft(raw: string, ended = false): Split {
   const open = /<<thread( check)?>>/.exec(raw)
   if (!open)
     return {
@@ -1049,15 +1070,16 @@ export function splitDraft(raw: string): Split {
   const check = open[1] !== undefined
   const before = raw.slice(0, open.index).trim()
   const rest = raw.slice(open.index + open[0].length)
-  const end = rest.indexOf(DraftClose)
-  if (end < 0)
+  const close = draftClose.exec(rest)
+  if (!close)
     return {
       text: before,
-      draft: cutMarkerTail(rest, DraftClose).trim(),
-      partial: true,
+      draft: cutCloseLine(cutMarkerTail(rest, DraftClose)).trim(),
+      partial: !ended,
       check,
     }
-  const after = rest.slice(end + DraftClose.length).trim()
+  const end = close.index
+  const after = rest.slice(end + close[0].length).trim()
   return {
     text: after ? `${before}\n\n${after}`.trim() : before,
     draft: rest.slice(0, end).trim(),
@@ -1071,17 +1093,19 @@ export function splitDraft(raw: string): Split {
 // drafted thread (splitDraft) and its go line (card #784, lib/goto.ts),
 // taken only from the text outside the blocks, in that order, so a go line
 // inside a block never fires and a draft posts exactly as shown.
-// writing: the reply is still being written.
+// writing: the reply is still being written. cutOff: it was stopped or
+// failed (ChatEntry.cutOff).
 export function splitReply(
   raw: string,
-  writing = false
+  writing = false,
+  cutOff = false
 ): Split & {
   go: GoTarget | null
   cards: CardDraft[]
   settle: SettleDraft | null
 } {
   const k = takeDrafts(raw)
-  const d = splitDraft(k.text)
+  const d = splitDraft(k.text, !writing && !cutOff)
   const g = splitGo(d.text, writing)
   return { ...d, text: g.text, go: g.go, cards: k.cards, settle: k.settle }
 }
@@ -1105,7 +1129,7 @@ export function postDraft(turn: string): Promise<Posted> {
   if (entry.posted) return Promise.resolve(entry.posted)
   const going = posting.get(turn)
   if (going) return going
-  const { draft, partial } = splitDraft(entry.text)
+  const { draft, partial } = splitDraft(entry.text, !entry.cutOff)
   if (!draft || partial)
     return Promise.reject(new Error("That message has no thread to post."))
   const busy = (on: boolean) => {
@@ -1326,7 +1350,7 @@ export function autoAsk(onPosted: (p: Posted) => void) {
     if (s.busy) return
     const last = s.entries[s.entries.length - 1]
     if (last?.role !== "assistant" || !last.turn || last.posted) return
-    if (!splitDraft(last.text).draft) return
+    if (!splitDraft(last.text, !last.cutOff).draft) return
     off()
     postDraft(last.turn).then(onPosted, () => {})
   })

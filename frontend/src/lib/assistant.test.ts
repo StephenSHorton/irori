@@ -18,6 +18,7 @@ import {
   serializeHistory,
   settled,
   splitDraft,
+  splitReply,
   unreadableNote,
   DraftClose,
   DraftOpen,
@@ -249,6 +250,57 @@ describe("Ask Irori's drafted thread (card #783)", () => {
       partial: true,
       check: false,
     })
+  })
+  test("a near-miss closing line still closes the draft", () => {
+    for (const close of [
+      "</</thread>>",
+      "</thread>>",
+      "<</thread>",
+      "<</ thread>>",
+      "<< /thread >>",
+      "<</THREAD>>",
+      "</thread>",
+      "<</</thread>>",
+    ])
+      expect([
+        close,
+        splitDraft(
+          `Posting it.\n${DraftOpen}\nFix the lobby.\n${close}\n<<go card #8>>`
+        ),
+      ]).toEqual([
+        close,
+        {
+          text: "Posting it.\n\n<<go card #8>>",
+          draft: "Fix the lobby.",
+          partial: false,
+          check: false,
+        },
+      ])
+    // The opening lines never close one.
+    expect(splitDraft("A <<thread>> and <<thread check>>").partial).toBe(true)
+  })
+  test("a reply that ended without closing its draft has the whole draft", () => {
+    const raw = `Posting it.\n${DraftOpen}\nFix the lobby.\nAsk on #8.`
+    expect(splitDraft(raw, true)).toEqual({
+      text: "Posting it.",
+      draft: "Fix the lobby.\nAsk on #8.",
+      partial: false,
+      check: false,
+    })
+    // Still being written, or stopped: cut short.
+    expect(splitDraft(raw).partial).toBe(true)
+    expect(splitReply(raw, true).partial).toBe(true)
+    expect(splitReply(raw, false, true).partial).toBe(true)
+    expect(splitReply(raw).partial).toBe(false)
+    // A mangled closing line it can't read isn't part of it.
+    expect(
+      splitDraft(`${DraftOpen}\nFix the lobby.\n<thread/>`, true).draft
+    ).toBe("Fix the lobby.")
+    // Half a closing line never shows while it is written.
+    for (const tail of ["<", "<</", "</</thr", "</thread"])
+      expect(splitDraft(`${DraftOpen}\nFix the lobby.\n${tail}`).draft).toBe(
+        "Fix the lobby."
+      )
   })
   test("updates and replies are kept across reloads, bad acts dropped (card #785)", () => {
     const entries: ChatEntry[] = [
@@ -580,6 +632,20 @@ describe("the chat built from rows (one-assistant card 4)", () => {
       ["Closed #5.", true, false],
       ["Stopped.", false, true],
       [expect.stringContaining("didn't get to this"), false, true],
+    ])
+  })
+  test("a stopped or failed reply is cut off; one that ended is not", () => {
+    const es = entriesFrom([
+      turnItem("t2", "b", {
+        text: "Posting.\n<<thread>>\nFix",
+        error: "Stopped",
+      }),
+      turnItem("t1", "a", { text: "Posting.\n<<thread>>\nFix it." }),
+    ])
+    const replies = es.filter((e) => e.role === "assistant" && !e.note)
+    expect(replies.map((e) => [e.turn, e.cutOff ?? false])).toEqual([
+      ["t1", false],
+      ["t2", true],
     ])
   })
   test("a posted thread sits on the reply, a follow-up line is its own entry", () => {
