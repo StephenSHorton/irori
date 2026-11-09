@@ -928,3 +928,82 @@ fn comment_notices_say_who_read_them() {
     h.ib.skip(KEY_A, &c.id, "").unwrap();
     assert_eq!(read_of(&c.id), Some(true));
 }
+
+/// Card #1234: the lock's release rechecks every touched agent's wake and
+/// append readiness from one pass over the open deliveries. Across a seeded
+/// random run of sends, wakes, appends, deliveries, engagements, clock jumps
+/// and sweeps it must give what the old per-agent full scan gives.
+#[test]
+fn batched_ready_recheck_matches_full_scan() {
+    let h = Harness::new();
+    h.abc();
+    let agents = [(KEY_A, "alpha"), (KEY_B, "beta"), (KEY_C, "gamma")];
+    let mut seed: u64 = 0x1234_5678_9abc_def0;
+    let mut next = move |n: usize| {
+        seed = seed
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        ((seed >> 33) % n as u64) as usize
+    };
+    // (agent, token, append)
+    let mut issued: Vec<(String, String, bool)> = vec![];
+    let (mut compared, mut subs, mut apps) = (0, 0, 0);
+    for step in 0..600 {
+        match next(10) {
+            0..=2 => {
+                let to_name = agents[next(3)].1;
+                let from = if next(2) == 0 {
+                    person()
+                } else {
+                    let (k, n) = agents[next(3)];
+                    claude(k, n)
+                };
+                let m = [mode::WAKE, mode::NEXT_TURN][next(2)];
+                let _ = h.ib.send_with(
+                    &from,
+                    &to(to_name),
+                    "x",
+                    SendOptions {
+                        reason: "r".into(),
+                        mode: m.into(),
+                        ..Default::default()
+                    },
+                );
+            }
+            3 => {
+                let k = agents[next(3)].0;
+                if let Ok(Some(w)) = h.ib.next_wake(k, path::MOD) {
+                    issued.push((k.into(), w.token, false));
+                }
+            }
+            4 => {
+                let k = agents[next(3)].0;
+                if let Ok(Some(w)) = h.ib.next_append(k) {
+                    issued.push((k.into(), w.token, true));
+                }
+            }
+            5 | 6 if !issued.is_empty() => {
+                let (k, t, app) = issued[next(issued.len())].clone();
+                let _ = match (app, next(2)) {
+                    (false, 0) => h.ib.mark_delivered(&k, &t),
+                    (false, _) => h.ib.mark_engaged(&k, &t, &format!("turn{step}")),
+                    (true, 0) => h.ib.mark_appended_delivered(&k, &t),
+                    (true, _) => h.ib.mark_appended_engaged(&k, &t, &format!("turn{step}")),
+                };
+            }
+            7 => h.clk.advance(secs(next(240) as u64)),
+            _ => h.sweep(),
+        }
+        let (n, s, a) =
+            h.ib.ready_flags_agree()
+                .unwrap_or_else(|e| panic!("step {step}: {e}"));
+        compared += n;
+        subs += s;
+        apps += a;
+    }
+    // Both answers came up both ways, so the comparison means something.
+    assert!(
+        compared > 300 && subs > 0 && subs < compared && apps > 0 && apps < compared,
+        "compared {compared}, submit-ready {subs}, append-ready {apps}"
+    );
+}

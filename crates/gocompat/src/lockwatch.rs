@@ -12,16 +12,32 @@
 //!
 //! A single wait or hold of [`SLOW`] or more goes to the log at once, with
 //! its caller and thread. With no logger set ([`set_logger`]) nothing is
-//! written; the totals cost two clock reads per lock.
+//! written. The per-thread totals cost two clock reads per lock; the
+//! per-caller totals take a global mutex per lock, so they are kept only
+//! once [`keep_totals`] turns them on (the dev probe does, for a scratch
+//! run's per-minute line).
 
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::panic::Location;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 /// A wait or hold this long is logged on its own.
-pub const SLOW: Duration = Duration::from_millis(500);
+pub const SLOW: Duration = Duration::from_millis(1000);
+
+static TOTALS: AtomicBool = AtomicBool::new(false);
+
+/// Keeps per-caller totals for [`summary_line`] from now on.
+pub fn keep_totals() {
+    TOTALS.store(true, Ordering::Relaxed);
+}
+
+/// Whether per-caller totals are kept ([`keep_totals`]).
+pub fn totals_kept() -> bool {
+    TOTALS.load(Ordering::Relaxed)
+}
 
 type LogFn = Box<dyn Fn(&str) + Send + Sync>;
 
@@ -103,11 +119,14 @@ pub fn waited(at: &'static Location<'static>, wait: Duration) {
     });
     if wait >= SLOW {
         log(&format!(
-            "coord lock: waited {} ms at {} on {}",
+            "lock: waited {} ms at {} on {}",
             wait.as_millis(),
             short(at),
             thread_name()
         ));
+    }
+    if !totals_kept() {
+        return;
     }
     let mut s = STATS.lock().unwrap_or_else(|e| e.into_inner());
     let e = s.get_or_insert_with(HashMap::new).entry(at).or_default();
@@ -124,11 +143,14 @@ pub fn held(at: &'static Location<'static>, hold: Duration) {
     });
     if hold >= SLOW {
         log(&format!(
-            "coord lock: held {} ms at {} on {}",
+            "lock: held {} ms at {} on {}",
             hold.as_millis(),
             short(at),
             thread_name()
         ));
+    }
+    if !totals_kept() {
+        return;
     }
     let mut s = STATS.lock().unwrap_or_else(|e| e.into_inner());
     let e = s.get_or_insert_with(HashMap::new).entry(at).or_default();
@@ -166,7 +188,7 @@ pub fn take_summary() -> Vec<(String, Stat)> {
         .take()
         .unwrap_or_default();
     let mut v: Vec<(String, Stat)> = m.into_iter().map(|(k, s)| (short(k), s)).collect();
-    v.sort_by(|a, b| (b.1.hold + b.1.wait).cmp(&(a.1.hold + a.1.wait)));
+    v.sort_by_key(|(_, s)| std::cmp::Reverse(s.hold + s.wait));
     v
 }
 
@@ -176,9 +198,11 @@ pub fn summary_line(n: usize) -> Option<String> {
     if v.is_empty() {
         return None;
     }
-    let (takes, wait, hold) = v.iter().fold((0, Duration::ZERO, Duration::ZERO), |a, (_, s)| {
-        (a.0 + s.takes, a.1 + s.wait, a.2 + s.hold)
-    });
+    let (takes, wait, hold) = v
+        .iter()
+        .fold((0, Duration::ZERO, Duration::ZERO), |a, (_, s)| {
+            (a.0 + s.takes, a.1 + s.wait, a.2 + s.hold)
+        });
     let top: Vec<String> = v
         .iter()
         .take(n)
@@ -194,7 +218,7 @@ pub fn summary_line(n: usize) -> Option<String> {
         })
         .collect();
     Some(format!(
-        "coord lock: {takes} takes, hold {} ms, wait {} ms; top (sum/max ms): {}",
+        "locks: {takes} takes, hold {} ms, wait {} ms; top (sum/max ms): {}",
         hold.as_millis(),
         wait.as_millis(),
         top.join(", ")

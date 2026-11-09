@@ -19,11 +19,11 @@
 //! Not here yet, though §1.2 lists them: `url` (the `net/url` subset) and
 //! `flag`. Their areas add them when they are ported.
 
-pub mod lockwatch;
 pub mod filepath;
 pub mod flag;
 pub mod fnv;
 pub mod json;
+pub mod lockwatch;
 pub mod pathmatch;
 pub mod quote;
 pub mod regex;

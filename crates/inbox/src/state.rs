@@ -998,9 +998,8 @@ impl Inner {
         self.replaying = false;
         r?;
         // Baseline for WakeReady edges; replay itself notifies nobody.
-        for agent in self.agents_with_open() {
-            let s = self.has_submit(&agent);
-            let a = self.has_append(&agent);
+        let agents = self.agents_with_open();
+        for (agent, s, a) in self.ready_flags(&agents) {
             self.submit.insert(agent.clone(), s);
             self.appendable.insert(agent, a);
         }
@@ -1447,8 +1446,7 @@ impl Inner {
     /// agents, then every change to every subscriber (dropped when full).
     pub(crate) fn unlock(&mut self) {
         let touched = std::mem::take(&mut self.touched);
-        for agent in touched {
-            let now = self.has_submit(&agent);
+        for (agent, now, app) in self.ready_flags(&touched) {
             if now && !self.submit.get(&agent).copied().unwrap_or(false) {
                 self.changes.push(Change {
                     kind: ChangeKind::WakeReady,
@@ -1459,7 +1457,6 @@ impl Inner {
                 });
             }
             self.submit.insert(agent.clone(), now);
-            let app = self.has_append(&agent);
             if app && !self.appendable.get(&agent).copied().unwrap_or(false) {
                 self.changes.push(Change {
                     kind: ChangeKind::AppendReady,
@@ -1513,33 +1510,69 @@ impl Inner {
         self.open.iter().map(|id| &self.dels[id])
     }
 
+    /// Each of `agents` with whether NextWake and NextAppend would return
+    /// one for it now, from one pass over the open deliveries (card #1234). Asking each
+    /// agent alone scans every open delivery about five times per agent:
+    /// with the sweep rechecking every agent that has one (711 agents, 7078
+    /// open deliveries on the person's own data) that held the inbox lock
+    /// 5-16 s once a minute, and every inbox read waited on it.
+    pub(crate) fn ready_flags(&self, agents: &BTreeSet<String>) -> Vec<(String, bool, bool)> {
+        let mut by: HashMap<&str, Vec<&Drec>> =
+            agents.iter().map(|a| (a.as_str(), Vec::new())).collect();
+        for d in self.open_recs() {
+            if let Some(v) = by.get_mut(d.d.to.as_str()) {
+                v.push(d);
+            }
+        }
+        agents
+            .iter()
+            .map(|a| {
+                let recs = by.get(a.as_str()).map_or(&[][..], Vec::as_slice);
+                (
+                    a.clone(),
+                    self.has_submit_in(a, recs),
+                    self.has_append_in(a, recs),
+                )
+            })
+            .collect()
+    }
+
+    /// Agent's open deliveries, in id order: what the `_in` checks take.
+    fn recs_of(&self, agent: &str) -> Vec<&Drec> {
+        self.open_recs().filter(|d| d.d.to == agent).collect()
+    }
+
     /// NextWake on the mod path would return a wake for agent now.
-    pub(crate) fn has_submit(&self, agent: &str) -> bool {
+    /// `recs` holds agent's open deliveries in id order (more is fine:
+    /// others' are skipped).
+    pub(crate) fn has_submit_in(&self, agent: &str, recs: &[&Drec]) -> bool {
         if agent.is_empty() || self.pol.paused || !self.local(agent) {
             return false;
         }
-        if self.outstanding(agent).is_some() {
+        if self.outstanding_in(agent, recs).is_some() {
             return false;
         }
         if self.reminders.get(agent).is_some_and(|r| !r.is_empty()) {
             return true;
         }
-        self.open_recs().any(|d| {
+        recs.iter().any(|d| {
             d.d.to == agent && d.d.state == st::QUEUED && d.d.wake_id.is_empty() && !d.for_append()
         })
     }
 
     /// NextAppend would return an append for agent now.
-    pub(crate) fn has_append(&self, agent: &str) -> bool {
+    /// `recs` holds agent's open deliveries in id order (more is fine:
+    /// others' are skipped).
+    pub(crate) fn has_append_in(&self, agent: &str, recs: &[&Drec]) -> bool {
         if agent.is_empty()
             || self.pol.paused
             || !self.local(agent)
-            || self.pending_append(agent).is_some()
+            || self.pending_append_in(agent, recs).is_some()
         {
             return false;
         }
-        let behind = self.queued_behind(agent);
-        self.open_recs().any(|d| {
+        let behind = self.queued_behind_in(agent, recs);
+        recs.iter().any(|d| {
             d.d.to == agent
                 && d.d.state == st::QUEUED
                 && d.d.wake_id.is_empty()
@@ -1549,8 +1582,12 @@ impl Inner {
 
     /// The append issued to agent and not yet confirmed delivered.
     pub(crate) fn pending_append(&self, agent: &str) -> Option<&WakeRec> {
+        self.pending_append_in(agent, &self.recs_of(agent))
+    }
+
+    fn pending_append_in<'a>(&'a self, agent: &str, recs: &[&'a Drec]) -> Option<&'a WakeRec> {
         let mut best: Option<&WakeRec> = None;
-        for d in self.open_recs() {
+        for d in recs {
             if d.d.to != agent || d.d.state != st::QUEUED || d.d.wake_id.is_empty() {
                 continue;
             }
@@ -1568,9 +1605,17 @@ impl Inner {
     /// else delivered and not yet engaged (Delivered) within the unengaged
     /// limit.
     pub(crate) fn outstanding(&self, agent: &str) -> Option<(&WakeRec, &'static str)> {
+        self.outstanding_in(agent, &self.recs_of(agent))
+    }
+
+    fn outstanding_in<'a>(
+        &'a self,
+        agent: &str,
+        recs: &[&'a Drec],
+    ) -> Option<(&'a WakeRec, &'static str)> {
         let mut delivered: Option<&WakeRec> = None;
         let now = self.now();
-        for d in self.open_recs() {
+        for d in recs {
             if d.d.to != agent || d.d.wake_id.is_empty() {
                 continue;
             }
@@ -1597,7 +1642,11 @@ impl Inner {
 
     /// The host already holds a wake prompt it has not started (card #28).
     pub(crate) fn queued_behind(&self, agent: &str) -> bool {
-        matches!(self.outstanding(agent), Some((_, st::DELIVERED)))
+        self.queued_behind_in(agent, &self.recs_of(agent))
+    }
+
+    fn queued_behind_in(&self, agent: &str, recs: &[&Drec]) -> bool {
+        matches!(self.outstanding_in(agent, recs), Some((_, st::DELIVERED)))
     }
 
     /// d with its message filled in.

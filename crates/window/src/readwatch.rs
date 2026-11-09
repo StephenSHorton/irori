@@ -2,9 +2,11 @@
 //! it queued for a thread, how long it waited for a board log's lock, and
 //! the rest (its own work and any other lock).
 //!
-//! A read of [`SLOW`] or more is logged on its own as `read: <command>`.
-//! Each command's totals are summed until [`summary_line`] reads them, which
-//! the window's per-minute lists line does, so the two sit side by side in
+//! A read of [`SLOW`] or more is logged on its own as `read: <command>`,
+//! with its lock wait (a board log's and the inbox's together; the lock
+//! lines say which). On a scratch run (lockwatch totals kept) each
+//! command's totals are summed until [`summary_line`] reads them, which the
+//! window's per-minute lists line does, so the two sit side by side in
 //! irori.log.
 
 use std::collections::BTreeMap;
@@ -79,6 +81,9 @@ impl Timing {
                 total.saturating_sub(self.queue + self.ran).as_millis(),
             ));
         }
+        if !lockwatch::totals_kept() {
+            return;
+        }
         let mut s = STATS.lock().unwrap_or_else(|e| e.into_inner());
         let e = s.entry(self.name).or_default();
         e.n += 1;
@@ -105,7 +110,7 @@ pub fn summary_line() -> Option<String> {
         return None;
     }
     let mut v: Vec<(&str, Stat)> = m.into_iter().collect();
-    v.sort_by(|a, b| b.1.max.cmp(&a.1.max));
+    v.sort_by_key(|(_, s)| std::cmp::Reverse(s.max));
     let parts: Vec<String> = v
         .iter()
         .map(|(k, s)| {

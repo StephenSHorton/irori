@@ -100,7 +100,7 @@ fn setup_diagnostics(cmd: &str) {
         );
         let _ = log.write(l.as_bytes());
         eprint!("{l}");
-    });    // Slow board-log lock waits and holds (card #1234).
+    }); // Slow board-log lock waits and holds (card #1234).
     gocompat::lockwatch::set_logger(irori_core::log);
 }
 

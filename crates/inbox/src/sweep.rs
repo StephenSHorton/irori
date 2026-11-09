@@ -513,6 +513,31 @@ impl Inbox {
         r
     }
 
+    /// Card #1234's check, for tests: for every agent with an open
+    /// delivery, the batched wake-ready recheck the lock's release runs
+    /// gives what asking over every open delivery gives (the scan it
+    /// replaced). Returns how many agents it compared, and how many of them
+    /// could take a wake and an append now.
+    #[doc(hidden)]
+    pub fn ready_flags_agree(&self) -> std::result::Result<(usize, usize, usize), String> {
+        self.read(|b| {
+            let agents = b.agents_with_open();
+            let all: Vec<&crate::state::Drec> = b.open_recs().collect();
+            let (mut subs, mut apps) = (0, 0);
+            for (a, s, ap) in b.ready_flags(&agents) {
+                let want = (b.has_submit_in(&a, &all), b.has_append_in(&a, &all));
+                if (s, ap) != want {
+                    return Err(format!(
+                        "{a}: batched submit {s} append {ap}, full scan {want:?}"
+                    ));
+                }
+                subs += usize::from(s);
+                apps += usize::from(ap);
+            }
+            Ok((agents.len(), subs, apps))
+        })
+    }
+
     /// Puts the handoffs on their cards without the lock, then closes each.
     fn hand_off(&self, hs: &[Handoff]) -> Result<()> {
         let on_gone = self.read(|b| b.on_gone.clone());
