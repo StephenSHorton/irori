@@ -660,10 +660,7 @@ fn pick_facts_gather_the_cards_on_the_same_work() {
     assert_eq!(l.holders, vec![CARD1.to_string()]);
     let s = f.related.iter().find(|r| r.id == sibling).unwrap();
     assert_eq!(s.watchers, vec![CARD2.to_string()]);
-    assert!(
-        f.scopes
-            .contains(&(CARD1.to_string(), "src/**".to_string()))
-    );
+    assert!(f.scopes.iter().any(|(h, _, g)| h == CARD1 && g == "src/**"));
     assert_eq!(f.phase, ReviewPhase::Waiting);
     assert!(b.c.pick_facts(&linking).is_none(), "not a PR card");
 }
@@ -760,7 +757,10 @@ fn a_named_ask_on_a_work_card_is_the_prs_ask() {
         assert_eq!(asked_to(&s.c.review_phase(&id)), CARD2);
         let m = s.c.missed_review_asks();
         assert_eq!(m.len(), 1, "{m:?}");
-        assert_eq!((m[0].card.as_str(), m[0].to.as_str()), (w.id.as_str(), CARD2));
+        assert_eq!(
+            (m[0].card.as_str(), m[0].to.as_str()),
+            (w.id.as_str(), CARD2)
+        );
     }
     // A pick from the author's device with a stale view writes nothing.
     assert!(a.c.pick_ask(P1, &id, CARD3, false, None).unwrap().is_none());

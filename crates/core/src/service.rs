@@ -81,6 +81,7 @@ pub mod notes;
 mod notifications;
 mod prcard;
 mod review_claim;
+mod review_pick;
 pub mod space_move;
 pub mod spaces;
 pub mod spawn;
@@ -4932,7 +4933,9 @@ impl Services {
                     self.post_desk(repo_key, &v);
                     // Merge desk §12.2 (card #1077): the PR card in a
                     // shared space, and what GitHub says on the PR.
-                    self.pr_cards(repo_key, &v);
+                    let standing = self.pr_cards(repo_key, &v);
+                    // §12.5 (card #1079): pick a reviewer for them.
+                    self.review_pick(repo_key, &standing);
                     // Card #421: a PR that left the list may have merged.
                     self.settle_gone_prs(repo_key);
                 }

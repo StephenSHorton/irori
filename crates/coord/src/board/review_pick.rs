@@ -130,10 +130,11 @@ pub struct PickFacts {
     /// Claim counts by person.
     pub counts: BTreeMap<String, ClaimCounts>,
     pub related: Vec<RelatedCard>,
-    /// (holder or co-holder, scope glob) of every open card.
-    pub scopes: Vec<(String, String)>,
-    /// (holder, glob) of every live mirrored path lease.
-    pub path_leases: Vec<(String, String)>,
+    /// (holder or co-holder, the card's repo key, scope glob) of every
+    /// open card. The globs are repo-relative: compare the repo first.
+    pub scopes: Vec<(String, String, String)>,
+    /// (holder, repo key, glob) of every live mirrored path lease.
+    pub path_leases: Vec<(String, String, String)>,
     /// Each person's dedicated reviewer for the card's repo.
     pub reviewers: BTreeMap<String, String>,
 }
@@ -475,17 +476,24 @@ impl Fold {
             .values()
             .filter(|x| !is_terminal(&x.state))
             .flat_map(|x| {
-                x.holders
-                    .iter()
-                    .chain(&x.co_holders)
-                    .flat_map(move |h| x.scope.iter().map(move |g| (h.clone(), g.clone())))
+                x.holders.iter().chain(&x.co_holders).flat_map(move |h| {
+                    x.scope
+                        .iter()
+                        .map(move |g| (h.clone(), x.repo_key.clone(), g.clone()))
+                })
             })
             .collect();
         let path_leases = self
             .held
             .values()
             .filter(|l| l.res.kind == RESOURCE_PATH && self.live(l, &now))
-            .map(|l| (l.lease.holder.clone(), l.res.glob.clone()))
+            .map(|l| {
+                (
+                    l.lease.holder.clone(),
+                    l.res.repo_key.clone(),
+                    l.res.glob.clone(),
+                )
+            })
             .collect();
         let mut reviewers = BTreeMap::new();
         for (p, _) in self.reviewers.keys() {

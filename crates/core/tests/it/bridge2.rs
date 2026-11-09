@@ -45,35 +45,35 @@ fn copy(from: &Store, to: &Store, to_dev: &str) {
     r.unwrap();
 }
 
-struct Two {
-    ra: Rig,
-    rb: Rig,
-    board: String,
+pub(crate) struct Two {
+    pub(crate) ra: Rig,
+    pub(crate) rb: Rig,
+    pub(crate) board: String,
     // Last, so both Cores are dropped before the next test's turn.
     _turn: std::sync::MutexGuard<'static, ()>,
 }
 
 impl Two {
-    fn a(&self) -> &Core {
+    pub(crate) fn a(&self) -> &Core {
         &self.ra.core
     }
-    fn b(&self) -> &Core {
+    pub(crate) fn b(&self) -> &Core {
         &self.rb.core
     }
-    fn sa(&self) -> Arc<Store> {
+    pub(crate) fn sa(&self) -> Arc<Store> {
         self.a().board_store(&self.board).unwrap()
     }
-    fn sb(&self) -> Arc<Store> {
+    pub(crate) fn sb(&self) -> Arc<Store> {
         self.b().board_store(&self.board).unwrap()
     }
     /// Both ways, twice, so rows that answer rows settle.
-    fn sync(&self) {
+    pub(crate) fn sync(&self) {
         for _ in 0..2 {
             copy(&self.sa(), &self.sb(), self.b().device_id());
             copy(&self.sb(), &self.sa(), self.a().device_id());
         }
     }
-    fn person(c: &Core) -> String {
+    pub(crate) fn person(c: &Core) -> String {
         format!("{PERSON_ACTOR_PREFIX}{}", c.person().id)
     }
 }
@@ -91,7 +91,7 @@ fn two_people_with(notes: Option<notify::Notifier>) -> Two {
 
 /// [`two_people`] with `ra` as Alice's rig and `edit` applied to Bob's
 /// Core options.
-fn two_people_opts(ra: Rig, edit: impl FnOnce(&mut irori_core::Options)) -> Two {
+pub(crate) fn two_people_opts(ra: Rig, edit: impl FnOnce(&mut irori_core::Options)) -> Two {
     let turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
     let rb = Rig::with(edit);
     let (a, b) = (&ra.core, &rb.core);
@@ -140,7 +140,7 @@ fn two_people_opts(ra: Rig, edit: impl FnOnce(&mut irori_core::Options)) -> Two 
 }
 
 /// The deliveries to `agent` that came over the bridge, held ones too.
-fn bridged(c: &Core, agent: &str) -> Vec<Delivery> {
+pub(crate) fn bridged(c: &Core, agent: &str) -> Vec<Delivery> {
     c.inbox()
         .list(10_000)
         .into_iter()
@@ -148,7 +148,7 @@ fn bridged(c: &Core, agent: &str) -> Vec<Delivery> {
         .collect()
 }
 
-fn wait_bridged(c: &Core, agent: &str, n: usize) -> Vec<Delivery> {
+pub(crate) fn wait_bridged(c: &Core, agent: &str, n: usize) -> Vec<Delivery> {
     wait_for(10, "bridged deliveries", || bridged(c, agent).len() >= n);
     let ds = bridged(c, agent);
     assert_eq!(ds.len(), n, "{ds:?}");
@@ -156,7 +156,7 @@ fn wait_bridged(c: &Core, agent: &str, n: usize) -> Vec<Delivery> {
 }
 
 /// Lets the followers run, then checks nothing more crossed.
-fn settle_bridged(c: &Core, agent: &str, n: usize) {
+pub(crate) fn settle_bridged(c: &Core, agent: &str, n: usize) {
     std::thread::sleep(Duration::from_millis(400));
     let ds = bridged(c, agent);
     assert_eq!(ds.len(), n, "{ds:?}");
@@ -165,7 +165,7 @@ fn settle_bridged(c: &Core, agent: &str, n: usize) {
 /// Waits until `c`'s roster for `board` lists each of `keys` idle and not
 /// offline: the board's follower has folded the agent.card rows a sync
 /// copied in.
-fn wait_cards(c: &Core, board: &str, keys: &[&str]) {
+pub(crate) fn wait_cards(c: &Core, board: &str, keys: &[&str]) {
     wait_for(10, "the other person's cards", || {
         let r = c.board_roster(board);
         keys.iter().all(|k| {
@@ -196,7 +196,7 @@ fn idle_in_order(keys: &[&str]) -> Vec<AgentCard> {
         .collect()
 }
 
-fn set_receive(c: &Core, board: &str, preset: &str) {
+pub(crate) fn set_receive(c: &Core, board: &str, preset: &str) {
     c.inbox()
         .set_receive(
             ReceiveSetting {
