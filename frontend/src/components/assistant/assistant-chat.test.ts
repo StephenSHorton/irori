@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 
 import { AgentCards } from "@/components/cards/agent-hover"
 import { CardSummary } from "@/lib/models"
-import type { ChatEntry, Reply } from "@/lib/assistant"
+import type { AssistantHomeStatus, ChatEntry, Reply } from "@/lib/assistant"
 import { AssistantPanel } from "./assistant-chat"
 
 const entries: ChatEntry[] = [
@@ -16,15 +16,21 @@ const entries: ChatEntry[] = [
   { role: "assistant", text: "Stopped.", note: true },
 ]
 
-function render(p: { entries?: ChatEntry[]; reply?: Reply | null }) {
+function render(p: {
+  entries?: ChatEntry[]
+  streams?: Record<string, Reply>
+  home?: AssistantHomeStatus | null
+}) {
   const was = globalThis.window
   globalThis.window = { location: { search: "" } } as Window & typeof globalThis
   try {
     const panel = createElement(AssistantPanel, {
       entries: p.entries ?? entries,
-      reply: p.reply ?? null,
+      streams: p.streams ?? {},
+      home: p.home ?? null,
       narrow: false,
       onAsk: () => {},
+      onAskAgain: () => {},
       onStop: () => {},
       onNew: () => {},
       onGo: () => Promise.resolve(""),
@@ -88,19 +94,77 @@ describe("Ask Irori's panel (card #783)", () => {
     expect(html).toContain("Ship the release")
     expect(html).toContain("Stopped.")
   })
-  test("while answering: the status line, the words so far and Stop", () => {
+  const waiting: ChatEntry[] = [
+    {
+      id: "q:t1",
+      role: "person",
+      text: "What's blocked?",
+      turn: "t1",
+      pending: true,
+    },
+    {
+      id: "q:t2",
+      role: "person",
+      text: "And the lobby?",
+      turn: "t2",
+      pending: true,
+    },
+  ]
+  const mac = (here: boolean, state = "connected"): AssistantHomeStatus => ({
+    device: "mac",
+    name: "Mac",
+    here,
+    state,
+    lastSeenMs: 0,
+    claude: true,
+    chat: true,
+    none: "",
+  })
+  test("while answering: the status line and the words so far under the question, with Stop, and the composer stays on", () => {
     const html = render({
-      reply: {
-        text: "Two cards",
-        status: "Reading the Board",
-        end: "",
-        error: "",
+      entries: waiting.slice(0, 1),
+      streams: {
+        t1: {
+          text: "Two cards",
+          status: "Reading the Board",
+          end: "",
+          error: "",
+          looked: "",
+        },
       },
+      home: mac(true),
     })
     expect(html).toContain("Reading the Board…")
     expect(html).toContain("Two cards")
-    expect(html).toContain('aria-label="Stop"')
-    expect(html).not.toContain('aria-label="Send"')
+    expect(html).toContain('aria-label="Stop this question"')
+    expect(html).toContain('aria-label="Send"')
+  })
+  test("on another device: the oldest is being answered, the rest wait", () => {
+    const html = render({ entries: waiting, home: mac(false) })
+    expect(html).toContain("Mac is answering…")
+    expect(html).toContain("Waiting for Mac")
+    expect((html.match(/Stop this question/g) ?? []).length).toBe(2)
+  })
+  test("when the computer isn't connected, every question waits for it", () => {
+    const html = render({ entries: waiting, home: mac(false, "offline") })
+    expect(html).not.toContain("is answering")
+    expect((html.match(/Waiting for Mac/g) ?? []).length).toBe(2)
+  })
+  test("a skipped or stopped turn offers Ask again", () => {
+    const html = render({
+      entries: [
+        { id: "q:t1", role: "person", text: "Close #5", turn: "t1" },
+        {
+          id: "e:t1",
+          role: "assistant",
+          text: "Stopped.",
+          note: true,
+          turn: "t1",
+          retry: true,
+        },
+      ],
+    })
+    expect(html).toContain("Ask again")
   })
   test("empty, it offers questions to start with", () => {
     const html = render({ entries: [] })
@@ -154,7 +218,18 @@ describe("Ask Irori's panel (card #783)", () => {
   })
   test("while answering, a half-written go line doesn't show (card #784)", () => {
     const html = render({
-      reply: { text: "It's #779.\n\n<<go car", status: "", end: "", error: "" },
+      entries: [
+        { id: "q:t1", role: "person", text: "q", turn: "t1", pending: true },
+      ],
+      streams: {
+        t1: {
+          text: "It's #779.\n\n<<go car",
+          status: "",
+          end: "",
+          error: "",
+          looked: "",
+        },
+      },
     })
     expect(html).not.toContain("&lt;&lt;")
     expect(html).not.toContain("data-assistant-go")

@@ -26,7 +26,7 @@ use irori_core::assistant_chat::{ChatDone, ChatEvent, ChatJob, Posted};
 
 use crate::assistant::{
     AssistantEvent, DRAFT_CLOSE, DRAFT_OPEN, DRAFT_OPEN_CHECK, Job, NO_CLAUDE, SCREEN_STATUS,
-    SIGNED_OUT, STOPPED, Sink, TOO_LONG, screen_label, stream_json_line,
+    SIGNED_OUT, STOPPED, Sink, TOO_LONG, chat_content_blocks, screen_label, stream_json_line,
 };
 
 /// How often a run's wait looks at its cancel.
@@ -209,7 +209,8 @@ impl crate::Window {
         let core = &self.core;
         core.set_assistant_screen(&job.screen);
         let run = core.assistant_grants().begin(job.grants.clone());
-        let line = stream_json_line(&[serde_json::json!({"type": "text", "text": job.prompt})]);
+        let files = self.chat_file_bytes(&job.files);
+        let line = stream_json_line(&chat_content_blocks(&job.prompt, &files));
         let mut j = Job::assistant(core, line);
         if let Ok(j) = j.as_mut() {
             j.look = screen_label(&job.screen);

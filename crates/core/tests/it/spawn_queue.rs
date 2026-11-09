@@ -535,3 +535,83 @@ fn the_person_can_end_a_usage_hold() {
     });
     assert_eq!(s.r.core.spawn_queue().held_until, None);
 }
+
+/// Whether `feed` has had the change telling the window every card's agent
+/// words may have moved, reading what it holds (as spawn_capable.rs).
+fn agents_changed(feed: &irori_core::Feed) -> bool {
+    let mut seen = false;
+    while let Some(ev) = feed.try_recv() {
+        seen |= matches!(ev, irori_core::CoreEvent::Board(ref c)
+            if c.kind == irori_core::spawn_capable::AGENTS_CHANGED);
+    }
+    seen
+}
+
+/// list-signals.md §3.2 (card #1144): every card's queue words read the
+/// usage hold, and no row says it moved, so the window is told when a
+/// spawn sets the hold, when the person ends it, and when it runs out on
+/// its own (the sweep clears it). Other things tell it too (a computer
+/// coming or going), so this only checks it is told.
+#[test]
+fn the_usage_hold_tells_the_window_when_it_starts_and_ends() {
+    let s = Setup::new();
+    let co = s.r.core.coord();
+    let feed = s.r.core.feed(&[irori_core::Topic::Board]);
+    *s.fake.fail.lock().unwrap() = Some("You've hit your 5-hour limit · resets 4:30pm".into());
+    let a = s.card(&s.person, "hits the limit");
+    s.install();
+
+    // A spawn hits the limit: held.
+    let mut told = false;
+    wait_for(60, "held, and the window told", || {
+        s.kick();
+        told |= agents_changed(&feed);
+        told && s.r.core.spawn_queue().held_until.is_some()
+    });
+
+    // The person ends it: told as the call returns.
+    let _ = agents_changed(&feed);
+    s.r.core.release_usage_hold();
+    assert!(agents_changed(&feed), "ending the hold tells the window");
+
+    // Still limited: it holds again, and tells again.
+    let mut told = false;
+    wait_for(60, "held again, and the window told", || {
+        s.kick();
+        told |= agents_changed(&feed);
+        told && s.r.core.spawn_queue().held_until.is_some()
+    });
+
+    // Nothing left to start, so nothing re-holds after the reset.
+    co.set_task_state(&s.person, &a.id, "canceled", "not needed")
+        .unwrap();
+    s.kick();
+    std::thread::sleep(Duration::from_millis(500));
+    let _ = agents_changed(&feed);
+
+    // Past the reset the sweep clears the hold and tells the window.
+    s.skew.fetch_add(25 * 3600, Ordering::SeqCst);
+    let mut told = false;
+    wait_for(60, "the hold runs out, and the window told", || {
+        s.kick();
+        told |= agents_changed(&feed);
+        told
+    });
+    assert_eq!(s.r.core.spawn_queue().held_until, None);
+}
+
+/// list-signals.md §3.2 (card #1144): every card's weight line reads its
+/// board's spawn setting, so changing it tells the window at once.
+#[test]
+fn a_changed_spawn_setting_tells_the_window() {
+    let s = Setup::new();
+    let feed = s.r.core.feed(&[irori_core::Topic::Board]);
+    let mut set = s.r.core.spawn_setting("");
+    assert!(set.on);
+    set.model = "opus".into();
+    s.r.core.set_spawn_setting(set).unwrap();
+    assert!(
+        agents_changed(&feed),
+        "a changed setting tells the window as it is set"
+    );
+}

@@ -480,8 +480,13 @@ impl Fold {
     /// repeated kicks) or the card no longer needs an agent.
     pub(crate) fn request_spawn(&mut self, by: &str, a: SpawnAsk) -> Result<Option<i64>> {
         let by = caller(by)?;
-        if a.step.is_empty() && a.subtask.is_empty() {
-            self.spawn_now.remove(&a.task_id);
+        if a.step.is_empty() && a.subtask.is_empty() && self.spawn_now.remove(&a.task_id) {
+            // Its "can't start" words change even when no row follows.
+            self.note(Change {
+                kind: TASK_CHANGED.into(),
+                task_id: a.task_id.clone(),
+                ..Change::default()
+            });
         }
         if !PERMISSION_MODES.contains(&a.permission_mode.as_str()) {
             return Err(bad_state(format!(

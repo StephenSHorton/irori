@@ -114,7 +114,7 @@ pub use crate::service::{
     BoardReviewer, Core, HomeEdit, NO_HOME_SERVER, NowFn, Options, ReviveFn, StartError,
 };
 pub use capture::DecisionView;
-pub use events::{CoreEvent, Feed, Hub, Topic};
+pub use events::{CoreEvent, Feed, Hub, NotifChange, TalkChange, Topic};
 pub use irori_net::share::ShareInfo;
 /// The share hub's insides, for `examples/share-call-dev.rs` (#658): not an
 /// API.

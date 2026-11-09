@@ -8,7 +8,7 @@
 //! computer needs it, for the turn.
 
 use irori_core::assistant_chat::{self as chat, ChatEntry};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::Window;
@@ -60,6 +60,8 @@ pub struct AssistantChatTurn {
     /// Brought in from the assistant's computer's old history.
     pub imported: bool,
     pub call_id: String,
+    /// The files that came with it.
+    pub files: Vec<crate::assistant::AssistantFile>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub reply: Option<AssistantChatReply>,
@@ -164,6 +166,18 @@ fn item(i: chat::ChatItem) -> AssistantChatItem {
                 again: a.again,
                 imported: a.imported,
                 call_id: a.call_id,
+                files: a
+                    .files
+                    .into_iter()
+                    .map(|f| crate::assistant::AssistantFile {
+                        sha256: f.sha256,
+                        name: f.name,
+                        size: f.size,
+                        mime: f.mime,
+                        device: f.device,
+                        can_read: f.can_read,
+                    })
+                    .collect(),
                 reply: t.said.map(|s| AssistantChatReply {
                     text: s.text,
                     changed: s.changed,
@@ -220,6 +234,177 @@ impl Window {
         Ok(AssistantChatPage {
             items: p.items.into_iter().map(item).collect(),
             more: p.more,
+        })
+    }
+
+    /// The person posted a reply's draft as a thread (Post thread): every
+    /// device then hides the button.
+    pub fn assistant_chat_posted(
+        &self,
+        turn: &str,
+        id: &str,
+        short: &str,
+        tag: &str,
+    ) -> Result<(), String> {
+        self.core
+            .assistant_chat_write(chat::ChatRow::Posted(chat::PostedThread {
+                turn: turn.to_string(),
+                posted: chat::Posted {
+                    id: id.to_string(),
+                    short: short.to_string(),
+                    tag: tag.to_string(),
+                },
+            }))
+            .map(|_| ())
+    }
+
+    /// New chat: hides every turn, line and draft older than this row.
+    pub fn assistant_chat_clear(&self) -> Result<(), String> {
+        let by = format!("user:{}", self.core.device_id());
+        self.core
+            .assistant_chat_write(chat::ChatRow::Cleared(chat::Cleared {
+                by,
+                at: self.core.assistant_chat_now(),
+            }))
+            .map(|_| ())
+    }
+
+    /// A follow-up line the chat says about a thread it posted (the first
+    /// row per `key` wins on every device).
+    pub fn assistant_chat_update(&self, u: AssistantChatUpdateIn) -> Result<(), String> {
+        let at = self.core.assistant_chat_now();
+        self.core
+            .assistant_chat_write(chat::ChatRow::Update(chat::Update {
+                key: u.key,
+                thread: u.thread,
+                text: u.text,
+                act: u.act.map(|a| chat::Act {
+                    kind: a.kind,
+                    card: a.card,
+                    blocker: a.blocker,
+                }),
+                at,
+                ..chat::Update::default()
+            }))
+            .map(|_| ())
+    }
+}
+
+/// A follow-up line to write (see [`Window::assistant_chat_update`]).
+#[derive(Debug, Clone, serde::Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantChatUpdateIn {
+    pub key: String,
+    pub thread: String,
+    pub text: String,
+    pub act: Option<AssistantChatActIn>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantChatActIn {
+    pub kind: String,
+    pub card: String,
+    pub blocker: String,
+}
+
+/// A thread an old history entry posted.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AssistantImportPosted {
+    pub id: String,
+    pub short: String,
+    pub tag: String,
+}
+
+/// What an old follow-up line lets the person do.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AssistantImportAct {
+    pub kind: String,
+    pub card: String,
+    pub blocker: String,
+}
+
+/// One entry of the old localStorage history (`ChatEntry` in
+/// `lib/assistant.ts`), for `assistant_chat_import`.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AssistantImportEntry {
+    /// `person` or `assistant`.
+    pub role: String,
+    pub text: String,
+    pub note: bool,
+    pub changed: bool,
+    pub posted: Option<AssistantImportPosted>,
+    /// The thread an assistant line follows.
+    pub update: String,
+    pub act: Option<AssistantImportAct>,
+    pub to: String,
+    /// The text the reply read off the screen; only its label is kept.
+    pub looked: String,
+}
+
+/// What `assistant_chat_import` wrote.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantImported {
+    pub turns: u32,
+    pub updates: u32,
+}
+
+impl From<AssistantImportEntry> for chat::ImportEntry {
+    fn from(e: AssistantImportEntry) -> Self {
+        let looked = if e.looked.trim().is_empty() {
+            String::new()
+        } else {
+            let l = crate::assistant::screen_label(&e.looked);
+            if l.is_empty() {
+                e.looked
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .chars()
+                    .take(90)
+                    .collect()
+            } else {
+                l
+            }
+        };
+        chat::ImportEntry {
+            role: e.role,
+            text: e.text,
+            note: e.note,
+            changed: e.changed,
+            posted: e.posted.map(|p| chat::Posted {
+                id: p.id,
+                short: p.short,
+                tag: p.tag,
+            }),
+            update: e.update,
+            act: e.act.map(|a| chat::Act {
+                kind: a.kind,
+                card: a.card,
+                blocker: a.blocker,
+            }),
+            to: e.to,
+            looked,
+        }
+    }
+}
+
+impl Window {
+    /// Brings this computer's old chat history in, once (card #1105).
+    pub fn assistant_chat_import(
+        &self,
+        entries: Vec<AssistantImportEntry>,
+    ) -> Result<AssistantImported, String> {
+        let entries: Vec<chat::ImportEntry> = entries.into_iter().map(Into::into).collect();
+        let d = self.core.assistant_chat_import(&entries)?;
+        Ok(AssistantImported {
+            turns: d.turns as u32,
+            updates: d.updates as u32,
         })
     }
 }

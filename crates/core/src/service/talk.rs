@@ -93,7 +93,9 @@ impl Core {
         let id = tools::talk::open_dm(&self.talk_view(), me, key)?;
         // A DM with another person opens as a draft, which writes no row:
         // tell the window, so its list has it (card #538).
-        self.s.hub.publish(crate::events::CoreEvent::Talk);
+        self.s.hub.publish(crate::events::CoreEvent::Talk(
+            crate::events::TalkChange::convs([id.as_str()]),
+        ));
         Ok(id)
     }
 
@@ -113,7 +115,9 @@ impl Core {
         };
         self.s.dm_leave(&other).map_err(|e| e.to_string())?;
         self.s.talk.drop_draft(conv);
-        self.s.hub.publish(crate::events::CoreEvent::Talk);
+        self.s.hub.publish(crate::events::CoreEvent::Talk(
+            crate::events::TalkChange::convs([conv]),
+        ));
         Ok(())
     }
 

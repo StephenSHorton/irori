@@ -26,7 +26,7 @@ use coord::talk::{CanvasItem, NewItem, NewItemSet, is_person_key};
 use super::Services;
 use super::huddle_packet::{self, DATA_TAG, Packet};
 use super::huddle_rules::{Block, Kind, Layer, Look, admit, is_duplicate};
-use crate::events::CoreEvent;
+use crate::events::{CoreEvent, TalkChange};
 
 /// `logf` with format arguments.
 macro_rules! logf {
@@ -198,6 +198,10 @@ pub struct CanvasEntry {
     pub mine: bool,
     /// The asker is this device's person.
     pub asker_mine: bool,
+    /// Who made the card the item became, when it did.
+    pub card_by_name: String,
+    /// That person is this device's person.
+    pub card_by_mine: bool,
 }
 
 impl Services {
@@ -216,12 +220,14 @@ impl Services {
     fn canvas_done<T>(
         &self,
         call: &str,
+        conv: &str,
         what: &str,
         r: Result<T, coord::Error>,
     ) -> Result<T, String> {
         match r {
             Ok(v) => {
-                self.hub.publish(CoreEvent::Talk);
+                self.hub
+                    .publish(CoreEvent::Talk(TalkChange::of([conv], [call])));
                 Ok(v)
             }
             Err(e) => {
@@ -261,7 +267,7 @@ impl Services {
             },
             &self.canvas_me(),
         );
-        let item = self.canvas_done(call, "item", r)?;
+        let item = self.canvas_done(call, &conv, "item", r)?;
         self.huddle_route_question(call, &item);
         Ok(item)
     }
@@ -289,7 +295,7 @@ impl Services {
             },
             &self.canvas_me(),
         );
-        self.canvas_done(call, "item set", r)
+        self.canvas_done(call, &conv, "item set", r)
     }
 
     /// The Ask box: the person puts a question to their assistant. It is a
@@ -310,6 +316,7 @@ impl Services {
         let me = self.canvas_me();
         let item = self.canvas_done(
             call,
+            &conv,
             "ask",
             self.talk.write_item(
                 &conv,
@@ -365,7 +372,8 @@ impl Services {
             &me,
         ) {
             Ok(i) => {
-                self.hub.publish(CoreEvent::Talk);
+                self.hub
+                    .publish(CoreEvent::Talk(TalkChange::of([conv], [call])));
                 self.canvas_mem(call, |m| {
                     m.known_items.insert(i.item_id.clone());
                 });
@@ -394,7 +402,9 @@ impl Services {
             &me,
         );
         match r {
-            Ok(_) => self.hub.publish(CoreEvent::Talk),
+            Ok(_) => self
+                .hub
+                .publish(CoreEvent::Talk(TalkChange::of([conv], [call]))),
             Err(e) => logf!("huddle {call}: placeholder {id}: {e}"),
         }
     }
@@ -817,7 +827,8 @@ impl Services {
     fn canvas_entries(&self, call: &str, items: &[CanvasItem]) -> Vec<CanvasEntry> {
         let mut keys: Vec<String> = Vec::new();
         for i in items {
-            for k in std::iter::once(&i.by).chain(i.asker.iter()) {
+            let carder = (!i.card_by.is_empty()).then_some(&i.card_by);
+            for k in std::iter::once(&i.by).chain(i.asker.iter()).chain(carder) {
                 if !keys.contains(k) {
                     keys.push(k.clone());
                 }
@@ -864,6 +875,12 @@ impl Services {
                     asker_name: i.asker.as_deref().map(&name_of).unwrap_or_default(),
                     mine: is_person_key(&i.by),
                     asker_mine: i.asker.as_deref().is_some_and(is_person_key),
+                    card_by_name: if i.card_by.is_empty() {
+                        String::new()
+                    } else {
+                        name_of(&i.card_by)
+                    },
+                    card_by_mine: is_person_key(&i.card_by),
                 }
             })
             .collect()

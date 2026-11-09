@@ -733,6 +733,8 @@ pub struct CanvasItem {
     pub y: Option<f64>,
     /// The ref of the card it became, once a person divided it.
     pub card: String,
+    /// Who set `card` (a person's key), for "carded by Addam".
+    pub card_by: String,
     /// Where it sits in the fold, for a stable order.
     pub ord: Ord3,
 }
@@ -2341,6 +2343,7 @@ fn canvas_of(s: &State, call_id: &str, conv: &str) -> Vec<CanvasItem> {
             x: None,
             y: None,
             card: String::new(),
+            card_by: String::new(),
             ord: rec.ord.clone(),
         };
         // Sets apply in log order, so the newest of each field wins.
@@ -2376,6 +2379,7 @@ fn canvas_of(s: &State, call_id: &str, conv: &str) -> Vec<CanvasItem> {
                 let c = c.trim();
                 if !c.is_empty() && c.len() <= 200 {
                     item.card = c.to_string();
+                    item.card_by = w.by.clone();
                 }
             }
         }

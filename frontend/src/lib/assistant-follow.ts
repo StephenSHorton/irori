@@ -431,6 +431,24 @@ export function news(
   }
 }
 
+// isSilentKey says a fact is one the chat never says (taken, made, start,
+// done, closed): only this device remembers it. The lines it does say are
+// follow-up rows, and the rows are what remembers those (card 4).
+export function isSilentKey(k: string): boolean {
+  return !(k === "cant" || /^(perm|ready|ask):/.test(k))
+}
+
+// silentOnly is a store cut to what only this device remembers.
+export function silentOnly(st: SeenStore): SeenStore {
+  const out: SeenStore = {}
+  for (const [id, x] of Object.entries(st))
+    out[id] = {
+      said: x.said === null ? null : x.said.filter(isSilentKey),
+      ...(x.done ? { done: true } : {}),
+    }
+  return out
+}
+
 // ---- the follower ------------------------------------------------------------------
 
 export type FollowDeps = {
@@ -443,6 +461,9 @@ export type FollowDeps = {
   ) => Promise<Map<string, WorkThread | null>>
   listen: (again: () => void) => () => void
   load: () => SeenStore
+  // The facts of a thread already said as rows, on any device. A thread
+  // this device has no entry for starts from them, not from nothing.
+  shown?: (id: string) => string[]
   save: (s: SeenStore) => void
   // A thread's new lines, and its work as read (null: it is gone).
   say: (id: string, lines: Fact[], work: WorkThread | null) => void
@@ -535,7 +556,17 @@ export function createFollower(d: FollowDeps): Follower {
             d.say(id, [], null)
             continue
           }
-          const n = news(store[id], t)
+          const rows = d.shown?.(id)
+          const base = store[id]
+          const n = news(
+            rows
+              ? {
+                  ...(base ?? { said: [] }),
+                  said: [...new Set([...(base?.said ?? []), ...rows])],
+                }
+              : base,
+            t
+          )
           store[id] = n.seen
           if (!n.seen.done && !quiet(t)) calm = false
           d.say(id, n.say, t)

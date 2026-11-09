@@ -10,7 +10,7 @@ type Extra = Map<string, TalkCanvasItem[]>
 const added: Extra = new Map()
 const edits = new Map<
   string,
-  { text?: string; status?: string; x?: number; y?: number }
+  { text?: string; status?: string; x?: number; y?: number; card?: string }
 >()
 const listeners = new Set<() => void>()
 
@@ -41,6 +41,8 @@ function item(p: Partial<TalkCanvasItem> & { itemId: string }): TalkCanvasItem {
     x: null,
     y: null,
     card: "",
+    cardByName: "",
+    cardMine: false,
     ...p,
   }
 }
@@ -123,6 +125,51 @@ function baseItems(callId: string, now: number): TalkCanvasItem[] {
       why: "digest",
     }),
   ]
+  if (!live)
+    items.push(
+      item({
+        itemId: "t2",
+        kind: "task",
+        text: "Add the notarization status check to the release script.",
+        byName: "Aiko",
+        mine: false,
+        atMs: t(1470),
+        status: "open",
+      }),
+      item({
+        itemId: "t3",
+        kind: "task",
+        text: "Write the Windows installer signing steps into docs/releasing.md.",
+        byName: "Spencer",
+        mine: false,
+        atMs: t(1468),
+        status: "carded",
+        card: "#118",
+        cardByName: "Spencer",
+        cardMine: false,
+      }),
+      item({
+        itemId: "q2",
+        kind: "question",
+        text: "Do we still need the old updater endpoint?",
+        byName: "you",
+        mine: true,
+        atMs: t(1465),
+        status: "open",
+      }),
+      item({
+        itemId: "sum1",
+        kind: "summary",
+        text: "Signing happens on the PC, notarizing on the Mac. The EV certificate must be renewed before the 14th. Action items: renew the certificate (Spencer), add a notarization status check to the release script (Aiko).",
+        refs: ["q1", "d1"],
+        assistant: true,
+        label: juno,
+        byName: "you",
+        mine: true,
+        atMs: t(1460),
+        why: "end",
+      })
+    )
   if (live)
     items.push(
       item({
@@ -153,6 +200,9 @@ export function sampleCanvas(callId: string, now: number): TalkCanvasItem[] {
       status: e.status ?? i.status,
       x: e.x ?? i.x,
       y: e.y ?? i.y,
+      card: e.card ?? i.card,
+      cardByName: e.card ? "you" : i.cardByName,
+      cardMine: e.card ? true : i.cardMine,
     }
   })
 }
@@ -210,7 +260,8 @@ export async function sampleSet(
   text: string | null,
   status: string | null,
   x: number | null,
-  y: number | null
+  y: number | null,
+  card: string | null = null
 ): Promise<TalkCanvasItem> {
   const key = `${callId}/${itemId}`
   const e = edits.get(key) ?? {}
@@ -218,6 +269,7 @@ export async function sampleSet(
   if (status !== null) e.status = status
   if (x !== null) e.x = x
   if (y !== null) e.y = y
+  if (card !== null) e.card = card
   edits.set(key, e)
   changed()
   const found = sampleCanvas(callId, Date.now()).find(
@@ -255,4 +307,32 @@ export async function sampleAsk(
     changed()
   }, 2_400)
   return q
+}
+
+// sampleDivideReply is the stand-in's answer when the chat is dividing a
+// huddle (card #1054): two card drafts and a settle list, in the blocks the
+// Core's prompt asks for, over the items of "sample-call-2".
+export function sampleDivideReply(callId: string): string {
+  if (callId !== "sample-call-2")
+    return "There is nothing on that canvas to divide."
+  const card = (c: object) => `<<cards>>
+${JSON.stringify(c)}
+<</cards>>`
+  return [
+    "Here is how I would divide it. The certificate renewal and the Windows signing steps belong together, and the notarization check is its own small card. The signing question was answered in the call, so I would settle it instead of carding it.",
+    "",
+    card({
+      title: "Renew the EV certificate and record the thumbprint",
+      objective:
+        "Renew the Windows signing certificate before the 14th and record the new thumbprint in docs/releasing.md.",
+      items: ["t1"],
+    }),
+    card({
+      title: "Notarization status check in the release script",
+      objective:
+        "Add a check that looks at Apple's status page when notarization passes ten minutes, before retrying.",
+      items: ["t2", "n1"],
+    }),
+    '<<settle>>{"settle":["q1"],"drop":["q2"]}<</settle>>',
+  ].join("\n")
 }

@@ -140,6 +140,9 @@ const PAGES: Array<[name: string, query: string]> = [
   // being written, an empty chat, and the button above a call's bar.
   ["assistant", "?assistant=open"],
   ["assistant-busy", "?assistant=busy#talk/sample-ch-suzuri"],
+  // One assistant (card #1104): questions waiting on another device's computer.
+  ["assistant-waiting", "?assistant=waiting"],
+  ["assistant-draft", "?assistant=draft"],
   ["assistant-new", "?assistant=new&open=board:task:sample-card-1"],
   ["assistant-draft", "?assistant=draft"],
   ["assistant-follow", "?assistant=follow"],

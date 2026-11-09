@@ -1909,7 +1909,15 @@ impl Coord {
     /// The person asked for card `id`'s agent now: a failed spawn is asked
     /// for again at the next sweep, not after [`SPAWN_RETRY`].
     pub fn spawn_now(&self, id: &str) {
-        self.lock().spawn_now.insert(id.to_string());
+        let mut f = self.lock();
+        if f.spawn_now.insert(id.to_string()) {
+            // Its "can't start" words read the ask (list-signals.md §3.2).
+            f.note(Change {
+                kind: TASK_CHANGED.into(),
+                task_id: id.to_string(),
+                ..Change::default()
+            });
+        }
     }
     /// Whether the person asked for card `id`'s agent now and no request
     /// has been written since ([`Self::spawn_now`]).
@@ -2227,6 +2235,8 @@ impl Coord {
         let changed = f.desk_repos.as_ref() != Some(&set);
         f.desk_repos = Some(set);
         f.desk_judged = judged;
+        // Which desks are strays may have moved.
+        f.note_desk("");
         changed
     }
 
