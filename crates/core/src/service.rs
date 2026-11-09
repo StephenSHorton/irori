@@ -59,6 +59,7 @@ pub mod assistant_answers;
 pub mod assistant_chat;
 pub mod assistant_home;
 mod assistant_name;
+mod assistant_turns;
 pub mod boards;
 mod boards_members;
 mod boards_own;
@@ -373,6 +374,8 @@ struct Services {
     /// The Office Assistant's computer, folded from `assistant.home` rows
     /// (one-assistant card 1).
     assistant_home: assistant_home::HomeState,
+    /// The queue of questions this computer answers (one-assistant card 3).
+    chat: assistant_turns::ChatQueue,
     /// Irori's assistant weighing new cards (card #965).
     weighing: card_weights::Weighing,
     /// Office Assistants answering other people (assistants-talk card 4).
@@ -1504,6 +1507,8 @@ impl Core {
         let notifications = Arc::new(coord::notifications::History::new());
         load_notifications(&st, &notifications);
         let assistant_chat = Arc::new(assistant_chat::Fold::new());
+        // What the chat worker counts as folded: every row before the load.
+        let chat_heard = st.vector().unwrap_or_default();
         assistant_chat::load(&st, &assistant_chat);
         laps.lap("colors+names");
         let decisions_sub = Arc::new(st.subscribe());
@@ -1709,6 +1714,7 @@ impl Core {
             call_settings,
             naming,
             assistant_home: assistant_home::HomeState::default(),
+            chat: assistant_turns::ChatQueue::new(chat_heard),
             weighing,
             asst: Default::default(),
             held: Default::default(),
@@ -2128,6 +2134,7 @@ impl Core {
                         s.settle_notifications();
                         s.hub.publish(CoreEvent::Devices);
                         s.hub.publish(CoreEvent::Notifications);
+                        let before = s.store.vector().unwrap_or_default();
                         s.assistant_chat.reload(&s.store);
                         s.hub.publish(CoreEvent::AssistantChat);
                         // Card #538: this thread doesn't wait for the
@@ -2142,6 +2149,9 @@ impl Core {
                         s.follow_names_on();
                         s.follow_weighs_on();
                         s.follow_assistant_home();
+                        // Questions past the buffer are lost to the
+                        // chat's queue: its scan finds them (card 3).
+                        s.chat_resynced(&before);
                     } else if ev.kind == kinds::ASSISTANT_HOME
                         || ev.kind == kinds::PERSON_DEVICE_REVOKED
                     {
@@ -2233,6 +2243,11 @@ impl Core {
                         // the row again changes nothing.
                         s.coord.apply_sides(&ev);
                         s.hub.publish(CoreEvent::Devices);
+                    }
+                    if !ev.is_resync() {
+                        // After the folds: the chat worker's live way in,
+                        // its Stop, and how far the folds have got.
+                        s.chat_heard(&ev);
                     }
                 }
             });
@@ -2481,6 +2496,17 @@ impl Core {
             self.spawn("assistant-answers", move || {
                 let _reg = reg;
                 s3.answers_loop(rx);
+            });
+        }
+        {
+            // The assistant's computer answers the chat's questions from
+            // rows (one-assistant card 3): one worker, oldest first.
+            let s2 = s.clone();
+            let reg = self.on_stop(&s2, |s| s.chat_close());
+            let s3 = s.clone();
+            self.spawn("assistant-chat", move || {
+                let _reg = reg;
+                s3.chat_loop();
             });
         }
         {
@@ -2952,6 +2978,22 @@ impl Core {
     /// headless Core, or the phone, has none and names nothing.
     pub fn set_namer(&self, n: Option<thread_names::Namer>) {
         self.s.set_namer(n);
+    }
+
+    /// Gives the Core the desktop app's chat turn (one-assistant card 3):
+    /// the window runs each question this computer answers, blocking until
+    /// it ends. Installing it answers the questions that came before it,
+    /// and says on `spawn.host` that this computer can answer the person's
+    /// other devices (`assistantChat`). A headless Core, or the phone, has
+    /// none and answers nothing.
+    pub fn set_chat_turn(&self, f: Option<assistant_chat::ChatTurnFn>) {
+        self.s.set_chat_turn(f);
+    }
+
+    /// How many times the kind loop has resynced (tests; card 3's scan).
+    #[doc(hidden)]
+    pub fn chat_resyncs(&self) -> u64 {
+        self.s.chat_resyncs()
     }
 
     /// Installs the turn that weighs a new card (card #965).

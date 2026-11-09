@@ -956,6 +956,13 @@ impl Node {
         }
     }
 
+    /// How far `dev`'s wall clock runs ahead of this one's, in
+    /// nanoseconds, as its last hello said (one-assistant card 3: is a
+    /// question late?). `None` when no session with it has said.
+    pub fn skew(&self, dev: &str) -> Option<i64> {
+        self.lock().known.get(dev).map(|k| k.skew)
+    }
+
     /// Whether this device is caught up with every one of the person's
     /// devices it has a live session with (one-assistant card 1): for each,
     /// this device's vector covers that device's newest vector. A writer

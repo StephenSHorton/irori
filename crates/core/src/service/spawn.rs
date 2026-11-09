@@ -2056,6 +2056,10 @@ impl Services {
             self.claim_assistant_home();
             self.mint_assistant_cards();
         }
+        // The chat's backstop: an unanswered question that isn't queued
+        // (one-assistant card 3). Before the pause: Stop everywhere never
+        // stops the person's own chat.
+        self.chat_scan();
         if self.inbox.policy().paused {
             return;
         }

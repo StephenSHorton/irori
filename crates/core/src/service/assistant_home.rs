@@ -264,6 +264,11 @@ impl Services {
             l(now.as_deref());
         }
         self.hub.publish(CoreEvent::AssistantHome);
+        // Questions that waited while another computer was recorded
+        // (card 3).
+        if now.as_deref() == Some(self.device.id.as_str()) {
+            self.chat_scan();
+        }
     }
 
     /// The person picks `device` (Settings, or the away line's one tap),
@@ -292,7 +297,7 @@ impl Services {
     }
 
     /// A computer that can run the assistant claims itself when nothing is
-    /// recorded (card 1; from card 3 `assistantChat` is needed too). It
+    /// recorded: it says `assistantTurn` and `assistantChat` (card 3). It
     /// only ever names itself, and writes nothing while there is a
     /// recorded computer, even one that has been offline for days.
     pub(crate) fn claim_assistant_home(&self) {
@@ -301,8 +306,8 @@ impl Services {
         }
         let hosts = self.hosts();
         let me = self.device.id.as_str();
-        // Every field the claim needs, today `assistantTurn` alone.
-        let able = |h: &super::spawn_remote::SpawnHost| h.assistant_turn;
+        // Every field the claim needs.
+        let able = |h: &super::spawn_remote::SpawnHost| h.assistant_turn && h.assistant_chat;
         if !hosts.get(me).is_some_and(able) {
             return;
         }
@@ -317,6 +322,8 @@ impl Services {
             .unwrap_or_else(|e| e.into_inner())
             .homes
             .clone();
+        let hosts: std::collections::HashMap<_, _> =
+            hosts.into_iter().filter(|(_, h)| able(h)).collect();
         if super::spawn_capable::assistant_home_of(&homes, &hosts).as_deref() != Some(me) {
             return;
         }
@@ -382,9 +389,7 @@ impl Services {
             // What the newest `spawn.host` of each computer says. A
             // computer that says `assistantTurn` and `assistantChat` will
             // claim; one that says only `assistantTurn` runs an Irori that
-            // can't answer other devices yet. (Until a build publishes
-            // `assistantChat`, in card 3, the second is all there is; the
-            // claim itself needs `assistantTurn` alone until then.)
+            // can't answer other devices yet.
             let (mut turn, mut chat) = (false, false);
             for (id, h) in &self.hosts() {
                 if self.chain.cut(id).is_some() {
