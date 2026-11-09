@@ -3655,6 +3655,12 @@ impl Core {
         self.s.hub.subscribe(topics)
     }
 
+    /// [`Core::feed`] with a queue of `cap` slots: the window's debug
+    /// switch shrinks its feeds so they overflow (list-signals.md §8).
+    pub fn feed_sized(&self, topics: &[Topic], cap: usize) -> Feed {
+        self.s.hub.subscribe_sized(topics, cap)
+    }
+
     /// This device's presence changes (Go `Changes`).
     pub fn changes(&self) -> presence::Subscription {
         self.s.presence.subscribe()
