@@ -2013,6 +2013,11 @@ impl Coord {
     pub fn ask_given(&self, by: &str, id: &str, context: &str) -> Result<()> {
         self.lock().ask_given(by, id, context)
     }
+    /// Starts review card `id` given to the person without asking
+    /// (merge-desk §12.10): see [`Fold::start_given`].
+    pub fn start_given(&self, by: &str, id: &str, context: &str) -> Result<()> {
+        self.lock().start_given(by, id, context)
+    }
     /// The requests naming this device it may start an agent for now
     /// (card #455): another of the person's devices chose it, or it chose
     /// itself. See [`Fold::spawns_here`].

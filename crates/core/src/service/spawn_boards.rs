@@ -172,6 +172,27 @@ impl Services {
                 )
             })
             .unwrap_or_default();
+        if !t.review_of.is_empty() {
+            let pr = t
+                .links
+                .iter()
+                .find(|l| coord::pr_link(l).is_some())
+                .map(|l| l.reference.clone())
+                .unwrap_or_default();
+            return format!(
+                "{failed}{giver}'s Irori found no one free to review {pr} in {repo}, so it \
+                 gave you this review. A reviewer would run on this computer at this card's \
+                 weight, under your own settings and cap: it reads the pull request and \
+                 comments, and never merges, pushes or runs its code. You can turn the \
+                 question off in Settings › Agents (Start a reviewer on this machine when \
+                 nobody else fits).",
+                repo = if t.repo_key.is_empty() {
+                    "this repo"
+                } else {
+                    &t.repo_key
+                },
+            );
+        }
         format!(
             "{failed}{giver} gave you this card. It asks: {cut}{more}\n\nIrori stopped here \
              because someone else wrote it. An agent would run on this computer, under your own \
@@ -194,7 +215,18 @@ impl Services {
                     continue;
                 }
                 let context = self.given_context(&log, &t);
-                if let Err(e) = co.ask_given(&me, &t.id, &context) {
+                // A review card the PR's author gave them starts without
+                // the question while their switch is on (merge-desk
+                // §12.10); with it off, or any other given card, it asks.
+                let res = if t.review_of.is_empty()
+                    || !self.review_starts()
+                    || coord::Coord::given_failed(&t).is_some()
+                {
+                    co.ask_given(&me, &t.id, &context)
+                } else {
+                    co.start_given(&me, &t.id, &context)
+                };
+                if let Err(e) = res {
                     logf(format_args!("given card {}: {e}", t.short_ref()));
                 }
             }
@@ -346,12 +378,35 @@ impl Services {
             BriefMore::default(),
         );
         let setting = self.spawn_setting(&b.id);
+        // A review card's rules bind to its PR card's PR alone, whatever
+        // else its links name: the card's links are the author's to edit
+        // (merge-desk §12.10).
+        let rt;
+        let perm_card = if t.review_of.is_empty() {
+            t
+        } else {
+            let pr = log
+                .co
+                .get_task(&t.review_of)
+                .and_then(|c| c.pr_card.map(|k| k.pr))
+                .unwrap_or_default();
+            rt = Task {
+                links: t
+                    .links
+                    .iter()
+                    .filter(|l| l.reference == pr)
+                    .cloned()
+                    .collect(),
+                ..t.clone()
+            };
+            &rt
+        };
         let perms = spawn_permissions(
             &setting,
             &b.id,
             &repo_key,
             &brief,
-            t,
+            perm_card,
             self.reviews_unasked(),
         );
         let ask = SpawnAsk {

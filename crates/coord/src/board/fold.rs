@@ -1377,8 +1377,25 @@ impl Fold {
             pr: p.pr.clone(),
             author: p.pr_author.clone(),
         });
+        // A review card: a person row of the PR card's own creator that
+        // names it (merge desk §12.10). Anyone else's row is a plain card,
+        // so no stranger's card starts an agent without asking.
+        let review_of = if p.review_of.is_empty() || p.ask.is_some() || pr_card.is_some() {
+            String::new()
+        } else if self.on_board
+            && self.person_row(ev, &p.by)
+            && self
+                .tasks
+                .get(&p.review_of)
+                .is_some_and(|c| c.pr_card.is_some() && c.created_by == p.by)
+        {
+            p.review_of.clone()
+        } else {
+            String::new()
+        };
         let mut task = Task {
             pr_card,
+            review_of,
             id: p.task_id.clone(),
             title: p.title.clone(),
             title_by_person,

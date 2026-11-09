@@ -96,9 +96,13 @@ pub struct Spawn {
     pub prs: Vec<String>,
     /// "Review without asking" is on at spawn (merge-desk §12.8).
     pub reviews: bool,
+    /// A review card (merge-desk §12.10): never Bypass, its own short list,
+    /// none of the board's build or test rules, and no merge or push.
+    pub review: bool,
 }
 
 pub const SHARED_BOARD: &str = "bypass is never used in a shared space";
+pub const REVIEW_CARD: &str = "a review card never uses bypass and has its own short list";
 pub const OTHERS_TEXT: &str = "bypass is never used when the brief has another person's text";
 
 /// The permissions for `spawn` under the board's `p`.
@@ -110,6 +114,13 @@ pub fn spawn_permissions(p: &BoardPermissions, spawn: Spawn) -> SpawnPermissions
     } else {
         None
     };
+    if spawn.review {
+        return SpawnPermissions {
+            mode: ACCEPT_EDITS,
+            settings: Some(settings(&review_allow(&spawn), &review_deny(p))),
+            fell_back: (p.choice == Choice::Bypass).then_some(REVIEW_CARD),
+        };
+    }
     match (p.choice, refused) {
         (Choice::Bypass, None) => SpawnPermissions {
             mode: BYPASS,
@@ -179,6 +190,58 @@ fn allow_rules(p: &BoardPermissions, spawn: &Spawn) -> Vec<String> {
         }
     }
     for r in &p.allow {
+        let r = r.trim();
+        if !r.is_empty() && !out.iter().any(|o| o == r) {
+            out.push(r.to_string());
+        }
+    }
+    out
+}
+
+/// A review card's short list (merge-desk §12.8, §12.10): the irori tools,
+/// reading git, and `gh pr` reading, commenting and (while the setting is
+/// on) reviewing, each bound to its PR's URL. Nothing from the board's
+/// build or test rules, and no `git add`, `commit`, `rebase` or `push`.
+fn review_allow(spawn: &Spawn) -> Vec<String> {
+    let mut out: Vec<String> = [
+        "mcp__irori",
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git log:*)",
+        "Bash(git fetch:*)",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    for url in &spawn.prs {
+        let mut verbs = vec!["view", "diff", "checks", "comment"];
+        if spawn.reviews {
+            verbs.push("review");
+        }
+        for verb in verbs {
+            out.push(format!("Bash(gh pr {verb} {url})"));
+            out.push(format!("Bash(gh pr {verb} {url} *)"));
+        }
+    }
+    out
+}
+
+/// What a review card never runs: merging, checking out and pushing, and
+/// the board's own deny rules.
+fn review_deny(p: &BoardPermissions) -> Vec<String> {
+    let mut out: Vec<String> = [
+        "Bash(gh pr merge:*)",
+        "Bash(gh pr checkout:*)",
+        "Bash(git push:*)",
+        "Bash(git merge:*)",
+        "Bash(git checkout:*)",
+        "Bash(rm -rf:*)",
+        "Bash(rm -fr:*)",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    for r in &p.deny {
         let r = r.trim();
         if !r.is_empty() && !out.iter().any(|o| o == r) {
             out.push(r.to_string());
@@ -454,5 +517,84 @@ mod tests {
             !on.iter()
                 .any(|r| r.starts_with("Bash(gh pr comment https://github.com/o/r/pull/5:"))
         );
+    }
+
+    fn review_spawn(reviews: bool) -> Spawn {
+        Spawn {
+            shared_board: true,
+            review: true,
+            reviews,
+            prs: vec!["https://github.com/o/r/pull/5".into()],
+            ..Default::default()
+        }
+    }
+
+    /// A review card under the Bypass choice comes out limited with its own
+    /// short list: none of the board's build or test rules, merge, push and
+    /// checkout denied, and review rules bound to its PR (merge-desk
+    /// §12.10).
+    #[test]
+    fn a_review_card_is_limited_under_bypass_with_its_own_list() {
+        for choice in [Choice::Bypass, Choice::Limited, Choice::EditsOnly] {
+            let s = spawn_permissions(&board(choice), review_spawn(true));
+            assert_eq!(s.mode, ACCEPT_EDITS, "{choice:?}");
+            let allow = list(&s, "allow");
+            let deny = list(&s, "deny");
+            assert!(
+                !allow.contains(&"Bash(cargo test:*)".to_string()),
+                "{allow:?}"
+            );
+            for no in [
+                "git add",
+                "git commit",
+                "git rebase",
+                "git push",
+                "gh pr merge",
+                "gh pr create",
+            ] {
+                assert!(
+                    !allow.iter().any(|r| r.starts_with(&format!("Bash({no}"))),
+                    "{no} allowed: {allow:?}"
+                );
+            }
+            for d in [
+                "Bash(gh pr merge:*)",
+                "Bash(gh pr checkout:*)",
+                "Bash(git push:*)",
+                "Bash(git merge:*)",
+                "Bash(git checkout:*)",
+                "Bash(cargo publish:*)",
+            ] {
+                assert!(deny.contains(&d.to_string()), "{d} not denied: {deny:?}");
+            }
+            // PR rules bound to the URL, with a space-bounded form.
+            let u = "https://github.com/o/r/pull/5";
+            for verb in ["view", "diff", "checks", "comment", "review"] {
+                assert!(allow.contains(&format!("Bash(gh pr {verb} {u})")), "{verb}");
+                assert!(
+                    allow.contains(&format!("Bash(gh pr {verb} {u} *)")),
+                    "{verb}"
+                );
+            }
+            assert!(
+                !allow
+                    .iter()
+                    .any(|r| r.contains("gh pr review:*") || r.contains("gh pr comment:*")),
+                "unbound rule: {allow:?}"
+            );
+        }
+        let s = spawn_permissions(&board(Choice::Bypass), review_spawn(true));
+        assert_eq!(s.fell_back, Some(REVIEW_CARD));
+    }
+
+    #[test]
+    fn a_review_card_reviews_only_while_the_setting_is_on() {
+        let s = spawn_permissions(&board(Choice::Limited), review_spawn(false));
+        let allow = list(&s, "allow");
+        assert!(
+            allow.iter().all(|r| !r.contains("gh pr review")),
+            "{allow:?}"
+        );
+        assert!(allow.iter().any(|r| r.contains("gh pr comment")));
     }
 }
