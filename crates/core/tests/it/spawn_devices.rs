@@ -1684,3 +1684,338 @@ fn a_stopped_device_hands_its_cards_to_one_with_a_free_slot() {
     );
     t2.close();
 }
+
+/// Decision 69, §3.2 (card #1224): Start on a card given to the person
+/// after their Not now. `a` is Stephen's device that can't run agents; `m`
+/// has the checkout of REPO and the spawner. Bob gives the cards.
+struct Gift {
+    a: Dev,
+    m: Dev,
+    b: Dev,
+    board: String,
+    fs: Arc<Fake>,
+    _checkout: tempfile::TempDir,
+}
+
+impl Gift {
+    fn new() -> Gift {
+        let mut st = person("stephen", 2);
+        let m = st.pop().unwrap();
+        let a = st.pop().unwrap();
+        let b = person("bob", 1).remove(0);
+        let board = invited(&m, &b);
+        wait_for(WAIT, "Stephen's other device has the board", || {
+            a.core.boards().contains(&board)
+        });
+        let checkout = tempfile::tempdir().unwrap();
+        m.core
+            .capture()
+            .emit_row(
+                "irori",
+                capture::KIND_REPO_SEEN,
+                &capture::RepoSeen {
+                    repo_key: REPO.into(),
+                    root: checkout.path().to_string_lossy().into_owned(),
+                    at: gocompat::time::GoTime::unix(1_790_000_000, 0),
+                },
+            )
+            .unwrap();
+        let fs = Arc::new(Fake::default());
+        m.core
+            .set_spawner(Some(spawner(&fs, m.claude.join("sessions"), SESS_B)));
+        for d in [&a, &m] {
+            d.core
+                .set_spawn_setting(SpawnSetting {
+                    board_id: board.clone(),
+                    on: true,
+                    ..SpawnSetting::default()
+                })
+                .unwrap();
+        }
+        let m_id = m.core.device_id().to_string();
+        wait_for(WAIT, "the other device knows the Mac's checkout", || {
+            a.core
+                .spawn_hosts()
+                .get(&m_id)
+                .is_some_and(|h| h.repo(REPO).is_some())
+                && a.core
+                    .mesh()
+                    .devices(false)
+                    .iter()
+                    .any(|r| r.device_id == m_id && r.state != "offline")
+        });
+        Gift {
+            a,
+            m,
+            b,
+            board,
+            fs,
+            _checkout: checkout,
+        }
+    }
+
+    fn kick(&self) {
+        for d in [&self.a, &self.m] {
+            for _ in 0..3 {
+                d.core.set_spawn_cap(d.core.spawn_cap()).unwrap();
+            }
+        }
+        std::thread::sleep(Duration::from_secs(7));
+    }
+
+    fn question(&self, d: &Dev, id: &str) -> Option<coord::Blocker> {
+        d.core
+            .board_coord(&self.board)
+            .unwrap()
+            .get_task(id)
+            .and_then(|t| {
+                t.blockers
+                    .iter()
+                    .find(|b| b.open() && b.question == coord::GIVEN_QUESTION)
+                    .cloned()
+            })
+    }
+
+    /// Bob gives Stephen a card (or gives it again).
+    fn give(&self, title: &str) -> Task {
+        let bco = self.b.core.board_coord(&self.board).unwrap();
+        let t = bco
+            .create_task(
+                &self.b.person_actor(),
+                NewTask {
+                    title: title.into(),
+                    objective: "Fix the flaky test.".into(),
+                    repo_key: REPO.into(),
+                    ..NewTask::default()
+                },
+            )
+            .unwrap();
+        self.regive(&t.id);
+        t
+    }
+
+    fn regive(&self, id: &str) {
+        let bco = self.b.core.board_coord(&self.board).unwrap();
+        bco.assign(&self.b.person_actor(), id, &self.m.person_actor())
+            .unwrap();
+    }
+
+    /// Waits for the question on `id`, then Stephen says Not now on the
+    /// Mac. Returns the question's id.
+    fn not_now(&self, id: &str) -> String {
+        wait_for(WAIT, "Stephen is asked", || {
+            self.kick();
+            self.question(&self.m, id).is_some()
+        });
+        let q = self.question(&self.m, id).unwrap();
+        self.m
+            .core
+            .board_coord(&self.board)
+            .unwrap()
+            .say_given(&self.m.person_actor(), id, coord::GivenSay::NotNow)
+            .unwrap();
+        wait_for(WAIT, "both of Stephen's devices read the Not now", || {
+            [&self.a, &self.m].iter().all(|d| {
+                d.core
+                    .board_coord(&self.board)
+                    .unwrap()
+                    .get_task(id)
+                    .is_some_and(|t| t.given_said.as_ref().is_some_and(|s| !s.yes))
+            })
+        });
+        q.id
+    }
+
+    /// A `given` start request row as `d` writes it, for `by`.
+    fn row(&self, id: &str, question: &str, by: &str) -> serde_json::Value {
+        serde_json::json!({
+            "taskId": id, "gen": 0, "given": true, "question": question,
+            "by": by, "atDevice": by.trim_start_matches("user:"),
+        })
+    }
+
+    fn close(self) {
+        self.a.core.close().unwrap();
+        self.m.core.close().unwrap();
+        self.b.core.close().unwrap();
+    }
+}
+
+/// S4 test 1: on the spawn device Start after Not now is one press: one
+/// agent, and no request row.
+#[test]
+fn start_after_not_now_on_the_spawn_device_is_one_press() {
+    let g = Gift::new();
+    let t = g.give("Not now, then Start");
+    g.not_now(&t.id);
+    let line = g.m.core.start_given_card(&t.id).unwrap();
+    assert!(
+        line.as_deref().is_some_and(|l| l.starts_with("Started")),
+        "{line:?}"
+    );
+    wait_for(WAIT, "the Mac starts the agent", || {
+        g.kick();
+        g.fs.started() >= 1
+    });
+    assert_eq!(g.fs.started(), 1);
+    assert!(rows(&g.m, kinds::SPAWN_START_REQUESTED).is_empty());
+    assert!(rows(&g.a, kinds::SPAWN_START_REQUESTED).is_empty());
+    g.close();
+}
+
+/// S4 tests 2 and 6: a yes from a Core that can't run agents asks the
+/// spawn device, which starts one agent, however many times it reads the
+/// request.
+#[test]
+fn a_start_from_a_device_that_cant_run_agents_starts_one_agent_on_the_mac() {
+    let g = Gift::new();
+    let t = g.give("Started from the other device");
+    let q = g.not_now(&t.id);
+    let line = g.a.core.start_given_card(&t.id).unwrap().unwrap();
+    assert!(line.starts_with("Asked "), "{line}");
+    assert!(line.ends_with("to start it"), "{line}");
+    // The same request again, as a second reader might see it.
+    let a_id = g.a.core.device_id().to_string();
+    g.a.core
+        .store()
+        .append(
+            "user",
+            kinds::SPAWN_START_REQUESTED,
+            &g.row(&t.id, &q, &format!("user:{a_id}")),
+        )
+        .unwrap();
+    wait_for(WAIT, "the Mac starts the agent", || {
+        g.kick();
+        g.fs.started() >= 1
+    });
+    g.kick();
+    g.kick();
+    assert_eq!(g.fs.started(), 1, "one request, one agent");
+    g.close();
+}
+
+/// S4 test 3: a request naming another device, an agent's, and one the
+/// spawn device wrote itself are all ignored.
+#[test]
+fn a_given_start_request_is_served_only_when_the_person_wrote_it_elsewhere() {
+    let g = Gift::new();
+    let (a_id, m_id) = (
+        g.a.core.device_id().to_string(),
+        g.m.core.device_id().to_string(),
+    );
+    let cards: Vec<(Task, String)> = ["by another device", "by an agent", "by the Mac itself"]
+        .iter()
+        .map(|w| {
+            let t = g.give(&format!("Given start {w}"));
+            let q = g.not_now(&t.id);
+            (t, q)
+        })
+        .collect();
+    let append = |d: &Dev, actor: &str, c: &(Task, String), by: &str, agent: bool| {
+        let mut row = g.row(&c.0.id, &c.1, by);
+        row["agent"] = agent.into();
+        d.core
+            .store()
+            .append(actor, kinds::SPAWN_START_REQUESTED, &row)
+            .unwrap();
+    };
+    append(&g.a, "user", &cards[0], &format!("user:{m_id}"), false);
+    append(&g.a, &g.a.agent, &cards[1], &format!("user:{a_id}"), true);
+    append(&g.m, "user", &cards[2], &format!("user:{m_id}"), false);
+    wait_for(WAIT, "the Mac has the rows", || {
+        rows(&g.m, kinds::SPAWN_START_REQUESTED).len() >= 3
+    });
+    g.kick();
+    g.kick();
+    assert_eq!(g.fs.started(), 0);
+    for (t, _) in &cards {
+        assert!(g.question(&g.m, &t.id).is_none(), "{} was asked", t.title);
+    }
+    g.close();
+}
+
+/// S4 test 4: a request for a card given back since writes nothing and
+/// starts nothing.
+#[test]
+fn a_given_start_request_for_a_card_given_back_starts_nothing() {
+    let g = Gift::new();
+    let t = g.give("Given back");
+    let q = g.not_now(&t.id);
+    g.m.core
+        .board_coord(&g.board)
+        .unwrap()
+        .give_back(&g.m.person_actor(), &t.id, "")
+        .unwrap();
+    wait_for(WAIT, "the other device reads it given back", || {
+        g.a.core
+            .board_coord(&g.board)
+            .unwrap()
+            .get_task(&t.id)
+            .is_some_and(|t| t.given.is_none())
+    });
+    let a_id = g.a.core.device_id().to_string();
+    g.a.core
+        .store()
+        .append(
+            "user",
+            kinds::SPAWN_START_REQUESTED,
+            &g.row(&t.id, &q, &format!("user:{a_id}")),
+        )
+        .unwrap();
+    wait_for(WAIT, "the Mac has the row", || {
+        !rows(&g.m, kinds::SPAWN_START_REQUESTED).is_empty()
+    });
+    g.kick();
+    g.kick();
+    assert_eq!(g.fs.started(), 0);
+    assert!(g.question(&g.m, &t.id).is_none());
+    g.close();
+}
+
+/// S4 test 5: a request from before the card was given again, and put in
+/// Not now again, starts no agent, even when the Mac restarted with
+/// nothing marked seen.
+#[test]
+fn a_stale_given_start_request_starts_nothing_after_a_restart() {
+    let g = Gift::new();
+    let t = g.give("Given twice");
+    let old = g.not_now(&t.id);
+    g.regive(&t.id);
+    let new = g.not_now(&t.id);
+    assert_ne!(old, new, "the second give is a new question");
+    let a_id = g.a.core.device_id().to_string();
+    g.a.core
+        .store()
+        .append(
+            "user",
+            kinds::SPAWN_START_REQUESTED,
+            &g.row(&t.id, &old, &format!("user:{a_id}")),
+        )
+        .unwrap();
+    wait_for(WAIT, "the Mac has the row", || {
+        !rows(&g.m, kinds::SPAWN_START_REQUESTED).is_empty()
+    });
+    let Gift {
+        a,
+        m,
+        b,
+        board,
+        fs,
+        _checkout,
+    } = g;
+    let m = restart(m);
+    m.core
+        .set_spawner(Some(spawner(&fs, m.claude.join("sessions"), SESS_B)));
+    let g = Gift {
+        a,
+        m,
+        b,
+        board,
+        fs,
+        _checkout,
+    };
+    g.kick();
+    g.kick();
+    assert_eq!(g.fs.started(), 0);
+    g.close();
+}
