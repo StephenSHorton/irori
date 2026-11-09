@@ -348,7 +348,10 @@ mod tests {
         let raw = format!("<<thread in:#5 x>>\nFix it.\n{DRAFT_CLOSE}");
         assert_eq!(split_draft_done(&raw).draft, "");
         // Being written, the opening line never shows.
-        assert_eq!(split_draft("Posting it.\n<<thread in:ml").text, "Posting it.");
+        assert_eq!(
+            split_draft("Posting it.\n<<thread in:ml").text,
+            "Posting it."
+        );
         // Personal's drafts are as before.
         let raw = format!("{DRAFT_OPEN}\nFix it.\n{DRAFT_CLOSE}");
         assert_eq!(split_draft_done(&raw).space, "");

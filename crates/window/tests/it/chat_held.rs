@@ -182,7 +182,10 @@ fn grants_begin_and_end_with_each_message() {
     replied(&r, &t1);
     let t2 = r.core.assistant_chat_ask("close #9", "", "").unwrap();
     wait_for("the second message", 20, || messages(f.path()).len() == 2);
-    assert!(g.take(CLOSE, "#5", "", &as_typed).is_none(), "the first message's grant ended");
+    assert!(
+        g.take(CLOSE, "#5", "", &as_typed).is_none(),
+        "the first message's grant ended"
+    );
     assert!(g.take(CLOSE, "#9", "", &as_typed).is_some());
     // Spent once: a second close of #9 has no grant.
     assert!(g.take(CLOSE, "#9", "", &as_typed).is_none());

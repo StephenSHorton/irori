@@ -1603,8 +1603,8 @@ impl Services {
                 continue;
             }
             let co = b.coord();
-            let docs = search::Source::search_docs(&**co, GoTime::ZERO, usize::MAX)
-                .unwrap_or_default();
+            let docs =
+                search::Source::search_docs(&**co, GoTime::ZERO, usize::MAX).unwrap_or_default();
             for mut d in docs {
                 let task = match d.kind {
                     search::Kind::Task => search::parse_ref(&d.r#ref)

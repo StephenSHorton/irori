@@ -496,10 +496,13 @@ impl Inner {
     /// instead (card #1198).
     pub(crate) fn boards_section(&self, c: &Caller) -> Option<String> {
         let assistant = c.sender.kind == crate::CLIENT_ASSISTANT;
-        let parts: Vec<String> = [self.personal_section(assistant), self.spaces_section(assistant)]
-            .into_iter()
-            .flatten()
-            .collect();
+        let parts: Vec<String> = [
+            self.personal_section(assistant),
+            self.spaces_section(assistant),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         (!parts.is_empty()).then(|| parts.join("\n"))
     }
 
@@ -659,7 +662,11 @@ impl Inner {
                 )));
             }
             (p, many) => {
-                let mut names = if p { vec!["personal".to_string()] } else { vec![] };
+                let mut names = if p {
+                    vec!["personal".to_string()]
+                } else {
+                    vec![]
+                };
                 names.extend(spaces(many));
                 return Err(err_text(&format!(
                     "{} names more than one space: {}; give the board tag of the one you mean.",

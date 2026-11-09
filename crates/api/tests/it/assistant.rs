@@ -450,10 +450,10 @@ fn a_write_reaches_a_card_in_another_space() {
     // A comment lands on the space's card in the person's own words.
     let other = new_card("another space card");
     let o = other.short_ref();
-    let run = rig
-        .core
-        .assistant_grants()
-        .begin(tools::grants_for(&format!("comment on {o}: looks good"), &[]));
+    let run = rig.core.assistant_grants().begin(tools::grants_for(
+        &format!("comment on {o}: looks good"),
+        &[],
+    ));
     let (code, text) = call(
         &rig,
         &h,
@@ -510,7 +510,10 @@ fn assistant_finds_and_lists_cards_in_another_space() {
     // Words find the space's card, its comment, and both boards' cards.
     let (code, text) = call(&rig, &h, "search", json!({ "query": "lobby" }));
     assert_eq!(code, 200, "{text}");
-    assert!(text.contains(&s) && text.contains("lobby lighting"), "{text}");
+    assert!(
+        text.contains(&s) && text.contains("lobby lighting"),
+        "{text}"
+    );
     let (code, text) = call(
         &rig,
         &h,
@@ -518,7 +521,10 @@ fn assistant_finds_and_lists_cards_in_another_space() {
         json!({ "query": "dimmer", "kinds": ["comment"] }),
     );
     assert_eq!(code, 200, "{text}");
-    assert!(text.contains("comment:") && text.contains("buzzes"), "{text}");
+    assert!(
+        text.contains("comment:") && text.contains("buzzes"),
+        "{text}"
+    );
     let (_, text) = call(&rig, &h, "search", json!({ "query": "lighting" }));
     assert!(
         text.contains("lobby lighting") && text.contains("kitchen lighting"),
@@ -564,7 +570,10 @@ fn assistant_finds_and_lists_cards_in_another_space() {
     assert!(text.contains("kitchen lighting"), "{text}");
     assert!(!text.contains("lobby lighting"), "{text}");
     let (_, text) = call(&rig, &h, "board", json!({ "space": "nope" }));
-    assert!(text.starts_with("Error") && text.contains("(mlg)"), "{text}");
+    assert!(
+        text.starts_with("Error") && text.contains("(mlg)"),
+        "{text}"
+    );
     // A name two spaces share is asked again by tag, never picked.
     rig.core.create_board("mlg farming", "farm").unwrap();
     let (_, text) = call(&rig, &h, "board", json!({ "space": "mlg farming" }));

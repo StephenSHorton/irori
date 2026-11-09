@@ -131,7 +131,8 @@ pub const ASSISTANT_TOOLS: [&str; 15] = [
 ];
 
 pub use assistant_writes::{
-    ASSISTANT_WRITE_TOOLS, Grant, Grants, TOOL_CLOSE, TOOL_COMMENT, TOOL_SEND, TOOL_TICK, grants_for,
+    ASSISTANT_WRITE_TOOLS, Grant, Grants, TOOL_CLOSE, TOOL_COMMENT, TOOL_SEND, TOOL_TICK,
+    grants_for,
 };
 
 /// Who is calling, established by the transport (attach secret or member

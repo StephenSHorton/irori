@@ -139,9 +139,9 @@ impl Grants {
         let mut s = self.lock();
         let i = s.open.iter().position(|g| match (tool, g) {
             (TOOL_SEND, Grant::Send { to, .. }) => *to == norm_agent(target),
-            (TOOL_COMMENT, Grant::Comment { card, .. }) => want
-                .as_deref()
-                .is_some_and(|w| same_card(card, w, resolve)),
+            (TOOL_COMMENT, Grant::Comment { card, .. }) => {
+                want.as_deref().is_some_and(|w| same_card(card, w, resolve))
+            }
             _ => false,
         })?;
         match s.open.remove(i) {
@@ -346,7 +346,11 @@ fn same_card(card: &str, id: &str, resolve: &dyn Fn(&str) -> Option<String>) -> 
 /// case-sensitive, but a bare number is that card's `#12`.
 fn typed_ref(s: &str) -> String {
     let t = s.trim();
-    if is_number(t) { format!("#{t}") } else { t.to_string() }
+    if is_number(t) {
+        format!("#{t}")
+    } else {
+        t.to_string()
+    }
 }
 
 /// A ref as grants compare it.
