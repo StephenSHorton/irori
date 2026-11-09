@@ -2746,7 +2746,11 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 return false;
             }
             let recs = s.assists.entry(r.call_id).or_default();
-            let first = if on { r.at.unix_milli_value().max(1) } else { 0 };
+            let first = if on {
+                r.at.unix_milli_value().max(1)
+            } else {
+                0
+            };
             let mut rec = AssistRec {
                 conv: r.conv_id,
                 device: device.to_string(),

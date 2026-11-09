@@ -181,7 +181,8 @@ fn rig_with(alice: Option<&str>, bob: Option<&str>, bob_hosts: bool) -> Rig {
                 ..SpawnSetting::default()
             })
             .unwrap();
-        bob.core.set_spawner(Some(spawner(bob.claude.join("sessions"))));
+        bob.core
+            .set_spawner(Some(spawner(bob.claude.join("sessions"))));
         bob.core.set_huddle_runner(Some(runner_b.clone()));
     }
     let space = invited(&alice, &bob);
@@ -709,11 +710,18 @@ fn a_question_is_routed_to_the_holder_of_a_matching_card() {
     });
     for d in [&r.alice, &r.bob] {
         let v = items(d, &call);
-        let a = v.iter().find(|i| i.text.starts_with("Alice has it")).unwrap();
+        let a = v
+            .iter()
+            .find(|i| i.text.starts_with("Alice has it"))
+            .unwrap();
         assert_eq!(a.reply.as_deref(), Some(q.item_id.as_str()));
         assert!(a.assistant && a.status == "open");
         assert_eq!(a.why.as_deref(), Some("routed"));
-        assert_eq!(v.len(), 2, "the question and its answer, nothing else: {v:?}");
+        assert_eq!(
+            v.len(),
+            2,
+            "the question and its answer, nothing else: {v:?}"
+        );
     }
     assert_eq!(
         r.alice.core.talk().call_title(&call),
@@ -814,7 +822,10 @@ fn the_chair_titles_and_summarises_the_huddle() {
         assert_eq!((t.status.as_str(), t.why.as_deref()), ("open", Some("end")));
         let qi = v.iter().find(|i| i.item_id == q.item_id).unwrap();
         assert_eq!(qi.status, "open", "the end changes no status");
-        assert_eq!(d.core.talk().call_title(&call).as_deref(), Some("Bob's title"));
+        assert_eq!(
+            d.core.talk().call_title(&call).as_deref(),
+            Some("Bob's title")
+        );
     }
     // It ran once, and the chair's session closes with it.
     std::thread::sleep(std::time::Duration::from_secs(4));
@@ -895,7 +906,15 @@ fn a_crashed_huddle_gets_one_end_mark() {
         - 20 * 60 * 1000;
     a.core
         .talk()
-        .write_segment(&ch.id, call, 0, old, old + 900, "we were talking", &a.user())
+        .write_segment(
+            &ch.id,
+            call,
+            0,
+            old,
+            old + 900,
+            "we were talking",
+            &a.user(),
+        )
         .unwrap();
     wait_for(WAIT, "bob holds the huddle", || {
         b.core.talk().call_conv(call).is_some()
@@ -988,7 +1007,10 @@ fn the_chair_passes_on_when_its_person_leaves() {
         .count();
     assert_eq!(sums, 1);
     assert!(
-        !r.runner.looks().iter().any(|m| m.contains("The huddle is over")),
+        !r.runner
+            .looks()
+            .iter()
+            .any(|m| m.contains("The huddle is over")),
         "the one who left writes nothing"
     );
     r.close();

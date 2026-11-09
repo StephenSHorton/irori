@@ -247,9 +247,9 @@ impl Services {
         let step = {
             let me = self.user_sender().key;
             let mut g = lock(&self.feed.calls);
-            let hd = g
-                .entry(call.to_string())
-                .or_insert_with(|| super::huddle_feed::Huddle::new(&conv, &me, self.huddle_notes_on()));
+            let hd = g.entry(call.to_string()).or_insert_with(|| {
+                super::huddle_feed::Huddle::new(&conv, &me, self.huddle_notes_on())
+            });
             hd.brain.end(now, true, false, true)
         };
         self.huddle_step(call, step);
@@ -293,7 +293,10 @@ impl Services {
             transcript: info.lines > 0,
         };
         match self.post_call_mark(&info.conv_id, "ended the huddle", mark) {
-            Ok(_) => logf!("huddle {}: wrote the end mark of a crashed huddle", info.call_id),
+            Ok(_) => logf!(
+                "huddle {}: wrote the end mark of a crashed huddle",
+                info.call_id
+            ),
             Err(e) => logf!("huddle {}: end mark: {e}", info.call_id),
         }
     }
@@ -356,9 +359,9 @@ impl Services {
         let me = self.user_sender().key;
         let step = {
             let mut g = lock(&self.feed.calls);
-            let hd = g
-                .entry(call.to_string())
-                .or_insert_with(|| super::huddle_feed::Huddle::new(&conv, &me, self.huddle_notes_on()));
+            let hd = g.entry(call.to_string()).or_insert_with(|| {
+                super::huddle_feed::Huddle::new(&conv, &me, self.huddle_notes_on())
+            });
             hd.title_look(now)
         };
         if let Some(step) = step {
@@ -426,9 +429,9 @@ impl Services {
         let me = self.user_sender().key;
         let step = {
             let mut g = lock(&self.feed.calls);
-            let hd = g
-                .entry(call.to_string())
-                .or_insert_with(|| super::huddle_feed::Huddle::new(&conv, &me, self.huddle_notes_on()));
+            let hd = g.entry(call.to_string()).or_insert_with(|| {
+                super::huddle_feed::Huddle::new(&conv, &me, self.huddle_notes_on())
+            });
             hd.brain.question(SystemTime::now(), &it, &cards)
         };
         self.huddle_step(call, step);
@@ -497,10 +500,9 @@ impl Services {
 
     /// Sets that time (tests shorten it).
     pub(crate) fn set_huddle_title_after(&self, d: Duration) {
-        self.hosting.title_after_ms.store(
-            d.as_millis() as u64,
-            std::sync::atomic::Ordering::SeqCst,
-        );
+        self.hosting
+            .title_after_ms
+            .store(d.as_millis() as u64, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Whether the chair should propose a title in a digest: it has none,

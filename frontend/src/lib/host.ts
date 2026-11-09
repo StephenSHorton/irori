@@ -745,9 +745,7 @@ export const AssistantService = {
   WeighsSet: (on: boolean) => done(commands.assistantWeighsSet(on)),
   // The two huddle switches (card #1053): on unless the person turned them off.
   HuddleNotes: () => call(commands.assistantHuddleNotes()),
-  HuddleNotesSet: (on: boolean) =>
-    done(commands.assistantHuddleNotesSet(on)),
+  HuddleNotesSet: (on: boolean) => done(commands.assistantHuddleNotesSet(on)),
   HuddleChair: () => call(commands.assistantHuddleChair()),
-  HuddleChairSet: (on: boolean) =>
-    done(commands.assistantHuddleChairSet(on)),
+  HuddleChairSet: (on: boolean) => done(commands.assistantHuddleChairSet(on)),
 }
