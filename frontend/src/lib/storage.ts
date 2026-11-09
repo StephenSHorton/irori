@@ -651,9 +651,7 @@ export function useStorageFresh(
     const fn = () => void reload()
     listeners.set(fn, scope)
     const off =
-      board && inWails()
-        ? onChange(EventBoardChanged, () => fn(), { held: false })
-        : () => {}
+      board && inWails() ? onChange(EventBoardChanged, () => fn()) : () => {}
     return () => {
       listeners.delete(fn)
       off()

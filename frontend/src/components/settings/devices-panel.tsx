@@ -45,7 +45,7 @@ const roleChoices = [
 // The Home server section sits above them (§7.1). Paths and counters stay
 // in GET /v1/devices?detail=1.
 export function DevicesPanel({ open }: { open: boolean }) {
-  const { devices, error, loading, reload } = useDevices(open)
+  const { devices, error, loading, reload } = useDevices(open, true)
   const { status, setStatus } = usePairing(open)
   const now = useNow(5000)
 
