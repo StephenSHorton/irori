@@ -10,7 +10,8 @@ import { subscribeCall, sharedCall, personWord, lengthText } from "./call"
 import { Events, TalkService } from "./host"
 import { inWails } from "./irori"
 import { errorText } from "./talk"
-import type { TalkHuddle } from "../gen/bindings"
+import type { TalkCanvasItem, TalkHuddle } from "../gen/bindings"
+import { sampleAdd, sampleAsk, sampleSet } from "./sample-huddle"
 
 export type { TalkHuddle }
 
@@ -215,4 +216,54 @@ async function previewSetTitle(callId: string, title: string): Promise<string> {
 // previewTitleOf is a title the preview's person set, for the transcript.
 export function previewTitleOf(callId: string): string | undefined {
   return previewTitles.get(callId)
+}
+
+// ---- the canvas: a person's writes (card #1052) ---------------------------------
+
+// addCanvasItem adds an item of the person's own: a note, question,
+// decision or task. A space that isn't ready refuses it, in words.
+export async function addCanvasItem(
+  callId: string,
+  kind: string,
+  text: string
+): Promise<TalkCanvasItem> {
+  if (!inWails()) return sampleAdd(callId, kind, text)
+  return TalkService.HuddleItemAdd(callId, kind, text)
+}
+
+// setCanvasItem changes an item: its text (your own), its status
+// (`settled`, `dropped`, `open`) or its place.
+export async function setCanvasItem(
+  callId: string,
+  itemId: string,
+  change: { text?: string; status?: string; x?: number; y?: number }
+): Promise<TalkCanvasItem> {
+  const c = (v: number | string | undefined) => (v === undefined ? null : v)
+  if (!inWails())
+    return sampleSet(
+      callId,
+      itemId,
+      c(change.text) as string | null,
+      c(change.status) as string | null,
+      c(change.x) as number | null,
+      c(change.y) as number | null
+    )
+  return TalkService.HuddleItemSet(
+    callId,
+    itemId,
+    c(change.text) as string | null,
+    c(change.status) as string | null,
+    c(change.x) as number | null,
+    c(change.y) as number | null
+  )
+}
+
+// askAssistant puts a question to the viewer's own assistant. It comes
+// back as an item of theirs; the answer arrives as another.
+export async function askAssistant(
+  callId: string,
+  text: string
+): Promise<TalkCanvasItem> {
+  if (!inWails()) return sampleAsk(callId, text)
+  return TalkService.HuddleAsk(callId, text)
 }

@@ -2,7 +2,7 @@
 // from here, never from src/gen, so the host surface stays in src/lib and
 // the app still runs in a plain browser on a built-in sample roster.
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { Events, RosterService } from "./host"
 import type {
@@ -12,6 +12,7 @@ import type {
   RosterChange,
 } from "./models"
 import { sampleRoster } from "./sample"
+import { appPage } from "./visibility"
 
 export type { AgentCard, Identity, LogEvent }
 
@@ -21,9 +22,6 @@ export const EventRosterChanged = "roster:changed"
 // EventDevicesChanged is devices:changed (crates/window events.rs): one of
 // the person's devices was renamed, here or on another device (card #184).
 export const EventDevicesChanged = "devices:changed"
-
-// RecentLimit is how many log rows the activity panel asks for.
-export const RecentLimit = 100
 
 // Source says where the roster came from: the Go app, or the sample used
 // when the page runs in a plain browser.
@@ -36,8 +34,15 @@ export type Roster = {
   device: Identity | null
   version: string
   agents: AgentCard[]
-  recent: LogEvent[]
-  recentError: string | null
+}
+
+// sameAgents: whether two rosters are equal, so an event that changed
+// nothing does not re-render the App (the host drops identical snapshots
+// too; this is the second guard).
+export function sameAgents(a: AgentCard[], b: AgentCard[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  return JSON.stringify(a) === JSON.stringify(b)
 }
 
 // inHost reports whether the page runs inside the Irori (Tauri) window.
@@ -61,10 +66,9 @@ function message(err: unknown): string {
   return String(err)
 }
 
-// useRoster loads the device, version, agents and recent log, then keeps them
-// current from roster:changed. The event carries the full roster, so the UI
-// replaces rather than merges; the log is re-read after each change, with
-// bursts coalesced.
+// useRoster loads the device, version and agents, then keeps them current
+// from roster:changed. The event carries the full roster, so the UI replaces
+// rather than merges (and keeps the old array when nothing differs).
 export function useRoster(): Roster {
   const [state, setState] = useState<Roster>(() => ({
     source: inWails() ? "wails" : "sample",
@@ -73,32 +77,16 @@ export function useRoster(): Roster {
     device: null,
     version: "",
     agents: [],
-    recent: [],
-    recentError: null,
   }))
-  const recentTimer = useRef<number | undefined>(undefined)
   // mounted is false after unmount so late responses are dropped.
   const mounted = useRef(true)
-  // recentReq numbers Recent() calls; only the newest one's answer is kept,
-  // because responses can arrive out of order.
-  const recentReq = useRef(0)
-
-  const loadRecent = useCallback(async () => {
-    const req = ++recentReq.current
-    try {
-      const recent = (await RosterService.Recent(RecentLimit)) ?? []
-      if (!mounted.current || req !== recentReq.current) return
-      setState((s) => ({ ...s, recent, recentError: null }))
-    } catch (err) {
-      if (!mounted.current || req !== recentReq.current) return
-      setState((s) => ({ ...s, recentError: message(err) }))
-    }
-  }, [])
 
   useEffect(() => {
     mounted.current = true
     if (state.source === "sample") {
       const sample = sampleRoster(new Date())
+      // The sample is a one-time load of static data, not a cascade.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setState((s) => ({ ...s, ...sample, loading: false }))
       return () => {
         mounted.current = false
@@ -113,9 +101,8 @@ export function useRoster(): Roster {
 
     const off = Events.On<RosterChange>(EventRosterChanged, (ev) => {
       rosterEvents++
-      setState((s) => ({ ...s, agents: ev.data?.agents ?? [] }))
-      window.clearTimeout(recentTimer.current)
-      recentTimer.current = window.setTimeout(() => void loadRecent(), 250)
+      const next = ev.data?.agents ?? []
+      setState((s) => (sameAgents(s.agents, next) ? s : { ...s, agents: next }))
     })
 
     // A rename changes what the header calls this device.
@@ -146,16 +133,14 @@ export function useRoster(): Roster {
         if (!live) return
         setState((s) => ({ ...s, loading: false, error: message(err) }))
       })
-    void loadRecent()
 
     return () => {
       live = false
       mounted.current = false
       off()
       offDevices()
-      window.clearTimeout(recentTimer.current)
     }
-  }, [state.source, loadRecent])
+  }, [state.source])
 
   return state
 }
@@ -166,18 +151,20 @@ export function useNow(intervalMs = 1000): Date {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     // Hidden, it holds still: the App's 1 s clock re-renders the whole
-    // window (card #765). Shown again, it catches up at once.
+    // window (card #765). Shown again, it catches up at once. Hidden is
+    // appPage's, so a minimised or tray-hidden window counts (card #1134).
+    const page = appPage() ?? document
     const tick = () => setNow(new Date())
     const id = window.setInterval(() => {
-      if (!document.hidden) tick()
+      if (!page.hidden) tick()
     }, intervalMs)
     const onShow = () => {
-      if (!document.hidden) tick()
+      if (!page.hidden) tick()
     }
-    document.addEventListener("visibilitychange", onShow)
+    page.addEventListener("visibilitychange", onShow)
     return () => {
       window.clearInterval(id)
-      document.removeEventListener("visibilitychange", onShow)
+      page.removeEventListener("visibilitychange", onShow)
     }
   }, [intervalMs])
   return now

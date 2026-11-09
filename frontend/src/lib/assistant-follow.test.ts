@@ -558,3 +558,40 @@ describe("the follower reads quiet work less often (card #785)", () => {
     f.stop()
   })
 })
+
+describe("the follower's minimum gap (card #1136)", () => {
+  test("a burst of card changes reads once per gap, not once per change", async () => {
+    let wake: () => void = () => {}
+    const starts: number[] = []
+    const f = createFollower({
+      ids: () => ["t1"],
+      read: async () => {
+        starts.push(Date.now())
+        return new Map([["t1", thread({ taker: "otter" })]])
+      },
+      listen: (fn) => {
+        wake = fn
+        return () => {}
+      },
+      load: () => ({ t1: { said: [] } }),
+      save: () => {},
+      say: () => {},
+      delayMs: 0,
+      quietMs: 0,
+      minGapMs: 100,
+    })
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    await wait(20)
+    expect(starts.length).toBe(1)
+    // Twenty changes inside the gap: one more read, once the gap is over.
+    for (let i = 0; i < 20; i++) {
+      wake()
+      await wait(2)
+    }
+    expect(starts.length).toBe(1)
+    await wait(150)
+    expect(starts.length).toBe(2)
+    expect(starts[1] - starts[0]).toBeGreaterThanOrEqual(95)
+    f.stop()
+  })
+})
