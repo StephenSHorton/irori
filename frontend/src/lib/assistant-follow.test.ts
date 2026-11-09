@@ -222,7 +222,7 @@ describe("the follower (card #785)", () => {
 
   function harness(ids: string[], store: SeenStore = {}) {
     let work = new Map<string, WorkThread | null>()
-    let wake: () => void = () => {}
+    let wake: (ids?: readonly string[]) => void = () => {}
     const said: { id: string; keys: string[]; gone: boolean }[] = []
     let reads = 0
     let saved: SeenStore = store
@@ -250,7 +250,7 @@ describe("the follower (card #785)", () => {
       set: (id: string, w: WorkThread | null) => {
         work = new Map(work).set(id, w)
       },
-      wake: () => wake(),
+      wake: (ids?: readonly string[]) => wake(ids),
       reads: () => reads,
       saved: () => saved,
     }
@@ -283,6 +283,27 @@ describe("the follower (card #785)", () => {
     h.wake()
     await new Promise((r) => setTimeout(r, 5))
     expect(h.reads()).toBe(n)
+  })
+
+  test("a change that names none of its ids skips the round (card #1149)", async () => {
+    const h = harness(["t1"])
+    await flush()
+    h.set("t1", thread({ taker: "otter", cards: [card()] }))
+    h.f.follow("t1")
+    await flush()
+    const n = h.reads()
+    // Another card, then a change naming nothing.
+    h.wake(["other"])
+    h.wake([])
+    await new Promise((r) => setTimeout(r, 5))
+    expect(h.reads()).toBe(n)
+    // Its thread, its made card (known from the last read), and everything.
+    for (const ids of [["t1"], ["c1"], undefined]) {
+      const before = h.reads()
+      h.wake(ids)
+      await new Promise((r) => setTimeout(r, 5))
+      expect(h.reads()).toBe(before + 1)
+    }
   })
 
   test("threads that left the chat are forgotten", async () => {

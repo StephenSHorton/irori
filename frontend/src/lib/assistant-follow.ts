@@ -24,7 +24,8 @@ import {
   type CardDetail,
   type ThreadSummary,
 } from "./cards"
-import { plainLine } from "./irori"
+import { onChange } from "./changes"
+import { inWails, plainLine } from "./irori"
 import { timedRead } from "./window-log"
 
 // ---- what the follower sees -----------------------------------------------------
@@ -346,7 +347,7 @@ async function readWorkRound(
   ids: string[],
   known: ReadonlyMap<string, readonly string[]>
 ): Promise<Map<string, WorkThread | null>> {
-  const rows = await threads.byId(ids)
+  const { rows } = await threads.byId(ids)
   const byId = new Map(rows.map((r) => [r.id, r]))
   const madeIds = ids.flatMap((id) => [
     ...(byId.get(id)?.cards.map((c) => c.id) ?? []),
@@ -459,7 +460,10 @@ export type FollowDeps = {
     ids: string[],
     known: ReadonlyMap<string, readonly string[]>
   ) => Promise<Map<string, WorkThread | null>>
-  listen: (again: () => void) => () => void
+  // listen calls `again` on a change. With ids it names the rows that
+  // changed; the follower skips a round that touches none of its own (the
+  // threads, the cards made from them). Without ids: everything may have.
+  listen: (again: (ids?: readonly string[]) => void) => () => void
   load: () => SeenStore
   // The facts of a thread already said as rows, on any device. A thread
   // this device has no entry for starts from them, not from nothing.
@@ -499,6 +503,17 @@ export function createFollower(d: FollowDeps): Follower {
   // Every thread read last round was quiet: card changes wait longer.
   let allQuiet = false
   let timerQuiet = false
+
+  // The cards of the threads as last read: with the threads and the made
+  // cards said so far, the ids a change must touch to matter.
+  let lastCards = new Set<string>()
+  const touches = (ids: readonly string[]): boolean => {
+    const mine = new Set<string>([...d.ids(), ...lastCards])
+    for (const e of Object.values(store))
+      for (const k of e.said ?? [])
+        if (k.startsWith("made:")) mine.add(k.slice("made:".length))
+    return ids.some((id) => mine.has(id))
+  }
 
   const active = () => {
     const ids = [...new Set(d.ids())]
@@ -548,6 +563,9 @@ export function createFollower(d: FollowDeps): Follower {
         }
         if (stopped) return
         let calm = true
+        lastCards = new Set(
+          [...got.values()].flatMap((t) => t?.cards.map((c) => c.id) ?? [])
+        )
         for (const id of ids) {
           if (!got.has(id)) continue
           const t = got.get(id) ?? null
@@ -602,7 +620,10 @@ export function createFollower(d: FollowDeps): Follower {
     }, wait)
   }
 
-  const off = d.listen(() => schedule(false))
+  const off = d.listen((changed) => {
+    if (changed && !touches(changed)) return
+    schedule(false)
+  })
   void run()
 
   return {
@@ -620,5 +641,18 @@ export function createFollower(d: FollowDeps): Follower {
   }
 }
 
-// listenCards is the follower's wake: every card change.
-export const listenCards = onCardsChanged
+// listenCards is the follower's wake (card #1149): the cards a change names
+// (board:changed.cards includes thread ids), and every device change. The
+// preview's changes name none.
+export function listenCards(again: (ids?: readonly string[]) => void) {
+  if (!inWails()) return onCardsChanged(() => again())
+  const offs = [
+    onChange("board:changed", (n) => again(n.all ? undefined : n.ids.cards), {
+      follow: ["cards"],
+    }),
+    onChange("devices:changed", () => again()),
+  ]
+  return () => {
+    for (const off of offs) off()
+  }
+}

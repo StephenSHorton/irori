@@ -79,6 +79,14 @@ import {
 } from "./irori"
 import { safeHref } from "./rich"
 import { EventInboxChanged, useLatest } from "./talk"
+import { usePatched } from "./patched"
+import {
+  mergeThreads,
+  readThreads,
+  threadFollow,
+  type ThreadList,
+  type ThreadPatch,
+} from "./thread-list"
 import {
   NoteItem,
   sampleAgents,
@@ -683,10 +691,19 @@ export const threads = {
 
   // byId is just these threads' rows, for Ask Irori's follower, which
   // follows a few (card #1136).
-  async byId(ids: string[]): Promise<ThreadSummary[]> {
-    if (inWails()) return (await BoardService.ThreadsById(ids)) ?? []
+  // gone are the ids with no row (not a thread, withdrawn, cleared, or no
+  // longer on this device), for a list to drop (card #1149).
+  async byId(
+    ids: string[]
+  ): Promise<{ rows: ThreadSummary[]; gone: string[] }> {
+    if (inWails()) {
+      const got = await BoardService.ThreadsById(ids)
+      return { rows: got?.rows ?? [], gone: got?.gone ?? [] }
+    }
     const want = new Set(ids)
-    return sampleThreads(null).filter((t) => want.has(t.id))
+    const rows = sampleThreads(null).filter((t) => want.has(t.id))
+    const have = new Set(rows.map((t) => t.id))
+    return { rows, gone: ids.filter((id) => !have.has(id)) }
   },
 
   // start is the header box's message as a thread: the agents on the
@@ -1111,65 +1128,76 @@ export function withStarted(
   return fresh.length ? [...fresh, ...rows] : rows
 }
 
-// useThreads is the Threads panel's rows, fresh on every card change.
+// useThreads is the Threads panel's rows. A card change or a read cursor
+// (card #1149) reads just the threads it names; anything else reads the list.
 export function useThreads(boardId = ""): {
   threads: ThreadSummary[]
   // True until the first read lands (card #598), never on a reload.
   loading: boolean
   error: string | null
 } {
-  const load = useCallback(async () => {
-    const asOf = startedSeq
-    return { rows: await threads.list(boardId), asOf }
-  }, [boardId])
-  const { value, loading, error, reload } = useLatest(
-    load,
-    { rows: [] as ThreadSummary[], asOf: startedSeq },
-    "threads"
-  )
-  useFresh(reload, error, true)
-  const started = useSyncExternalStore(onStarted, () => startedThreads)
-  const list = useMemo(
-    () => withStarted(value.rows, value.asOf, boardId, started),
-    [value, boardId, started]
-  )
+  const { list, loading, error } = useThreadList("threads", boardId, boardId)
   return { threads: list, loading, error }
 }
 
-// useAllThreads is every thread on this device, fresh on every card change.
+// useAllThreads is every thread on this device, fresh on a change to any of
+// them. A thread's read marker is a Talk read cursor (card #719): reading
+// one here or on another of the person's devices names it in
+// talk:changed.convs. Nothing in a row comes from the inbox, so
+// inbox:changed doesn't wake it.
 export function useAllThreads(): {
   threads: ThreadSummary[]
   // True until the first read lands (card #598), never on a reload.
   loading: boolean
   error: string | null
 } {
-  const load = useCallback(async () => {
-    const asOf = startedSeq
-    return { rows: await threads.listAll(), asOf }
-  }, [])
-  const { value, loading, error, reload } = useLatest(
-    load,
-    { rows: [] as ThreadSummary[], asOf: startedSeq },
-    "threads-all"
+  const { list, loading, error } = useThreadList("threads-all", null, null)
+  return { threads: list, loading, error }
+}
+
+// useThreadList is both: one board's threads (boardId; "" is Personal's), or
+// every board's (null).
+function useThreadList(
+  name: string,
+  boardId: string | null,
+  rekey: string | null
+) {
+  const shown = useRef<ThreadSummary[]>([])
+  const { value, loading, error, reload } = usePatched<ThreadList, ThreadPatch>(
+    {
+      name,
+      initial: { rows: [], asOf: startedSeq },
+      follow: threadFollow,
+      rekey: rekey ?? undefined,
+      read: (want) =>
+        readThreads(want, {
+          startedSeq: () => startedSeq,
+          full: () =>
+            boardId === null ? threads.listAll() : threads.list(boardId),
+          byId: (ids) => threads.byId(ids),
+          current: () => shown.current,
+        }),
+      merge: (cur, patch) => mergeThreads(cur, patch, boardId),
+      rows: (v) => v.rows.map((r) => [r.id, r]),
+    }
   )
-  useFresh(reload, error, true)
+  useEffect(() => {
+    shown.current = value.rows
+  }, [value])
+  // The preview's cards change without events.
+  useEffect(() => {
+    if (inWails()) return
+    return subscribe(() => void reload())
+  }, [reload])
   // A thread just started on any board is in it at once (card #780): a
   // board's Threads panel and its ask box open it in Talk, which finds it
   // here, before the next read has it.
   const started = useSyncExternalStore(onStarted, () => startedThreads)
   const list = useMemo(
-    () => withStarted(value.rows, value.asOf, null, started),
-    [value, started]
+    () => withStarted(value.rows, value.asOf, boardId, started),
+    [value, boardId, started]
   )
-  // A thread's read marker is a Talk read cursor (card #719): reading one
-  // here or on another of the person's devices fires talk:changed
-  // (conversations.ts's EventTalkChanged), not board:changed.
-  useEffect(() => {
-    if (!inWails()) return
-    // Held while the window is hidden, like the other lists.
-    return onChange("talk:changed", () => void reload())
-  }, [reload])
-  return { threads: list, loading, error }
+  return { list, loading, error }
 }
 
 function sampleChanged() {
