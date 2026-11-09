@@ -2607,9 +2607,7 @@ export function onCardsChanged(fn: () => void): () => void {
 // It holds what it last read of each id and asks with its rev (card
 // #1136), so a card that hasn't moved costs a stamp, not its whole body.
 let followed = new Map<string, CardSlot>()
-export async function cardsById(
-  ids: string[]
-): Promise<Map<string, CardSlot>> {
+export async function cardsById(ids: string[]): Promise<Map<string, CardSlot>> {
   const held = followed
   const have = new Map<string, string>()
   for (const id of ids) {
