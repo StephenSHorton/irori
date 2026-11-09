@@ -14,9 +14,9 @@ use common::*;
 use irori_core::buildclean::settled_worktrees;
 use irori_core::spawn::{ClaudeAgent, SpawnStarted, Spawner};
 use irori_core::treeclean::{
-    Book, Check, KEPT_EVERY, Verdict, any_under, aside_path, begun_path, key, lsof_cwds,
-    names_tree, only_temp, ours, pick_root, regenerable, remove, reopen, restore_all, temp_root,
-    tree_of, under,
+    Book, Check, KEPT_EVERY, Verdict, any_under, aside_path, begun_path, end_holder, holders, key,
+    lsof_cwds, names_tree, only_temp, ours, pick_root, regenerable, remove, reopen, restore_all,
+    temp_root, tree_of, under,
 };
 use irori_core::trees::{BUSY_SAY, KEPT_TREE, busy_plan, say_kept};
 
@@ -1015,8 +1015,40 @@ fn a_process_sitting_in_the_tree_keeps_it_on_unix() {
     let v = judge(&w);
     child.kill().unwrap();
     child.wait().unwrap();
-    assert_eq!(v, Verdict::Busy("in use".into()));
+    assert!(
+        matches!(&v, Verdict::Busy(why) if why.starts_with("held by sleep (pid ")),
+        "{v:?}"
+    );
     assert!(w.join("src.txt").is_file());
+    assert_eq!(judge(&w), Verdict::Removed);
+}
+
+/// Card #1118: the holder is named, found by `holders`, and `end_holder`
+/// ends it (a fake holder: `sleep` with its folder in the tree), after
+/// which the tree goes. A pid outside the tree is refused.
+#[cfg(unix)]
+#[test]
+fn a_holder_is_named_and_can_be_ended_on_unix() {
+    let (_d, _main, w) = setup("holder-unix");
+    let mut child = std::process::Command::new("sleep")
+        .arg("30")
+        .current_dir(&w)
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    let tree = w.to_string_lossy().into_owned();
+    let h = holders(&tree).unwrap();
+    assert_eq!(h.len(), 1, "{h:?}");
+    assert_eq!(h[0].pid, child.id());
+    assert_eq!(h[0].name, "sleep");
+    assert_eq!(held_by(&h), format!("held by sleep (pid {})", child.id()));
+    assert!(end_holder(&tree, std::process::id()).is_err());
+    let other = tempfile::tempdir().unwrap();
+    assert!(end_holder(&other.path().to_string_lossy(), child.id()).is_err());
+    let ended = end_holder(&tree, child.id()).unwrap();
+    assert_eq!(ended.pid, child.id());
+    child.wait().unwrap();
+    assert!(holders(&tree).unwrap().is_empty());
     assert_eq!(judge(&w), Verdict::Removed);
 }
 
@@ -1423,10 +1455,52 @@ fn a_git_bash_shell_sitting_in_the_tree_keeps_it() {
         .unwrap();
     std::thread::sleep(Duration::from_millis(1500));
     let v = judge(&w);
+    let h = holders(&w.to_string_lossy()).unwrap();
     child.kill().unwrap();
     child.wait().unwrap();
-    assert_eq!(v, Verdict::Busy("in use".into()));
+    assert!(
+        matches!(&v, Verdict::Busy(why) if why.starts_with("held by sleep (pid ")),
+        "{v:?}"
+    );
+    assert!(h.iter().any(|h| h.name == "sleep"), "{h:?}");
     assert!(w.join("src.txt").is_file());
+}
+
+/// Card #1118, the PC: the Git Bash `sleep` is named, with the Windows
+/// pid, and `end_holder` ends it so the tree goes.
+#[cfg(windows)]
+#[test]
+fn a_git_bash_holder_is_named_and_can_be_ended() {
+    let exec = git(Path::new("."), &["--exec-path"]);
+    let sh = Path::new(&exec)
+        .ancestors()
+        .nth(3)
+        .unwrap()
+        .join("usr/bin/sh.exe");
+    if !sh.is_file() {
+        eprintln!("no Git sh here: skipped");
+        return;
+    }
+    let (_d, _main, w) = setup("bash-holder");
+    let mut child = std::process::Command::new(&sh)
+        .args(["-c", "exec sleep 30"])
+        .current_dir(&w)
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(1500));
+    let tree = w.to_string_lossy().into_owned();
+    let h = holders(&tree).unwrap();
+    // `exec` in MSYS starts the program as a process of its own, so its
+    // Windows pid isn't the shell's.
+    let one = h
+        .iter()
+        .find(|h| h.name == "sleep")
+        .expect("sleep is named");
+    assert!(end_holder(&tree, std::process::id()).is_err());
+    assert_eq!(end_holder(&tree, one.pid).unwrap().pid, one.pid);
+    child.wait().unwrap();
+    assert!(holders(&tree).unwrap().is_empty());
+    assert_eq!(judge(&w), Verdict::Removed);
 }
 
 /// Card #565, last check: a clone an agent made inside `target/` is work,

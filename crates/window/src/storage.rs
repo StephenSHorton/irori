@@ -51,6 +51,8 @@ pub const CLAUDE: &str = "claude";
 
 /// Why an item stays: Irori writes it now.
 pub const IN_USE: &str = "Irori is writing to it now";
+/// Why the sweep keeps a worktree whose card isn't done (card #1118).
+pub const WAITING_FOR_DONE: &str = "waiting for Done";
 /// Why a brief stays.
 pub const CARD_OPEN: &str = "its card is still open";
 /// Why an installer stays.
@@ -106,6 +108,23 @@ pub struct StorageItem {
     /// An attachment this device attached itself: other devices may have
     /// no copy, so deleting it here may lose it.
     pub only_here: bool,
+    /// Why the sweep keeps a worktree (card #1118), when it does: "waiting
+    /// for Done", or "canceled, 3 unpushed commits". A process holding it
+    /// is `holders`.
+    pub pinned: String,
+    /// Processes with their folder in this worktree: End it ends one.
+    pub holders: Vec<StorageHolder>,
+    /// A canceled card's worktree, which the person may delete whole,
+    /// unpushed work and all.
+    pub delete_anyway: bool,
+}
+
+/// A process that holds a worktree (card #1118).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageHolder {
+    pub pid: u32,
+    pub name: String,
 }
 
 /// One item a clean left.
@@ -569,8 +588,36 @@ impl Window {
                             .map(|(c, _)| format!("{} {}", c.short_ref(), c.title))
                     })
                     .collect();
+                let holders: Vec<StorageHolder> = t
+                    .holders
+                    .iter()
+                    .map(|h| StorageHolder {
+                        pid: h.pid,
+                        name: h.name.clone(),
+                    })
+                    .collect();
+                let held = !t.live && !t.holders.is_empty();
+                let tree_path = Path::new(&t.tree);
+                // Why the sweep keeps it: a process (named), a card that
+                // isn't done, or a canceled card's work.
+                let pinned = if t.live || held {
+                    String::new()
+                } else if t.canceled {
+                    match irori_core::treeclean::unpushed_head(tree_path) {
+                        Ok(0) => "canceled".to_string(),
+                        Ok(n) => format!(
+                            "canceled, {n} unpushed commit{}",
+                            if n == 1 { "" } else { "s" }
+                        ),
+                        Err(e) => format!("canceled, Irori couldn't read its commits ({e})"),
+                    }
+                } else if !t.settled {
+                    WAITING_FOR_DONE.to_string()
+                } else {
+                    String::new()
+                };
                 StorageItem {
-                    name: Path::new(&t.tree)
+                    name: tree_path
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_else(|| t.tree.clone()),
@@ -578,14 +625,19 @@ impl Window {
                     at: mtime(&target),
                     detail: titles.join(" · "),
                     cards: refs,
-                    cleanable: bytes > 0 && !t.live,
+                    cleanable: bytes > 0 && !t.live && !held,
                     keep: if t.live {
                         irori_core::LIVE_TREE.into()
+                    } else if held {
+                        irori_core::treeclean::held_by(&t.holders)
                     } else if bytes == 0 {
                         "no build output".into()
                     } else {
                         String::new()
                     },
+                    pinned,
+                    holders: if t.live { Vec::new() } else { holders },
+                    delete_anyway: t.canceled && !t.live && !held,
                     id: t.tree,
                     ..StorageItem::default()
                 }
@@ -798,6 +850,20 @@ impl Window {
                 }
             })
             .collect()
+    }
+
+    /// StorageService.EndHolder (card #1118): ends process `pid`, which has
+    /// its folder in worktree `tree`. Says who was ended.
+    pub fn storage_end_holder(&self, tree: &str, pid: u32) -> Result<String, String> {
+        self.core
+            .end_tree_holder(crate::trim(tree), pid)
+            .map(|h| h.label())
+    }
+
+    /// StorageService.DeleteTree (card #1118): deletes a canceled card's
+    /// worktree, unpushed work and all. Its branch stays.
+    pub fn storage_delete_tree(&self, tree: &str) -> Result<(), String> {
+        self.core.delete_canceled_tree(crate::trim(tree))
     }
 
     /// StorageService.Clean: deletes the items given of one kind, or with

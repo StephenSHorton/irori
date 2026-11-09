@@ -4,7 +4,7 @@
 //! briefs. Nothing here runs by itself (board.md "No retention rules"):
 //! the automatic sweep stays [`crate::buildclean`]'s.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
@@ -24,6 +24,12 @@ pub struct BuildTree {
     pub settled: bool,
     /// An agent on this device works in it now.
     pub live: bool,
+    /// Every one of its cards is canceled (card #1118): its work is the
+    /// person's to drop, so Storage offers to delete it.
+    pub canceled: bool,
+    /// Processes that have their folder in it (card #1118), which the
+    /// sweep can't remove it past and Storage can end.
+    pub holders: Vec<treeclean::Holder>,
 }
 
 /// Why a tree's build output stays when the person clears it.
@@ -62,16 +68,30 @@ impl Core {
             .iter()
             .map(|t| (t.id.as_str(), buildclean::settled(t)))
             .collect();
+        let canceled: HashSet<&str> = tasks
+            .iter()
+            .filter(|t| t.state == coord::CANCELED)
+            .map(|t| t.id.as_str())
+            .collect();
         let live: BTreeSet<String> = self
             .s
             .session_dirs()
             .iter()
             .filter_map(|d| tree_of(d))
             .collect();
-        trees
+        let trees: Vec<(String, BTreeSet<String>)> = trees
             .into_iter()
             .filter(|(tree, _)| Path::new(tree).is_dir())
+            .collect();
+        // One look at the processes for every tree. When it can't be made
+        // the trees list without holders: the sweep says why it can't look.
+        let names: Vec<String> = trees.iter().map(|(t, _)| t.clone()).collect();
+        let mut held = treeclean::holders_of(&names).unwrap_or_default();
+        trees
+            .into_iter()
             .map(|(tree, ids)| BuildTree {
+                canceled: !ids.is_empty() && ids.iter().all(|id| canceled.contains(id.as_str())),
+                holders: held.remove(&tree).unwrap_or_default(),
                 settled: !ids.is_empty()
                     && ids
                         .iter()
@@ -126,5 +146,55 @@ impl Core {
             _ => buildclean::IDLE,
         };
         buildclean::clear(Path::new(&t.tree), idle, SystemTime::now())
+    }
+
+    /// Ends process `pid` that holds `tree` (card #1118, Storage's End it):
+    /// only a tree [`Self::build_trees`] lists, and only a process that is
+    /// in it now ([`treeclean::end_holder`] looks again).
+    pub fn end_tree_holder(&self, tree: &str, pid: u32) -> Result<treeclean::Holder, String> {
+        let k = key(tree);
+        if !self.build_trees().iter().any(|t| t.tree == k) {
+            return Err(format!("{tree} isn't a worktree Irori made here"));
+        }
+        treeclean::end_holder(&k, pid)
+    }
+
+    /// Deletes a canceled card's tree at the person's word (card #1118,
+    /// gate 5 of the sweep, which keeps it for its unpushed work): only a
+    /// tree every one of whose cards is canceled, with no agent in it.
+    pub fn delete_canceled_tree(&self, tree: &str) -> Result<(), String> {
+        let k = key(tree);
+        let Some(t) = self.build_trees().into_iter().find(|t| t.tree == k) else {
+            return Err(format!("{tree} isn't a worktree Irori made here"));
+        };
+        if !t.canceled {
+            return Err("its card isn't canceled".into());
+        }
+        let mut live = self.s.session_dirs();
+        let list = self
+            .s
+            .spawn
+            .spawner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|s| s.list.clone());
+        // Without the agent list nobody can say no agent is in it.
+        let agents = list.ok_or("Irori can't list the agents yet")?()
+            .map_err(|e| format!("claude agents: {e}"))?;
+        if !super::trees::placed(&agents) {
+            return Err("claude agents listed a live agent with no folder".into());
+        }
+        live.extend(agents.into_iter().filter(|a| a.live).map(|a| a.cwd));
+        if live.iter().any(|d| treeclean::under(d, &t.tree)) {
+            return Err(LIVE_TREE.into());
+        }
+        let check = treeclean::Check {
+            live: &live,
+            idle: Duration::ZERO,
+            now: SystemTime::now(),
+            recheck: None,
+        };
+        treeclean::remove_anyway(Path::new(&t.tree), &check)
     }
 }

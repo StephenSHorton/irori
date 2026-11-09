@@ -405,6 +405,9 @@ export const StorageService = {
   Items: (kind: string) => call(commands.storageItems(kind)),
   Clean: (kind: string, ids: string[]) =>
     call(commands.storageClean(kind, ids)),
+  EndHolder: (tree: string, pid: number) =>
+    call(commands.storageEndHolder(tree, pid)),
+  DeleteTree: (tree: string) => call(commands.storageDeleteTree(tree)),
   Cleared: () => call(commands.storageCleared()),
   Unclear: (ids: string[]) => call(commands.storageUnclear(ids)),
   ClearThreadsCount: (olderThanSecs: number) =>
