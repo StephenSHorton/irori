@@ -2684,6 +2684,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_chat_list,
             assistant_chat_ask,
             assistant_chat_stop,
+            assistant_chat_import,
             assistant_chat_watch,
         ])
         .typ::<RosterChange>()
@@ -2793,6 +2794,19 @@ pub async fn assistant_chat_ask(
 #[specta::specta]
 pub async fn assistant_chat_stop(w: W<'_>, turn: String) -> R<()> {
     blocking(&w, move |w| w.core.assistant_chat_stop(&turn)).await
+}
+
+/// Brings this computer's old chat history (localStorage) in as the
+/// conversation's first rows, once (card #1105, one-assistant §10). Refused
+/// on any device but the assistant's computer, and a second time with
+/// "the history was already imported".
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_import(
+    w: W<'_>,
+    entries: Vec<crate::assistant_chat::AssistantImportEntry>,
+) -> R<crate::assistant_chat::AssistantImported> {
+    blocking(&w, move |w| w.assistant_chat_import(entries)).await
 }
 
 /// Streams a turn's reply as this computer runs it: from now until the turn

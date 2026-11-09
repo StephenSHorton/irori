@@ -73,6 +73,12 @@ import {
   type Reply,
   type WorkThread,
 } from "@/lib/assistant"
+import { OldHistory } from "@/components/assistant/assistant-old-history"
+import {
+  clearOldHistory,
+  startHistoryImport,
+  useOldHistory,
+} from "@/lib/assistant-import"
 import { goLabel, type GoTarget } from "@/lib/goto"
 import { BlockerState, useCard } from "@/lib/cards"
 import { useDraft } from "@/lib/drafts"
@@ -178,6 +184,10 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
   // #785), panel open or not: its lines light the button's dot.
   useEffect(() => startFollowing(), [])
 
+  // Today's history moves into the shared chat on the assistant's computer
+  // (card #1105), at load and when the computer changes.
+  useEffect(() => startHistoryImport(), [])
+
   // A window check's ?assistant-ask (lib/assistant.ts autoAsk).
   useEffect(() => {
     autoAsk((p) => cards?.onOpenThread(p.id))
@@ -202,7 +212,10 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
             narrow={narrow}
             onAsk={(t, files) => void ask(t, files)}
             onStop={stopAsking}
-            onNew={newChat}
+            onNew={() => {
+              clearOldHistory()
+              newChat()
+            }}
             onGo={goTo}
             onPost={async (i) => {
               const p = await postDraft(i)
@@ -517,6 +530,7 @@ export function AssistantPanel({
     return () => grew.disconnect()
   }, [last])
 
+  const old = useOldHistory()
   const busy = !!reply
   const attach = useFileAttach(
     busy || sending,
@@ -608,7 +622,7 @@ export function AssistantPanel({
             variant="ghost"
             size="icon-sm"
             aria-label="New chat"
-            disabled={sending || (!entries.length && !busy)}
+            disabled={sending || (!entries.length && !busy && !old.length)}
             onClick={() => {
               onNew()
               input.current?.focus()
@@ -636,6 +650,7 @@ export function AssistantPanel({
         aria-live="polite"
         aria-busy={busy}
       >
+        <OldHistory entries={old} narrow={narrow} />
         {!entries.length && !reply ? (
           <Starters
             onPick={(q) => send(q, pending)}
