@@ -211,6 +211,7 @@ export type TermInfo = B.TermInfo
 export type TermMsg = B.TermMsg
 export type ThreadCard = B.ThreadCard
 export type ThreadSummary = B.ThreadSummary
+export type ThreadsById = B.ThreadsById
 export type Told = B.Told
 export type Trust = B.Trust
 export type TrustNeed = B.TrustNeed
@@ -1188,6 +1189,11 @@ export function TermInfo(p: Partial<B.TermInfo> = {}): B.TermInfo {
 /** ThreadCard with Go's zero values for every field left out. */
 export function ThreadCard(p: Partial<B.ThreadCard> = {}): B.ThreadCard {
   return { "id": "", "short": "", "tag": "", "title": "", "state": "", ...p } as B.ThreadCard
+}
+
+/** ThreadsById with Go's zero values for every field left out. */
+export function ThreadsById(p: Partial<B.ThreadsById> = {}): B.ThreadsById {
+  return { "rows": [], "gone": [], ...p } as B.ThreadsById
 }
 
 /** ThreadSummary with Go's zero values for every field left out. */
