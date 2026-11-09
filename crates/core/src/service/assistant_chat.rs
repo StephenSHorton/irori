@@ -280,6 +280,35 @@ pub struct Update {
     pub at: i64,
     #[serde(skip_serializing_if = "is_false")]
     pub imported: bool,
+    /// Another person's words the line quotes (a give-back's reason). Kept
+    /// out of `text`: [`update_line`] fences them wherever the model reads
+    /// the line, and the chat shows them as a quote.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<UpdateFrom>,
+}
+
+/// Another person's words in a follow-up line.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct UpdateFrom {
+    /// Who said them.
+    pub name: String,
+    pub words: String,
+}
+
+/// A follow-up line as the model reads it, in the seeded prompt
+/// ([`Fold::history_before`]) and in a held session ([`Fold::since`]): its
+/// text, then any other person's words in their own fence, so they can
+/// never pass as the assistant's own.
+pub(crate) fn update_line(u: &Update) -> String {
+    let text = u.text.trim();
+    match u.from.as_ref().filter(|f| !f.words.trim().is_empty()) {
+        Some(f) => format!(
+            "{text}\n{}",
+            super::huddle_packet::fence_sender(&f.name, &f.words)
+        ),
+        None => text.to_string(),
+    }
 }
 
 /// The person posted a reply's draft (`assistant.chat.posted`).
@@ -415,7 +444,13 @@ impl ChatRow {
                     text(l);
                 }
             }
-            ChatRow::Update(r) => text(&mut r.text),
+            ChatRow::Update(r) => {
+                text(&mut r.text);
+                if let Some(from) = &mut r.from {
+                    text(&mut from.name);
+                    text(&mut from.words);
+                }
+            }
             ChatRow::AnswerDraft(r) => text(&mut r.text),
             ChatRow::Posted(_)
             | ChatRow::Cleared(_)
@@ -958,7 +993,7 @@ impl Fold {
                     ));
                 }
                 ChatEntry::Update(u) if place > lo && place < hi => {
-                    lines.push(format!("- {}", u.text.trim()));
+                    lines.push(format!("- {}", update_line(&u)));
                 }
                 _ => {}
             }
@@ -1001,7 +1036,7 @@ impl Fold {
                     out.push((false, with_files(&t.asked)));
                     out.push((true, reply_text(&said.text, t.posted.as_ref())));
                 }
-                ChatEntry::Update(u) => ups.push(u.text),
+                ChatEntry::Update(u) => ups.push(update_line(&u)),
                 ChatEntry::Draft(_) => {}
             }
         }

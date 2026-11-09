@@ -2111,6 +2111,8 @@ impl Services {
         }
         // Questions that came while this wasn't the assistant's computer.
         self.assistant_home_moved();
+        // What came of the cards this person gave (decision 69).
+        self.given_follow_sweep();
     }
 
     /// Rewrites the agent.card of each of this device's agents on every

@@ -94,6 +94,19 @@ pub struct AssistantChatUpdate {
     pub act: Option<AssistantChatAct>,
     pub at: i64,
     pub imported: bool,
+    /// Another person's words the line quotes (a give-back's reason).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub from: Option<AssistantChatFrom>,
+}
+
+/// Another person's words in a follow-up line: shown as a quote, never as
+/// the assistant's own.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantChatFrom {
+    pub name: String,
+    pub words: String,
 }
 
 /// An owner's-OK draft of an answer to another person.
@@ -206,6 +219,10 @@ fn item(i: chat::ChatItem) -> AssistantChatItem {
                 }),
                 at: u.at,
                 imported: u.imported,
+                from: u.from.map(|f| AssistantChatFrom {
+                    name: f.name,
+                    words: f.words,
+                }),
             });
         }
         ChatEntry::Draft(d) => {
@@ -287,6 +304,10 @@ impl Window {
                     blocker: a.blocker,
                 }),
                 at,
+                from: u.from.map(|f| chat::UpdateFrom {
+                    name: f.name,
+                    words: f.words,
+                }),
                 ..chat::Update::default()
             }))
             .map(|_| ())
@@ -301,6 +322,16 @@ pub struct AssistantChatUpdateIn {
     pub thread: String,
     pub text: String,
     pub act: Option<AssistantChatActIn>,
+    /// Another person's words the line quotes.
+    #[serde(default)]
+    pub from: Option<AssistantChatFromIn>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantChatFromIn {
+    pub name: String,
+    pub words: String,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, Type)]

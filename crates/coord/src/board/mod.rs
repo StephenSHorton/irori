@@ -24,7 +24,7 @@ mod fold;
 mod given;
 pub use given::{
     GIVEN_BACK_CANCEL, GIVEN_BACK_KEEP, GIVEN_BACK_KEEP_ONLY, GIVEN_BACK_QUESTION, GiveItems,
-    GivenItem, GivenSay, MAX_BATCH,
+    GivenItem, GivenSay, MAX_BATCH, given_back_reason,
 };
 mod idle;
 mod later;

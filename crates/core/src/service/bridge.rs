@@ -193,6 +193,17 @@ impl Services {
         if ev.kind == kinds::TASK_COMMENT && f.mentions.iter().any(|m| m.key == me_key) {
             self.mention_note(b, &t, &who, &person, &f);
         }
+        // A card given to another person came back (decision 69): tell
+        // this person, and their assistant what happened to the gift.
+        if ev.kind == kinds::TASK_STATUS {
+            self.blocker_note(b, &t, &who, &person, &f);
+        }
+        if matches!(
+            ev.kind.as_str(),
+            kinds::TASK_STATUS | kinds::BLOCKER_RESOLVED
+        ) {
+            self.given_follow_row(b, &t);
+        }
         let mut plans = Vec::new();
         if ev.kind == kinds::BOARD_ASK_STATE {
             plans.extend(self.ask_plan(b, ev, f, &t));
@@ -636,6 +647,64 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
                 board_id: b.id.clone(),
                 task_id: t.id.clone(),
                 comment_id: f.comment_id.clone(),
+                from: person.to_string(),
+                ..Default::default()
+            }),
+            on_click: Some(Arc::new(move || opener.open(target.clone()))),
+            ..notify::Note::default()
+        });
+    }
+
+    /// The desktop notification for a card given back to this person
+    /// (decision 69, plan §6.2): a `task.status` that raised a give-back
+    /// item for them, on a card they own. Its id holds the blocker, so each
+    /// device posts it once; opening it opens the card. It settles when
+    /// they pick Keep it or Cancel it (`notifications.rs`).
+    fn blocker_note(&self, b: &BoardLog, t: &Task, who: &str, person: &str, f: &RowFields) {
+        let n = &self.notifier.0;
+        if n.is_headless() {
+            return;
+        }
+        let Some(id) = f
+            .blocker
+            .as_ref()
+            .and_then(|v| v.get("id"))
+            .and_then(serde_json::Value::as_str)
+        else {
+            return;
+        };
+        let me_key = format!("{PERSON_ACTOR_PREFIX}{}", self.person_id());
+        let Some(bl) = t.blockers.iter().find(|bl| bl.id == id) else {
+            return;
+        };
+        let to_me = bl.on.as_ref().is_some_and(|on| on.reference == me_key);
+        if !bl.given_back || !bl.open() || !to_me || b.verifier.key_person(&bl.raised_by) != person
+        {
+            return;
+        }
+        let short = if t.short.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", t.short_ref())
+        };
+        let target = notify::Target {
+            tab: notify::TAB_BOARD.into(),
+            ref_: format!("task:{}", t.id),
+        };
+        let opener = n.clone();
+        n.post(notify::Note {
+            id: format!("blocker:{}:{}", t.id, bl.id),
+            title: format!(
+                "{who} gave back “{}”{short}",
+                notify::preview(&t.title)
+            ),
+            body: notify::preview(coord::given_back_reason(&bl.context)),
+            level: notify::Level::Info,
+            about: Some(coord::notifications::PostedRow {
+                kind: coord::notifications::KIND_BLOCKER.into(),
+                board_id: b.id.clone(),
+                task_id: t.id.clone(),
+                blocker_id: bl.id.clone(),
                 from: person.to_string(),
                 ..Default::default()
             }),

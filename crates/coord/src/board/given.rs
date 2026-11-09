@@ -25,6 +25,18 @@ pub const GIVEN_BACK_KEEP_ONLY: &str = "Keep it on the board";
 /// Cancel the card.
 pub const GIVEN_BACK_CANCEL: &str = "Cancel it";
 
+/// What comes right before the receiver's reason in a give-back item's
+/// context. [`given_back_reason`] reads it back.
+const REASON_MARK: &str = " Their reason: ";
+
+/// The receiver's reason, as a give-back item's context carries it, or "".
+/// The giver's Core shows it fenced as the other person's words.
+pub fn given_back_reason(context: &str) -> &str {
+    context
+        .split_once(REASON_MARK)
+        .map_or("", |(_, why)| why.trim())
+}
+
 /// A batch holds at most this many cards.
 pub const MAX_BATCH: usize = 20;
 /// How much of the receiver's reason a give-back's context carries.
@@ -176,7 +188,7 @@ impl Fold {
         };
         let mut cx = format!("{} gave this card back.", self.named(&g.key));
         if !reason.is_empty() {
-            cx.push_str(&format!(" Their reason: {}", cut(&reason, MAX_REASON)));
+            cx.push_str(&format!("{REASON_MARK}{}", cut(&reason, MAX_REASON)));
         }
         self.raise_with(
             &by,
