@@ -168,7 +168,7 @@ The last row matters because Claude Code drops background sessions about 60 minu
    - records the agent as the card's last agent (A.2).
 3. **It writes `agent.rest`**, then stops the process with **`claude stop` only**. There is no `rm`: the job and its files stay, because a wake reuses the options the job saved. The spawn's settings file stays at its path for the same reason (§7, spike results).
 
-**A drop-off has no hand-off**, because the process is already gone. Irori writes "rested without a hand-off" on its items. When it wakes, its wake notice asks it to write Left off first.
+**A drop-off has no hand-off**, because the process is already gone. Irori writes "rested without a hand-off" on its items. When it wakes, its wake notice asks it to write Left off before any other work on the item, once Irori's tools answer. They can be missing for the first several seconds of a wake (§7, spike results).
 
 **Restarts keep resting agents.** Today, at every start of Irori (and so after every update), `clean_after_start` ends each spawned agent that Claude Code lists as not running. A resting agent is exactly that kind of agent, so it would be retired. With rest, `clean_after_start` and `reap_ended` skip any agent whose current life is resting. After a device restarts, other devices keep its resting agents' cards (Appendix A.4).
 
@@ -211,19 +211,25 @@ A follow-up in a thread it answered needs one extra change. Today `thread_follow
 While a gate holds it, the item says why ("wakes when the Mac is back", "queued: 1st for the Mac"), the way `spawn_why` explains a start.
 
 **How it wakes.** It builds on the person's existing Revive (`window/src/roster.rs` about 295-433), which runs `claude --bg --resume <id>` in the session's folder after checking that the folder exists and is trusted. The spike (below) settled how flags go with it:
-- **A plain wake passes no flags:** `claude --bg --resume <id> "<wake notice>"`. Claude Code's job record keeps the spawn's flags (`respawnFlags` in `~/.claude/jobs/<job>/state.json`) and applies them again: `--name`, `--model` and `--effort` (so the agent keeps its run level, §8), `--permission-mode`, `--settings` and `--add-dir`. The wake notice goes as the prompt and lands as the agent's next turn.
-- **Never pass flags while the job record exists.** Then Claude Code starts a copy under a new session id instead of continuing the session.
-- **The settings file stays at the spawn's path** for the agent's whole life, and the wake rewrites it in place. A wake reads the file again at that path, and fails before it starts if the file is gone.
-- **A wake that must change a flag** goes the other way: `claude rm <job>` first, then `claude --bg --resume <id>` with every flag a spawn passes. With no job record, the passed flags apply and the session id holds.
+- **A plain wake passes no flags:** `claude --bg --resume <id> "<prompt>"`. Claude Code's job record keeps the spawn's flags (`respawnFlags` in `~/.claude/jobs/<job>/state.json`) and applies them again: `--name`, `--model` and `--effort` (so the agent keeps its run level, §8), `--permission-mode`, `--settings` and `--add-dir`. The prompt lands as the agent's next turn.
+- **The prompt is a fixed line**, as a spawn's is (`prompt_for`, `window/src/spawn.rs`). The wake notice holds card and person text, so it is written to a file in `briefs/` and the prompt names that file. That keeps such text off the command line.
+- **Never pass a flag beyond `--bg --resume <id>` while the job record exists.** Claude Code then starts a copy under a new session id instead of continuing the session.
+- **The settings file stays at the spawn's path** for the agent's whole life, and every wake rewrites it in place, an `rm` wake too. A wake reads the file again at that path, and fails before it starts if the file is gone.
+- **Which wake** depends on the job record, read first:
+  - **There is a record and no flag must change:** the plain wake.
+  - **There is a record and a flag must change:** `claude rm <job>`, then `claude --bg --resume <id>` with every flag a spawn passes. With no record left, the passed flags apply and the session id holds.
+  - **There is no record** (Claude Code removed it): the full resume with every flag, and no `rm`.
 
 **Permission mode and the settings file are worked out again at each wake** from the board's current permissions for the item it is woken for, so a setting the person has since tightened holds:
-- **Bypass turned off** goes in the rewritten file as `permissions.disableBypassPermissionsMode: "disable"`. A plain wake then runs in `auto` (Claude Code's classifier decides), not `default`.
-- **Allow and deny rules** go in the rewritten file too.
-- **Any other mode change** (the saved mode must become `default`, `acceptEdits`, and so on) takes the `rm` wake. `permissions.defaultMode` in the file does not override a saved `--permission-mode`.
+- **Allow and deny rules** go in the rewritten file.
+- **A mode change takes the `rm` wake**, which passes the new `--permission-mode`. `permissions.defaultMode` in the file does not override a saved `--permission-mode`.
+- **Where `rm` can't run** (the job record names a worktree, A.4), two cases:
+  - Bypass turned off goes in the rewritten file as `permissions.disableBypassPermissionsMode: "disable"`. A plain wake then runs in `auto` (Claude Code's classifier decides), not `default`, and the item says so.
+  - Any other mode change can't be made, so the agent retires and a successor starts (the fallback below).
 
-Older research said a resume doesn't restore `--settings` or `--add-dir` (`docs/research/05-raw-findings.md` 395-399). That holds for a plain resume, not for a `--bg` job that still has its record (Claude Code 2.1.319).
+Older research said a resume doesn't restore `--settings` or `--add-dir` (`docs/research/05-raw-findings.md` 395-399). That holds for a foreground `claude --resume`, and for a `--bg` resume after `claude rm`. It does not hold for a `--bg` job that still has its record (Claude Code 2.1.319).
 
-Irori writes `agent.wake` just before starting the process. Resume keeps the session id, so the key is the same and no bind is needed. Its first turn gets a wake notice that says:
+Irori writes `agent.wake` just before starting the process. Resume keeps the session id, so the key is the same and no bind is needed. A wake can still fail: Claude Code makes a copy, the settings file is missing, or the process exits before it starts. Then Irori writes `agent.rest {reason: wake_failed}` for the new life, so the roster never shows an idle agent with no process, and whatever woke it starts a successor (the fallback below). Its first turn gets a wake notice that says:
 - why it was woken;
 - when it rested;
 - what changed on its items since then, through the same hooks a wake uses today.
@@ -240,14 +246,14 @@ Irori writes `agent.wake` just before starting the process. Resume keeps the ses
 
 **Names.** A resting agent keeps its word for its whole life. The namer neither gives the word to another agent nor renames the agent (`core/src/namer.rs`: `NAMES_BUSY` is 2 hours today, and `settle()` can rename). On retire, today's protection applies: 7 days before the word is reused, 30 days in the lists.
 
-**If resume doesn't hold up.** The first doing card (#1211) is a live spike with plain `claude`. It checks five things:
+**If resume doesn't hold up.** The first doing card (#1211) was a live spike with plain `claude`. It checked the five things below, and all held (spike results, below). The fallback now applies to one wake that fails, or to every wake if a later Claude Code breaks one of them:
 - that the transcript is found after the folder is recreated;
 - that the session id stays the same;
 - that the name, model, effort and settings stick;
 - that a resume within the hour reads the cache warm;
 - that Claude Code accepts a resumed `--bg` job the same way.
 
-If any of these fails, the design falls back:
+When that happens, the design falls back:
 - **rest becomes retire**: the same hand-off is written at the same points, and the name goes;
 - **whatever would have woken the agent starts a successor** (§9), seeded with the hand-off and the thread.
 
@@ -286,8 +292,8 @@ It read a file in the added folder with no prompt, printed the marker from setti
 - **A missing settings file stops a plain wake.** Settings B was moved away, then the copy was woken with no flags. Its job failed with "exit 1 before init — Error: Settings file not found: …settings-B.json".
 - **The settings file can turn Bypass off.** Session `f853da4d-525b-4519-8a72-b2aa782b000b` ("spike1211-b") was spawned in `bypassPermissions`. After a stop, its file was rewritten with `permissions.disableBypassPermissionsMode: "disable"` and it was woken with no flags. Its user row then said `permissionMode: auto`, and a `whoami` that no rule allowed was approved by the classifier.
 - **The settings file can't change other modes.** Session `054e253d-58a8-4a99-a8b0-a21c54b0c148` was spawned in `default`. Its file was rewritten with `permissions.defaultMode: "acceptEdits"`, and after a plain wake it still ran in `default`.
-- **Waking too soon after a stop makes a copy.** A resume sent right after `claude stop` returned said "session 054e253d is already running in the background, so this started a copy as 355af3f4". The race note under Races covers it.
-- **Irori's tools return a few seconds into the first turn.** On each wake the `irori` MCP server's tools dropped out for 10-20 s at the first turn and came back within it (e53a4589: gone at 19:14:48Z, back at 19:15:00Z). A fresh spawn does the same, so the wake notice must not depend on an Irori tool being there for its first call.
+- **Waking too soon after a stop makes a copy.** A resume sent right after `claude stop` returned said "session 054e253d is already running in the background, so this started a copy as 355af3f4". The copy did not come up with the saved options: it ran in `bypassPermissions` without the added folder, and never answered. The race note under Races covers this, and a wake stops and removes any copy it gets back (A.4).
+- **Irori's tools return several seconds into the first turn.** Four wakes had the `irori` MCP server's tools loaded beforehand. On each, the tools dropped out for about 7-18 s at the first turn and came back within it (e53a4589: gone at 19:14:48Z, back at 19:15:00Z). A fresh spawn also starts without them, so the wake notice must not depend on an Irori tool being there for its first call.
 
 **Not checked:**
 - When Claude Code drops a background session itself after an idle hour (card #498), the spike doesn't show whether the job record survives. The `rm` wake path covers that case either way, as long as Irori passes every flag.
@@ -322,7 +328,7 @@ When a card, ask or thread needs an agent, Irori tries these in order, on the de
    They are ordered as `free_for` orders them: `machine_rank` first, then the one idle longest, then key. The offer is handed on by the existing events.
 4. **A fresh spawn**, as today.
 
-**Why the same run level.** An agent's model and effort are fixed when it starts. Giving it a lower-level card costs more for nothing. Giving it a higher-level card defeats decision 61, whose lift exists to get a stronger model.
+**Why the same run level.** An agent's model and effort stay as spawned for its whole life: a plain wake applies them again (§7), and this design never changes them. Giving it a lower-level card costs more for nothing. Giving it a higher-level card defeats decision 61, whose lift exists to get a stronger model.
 
 **No double start.** Today, on a board that starts agents, the spawn sweep runs before hand-out and the offer path is switched off. So a new card is spawned for at once, and no offer would ever be made. The fix: on such a board, a card is spawned for only after hand-out has run for it and found nobody, and the two switches that turn offers off there are removed. Without it, #453's "two agents on one card" comes back. Appendix A.2 names the places.
 
@@ -433,7 +439,7 @@ If the person still finds it noisy, the next step is a shorter quiet day, not re
 
 The cards sit on the Board after #1209. Each has steps, files and done-when, and each can be built without more design.
 
-1. **#1211 Spike: resume a stopped spawned agent.** Live, with plain `claude` in a throwaway worktree. Gates 5 and 6.
+1. **#1211 Spike: resume a stopped spawned agent.** Live, with plain `claude` in a throwaway worktree. Gates 5 and 6. Done: go, with a plain wake that passes no flags (§7, spike results).
 2. **#1212 Context measure** in presence, carried on `agent.status` and `agent.rest`.
 3. **#1213 Budget setting and the shared `reusable` check.** After 2.
 4. **#1214 The multi-item mark** (`agent.took`; Appendix A.3).
@@ -526,7 +532,7 @@ grep -rn '\.spawned\.get(\|\.spawned\.iter\|\.spawned\.contains_key' crates --in
 ### A.4 Rest, wake and retire in the code (cards 5 and 6)
 
 - **Rows.**
-  - `agent.rest {key, life, at, reason: idle | slot | dropped, ctx, ctx_at, compacted, by}`
+  - `agent.rest {key, life, at, reason: idle | slot | dropped | wake_failed, ctx, ctx_at, compacted, by}`
   - `agent.wake {key, life, at, why, counted, by}`
   - `agent.retire {key, life, at, reason: budget | compacted | quiet | crowded | ended | lifted, by}`
   - Each is written only on the agent's device.
@@ -556,14 +562,15 @@ grep -rn '\.spawned\.get(\|\.spawned\.iter\|\.spawned\.contains_key' crates --in
 - **The process.**
   - `Spawner` gains `stop` (`claude stop <job>`, with the job looked up as `end_in` does in `window/src/spawn.rs`). Rest calls `stop`; retire calls `end` (stop and `rm`).
   - `Spawner` gains `wake`, two ways (§7, spike results):
-    - The plain way is `claude --bg --resume <session id> "<wake notice>"` with **no flags**, from the session's folder, with `DISABLE_AUTOUPDATER=1` and the tree's `CARGO_TARGET_DIR`.
-    - When a flag must change (a mode change the settings file can't express), or the job record is gone, it is `claude rm <job>` and then the resume with every flag `check()` builds. The `rm` runs only when the job record's `worktreePath` is null. Today's `holds_tree` refuses `rm` whenever the folder is a tree, so this case needs a narrower guard. The spike saw `rm` leave a worktree folder alone when `worktreePath` was null.
-  - Before either, the wake waits until `claude agents --json` no longer lists the session as live. It then checks the session id the resume printed: a different short id means Claude Code made a copy. That copy is stopped and removed, and the wake is reported as failed.
+    - The plain way is `claude --bg --resume <session id> "<fixed prompt naming the wake notice file>"` with **no other flags**. It runs from the session's folder, with `DISABLE_AUTOUPDATER=1` and the tree's `CARGO_TARGET_DIR`.
+    - The full way passes every flag `window/src/spawn.rs` `check()` builds for a spawn. It is used when the job record is gone. It is also used when a flag must change, after `claude rm <job>`.
+    - The wake reads `~/.claude/jobs/<job>/state.json` first to choose between them. `claude rm` runs only when the record's `worktreePath` is null; otherwise the wake can't change a flag (§7). Today's `holds_tree` refuses `rm` whenever the folder is a tree, so the wake needs a narrower guard. The spike saw `rm` leave a worktree folder alone when `worktreePath` was null.
+  - Before either, the wake waits until `claude agents --json` no longer lists the session as live. It then checks the session id the resume printed: a different short id means Claude Code made a copy. That copy is stopped and removed, and the wake fails (`agent.rest {reason: wake_failed}`, §7).
   - `rm` already never removes an Irori tree (`holds_tree`, card #565); treeclean does.
   - `clean_after_start` (`core/src/service/spawn.rs:3127`) and `reap_ended` (`:3748`) skip keys whose current life rests.
   - Storage › Briefs (`window/src/storage.rs` about 940-947) keeps the briefs and the settings file of any agent that hasn't retired. A plain wake fails before it starts if the settings file is gone.
 - **Starts.** A wake goes through the start gates in `core/src/service/spawn.rs` about 2100-2158: `agents_paused`, the inbox's `paused`, the usage hold, the cap and `can_run_here`. The cap's `spawned_here` (`:2241`) doesn't count resting agents.
-- **Settings for a wake.** Rewritten **in place** at the spawn's path, `briefs/<id>-<gen>.settings.json` (`write_settings`, about 3104-3116), from `spawn_permissions` for the item it is woken for. A plain wake reads only that path, so it can't use a new file. Bypass turned off is written as `permissions.disableBypassPermissionsMode: "disable"`, and the agent then runs in `auto`. Any other mode change takes the `rm` wake. Only the `rm` wake could use a new `-w<life>` file.
+- **Settings for a wake.** Rewritten **in place** at the spawn's path, `briefs/<id>-<gen>.settings.json` (`write_settings`, about 3104-3116), from `spawn_permissions` for the item it is woken for. Every wake, the `rm` wake too, keeps that path, because later plain wakes read only it. A mode change takes the `rm` wake. Where `rm` can't run, Bypass turned off is written as `permissions.disableBypassPermissionsMode: "disable"`, and the agent then runs in `auto` (§7).
 - **The end loop.** `end_finished` walks `presence.snapshot()` (`:3299`). The quiet and crowded retires need a new pass over the resting set, in the same sweep.
 
 ### A.5 Wording that changes (cards 7 and 8)
