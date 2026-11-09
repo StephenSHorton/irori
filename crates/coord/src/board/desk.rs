@@ -175,7 +175,8 @@ impl Desk {
 
     /// Fills the settings from where the repo was seen: the whole default
     /// until the person writes a row, then only a poll device the row left
-    /// blank. A poll device the person picked is never moved.
+    /// blank. A poll device the person picked is never moved, unless it
+    /// was removed: then it counts as blank (card #1240).
     /// `revoked` says whether a device was revoked: its rows never name
     /// the poll device, so a desk moves off a device that is gone.
     fn settle(&mut self, repo_key: &str, revoked: &dyn Fn(&str) -> bool) {
@@ -186,12 +187,14 @@ impl Desk {
             .max_by(|a, b| (a.1, a.0).cmp(&(b.1, b.0)))
             .map(|(dev, _)| dev.clone())
             .unwrap_or_default();
-        if self.seen.is_empty() {
+        if self.is_default() {
+            if !self.seen.is_empty() {
+                self.settings = new_desk(repo_key, &self.seen_on);
+            }
             return;
         }
-        if self.is_default() {
-            self.settings = new_desk(repo_key, &self.seen_on);
-        } else if self.follow_poll {
+        let gone = !self.settings.poll_device.is_empty() && revoked(&self.settings.poll_device);
+        if (self.follow_poll && !self.seen.is_empty()) || gone {
             self.settings.poll_device = self.seen_on.clone();
         }
     }
@@ -372,11 +375,10 @@ impl Fold {
     pub(crate) fn desk_view(&self, d: &Desk) -> Desk {
         let mut d = d.clone();
         d.stray = !self.desk_ours(&d.settings.repo_key);
-        // A device revoked since the repo was seen there no longer polls.
-        if !d.seen.is_empty() {
-            let k = d.settings.repo_key.clone();
-            d.settle(&k, &self.revoked_fn());
-        }
+        // A device revoked since the repo was seen there, or since the
+        // person picked it, no longer polls.
+        let k = d.settings.repo_key.clone();
+        d.settle(&k, &self.revoked_fn());
         d
     }
 

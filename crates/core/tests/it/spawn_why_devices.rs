@@ -181,10 +181,7 @@ fn a_card_from_a_removed_device_says_it_was_removed() {
     let rt = a.core.pairing_runtime().clone();
     rt.block_on(a.core.remove_device(&b_id)).unwrap();
     wait_for(WAIT, "A reads B as removed", || {
-        matches!(
-            a.core.why_no_agent(&t.id, true),
-            Some(Why::DeviceRemoved)
-        )
+        matches!(a.core.why_no_agent(&t.id, true), Some(Why::DeviceRemoved))
     });
     let line = Why::DeviceRemoved.to_string();
     assert!(!line.contains(&b_id[..8]), "no id: {line}");

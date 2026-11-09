@@ -843,6 +843,10 @@ pub(super) fn roster_of(s: &Services, b: &BoardLog) -> Vec<AgentCard> {
             .map(|a| (a.key.clone(), a))
             .collect();
         let me = s.device.id.as_str();
+        // A card hosted on a removed device is a leftover: not listed
+        // (card #1240).
+        let removed =
+            |d: &str| !d.is_empty() && (s.chain.cut(d).is_some() || b.verifier.cut(d).is_some());
         let m = lock(&b.maps);
         let mut out = Vec::with_capacity(m.cards.len());
         // Cards whose host device the meshes answer for (card #372), read
@@ -875,6 +879,14 @@ pub(super) fn roster_of(s: &Services, b: &BoardLog) -> Vec<AgentCard> {
                     }
                     _ => {}
                 }
+            }
+            let host = if placed && !a.device_id.is_empty() {
+                &a.device_id
+            } else {
+                &card.device_id
+            };
+            if removed(host) {
+                continue;
             }
             if !placed && !card.device_id.is_empty() {
                 // Another member's agent (or one of the person's no live

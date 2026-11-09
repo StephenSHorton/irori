@@ -770,7 +770,11 @@ async fn a_settled_removal_stays_forgotten_after_a_restart() {
     })
     .await;
     assert!(
-        pc.node().status().peer_list().iter().all(|p| p.device_id != mac_id),
+        pc.node()
+            .status()
+            .peer_list()
+            .iter()
+            .all(|p| p.device_id != mac_id),
         "no status peer for the Mac"
     );
     nd.stop().await;

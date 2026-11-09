@@ -70,10 +70,7 @@ pub fn load_removed(dir: Option<&Path>) -> std::collections::BTreeSet<String> {
 }
 
 /// Writes the settled removals, best effort: the caller logs a failure.
-pub fn save_removed(
-    dir: &Path,
-    ids: &std::collections::BTreeSet<String>,
-) -> std::io::Result<()> {
+pub fn save_removed(dir: &Path, ids: &std::collections::BTreeSet<String>) -> std::io::Result<()> {
     let ids: Vec<&String> = ids.iter().collect();
     let raw = serde_json::to_vec_pretty(&ids).expect("ids always marshal");
     crate::fsutil::write_replace(&dir.join(REMOVED_FILE), &raw)

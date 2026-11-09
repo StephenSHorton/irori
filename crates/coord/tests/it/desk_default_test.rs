@@ -169,6 +169,28 @@ fn a_blank_poll_device_follows_where_the_repo_was_seen_a_picked_one_stays() {
     assert_eq!(e.c.desk(REPO_A).unwrap().settings.poll_device, "dev-a");
 }
 
+/// Card #1240: a poll device the person picked moves once it is removed,
+/// to where the repo was seen, so polling doesn't stop with it.
+#[test]
+fn a_picked_poll_device_that_was_removed_follows_where_the_repo_was_seen() {
+    let e = Env::new();
+    let at = |m: u64| hlc_at(plus(fixed_now(), mins(m)));
+    seen_here(&e, REPO_A);
+    e.remote("dev-b", 1, at(60), "irori", kinds::REPO_SEEN, &seen(REPO_A));
+    let mut s = e.c.desk(REPO_A).unwrap().settings;
+    s.poll_device = "dev-b".into();
+    e.c.set_desk(USER, s).unwrap();
+    assert_eq!(e.c.desk(REPO_A).unwrap().settings.poll_device, "dev-b");
+    let revoked: KeyFn = std::sync::Arc::new(|d: &str| d == "dev-b");
+    let c = e.reopen_with(Options {
+        revoked: Some(revoked),
+        ..e.opts()
+    });
+    let d = c.desk(REPO_A).unwrap();
+    assert_eq!(d.settings.poll_device, "dev-a", "the device left");
+    assert!(!d.is_default(), "the person's row stays theirs");
+}
+
 #[test]
 fn a_repo_no_device_has_seen_still_needs_a_poll_device() {
     let e = Env::new();
