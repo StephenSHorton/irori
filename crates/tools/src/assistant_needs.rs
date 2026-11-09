@@ -417,10 +417,7 @@ fn name_at(
             }
             continue;
         }
-        if (parts[0].chars().any(|c| !c.is_ascii()) || bare.chars().any(|c| !c.is_ascii()))
-            && parts[0] != bare
-            && near(&parts[0], bare)
-        {
+        if (!parts[0].is_ascii() || !bare.is_ascii()) && parts[0] != bare && near(&parts[0], bare) {
             // Letters a keyboard may not have: only an exact match counts,
             // and a near one is doubt.
             shadow = true;
@@ -1275,11 +1272,11 @@ fn reason_start(w: &[&str], a: usize, b: usize, c: &Clause) -> usize {
     if c.reason.is_none() {
         return b;
     }
-    for k in a..b {
-        if c.tell.is_some() && w[k] == "tell" {
+    for (k, x) in w.iter().enumerate().take(b).skip(a) {
+        if c.tell.is_some() && *x == "tell" {
             return k;
         }
-        if w[k] == "because" {
+        if *x == "because" {
             return k + 1;
         }
     }
