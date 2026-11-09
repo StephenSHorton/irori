@@ -72,6 +72,13 @@
 //! worktree remove` (submodules, a file in use) is a kept tree and the
 //! next sweep looks again.
 //!
+//! **Who holds it (card #1118).** Gate 3 names the processes it finds
+//! ([`holders`]: "held by cat.exe (pid 4242)"), on Windows through Git's `sh`,
+//! so the kept line, the card and Storage's End it ([`end_holder`]) say what
+//! to end. A native Windows process is still only "in use". A canceled
+//! card's tree that gates 4 to 6 keep can be deleted whole at the person's
+//! word ([`remove_anyway`]).
+//!
 //! **Attribution.** A card whose agent never wrote Where (a thread, a shared
 //! board's card, `mentions`, `454-talk`) still has to reach its tree, so each
 //! tree is written in the [`Book`] when it is spawned, made or first seen
@@ -987,6 +994,78 @@ pub fn remove(tree: &Path, c: &Check) -> Verdict {
     finish(&aside, &begun)
 }
 
+/// How many commits `tree`'s HEAD has that no remote branch holds (card
+/// #1118: Storage says it for a canceled card's tree).
+pub fn unpushed_head(tree: &Path) -> Result<usize, String> {
+    git(tree, &["rev-list", "--count", "HEAD", "--not", "--remotes"])?
+        .parse()
+        .map_err(|e| format!("git rev-list --count: {e}"))
+}
+
+/// Deletes a tree whose work the person has said to drop (card #1118:
+/// Storage's "delete anyway" for a canceled card): `git worktree remove
+/// --force`, so uncommitted and unpushed work goes with the folder; the
+/// branch stays. What still holds: a tree of ours, nobody in it ([`in_use`]),
+/// and no repo or link inside it ([`scan`]): git can't remove a junction
+/// cleanly and must never delete through one. The caller checks the cards.
+pub fn remove_anyway(tree: &Path, c: &Check) -> Result<(), String> {
+    restore(tree)?;
+    if !tree.is_dir() || !shaped(tree) || !registered(tree) {
+        return Err("it isn't a worktree of ours".into());
+    }
+    let Some(main) = ours(tree) else {
+        return Err("it isn't a worktree of ours".into());
+    };
+    let path = tree.to_string_lossy().into_owned();
+    if let Some(Verdict::Busy(why)) = in_use(&path, c) {
+        return Err(why);
+    }
+    if let Some(why) = worktree_list(&main, tree)? {
+        return Err(why);
+    }
+    // The build output goes first, through the same checks as the sweep's.
+    match buildclean::clear(tree, Duration::ZERO, c.now) {
+        Ok(Cleared::Gone | Cleared::Kept(buildclean::NO_TARGET)) => {}
+        Ok(Cleared::Kept(why)) => return Err(why.into()),
+        Err(e) => return Err(e),
+    }
+    if let Some(why) = scan(tree) {
+        return Err(why);
+    }
+    let removed = git(&main, &["worktree", "remove", "--force", &path]);
+    if tree.exists() {
+        if registered(tree) {
+            // git refused before it began: the tree is whole.
+            return Err(removed
+                .err()
+                .unwrap_or_else(|| "git left the folder behind".into()));
+        }
+        // git dropped its entry and a file held it part way (Windows): the
+        // person said delete, so finish the folder, as the sweep's removal
+        // does for a half-done one. Nothing else could judge it now.
+        let mut last = String::new();
+        for _ in 0..20 {
+            match fs::remove_dir_all(tree) {
+                Ok(()) => break,
+                Err(_) if !tree.exists() => break,
+                Err(e) => last = e.to_string(),
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        if tree.exists() {
+            return Err(format!(
+                "git removed its entry but not all of the folder ({last}); delete {} by hand",
+                tree.display()
+            ));
+        }
+    }
+    crate::logf(format_args!(
+        "trees: deleted {} at the person's word (canceled)",
+        tree.display()
+    ));
+    Ok(())
+}
+
 /// Moves a tree [`remove`] moved aside back to `tree` and gives `v`, why
 /// it stays. A move back that keeps failing leaves it at its
 /// [`aside_path`], still a registered worktree, which [`restore`] puts
@@ -1032,11 +1111,51 @@ fn in_use(path: &str, c: &Check) -> Option<Verdict> {
     if c.live.iter().any(|d| under(d, path)) {
         return Some(Verdict::Busy("an agent is in it".into()));
     }
-    match cwd_in(path) {
-        Ok(false) => None,
-        Ok(true) => Some(Verdict::Busy("in use".into())),
+    match holders(path) {
+        Ok(h) if h.is_empty() => None,
+        Ok(h) => Some(Verdict::Busy(held_by(&h))),
         Err(e) => Some(Verdict::Busy(e)),
     }
+}
+
+/// A process that has its current folder in a tree (card #1118): what keeps
+/// the tree "in use", named so the person can end it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Holder {
+    /// The operating system's process id (on Windows the Windows one, not
+    /// the MSYS one).
+    pub pid: u32,
+    /// The program's name: `cat.exe`, `node`.
+    pub name: String,
+}
+
+impl Holder {
+    /// `cat.exe (pid 123)`.
+    pub fn label(&self) -> String {
+        format!("{} (pid {})", self.name, self.pid)
+    }
+}
+
+/// How many holders [`held_by`] names before it counts the rest.
+const HELD_NAMED: usize = 3;
+
+/// The start of the reason [`held_by`] gives.
+pub const HELD_BY: &str = "held by ";
+
+/// Why a tree is kept when `holders` have their folder in it: names them,
+/// or says "in use" when there are none to name.
+pub fn held_by(holders: &[Holder]) -> String {
+    if holders.is_empty() {
+        return "in use".into();
+    }
+    let named: Vec<String> = holders.iter().take(HELD_NAMED).map(Holder::label).collect();
+    let more = holders.len().saturating_sub(HELD_NAMED);
+    let more = if more > 0 {
+        format!(" and {more} more")
+    } else {
+        String::new()
+    };
+    format!("{HELD_BY}{}{more}", named.join(", "))
 }
 
 /// Gates 4 to 6's git part: anything git would lose with the tree. Run
@@ -1175,35 +1294,142 @@ fn written_since(tree: &Path, since: SystemTime) -> Option<String> {
 /// macOS, `lsof`'s cwd list. Not being able to look is an `Err`: the tree
 /// stays.
 pub fn cwd_in(tree: &str) -> Result<bool, String> {
+    holders(tree).map(|h| !h.is_empty())
+}
+
+/// The processes that have their current folder in `tree`, by name and pid
+/// (card #1118): the same look as [`cwd_in`], which only says there is one.
+/// A native Windows process isn't listed (see the module doc); `git
+/// worktree move` still refuses for it.
+pub fn holders(tree: &str) -> Result<Vec<Holder>, String> {
+    Ok(holders_of(&[tree.to_string()])?
+        .remove(&key(tree))
+        .unwrap_or_default())
+}
+
+/// [`holders`] for several trees with one look at the processes (Storage
+/// lists every tree): each tree, as a [`key`], and its holders. A tree
+/// nobody holds has no entry.
+pub fn holders_of(trees: &[String]) -> Result<BTreeMap<String, Vec<Holder>>, String> {
+    let paths: Vec<(String, String)> = trees
+        .iter()
+        .map(|t| {
+            let real = fs::canonicalize(t)
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| t.clone());
+            (t.clone(), real)
+        })
+        .collect();
+    let mut out: BTreeMap<String, Vec<Holder>> = BTreeMap::new();
+    for (h, cwd) in process_cwds(trees)? {
+        for (t, real) in &paths {
+            if under(&cwd, t) || under(&cwd, real) {
+                let list = out.entry(key(t)).or_default();
+                if !list.contains(&h) {
+                    list.push(h.clone());
+                }
+            }
+        }
+    }
+    for list in out.values_mut() {
+        list.sort_by_key(|h| h.pid);
+    }
+    Ok(out)
+}
+
+/// Ends holder `pid` of `tree` (card #1118, Storage's End it). It is looked
+/// up again first, so a pid that has gone since, or been given to a process
+/// outside the tree, is refused; Irori's own process is never ended.
+/// Returns who was ended.
+pub fn end_holder(tree: &str, pid: u32) -> Result<Holder, String> {
+    if pid == std::process::id() {
+        return Err("that is Irori itself".into());
+    }
+    // The process list can miss a process for a moment on a busy machine
+    // (Git's `sh` listing `/proc`): look a few times before saying it went.
+    let mut found = None;
+    for n in 0..4 {
+        if n > 0 {
+            std::thread::sleep(Duration::from_millis(400));
+        }
+        found = holders(tree)?.into_iter().find(|h| h.pid == pid);
+        if found.is_some() {
+            break;
+        }
+    }
+    let h = found.ok_or_else(|| format!("pid {pid} isn't in {tree} any more"))?;
+    kill_pid(pid)?;
+    Ok(h)
+}
+
+#[cfg(windows)]
+fn kill_pid(pid: u32) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    // /T: its children too (a dev server under a runner).
+    let out = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .creation_flags(0x0800_0000)
+        .output()
+        .map_err(|e| format!("taskkill: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "taskkill: {} {}",
+            String::from_utf8_lossy(&out.stdout).trim(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
+    }
+}
+
+#[cfg(unix)]
+fn kill_pid(pid: u32) -> Result<(), String> {
+    let out = Command::new("kill")
+        .arg(pid.to_string())
+        .output()
+        .map_err(|e| format!("kill: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "kill: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
+    }
+}
+
+/// Every process here that can be read and its current folder. `tree` lets
+/// Windows ask for names of only the ones in it.
+fn process_cwds(trees: &[String]) -> Result<Vec<(Holder, String)>, String> {
     #[cfg(windows)]
     {
-        Ok(any_under(&msys_cwds()?, tree))
+        msys_holders(trees)
     }
     #[cfg(target_os = "linux")]
     {
+        let _ = trees;
         let rd = fs::read_dir("/proc").map_err(|e| format!("can't list processes: {e}"))?;
-        let mut cwds = Vec::new();
+        let mut out = Vec::new();
         for e in rd.flatten() {
-            if !e
-                .file_name()
-                .to_string_lossy()
-                .bytes()
-                .all(|b| b.is_ascii_digit())
-            {
+            let Ok(pid) = e.file_name().to_string_lossy().parse::<u32>() else {
                 continue;
-            }
+            };
             // Another user's process can't be read; it can't be in our
             // tree's folder without our say either.
             if let Ok(p) = fs::read_link(e.path().join("cwd")) {
-                cwds.push(p.to_string_lossy().into_owned());
+                let name = fs::read_to_string(e.path().join("comm"))
+                    .map(|n| n.trim().to_string())
+                    .unwrap_or_default();
+                out.push((Holder { pid, name }, p.to_string_lossy().into_owned()));
             }
         }
-        Ok(any_under(&cwds, tree))
+        Ok(out)
     }
     #[cfg(all(unix, not(target_os = "linux")))]
     {
+        let _ = trees;
         let out = Command::new("lsof")
-            .args(["-n", "-P", "-w", "-a", "-d", "cwd", "-F", "n"])
+            .args(["-n", "-P", "-w", "-a", "-d", "cwd", "-F", "pcn"])
             .output()
             .map_err(|e| format!("can't list processes (lsof: {e})"))?;
         // lsof exits 1 when some process couldn't be read; the list is
@@ -1212,8 +1438,32 @@ pub fn cwd_in(tree: &str) -> Result<bool, String> {
         if text.trim().is_empty() {
             return Err("can't list processes (lsof said nothing)".into());
         }
-        Ok(any_under(&lsof_cwds(&text), tree))
+        Ok(lsof_procs(&text))
     }
+}
+
+/// The processes and folders in `lsof -F pcn` output: a `p<pid>` line
+/// starts a process, `c<command>` names it and `n<folder>` is its folder.
+pub fn lsof_procs(text: &str) -> Vec<(Holder, String)> {
+    let (mut pid, mut name) = (0u32, String::new());
+    let mut out = Vec::new();
+    for l in text.lines() {
+        if let Some(p) = l.strip_prefix('p') {
+            pid = p.parse().unwrap_or(0);
+            name.clear();
+        } else if let Some(c) = l.strip_prefix('c') {
+            name = c.to_string();
+        } else if let Some(n) = l.strip_prefix('n')
+            && pid != 0
+        {
+            let holder = Holder {
+                pid,
+                name: name.clone(),
+            };
+            out.push((holder, n.to_string()));
+        }
+    }
+    out
 }
 
 /// The current folders of the MSYS processes Git for Windows' own runtime
@@ -1223,39 +1473,107 @@ pub fn cwd_in(tree: &str) -> Result<bool, String> {
 /// None when there is no Git `sh` here. Another MSYS2 or Cygwin install,
 /// or a process in another sandbox, is a world of its own and isn't seen.
 #[cfg(windows)]
-fn msys_cwds() -> Result<Vec<String>, String> {
-    use std::os::windows::process::CommandExt;
-    let Ok(exec) = git(Path::new("."), &["--exec-path"]) else {
+fn msys_holders(trees: &[String]) -> Result<Vec<(Holder, String)>, String> {
+    let Some(sh) = git_sh() else {
         return Ok(Vec::new());
     };
-    // <git>/mingw64/libexec/git-core -> <git>/usr/bin/sh.exe
-    let Some(root) = Path::new(&exec).ancestors().nth(3) else {
-        return Ok(Vec::new());
-    };
-    let sh = root.join("usr").join("bin").join("sh.exe");
-    if !sh.is_file() {
-        return Ok(Vec::new());
+    // One find and one cygpath, not a fork per process: a loop took 30 s on
+    // a busy machine. Full paths: a sh started from outside has no
+    // /usr/bin on its PATH. Each line is `/proc/<pid>`, a tab and the
+    // folder; the folders are converted apart (cygpath would mangle the
+    // pid column) and pasted back beside their pids.
+    let text = sh_output(
+        &sh,
+        r#"L=$(/usr/bin/find /proc -mindepth 2 -maxdepth 2 -name cwd -printf '%h\t%l\n' 2>/dev/null); T=$(/usr/bin/mktemp); printf '%s\n' "$L" | /usr/bin/cut -f2 | /usr/bin/cygpath -m -f - > "$T"; printf '%s\n' "$L" | /usr/bin/cut -f1 | /usr/bin/paste - "$T"; /usr/bin/rm -f "$T"; echo end"#,
+    )?;
+    let mut lines: Vec<&str> = text.lines().map(str::trim).collect();
+    if lines.pop() != Some("end") {
+        return Err("can't list Git Bash processes".into());
     }
-    let out = Command::new(&sh)
-        .args([
-            "-c",
-            // One find and one cygpath, not a fork per process: a loop
-            // took 30 s on a busy machine. Full paths: a sh started from
-            // outside has no /usr/bin on its PATH.
-            r#"/usr/bin/find /proc -mindepth 2 -maxdepth 2 -name cwd -printf '%l\n' 2>/dev/null | /usr/bin/cygpath -m -f -; echo end"#,
-        ])
+    let procs: Vec<(&str, &str)> = lines
+        .into_iter()
+        .filter_map(|l| {
+            let (p, cwd) = l.split_once('\t')?;
+            let pid = p.strip_prefix("/proc/")?;
+            (!cwd.is_empty() && pid.bytes().all(|b| b.is_ascii_digit())).then_some((pid, cwd))
+        })
+        .collect();
+    let reals: Vec<String> = trees
+        .iter()
+        .flat_map(|t| {
+            let real = fs::canonicalize(t).map(|p| p.to_string_lossy().into_owned());
+            [Some(t.clone()), real.ok()].into_iter().flatten()
+        })
+        .collect();
+    let inside = |c: &str| reals.iter().any(|t| under(c, t));
+    // The ones outside the tree need no name: nothing reads it.
+    let mut out: Vec<(Holder, String)> = procs
+        .iter()
+        .filter(|(_, c)| !inside(c))
+        .map(|(p, c)| {
+            let holder = Holder {
+                pid: p.parse().unwrap_or(0),
+                name: String::new(),
+            };
+            (holder, c.to_string())
+        })
+        .collect();
+    let here: Vec<&(&str, &str)> = procs.iter().filter(|(_, c)| inside(c)).collect();
+    if here.is_empty() {
+        return Ok(out);
+    }
+    let ids: Vec<&str> = here.iter().map(|(p, _)| *p).collect();
+    let names = sh_output(
+        &sh,
+        &format!(
+            r#"for p in {}; do printf '%s\t%s\t%s\n' "$p" "$(/usr/bin/cat /proc/$p/winpid 2>/dev/null)" "$(/usr/bin/basename "$(/usr/bin/readlink /proc/$p/exe 2>/dev/null)" 2>/dev/null)"; done"#,
+            ids.join(" ")
+        ),
+    )?;
+    for l in names.lines() {
+        let f: Vec<&str> = l.trim_end().split('\t').collect();
+        let [msys, win, name] = f[..] else { continue };
+        // A process that has gone since has no Windows pid: not a holder.
+        let Ok(pid) = win.trim().parse::<u32>() else {
+            continue;
+        };
+        if let Some((_, cwd)) = here.iter().find(|(p, _)| *p == msys) {
+            let name = if name.is_empty() {
+                "a Git Bash process".to_string()
+            } else {
+                name.to_string()
+            };
+            out.push((Holder { pid, name }, cwd.to_string()));
+        }
+    }
+    Ok(out)
+}
+
+/// Git for Windows' own `sh.exe`, when it is here.
+#[cfg(windows)]
+fn git_sh() -> Option<PathBuf> {
+    let exec = git(Path::new("."), &["--exec-path"]).ok()?;
+    // <git>/mingw64/libexec/git-core -> <git>/usr/bin/sh.exe
+    let root = Path::new(&exec).ancestors().nth(3)?;
+    let sh = root.join("usr").join("bin").join("sh.exe");
+    sh.is_file().then_some(sh)
+}
+
+#[cfg(windows)]
+fn sh_output(sh: &Path, script: &str) -> Result<String, String> {
+    use std::os::windows::process::CommandExt;
+    let out = Command::new(sh)
+        .args(["-c", script])
         .creation_flags(0x0800_0000)
         .output()
         .map_err(|e| format!("can't list Git Bash processes ({}: {e})", sh.display()))?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let mut lines: Vec<String> = text.lines().map(|l| l.trim().to_string()).collect();
-    if lines.pop().as_deref() != Some("end") {
+    if out.stdout.is_empty() {
         return Err(format!(
             "can't list Git Bash processes ({})",
             String::from_utf8_lossy(&out.stderr).trim()
         ));
     }
-    Ok(lines.into_iter().filter(|l| !l.is_empty()).collect())
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// The folders in `lsof -F n` output.

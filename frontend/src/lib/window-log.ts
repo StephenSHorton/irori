@@ -11,6 +11,7 @@
 // answered.
 
 import { WindowLog, Events } from "./host"
+import { onIpc } from "./ipc-count"
 import { inWails } from "./irori"
 
 // SlowReadMs is when a list's read counts as slow.
@@ -21,7 +22,16 @@ export const WindowLogMs = 60_000
 export const DroppedInARow = 3
 
 // The signals that reload lists, as useFresh and subscribe listen for them.
-const Signals = ["board:changed", "devices:changed", "inbox:changed"]
+export const Signals = [
+  "board:changed",
+  "devices:changed",
+  "inbox:changed",
+  "talk:changed",
+  "notifications:changed",
+  "boards:changed",
+  "roster:changed",
+  "assistant:changed",
+]
 
 // ReadReport is one finished read: how long it took, whether its answer
 // was dropped, and how many reloads it answered.
@@ -36,10 +46,15 @@ export function windowTally() {
   let dropped = 0
   let worst = { name: "", n: 0 }
   const inARow = new Map<string, number>()
+  let ipc = new Map<string, number>()
 
   return {
     signal(name: string) {
       signals.set(name, (signals.get(name) ?? 0) + 1)
+    },
+    // call counts one IPC call to the Rust side, by command name.
+    call(command: string) {
+      ipc.set(command, (ipc.get(command) ?? 0) + 1)
     },
     read(name: string, r: ReadReport) {
       reads++
@@ -68,7 +83,15 @@ export function windowTally() {
           s += `, ${worst.n} in a row on ${worst.name}`
         parts.push(s)
       }
+      if (ipc.size)
+        parts.push(
+          `ipc: ${[...ipc]
+            .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+            .map(([name, n]) => `${name} ${n}`)
+            .join(", ")}`
+        )
       signals = new Map()
+      ipc = new Map()
       reads = reloads = slow = dropped = 0
       slowest = { name: "", ms: 0 }
       worst = { name: "", n: 0 }
@@ -84,11 +107,31 @@ export function noteRead(name: string, r: ReadReport) {
   tally.read(name, r)
 }
 
+// timedRead runs a read of the list called name and counts it, one reload
+// per call, the way useLatest does for its lists. A path that has no
+// latestReads of its own (the card store, the follower, the closed tab…)
+// goes through here so the line counts what it reads too.
+export async function timedRead<T>(
+  name: string,
+  read: () => Promise<T>
+): Promise<T> {
+  const since = Date.now()
+  try {
+    return await read()
+  } finally {
+    noteRead(name, { ms: Date.now() - since, dropped: false, reloads: 1 })
+  }
+}
+
 // startWindowLog counts the signals reaching this window and writes the
 // tally each minute, until the function it returns is called.
 export function startWindowLog(): () => void {
   if (!inWails()) return () => {}
   const offs = Signals.map((name) => Events.On(name, () => tally.signal(name)))
+  const offIpc = onIpc((command) => {
+    // The line itself would keep every quiet minute from being quiet.
+    if (command !== "window_log") tally.call(command)
+  })
   const onFocus = () => tally.signal("focus")
   window.addEventListener("focus", onFocus)
   const timer = window.setInterval(() => {
@@ -99,5 +142,6 @@ export function startWindowLog(): () => void {
     window.clearInterval(timer)
     window.removeEventListener("focus", onFocus)
     for (const off of offs) off()
+    offIpc()
   }
 }

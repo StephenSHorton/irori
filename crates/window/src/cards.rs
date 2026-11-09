@@ -11,7 +11,7 @@ use coord::FileRef;
 use coord::{Activity, Comment, Link, Step, Task};
 use gocompat::time::GoTime;
 use inbox::{Delivery, st};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::Window;
@@ -315,15 +315,9 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub wait_pr: Option<WaitPr>,
-    /// The PR an agent's open external wait asks the person to merge (card
-    /// #509): a Needs you row with the PR's link, until it is known merged
-    /// or closed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[specta(optional)]
-    pub merge_pr: Option<WaitPr>,
     /// A wait no agent will end (card #520): on a card nobody holds, an
-    /// item waits on an agent that is gone, or an outside wait (not a PR's
-    /// merge) was raised by one. A Needs you row with Hand to an agent,
+    /// item waits on an agent that is gone, or an outside wait (a PR's
+    /// too, card #970) was raised by one. A Needs you row with Hand to an agent,
     /// until it is handed on, the card is stopped or someone takes it.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
@@ -445,6 +439,45 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub order: Option<crate::later::CardOrder>,
+    /// How heavy its work is (card #963), with the model and effort its
+    /// agent starts with; none is normal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub weight: Option<CardWeight>,
+}
+
+/// A card's weight as the card shows it (card #963): "heavy · Opus high:
+/// planning the split".
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CardWeight {
+    /// light, normal or heavy.
+    pub level: String,
+    /// One line on why; empty when the person gave none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub reason: String,
+    /// The level its next attempt starts on and why, when a crash or a Not
+    /// done stepped it above `level` (card #966); else empty.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub runs_at: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub stepped_why: String,
+    /// Who set it: person, assistant (Irori's office assistant) or agent;
+    /// empty on a card with no weight that a retry stepped up.
+    /// The person's is theirs: agents and the assistant don't change it.
+    pub set_by: String,
+    /// Who, by name: "you" for this person, "Irori" for the assistant, or
+    /// the agent's (or another member's) name.
+    pub by_name: String,
+    /// The model and effort the card's agent starts with, from its board's
+    /// Settings › Agents mapping.
+    pub model: String,
+    pub effort: String,
+    #[specta(type = ts::Time)]
+    pub at: GoTime,
 }
 
 /// A card's first wait whose agent is gone, on a card nobody holds (card
@@ -789,6 +822,9 @@ pub const THREAD_COMMENT: &str = "comment";
 pub const THREAD_MESSAGE: &str = "message";
 pub const THREAD_EVENT: &str = "event";
 
+/// Irori itself, as the author of a thread's line.
+const IRORI: &str = "irori";
+
 /// One entry of a card's thread.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -867,6 +903,16 @@ pub struct CardThreadItem {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[specta(optional)]
     pub made: bool,
+    /// Irori's newest rename of the person's thread, while its name is
+    /// still Irori's (card #782): the title Undo puts back.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub undo_title: String,
+    /// Irori's weighing of the card, while the weight is still Irori's
+    /// (card #965): what Undo puts back, a weight or "no weight".
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub undo_weight: String,
 }
 
 /// What Modify can do with the person's comment (card #105).
@@ -923,6 +969,31 @@ pub struct CardRead {
     pub card: Option<CardDetail>,
     /// "" when card is there.
     pub error: String,
+    /// A stamp of the card as read (card #1136): the window sends it back in
+    /// `have`, and a card that still hashes to it comes back `unchanged`
+    /// with no card, so a quiet board costs a few bytes a card, not every
+    /// comment and step of it. "" when the card isn't there.
+    pub rev: String,
+    /// The card is what `have` said: `card` is empty on purpose.
+    pub unchanged: bool,
+}
+
+/// What the window holds of one card: the `rev` it was last sent.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CardHave {
+    pub id: String,
+    pub rev: String,
+}
+
+/// The stamp of a card as it would be sent: a hash of its JSON. It only
+/// has to agree with itself within one run (the window and this process
+/// start together), so the std hasher with its fixed keys is enough.
+fn card_rev(c: &CardDetail) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    serde_json::to_vec(c).unwrap_or_default().hash(&mut h);
+    format!("{:016x}", h.finish())
 }
 
 /// One card opened beside the grid.
@@ -1050,7 +1121,17 @@ pub(crate) struct People {
     queue: irori_core::spawn_limits::SpawnQueue,
     /// Cards that wait for an agent here (queued or held).
     waiting: std::collections::HashSet<String>,
+    /// Each board's spawned-agent settings, by the id spawns read them by
+    /// (`""`: the private board), for a weight's model and effort (card
+    /// #963): read once per listing, the first time a card needs one.
+    spawn: std::cell::RefCell<HashMap<String, irori_core::spawn::SpawnSetting>>,
+    spawn_of: Option<SpawnOfFn>,
+    /// Cards the person asked an agent for since their last failed
+    /// request (card #717).
+    asked_now: std::collections::HashSet<String>,
 }
+
+type SpawnOfFn = Box<dyn Fn(&str) -> irori_core::spawn::SpawnSetting>;
 
 /// The other people's colours on this screen (card #385): every person
 /// seen on a shared board, as a member or by their agents, with their own
@@ -1148,6 +1229,8 @@ impl Window {
         // under it (coord.is_person would lock again).
         let core = self.core.clone();
         p.owner = Some(Box::new(move |k: &str| core.is_owner(k)));
+        let core = self.core.clone();
+        p.spawn_of = Some(Box::new(move |b: &str| core.spawn_setting(b)));
         for l in c.coord().leases() {
             if !l.conflict.is_empty() {
                 p.conflicts.insert(l.holder.clone(), l.resource.clone());
@@ -1177,8 +1260,12 @@ impl Window {
             // Shared boards' cards wait on a usage hold whatever the
             // private board's switch says.
             p.queue = c.spawn_queue();
+            p.asked_now = co.spawn_asked();
             p.waiting.extend(p.queue.on_boards.iter().cloned());
-            if c.spawn_setting("").on {
+            let private = c.spawn_setting("");
+            let on = private.on;
+            p.spawn.get_mut().insert(String::new(), private);
+            if on {
                 if p.queue.held_until.is_some() {
                     let private: Vec<String> = co
                         .cards_to_spawn()
@@ -1625,6 +1712,19 @@ pub(crate) fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String
     irori_core::spawn_stop::no_folder_words(&t.repo_key, &dev)
 }
 
+/// Whether card t's failed spawn still keeps it waiting (card #717). The
+/// failed row stays the card's newest until another request replaces it,
+/// but once an agent holds the card (or it was given to one) no agent
+/// starts for it, so the reason no longer applies; a person holding it
+/// (a card given to them) still waits on theirs. Nor once the person
+/// asked again (Trust and start, Start an agent) and no request has been
+/// written since: the next sweep asks afresh, or it waits in the queue.
+pub(crate) fn failed_wait_applies(t: &Task, p: &People) -> bool {
+    irori_core::spawn_stop::agent_on(t).is_none()
+        && !p.queue.places.contains_key(&t.id)
+        && !p.asked_now.contains(&t.id)
+}
+
 /// Where card `t` of space `s` sits: its tag (a card folded with none has
 /// the space's) and the board in the space it's on (card #558).
 pub(crate) fn card_place(t: &Task, s: &irori_core::BoardSummary) -> (String, String) {
@@ -1632,6 +1732,57 @@ pub(crate) fn card_place(t: &Task, s: &irori_core::BoardSummary) -> (String, Str
     let known = s.boards.iter().any(|b| b.board_id == t.board);
     let board = if known { &t.board } else { &s.board_id };
     (tag.clone(), board.clone())
+}
+
+/// Card `t`'s weight as the card shows it (card #963), its model and
+/// effort read from board `board` (`""`: the private board).
+pub(crate) fn card_weight(t: &Task, board: &str, p: &People) -> Option<CardWeight> {
+    // Card #966: a card a crash or a Not done stepped up shows the level
+    // its next attempt runs at, and why, weight or none.
+    let stepped = t.stepped_why();
+    let none = coord::Weight {
+        level: coord::WEIGHT_NORMAL.into(),
+        ..coord::Weight::default()
+    };
+    let w = match t.weight.as_ref().filter(|w| !w.level.is_empty()) {
+        Some(w) => w,
+        None if !stepped.is_empty() => &none,
+        None => return None,
+    };
+    let by_name = match w.set_by.as_str() {
+        coord::SET_BY_PERSON if w.by == p.user || p.is_owner(&w.by) => "you".to_string(),
+        coord::SET_BY_ASSISTANT => "Irori".to_string(),
+        _ => p.name_of(&w.by),
+    };
+    let mut cache = p.spawn.borrow_mut();
+    let set = cache
+        .entry(board.to_string())
+        .or_insert_with(|| match &p.spawn_of {
+            Some(f) => f(board),
+            None => irori_core::spawn::SpawnSetting::default(),
+        });
+    let (model, effort) = set.pick(t.run_level());
+    Some(CardWeight {
+        level: w.level.clone(),
+        reason: w.reason.clone(),
+        runs_at: if stepped.is_empty() {
+            String::new()
+        } else {
+            t.run_level().to_string()
+        },
+        stepped_why: stepped.to_string(),
+        set_by: w.set_by.clone(),
+        by_name,
+        model: model.into(),
+        effort: effort.into(),
+        at: w.at,
+    })
+}
+
+/// Fills summary `s`'s weight from card `t`, by the board `s` is on: call
+/// it once `s.board` is set.
+pub(crate) fn weigh(s: &mut CardSummary, t: &Task, p: &People) {
+    s.weight = card_weight(t, &s.board, p);
 }
 
 /// The spawn queue's words for card t (card #450): a usage-limit hold
@@ -1697,7 +1848,11 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         paused: t.paused,
         cant_start: t
             .spawn_request()
-            .filter(|sp| sp.op == coord::SPAWN_FAILED && !coord::usage_limited(sp))
+            .filter(|sp| {
+                sp.op == coord::SPAWN_FAILED
+                    && !coord::usage_limited(sp)
+                    && failed_wait_applies(t, p)
+            })
             .map(|sp| cant_start_text(t, sp, p))
             .unwrap_or_default(),
         no_agent: p.no_agent_for(&t.id),
@@ -1711,6 +1866,9 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         ..CardSummary::default()
     };
     queue_line(&mut s, t, p);
+    // The private board's mapping; a shared board's card is weighed again
+    // once its board is known (see [`weigh`]).
+    s.weight = card_weight(t, "", p);
     if let Some(r) = &t.rollup {
         s.progress = CardProgress {
             done: r.done,
@@ -2045,7 +2203,7 @@ fn newer(a: &GoTime, a_id: &str, b: &GoTime, b_id: &str) -> std::cmp::Ordering {
 }
 
 impl Window {
-    fn now_ms(&self) -> i64 {
+    pub(crate) fn now_ms(&self) -> i64 {
         ms(&GoTime::from_system(std::time::SystemTime::now()))
     }
 
@@ -2340,6 +2498,7 @@ impl Window {
                     s.board = b.board_id.clone();
                     (s.tag, s.space_board) = card_place(&t, b);
                     self.board_owner(&b.board_id, &t, &mut s);
+                    weigh(&mut s, &pt, &p);
                     s
                 }
             };
@@ -2349,30 +2508,43 @@ impl Window {
     }
 
     /// The cards waiting on a decision (the tray's number).
+    ///
+    /// Runs on every board batch while the tray listens, so it builds only
+    /// what the count reads (a summary's open blockers and the gone wait) and never the grid's pipeline ([`Self::board_cards`]).
+    /// A private card counts, thread or not; a board card does not when it
+    /// is withdrawn or a thread (its Threads panel's, card #134).
     pub fn decide_count(&self) -> usize {
         let p = People::default();
+        // Card #520: a wait on an agent that is gone is the person's too. A
+        // wait on a PR is its agent's (card #970).
+        let waits = |co: &coord::Coord, t: &Task| {
+            card_summary(t, &p).open_blockers > 0 || !co.gone_waits(&t.id).is_empty()
+        };
         let co = self.core.coord();
-        // Card #509: a wait on a PR's merge is the person's too, and card
-        // #520: a wait on an agent that is gone.
-        let private = co
-            .list_tasks(&coord::TaskFilter {
-                open: true,
-                ..Default::default()
-            })
+        let open = || coord::TaskFilter {
+            open: true,
+            ..Default::default()
+        };
+        let mut n = co
+            .list_tasks(&open())
             .iter()
-            .filter(|t| {
-                card_summary(t, &p).open_blockers > 0
-                    || merge_pr(co, t).is_some()
-                    || !co.gone_waits(&t.id).is_empty()
-            })
+            .filter(|t| waits(co, t))
             .count();
-        private
-            + self
-                .board_cards(&p, self.now_ms(), None)
-                .0
-                .iter()
-                .filter(|s| s.open_blockers > 0 || s.merge_pr.is_some() || s.gone_wait.is_some())
-                .count()
+        for s in self.core.board_list() {
+            if !s.ready {
+                continue;
+            }
+            let Ok(bc) = self.core.board_coord(&s.board_id) else {
+                continue;
+            };
+            n += bc
+                .list_tasks(&open())
+                .into_iter()
+                .filter(|t| !t.withdrawn && !crate::threads::is_thread(t))
+                .filter(|t| waits(&bc, &self.priv_task(t.clone())))
+                .count();
+        }
+        n
     }
 
     /// The live cards of every board this device holds (or only board
@@ -2432,6 +2604,7 @@ impl Window {
                 cs.board = s.board_id.clone();
                 (cs.tag, cs.space_board) = card_place(&t, &s);
                 self.board_owner(&s.board_id, &t, &mut cs);
+                weigh(&mut cs, &pt, p);
                 let mut last = t.updated_at;
                 if let Some(acts) = co.activity(&t.id)
                     && let Some(a) = acts.first()
@@ -2460,18 +2633,25 @@ impl Window {
     /// Several cards at once, in the order asked (card #468): the window's
     /// card hooks (a Notifications row's, a Needs you row's, a thread's,
     /// the open card's) share one read per change instead of one each.
-    pub fn cards_by_id(&self, ids: &[String]) -> Vec<CardRead> {
+    pub fn cards_by_id(&self, ids: &[String], have: &[CardHave]) -> Vec<CardRead> {
         ids.iter()
             .map(|id| match self.card(id) {
-                Ok(c) => CardRead {
-                    id: id.clone(),
-                    card: Some(c),
-                    error: String::new(),
-                },
+                Ok(c) => {
+                    let rev = card_rev(&c);
+                    let same = have.iter().any(|h| h.id == *id && h.rev == rev);
+                    CardRead {
+                        id: id.clone(),
+                        card: (!same).then_some(c),
+                        error: String::new(),
+                        rev,
+                        unchanged: same,
+                    }
+                }
                 Err(e) => CardRead {
                     id: id.clone(),
                     card: None,
                     error: e,
+                    ..CardRead::default()
                 },
             })
             .collect()
@@ -2506,6 +2686,7 @@ impl Window {
             ..CardDetail::default()
         };
         self.board_detail(&t, &mut d);
+        weigh(&mut d.summary, &t, &p);
         d.summary.given_no = raw
             .as_ref()
             .is_some_and(|r| co.mine_to_serve(r) && r.given_said.as_ref().is_some_and(|y| !y.yes));
@@ -2974,6 +3155,36 @@ fn build_thread(
             .push(it);
     }
     all.sort_by(|a, b| a.0.cmp(&b.0));
+    // Undo on Irori's newest rename, while the name is still its own
+    // (card #782).
+    if !t.title_was.is_empty() && !t.title_by_person && t.irori_titled > 0 {
+        let renamed = format!("{} renamed it from", p.ref_(IRORI).name);
+        if let Some((_, it)) = all.iter_mut().rev().find(|(_, it)| {
+            it.kind == THREAD_EVENT && it.who.status == IRORI && it.text.starts_with(&renamed)
+        }) {
+            it.undo_title = t.title_was.clone();
+        }
+    }
+    // Undo on Irori's weighing, while the weight is still its own (card
+    // #965).
+    if let Some(w) = t.weight.as_ref().filter(|w| w.by_assistant()) {
+        let name = &p.ref_(IRORI).name;
+        let (weighed, changed) = (
+            format!("{name} weighed it "),
+            format!("{name} changed the weight from "),
+        );
+        if let Some((_, it)) = all.iter_mut().rev().find(|(_, it)| {
+            it.kind == THREAD_EVENT
+                && it.who.status == IRORI
+                && (it.text.starts_with(&weighed) || it.text.starts_with(&changed))
+        }) {
+            it.undo_weight = if w.was_level.is_empty() {
+                "no weight".to_string()
+            } else {
+                w.was_level.clone()
+            };
+        }
+    }
     let mut agent_later = false;
     for (_, it) in all.iter_mut().rev() {
         if it.kind == THREAD_EVENT {
@@ -3191,25 +3402,9 @@ fn wait_pr(co: &coord::Coord, t: &Task) -> Option<WaitPr> {
     })
 }
 
-/// The PR a blocked card's open external wait is on (card #509): the
-/// person's merge, as coord's Needs you counts it, until GitHub is heard
-/// to call it merged or closed.
-/// On a shared board, only this person's own agents' waits.
-fn merge_pr(co: &coord::Coord, t: &Task) -> Option<WaitPr> {
-    co.merge_waits(&t.id).into_iter().find_map(|url| {
-        let (repo, number) = coord::pr_link(&coord::parse_link(&url).ok()?)?;
-        Some(WaitPr {
-            repo,
-            number,
-            url,
-            approval: false,
-        })
-    })
-}
-
 /// A card's first wait no agent will end (card #520), as coord's Needs
-/// you counts it: on a gone agent, or an outside wait a gone agent raised,
-/// while nobody holds the card. Waits on a PR's merge are #509's row.
+/// you counts it: on a gone agent, or an outside wait a gone agent raised
+/// (one on a PR too, card #970), while nobody holds the card.
 fn gone_wait(co: &coord::Coord, p: &People, t: &Task) -> Option<GoneWait> {
     let gw = co.gone_waits(&t.id);
     let first = gw.first()?;
@@ -3285,7 +3480,6 @@ fn family_of(
     crate::later::fill_later_card(co, s);
     s.order = crate::later::order_of(co, follows, loops, t);
     s.wait_pr = wait_pr(co, t);
-    s.merge_pr = merge_pr(co, t);
     s.gone_wait = gone_wait(co, p, t);
     s.wait_you = wait_you(co, &s.wait_task);
     // A helper's "Part done" waits on its card's lead, not on the agent

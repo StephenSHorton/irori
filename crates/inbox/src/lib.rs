@@ -58,7 +58,7 @@ pub use ids::IdGen;
 pub use messages::clip_show;
 pub use pr::normalize_pr;
 pub use progress::{ProgressBy, progress_of};
-pub use state::{Inbox, Subscription, decode_message};
+pub use state::{Inbox, SawOthers, Subscription, decode_message};
 pub use wake::TalkWake;
 
 // ---- errors ---------------------------------------------------------------
@@ -168,6 +168,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// The note on a delivery the sweeper took away from a session that ended.
 pub const NOTE_RECIPIENT_GONE: &str = "recipient gone";
+/// The note on a wind-down the person turned off before it reached its
+/// agent (card #787).
+pub const NOTE_WIND_DOWN_OFF: &str = "wind down turned off";
 
 pub const MAX_TEXT: usize = 8000;
 /// The person's own message may run to this many bytes (card #265); it
@@ -209,7 +212,8 @@ pub const MAX_NOTE: usize = 500;
 /// Caps SendOptions.ref (runes).
 pub const MAX_REF: usize = 200;
 pub const MAX_ATTACHMENTS: usize = 10;
-/// Each subscriber's queue size; a full queue drops the change.
+/// Each subscriber's queue size; a full reader gets [`ChangeKind::Resync`]
+/// before the next change that fits.
 pub const SUB_BUFFER: usize = 64;
 /// The sender key of notices Irori itself sends.
 pub const SYSTEM_KEY: &str = "irori";
@@ -319,6 +323,8 @@ pub mod choice {
     pub const RELEASE: &str = "release";
     pub const DISMISS: &str = "dismiss";
     pub const MOVE: &str = "move";
+    /// Wind down turned off (card #787): a wind-down not reached yet closes.
+    pub const CANCEL: &str = "cancel";
 }
 
 // ---- types ----------------------------------------------------------------
@@ -422,6 +428,10 @@ pub struct Message {
     pub attachments: Vec<FileRef>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub mentions: Vec<Mention>,
+    /// The sender had read another person's text (card #1075): the agent
+    /// that reads this is flagged too, as the hop count rides on a send.
+    #[serde(skip_serializing_if = "is_false")]
+    pub others: bool,
     /// The device that wrote the message.sent row (memory only).
     #[serde(skip)]
     pub writer: String,
@@ -569,6 +579,10 @@ pub enum ChangeKind {
     MovedAway,
     /// Anything else; UIs refresh.
     Updated,
+    /// This reader lost changes when its queue was full: re-read
+    /// everything (list-signals.md §3.1). It comes just before the next
+    /// change that fits, with empty `to` and `delivery_id`.
+    Resync,
 }
 
 impl ChangeKind {
@@ -579,6 +593,7 @@ impl ChangeKind {
             ChangeKind::HeldNew => "held",
             ChangeKind::MovedAway => "moved",
             ChangeKind::Updated => "updated",
+            ChangeKind::Resync => "resync",
         }
     }
 }
@@ -597,6 +612,17 @@ pub struct Change {
     pub to: String,
     #[serde(rename = "deliveryId", skip_serializing_if = "String::is_empty")]
     pub delivery_id: String,
+    /// The delivery's first row folded here: it was made, or it reached
+    /// this device (Talk shows an agent's message as a DM from then,
+    /// list-signals.md §3.2). A delivery that came before its message is
+    /// noted `created` again when the message folds.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub created: bool,
+    /// The delivery's recipient before this row (empty: nobody yet), when
+    /// an existing delivery changed recipient without moving (an assign, a
+    /// release): its message leaves that DM, if any, for the new one's.
+    #[serde(rename = "wasTo", skip_serializing_if = "Option::is_none")]
+    pub was_to: Option<String>,
 }
 
 /// The presence fields the inbox routes against (presence.AgentCard;

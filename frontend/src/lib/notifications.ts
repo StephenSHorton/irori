@@ -219,7 +219,11 @@ export function useNotifications(): {
       inWails() ? NotificationService.List() : sampleNotifications(),
     []
   )
-  const { value, loading, error, reload } = useLatest<Notification[]>(load, [])
+  const { value, loading, error, reload } = useLatest<Notification[]>(
+    load,
+    [],
+    "notifications"
+  )
   // A read ends the answers it agrees with once it is shown (useCards).
   useEffect(() => {
     if (!loading && !error) pending.observeNotifications(value)
@@ -242,7 +246,7 @@ export function useNotifications(): {
       EventNotificationsChanged,
       EventBoardChanged,
       EventInboxChanged,
-    ].map((e) => Events.On(e, () => void reload()))
+    ].map((e) => Events.OnShown(e, () => void reload()))
     const onFocus = () => void reload()
     window.addEventListener("focus", onFocus)
     return () => {
@@ -264,7 +268,7 @@ export function useUnreadNotifications(): number {
         : unreadCount(sampleNotifications()),
     []
   )
-  const { value, reload } = useLatest<number>(load, 0)
+  const { value, reload } = useLatest<number>(load, 0, "unread")
   useEffect(() => {
     void reload()
     if (!inWails()) {
@@ -273,7 +277,7 @@ export function useUnreadNotifications(): number {
         sampleListeners.delete(reload)
       }
     }
-    const off = Events.On(EventNotificationsChanged, () => void reload())
+    const off = Events.OnShown(EventNotificationsChanged, () => void reload())
     const onFocus = () => void reload()
     window.addEventListener("focus", onFocus)
     return () => {

@@ -4,8 +4,10 @@
 //! `X-Irori-Attach` secret, as the deliveries routes): a member secret, no
 //! secret or a dead one is 403.
 //!
-//! Body: `{"rateLimits": [{"kind", "percentUsed", "resetsAt"?}]}`, Claude
-//! Code's `SessionRateLimit`s as they come. The Core checks, merges and
+//! Body: `{"rateLimits": [{"kind", "percentUsed", "resetsAt"?}], "account"?}`,
+//! Claude Code's `SessionRateLimit`s as they come, and an opaque id of the
+//! Claude account the session is signed in as (card #1040): a different one
+//! replaces the kept windows. The Core checks, merges and
 //! keeps them ([`irori_core::usage`]). A window it can't take is logged
 //! and left out, and a reading with none left is 200 that changes nothing
 //! (a session idle past its resets has only stale windows to report). A
@@ -29,6 +31,9 @@ pub(crate) fn post_route(path: &str) -> bool {
 struct Body {
     #[serde(default)]
     rate_limits: Vec<irori_core::usage::RateLimit>,
+    /// The Claude account the session is signed in as (card #1040).
+    #[serde(default)]
+    account: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -54,9 +59,15 @@ pub(crate) fn route(h: &Handler) -> Option<Resp> {
         Ok(b) => b,
         Err(e) => return Some(http::error(400, &format!("body: {e}"))),
     };
-    Some(match h.s.b.record_usage_limits(&body.rate_limits) {
-        None => http::error(503, "this Core keeps no usage limits"),
-        Some(Ok(())) => http::json(200, &OkBody { ok: true }),
-        Some(Err(e)) => http::error(400, &e),
-    })
+    Some(
+        match h
+            .s
+            .b
+            .record_usage_limits(&body.rate_limits, body.account.as_deref())
+        {
+            None => http::error(503, "this Core keeps no usage limits"),
+            Some(Ok(())) => http::json(200, &OkBody { ok: true }),
+            Some(Err(e)) => http::error(400, &e),
+        },
+    )
 }

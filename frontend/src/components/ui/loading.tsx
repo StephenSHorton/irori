@@ -1,11 +1,21 @@
-import type { CSSProperties, ReactNode } from "react"
+import { useState, type CSSProperties, type ReactNode } from "react"
+import { cn } from "cn"
 import {
   Skeleton as SkulletSkeleton,
   SkeletonBox as SkulletBox,
 } from "skullet/react"
 import { forgetShapes } from "skullet"
 
+import { sweepEndless } from "@/lib/endless-animations"
 import { previewFlag } from "@/lib/preview"
+
+// skullet never cancels a skeleton's endless shimmer, which kept every
+// skeleton ever shown alive and ran a core flat out (card #765).
+sweepEndless()
+
+// Shapes skullet remembered before card #1100 (up to 170 KB in
+// localStorage) are never read again: drop them once per start.
+forgetShapes()
 
 // Loading is the app's one loading state (card #598). It draws a skeleton
 // in the exact shape of what will load, so nothing jumps when it arrives:
@@ -73,8 +83,24 @@ export function Loading<T>(props: LoadingProps<T>) {
   const { label, id, error, className, style } = props
   const shared = { label, id, error, className, style }
   const forced = slow() && !error
+  const ready =
+    !forced &&
+    !error &&
+    (typeof props.children === "function"
+      ? (props as FromData<T>).data != null && !props.loading
+      : !props.loading)
+  // Whether this Loading drew a skeleton, so the content fades in after one
+  // and shows at once when it was already there.
+  const [skeletonShown, setSkeletonShown] = useState(false)
+  if (!ready && !error && !skeletonShown) setSkeletonShown(true)
+  const content = (node: ReactNode) => (
+    <Loaded className={className} style={style} reveal={skeletonShown}>
+      {node}
+    </Loaded>
+  )
   if (typeof props.children === "function") {
     const { data, sample, loading, children } = props as FromData<T>
+    if (ready) return content(children(data as T))
     return (
       <SkulletSkeleton
         {...shared}
@@ -87,10 +113,41 @@ export function Loading<T>(props: LoadingProps<T>) {
     )
   }
   const { loading, children } = props as Toggled
+  if (ready) return content(children)
   return (
     <SkulletSkeleton {...shared} loading={loading || forced}>
       {children}
     </SkulletSkeleton>
+  )
+}
+
+// Loaded holds content once it has loaded, outside skullet (card #1100).
+// skullet's Skeleton keeps a Memory on its content pane that, on every change
+// inside it, clones the whole pane to record its shape (cloneNode(true), plus
+// a size style and alt="" on each cloned <img>). Blink registers a viewport
+// listener for every such cloned image and never lets it go, so each clone of
+// a pane with a picture in it stayed alive for good. With the 1 s clock and
+// agents changing a Talk thread or a card page all the time, that was a full
+// copy of the page about twice a second: 2 million detached nodes and GBs on
+// the PC within an hour. Nothing here uses the remembered shapes (no Loading
+// passes an id), so content now renders in plain divs shaped like skullet's
+// (its root is position: relative, its pane a block), and the skeleton still
+// comes from `sample`.
+function Loaded({
+  className,
+  style,
+  reveal,
+  children,
+}: {
+  className?: string
+  style?: CSSProperties
+  reveal: boolean
+  children: ReactNode
+}) {
+  return (
+    <div className={cn("relative", className)} style={style}>
+      <div className={cn("block", reveal && "loading-reveal")}>{children}</div>
+    </div>
   )
 }
 

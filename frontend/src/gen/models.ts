@@ -9,6 +9,8 @@ export type AgentCard = B.AgentCard
 export type AgentPermissions = B.AgentPermissions
 export type AgentRef = B.AgentRef
 export type AgentStartsView = B.AgentStartsView
+export type AgentTokens = B.AgentTokens
+export type AgentUsage = B.AgentUsage
 export type AgentsChange = B.AgentsChange
 export type AgentsLimits = B.AgentsLimits
 export type AgentsPauseView = B.AgentsPauseView
@@ -16,6 +18,23 @@ export type AgentsSettings = B.AgentsSettings
 export type AnswerResult = B.AnswerResult
 export type Ask = B.Ask
 export type AskRepo = B.AskRepo
+export type AssistantChatAct = B.AssistantChatAct
+export type AssistantChatActIn = B.AssistantChatActIn
+export type AssistantChatDraft = B.AssistantChatDraft
+export type AssistantChatItem = B.AssistantChatItem
+export type AssistantChatPage = B.AssistantChatPage
+export type AssistantChatPosted = B.AssistantChatPosted
+export type AssistantChatReply = B.AssistantChatReply
+export type AssistantChatTurn = B.AssistantChatTurn
+export type AssistantChatUpdate = B.AssistantChatUpdate
+export type AssistantChatUpdateIn = B.AssistantChatUpdateIn
+export type AssistantEvent = B.AssistantEvent
+export type AssistantFile = B.AssistantFile
+export type AssistantHomeStatus = B.AssistantHomeStatus
+export type AssistantImportAct = B.AssistantImportAct
+export type AssistantImportEntry = B.AssistantImportEntry
+export type AssistantImportPosted = B.AssistantImportPosted
+export type AssistantImported = B.AssistantImported
 export type AttachmentInfo = B.AttachmentInfo
 export type BlockedBy = B.BlockedBy
 export type Blocker = B.Blocker
@@ -41,6 +60,7 @@ export type CardBlocker = B.CardBlocker
 export type CardBoard = B.CardBoard
 export type CardColors = B.CardColors
 export type CardDetail = B.CardDetail
+export type CardHave = B.CardHave
 export type CardHolder = B.CardHolder
 export type CardLater = B.CardLater
 export type CardLeftOff = B.CardLeftOff
@@ -62,17 +82,23 @@ export type CardSummary = B.CardSummary
 export type CardThreadItem = B.CardThreadItem
 export type CardWait = B.CardWait
 export type CardWaitOn = B.CardWaitOn
+export type CardWeight = B.CardWeight
 export type CardWhere = B.CardWhere
 export type Change = B.Change
 export type ChangeKind = B.ChangeKind
 export type CheckSlot = B.CheckSlot
+export type ClearedCard = B.ClearedCard
 export type Comment = B.Comment
 export type CommentResult = B.CommentResult
 export type Delivery = B.Delivery
 export type DeliveryMode = B.DeliveryMode
 export type DeskAuthorView = B.DeskAuthorView
+export type DeskClaimCountView = B.DeskClaimCountView
+export type DeskClaimerView = B.DeskClaimerView
 export type DeskPollView = B.DeskPollView
 export type DeskPrView = B.DeskPrView
+export type DeskRelatedView = B.DeskRelatedView
+export type DeskReviewView = B.DeskReviewView
 export type DeskSettings = B.DeskSettings
 export type DeskSnapshotView = B.DeskSnapshotView
 export type DeskView = B.DeskView
@@ -87,6 +113,8 @@ export type GoneSession = B.GoneSession
 export type GoneWait = B.GoneWait
 export type HoldReason = B.HoldReason
 export type Holding = B.Holding
+export type HoldoutView = B.HoldoutView
+export type HomeCandidate = B.HomeCandidate
 export type HomeServerView = B.HomeServerView
 export type Identity = B.Identity
 export type IdleReport = B.IdleReport
@@ -96,6 +124,7 @@ export type LaterBack = B.LaterBack
 export type Link = B.Link
 export type LinkKind = B.LinkKind
 export type LogFreshness = B.LogFreshness
+export type LogPart = B.LogPart
 export type Mention = B.Mention
 export type MentionCandidate = B.MentionCandidate
 export type MentionOutcome = B.MentionOutcome
@@ -107,6 +136,8 @@ export type MetersMem = B.MetersMem
 export type MetersNet = B.MetersNet
 export type MetersSample = B.MetersSample
 export type Mode = B.Mode
+export type NamesThemeChoice = B.NamesThemeChoice
+export type NamesThemesView = B.NamesThemesView
 export type NewCardInput = B.NewCardInput
 export type NoteEditInput = B.NoteEditInput
 export type NoteEventView = B.NoteEventView
@@ -124,13 +155,13 @@ export type PairStatus = B.PairStatus
 export type Policy = B.Policy
 export type PolicyInput = B.PolicyInput
 export type RefTarget = B.RefTarget
-export type RelayView = B.RelayView
 export type RepoName = B.RepoName
 export type Resolution = B.Resolution
 export type Returned = B.Returned
 export type ReviewerChoice = B.ReviewerChoice
 export type Rollup = B.Rollup
 export type RosterChange = B.RosterChange
+export type RunHistoryRow = B.RunHistoryRow
 export type RunningAgent = B.RunningAgent
 export type Scope = B.Scope
 export type SendResult = B.SendResult
@@ -142,10 +173,19 @@ export type SpaceBoard = B.SpaceBoard
 export type StartedAgent = B.StartedAgent
 export type State = B.State
 export type Step = B.Step
+export type StorageCleaned = B.StorageCleaned
+export type StorageHolder = B.StorageHolder
+export type StorageItem = B.StorageItem
+export type StorageKept = B.StorageKept
+export type StorageKind = B.StorageKind
+export type StorageReport = B.StorageReport
 export type SubtaskPreview = B.SubtaskPreview
 export type SummaryMember = B.SummaryMember
+export type TalkAssistant = B.TalkAssistant
 export type TalkCall = B.TalkCall
+export type TalkCanvasItem = B.TalkCanvasItem
 export type TalkConversation = B.TalkConversation
+export type TalkHuddle = B.TalkHuddle
 export type TalkMember = B.TalkMember
 export type TalkMemberRef = B.TalkMemberRef
 export type TalkPerson = B.TalkPerson
@@ -177,6 +217,7 @@ export type VoiceDownload = B.VoiceDownload
 export type VoiceEvent = B.VoiceEvent
 export type VoiceStatus = B.VoiceStatus
 export type WaitPr = B.WaitPr
+export type Weight = B.Weight
 export type WindDownRow = B.WindDownRow
 export type WindDownStatus = B.WindDownStatus
 
@@ -217,12 +258,22 @@ export function AgentsPauseView(p: Partial<B.AgentsPauseView> = {}): B.AgentsPau
 
 /** AgentsSettings with Go's zero values for every field left out. */
 export function AgentsSettings(p: Partial<B.AgentsSettings> = {}): B.AgentsSettings {
-  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
+  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "lightModel": "", "lightEffort": "", "heavyModel": "", "heavyEffort": "", "assistantModel": "", "assistantEffort": "", "assistantModels": [], "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
 }
 
 /** AgentStartsView with Go's zero values for every field left out. */
 export function AgentStartsView(p: Partial<B.AgentStartsView> = {}): B.AgentStartsView {
   return { "on": false, "max": 0, "used": 0, "ceiling": 0, ...p } as B.AgentStartsView
+}
+
+/** AgentTokens with Go's zero values for every field left out. */
+export function AgentTokens(p: Partial<B.AgentTokens> = {}): B.AgentTokens {
+  return { "total": null, "input": null, "output": null, "cacheRead": null, "cacheWrite": null, ...p } as B.AgentTokens
+}
+
+/** AgentUsage with Go's zero values for every field left out. */
+export function AgentUsage(p: Partial<B.AgentUsage> = {}): B.AgentUsage {
+  return { "model": "", "effort": "", ...p } as B.AgentUsage
 }
 
 /** AnswerResult with Go's zero values for every field left out. */
@@ -238,6 +289,91 @@ export function Ask(p: Partial<B.Ask> = {}): B.Ask {
 /** AskRepo with Go's zero values for every field left out. */
 export function AskRepo(p: Partial<B.AskRepo> = {}): B.AskRepo {
   return { "repoKey": "", "label": "", ...p } as B.AskRepo
+}
+
+/** AssistantChatAct with Go's zero values for every field left out. */
+export function AssistantChatAct(p: Partial<B.AssistantChatAct> = {}): B.AssistantChatAct {
+  return { "kind": "", "card": "", "blocker": "", ...p } as B.AssistantChatAct
+}
+
+/** AssistantChatActIn with Go's zero values for every field left out. */
+export function AssistantChatActIn(p: Partial<B.AssistantChatActIn> = {}): B.AssistantChatActIn {
+  return { "kind": "", "card": "", "blocker": "", ...p } as B.AssistantChatActIn
+}
+
+/** AssistantChatDraft with Go's zero values for every field left out. */
+export function AssistantChatDraft(p: Partial<B.AssistantChatDraft> = {}): B.AssistantChatDraft {
+  return { "request": "", "post": "", "space": "", "text": "", "device": "", "at": 0, ...p } as B.AssistantChatDraft
+}
+
+/** AssistantChatItem with Go's zero values for every field left out. */
+export function AssistantChatItem(p: Partial<B.AssistantChatItem> = {}): B.AssistantChatItem {
+  return { "cursor": "", "kind": "", ...p } as B.AssistantChatItem
+}
+
+/** AssistantChatPage with Go's zero values for every field left out. */
+export function AssistantChatPage(p: Partial<B.AssistantChatPage> = {}): B.AssistantChatPage {
+  return { "items": [], "more": false, ...p } as B.AssistantChatPage
+}
+
+/** AssistantChatPosted with Go's zero values for every field left out. */
+export function AssistantChatPosted(p: Partial<B.AssistantChatPosted> = {}): B.AssistantChatPosted {
+  return { "id": "", "short": "", "tag": "", ...p } as B.AssistantChatPosted
+}
+
+/** AssistantChatReply with Go's zero values for every field left out. */
+export function AssistantChatReply(p: Partial<B.AssistantChatReply> = {}): B.AssistantChatReply {
+  return { "text": "", "changed": [], "looked": "", "error": "", "skipped": false, "device": "", "at": 0, ...p } as B.AssistantChatReply
+}
+
+/** AssistantChatTurn with Go's zero values for every field left out. */
+export function AssistantChatTurn(p: Partial<B.AssistantChatTurn> = {}): B.AssistantChatTurn {
+  return { "turn": "", "text": "", "device": "", "at": 0, "again": "", "imported": false, "callId": "", "files": [], "stopped": false, ...p } as B.AssistantChatTurn
+}
+
+/** AssistantChatUpdate with Go's zero values for every field left out. */
+export function AssistantChatUpdate(p: Partial<B.AssistantChatUpdate> = {}): B.AssistantChatUpdate {
+  return { "key": "", "thread": "", "text": "", "at": 0, "imported": false, ...p } as B.AssistantChatUpdate
+}
+
+/** AssistantChatUpdateIn with Go's zero values for every field left out. */
+export function AssistantChatUpdateIn(p: Partial<B.AssistantChatUpdateIn> = {}): B.AssistantChatUpdateIn {
+  return { "key": "", "thread": "", "text": "", "act": null, ...p } as B.AssistantChatUpdateIn
+}
+
+/** AssistantEvent with Go's zero values for every field left out. */
+export function AssistantEvent(p: Partial<B.AssistantEvent> = {}): B.AssistantEvent {
+  return { "kind": "", "text": "", ...p } as B.AssistantEvent
+}
+
+/** AssistantFile with Go's zero values for every field left out. */
+export function AssistantFile(p: Partial<B.AssistantFile> = {}): B.AssistantFile {
+  return { "sha256": "", "name": "", "size": 0, "device": "", ...p } as B.AssistantFile
+}
+
+/** AssistantHomeStatus with Go's zero values for every field left out. */
+export function AssistantHomeStatus(p: Partial<B.AssistantHomeStatus> = {}): B.AssistantHomeStatus {
+  return { "device": "", "name": "", "here": false, "state": "", "lastSeenMs": 0, "claude": false, "chat": false, "none": "", "candidates": [], ...p } as B.AssistantHomeStatus
+}
+
+/** AssistantImportAct with Go's zero values for every field left out. */
+export function AssistantImportAct(p: Partial<B.AssistantImportAct> = {}): B.AssistantImportAct {
+  return { ...p } as B.AssistantImportAct
+}
+
+/** AssistantImported with Go's zero values for every field left out. */
+export function AssistantImported(p: Partial<B.AssistantImported> = {}): B.AssistantImported {
+  return { "turns": 0, "updates": 0, ...p } as B.AssistantImported
+}
+
+/** AssistantImportEntry with Go's zero values for every field left out. */
+export function AssistantImportEntry(p: Partial<B.AssistantImportEntry> = {}): B.AssistantImportEntry {
+  return { ...p } as B.AssistantImportEntry
+}
+
+/** AssistantImportPosted with Go's zero values for every field left out. */
+export function AssistantImportPosted(p: Partial<B.AssistantImportPosted> = {}): B.AssistantImportPosted {
+  return { ...p } as B.AssistantImportPosted
 }
 
 /** AttachmentInfo with Go's zero values for every field left out. */
@@ -355,6 +491,11 @@ export function CardDetail(p: Partial<B.CardDetail> = {}): B.CardDetail {
   return { ...CardSummary(), "goal": "", "doneWhen": "", "note": "", "steps": [], "blockers": [], "reviews": [], "prs": [], "links": [], "recent": [], "comments": [], "thread": [], "threadEarlier": 0, "historyTrimmed": false, "subtaskList": [], "waits": [], ...p } as B.CardDetail
 }
 
+/** CardHave with Go's zero values for every field left out. */
+export function CardHave(p: Partial<B.CardHave> = {}): B.CardHave {
+  return { "id": "", "rev": "", ...p } as B.CardHave
+}
+
 /** CardHolder with Go's zero values for every field left out. */
 export function CardHolder(p: Partial<B.CardHolder> = {}): B.CardHolder {
   return { "who": AgentRef(), "state": "", "others": 0, ...p } as B.CardHolder
@@ -412,7 +553,7 @@ export function CardProgress(p: Partial<B.CardProgress> = {}): B.CardProgress {
 
 /** CardRead with Go's zero values for every field left out. */
 export function CardRead(p: Partial<B.CardRead> = {}): B.CardRead {
-  return { "id": "", "card": null, "error": "", ...p } as B.CardRead
+  return { "id": "", "card": null, "error": "", "rev": "", "unchanged": false, ...p } as B.CardRead
 }
 
 /** CardRef with Go's zero values for every field left out. */
@@ -460,6 +601,11 @@ export function CardWaitOn(p: Partial<B.CardWaitOn> = {}): B.CardWaitOn {
   return { "kind": "", "label": "", ...p } as B.CardWaitOn
 }
 
+/** CardWeight with Go's zero values for every field left out. */
+export function CardWeight(p: Partial<B.CardWeight> = {}): B.CardWeight {
+  return { "level": "", "setBy": "", "byName": "", "model": "", "effort": "", "at": "", ...p } as B.CardWeight
+}
+
 /** CardWhere with Go's zero values for every field left out. */
 export function CardWhere(p: Partial<B.CardWhere> = {}): B.CardWhere {
   return { "who": AgentRef(), "worktree": "", "branch": "", "head": "", "pushed": false, "at": "", ...p } as B.CardWhere
@@ -473,6 +619,11 @@ export function Change(p: Partial<B.Change> = {}): B.Change {
 /** CheckSlot with Go's zero values for every field left out. */
 export function CheckSlot(p: Partial<B.CheckSlot> = {}): B.CheckSlot {
   return { "resource": "", "run": "", "until": "", ...p } as B.CheckSlot
+}
+
+/** ClearedCard with Go's zero values for every field left out. */
+export function ClearedCard(p: Partial<B.ClearedCard> = {}): B.ClearedCard {
+  return { "id": "", "short": "", "title": "", "board": "", "thread": false, "updatedAt": "", ...p } as B.ClearedCard
 }
 
 /** Comment with Go's zero values for every field left out. */
@@ -492,7 +643,17 @@ export function Delivery(p: Partial<B.Delivery> = {}): B.Delivery {
 
 /** DeskAuthorView with Go's zero values for every field left out. */
 export function DeskAuthorView(p: Partial<B.DeskAuthorView> = {}): B.DeskAuthorView {
-  return { "pr": 0, "card": "", "cardRef": "", "agent": "", ...p } as B.DeskAuthorView
+  return { "pr": 0, "card": "", "cardRef": "", "agent": "", "reviewNote": "", "review": DeskReviewView(), ...p } as B.DeskAuthorView
+}
+
+/** DeskClaimCountView with Go's zero values for every field left out. */
+export function DeskClaimCountView(p: Partial<B.DeskClaimCountView> = {}): B.DeskClaimCountView {
+  return { "person": "", "open": 0, "recent": 0, ...p } as B.DeskClaimCountView
+}
+
+/** DeskClaimerView with Go's zero values for every field left out. */
+export function DeskClaimerView(p: Partial<B.DeskClaimerView> = {}): B.DeskClaimerView {
+  return { "agent": "", "person": "", "until": "", ...p } as B.DeskClaimerView
 }
 
 /** DeskPollView with Go's zero values for every field left out. */
@@ -503,6 +664,16 @@ export function DeskPollView(p: Partial<B.DeskPollView> = {}): B.DeskPollView {
 /** DeskPrView with Go's zero values for every field left out. */
 export function DeskPrView(p: Partial<B.DeskPrView> = {}): B.DeskPrView {
   return { "number": 0, "url": "", "title": "", "author": "", "isDraft": false, "headRefName": "", "headRefOid": "", "baseRefName": "", "mergeable": "", "mergeStateStatus": "", "checks": "", "createdAt": "", "updatedAt": "", ...p } as B.DeskPrView
+}
+
+/** DeskRelatedView with Go's zero values for every field left out. */
+export function DeskRelatedView(p: Partial<B.DeskRelatedView> = {}): B.DeskRelatedView {
+  return { "agent": "", "person": "", "why": "", ...p } as B.DeskRelatedView
+}
+
+/** DeskReviewView with Go's zero values for every field left out. */
+export function DeskReviewView(p: Partial<B.DeskReviewView> = {}): B.DeskReviewView {
+  return { "pick": "", "review": "", "asked": "", "related": [], "whyNone": "", ...p } as B.DeskReviewView
 }
 
 /** DeskSettings with Go's zero values for every field left out. */
@@ -517,7 +688,7 @@ export function DeskSnapshotView(p: Partial<B.DeskSnapshotView> = {}): B.DeskSna
 
 /** DeskView with Go's zero values for every field left out. */
 export function DeskView(p: Partial<B.DeskView> = {}): B.DeskView {
-  return { "settings": DeskSettings(), "isDefault": false, "seenOn": "", "followsSeen": false, "poll": DeskPollView(), "authors": [], ...p } as B.DeskView
+  return { "settings": DeskSettings(), "isDefault": false, "seenOn": "", "followsSeen": false, "poll": DeskPollView(), "authors": [], "claimCounts": [], ...p } as B.DeskView
 }
 
 /** DeviceCap with Go's zero values for every field left out. */
@@ -560,6 +731,16 @@ export function GoneWait(p: Partial<B.GoneWait> = {}): B.GoneWait {
   return { "blockerId": "", "agent": AgentRef(), "question": "", ...p } as B.GoneWait
 }
 
+/** HoldoutView with Go's zero values for every field left out. */
+export function HoldoutView(p: Partial<B.HoldoutView> = {}): B.HoldoutView {
+  return { "deviceId": "", "name": "", ...p } as B.HoldoutView
+}
+
+/** HomeCandidate with Go's zero values for every field left out. */
+export function HomeCandidate(p: Partial<B.HomeCandidate> = {}): B.HomeCandidate {
+  return { "device": "", "name": "", "here": false, "state": "", "lastSeenMs": 0, ...p } as B.HomeCandidate
+}
+
 /** HomeServerView with Go's zero values for every field left out. */
 export function HomeServerView(p: Partial<B.HomeServerView> = {}): B.HomeServerView {
   return { "can": false, "on": false, "outside": false, "running": false, "awake": false, "publicRelays": false, ...p } as B.HomeServerView
@@ -593,6 +774,11 @@ export function Link(p: Partial<B.Link> = {}): B.Link {
 /** LogFreshness with Go's zero values for every field left out. */
 export function LogFreshness(p: Partial<B.LogFreshness> = {}): B.LogFreshness {
   return { "log": "", "shared": false, ...p } as B.LogFreshness
+}
+
+/** LogPart with Go's zero values for every field left out. */
+export function LogPart(p: Partial<B.LogPart> = {}): B.LogPart {
+  return { "part": "", "rows": 0, "bytes": 0, ...p } as B.LogPart
 }
 
 /** Mention with Go's zero values for every field left out. */
@@ -643,6 +829,16 @@ export function MetersNet(p: Partial<B.MetersNet> = {}): B.MetersNet {
 /** MetersSample with Go's zero values for every field left out. */
 export function MetersSample(p: Partial<B.MetersSample> = {}): B.MetersSample {
   return { "atMs": 0, "cpu": MetersCpu(), "mem": MetersMem(), "disks": [], "net": MetersNet(), "gpus": [], ...p } as B.MetersSample
+}
+
+/** NamesThemeChoice with Go's zero values for every field left out. */
+export function NamesThemeChoice(p: Partial<B.NamesThemeChoice> = {}): B.NamesThemeChoice {
+  return { "id": "", "label": "", "on": false, "words": 0, "sample": [], ...p } as B.NamesThemeChoice
+}
+
+/** NamesThemesView with Go's zero values for every field left out. */
+export function NamesThemesView(p: Partial<B.NamesThemesView> = {}): B.NamesThemesView {
+  return { "themes": [], ...p } as B.NamesThemesView
 }
 
 /** NewCardInput with Go's zero values for every field left out. */
@@ -725,11 +921,6 @@ export function RefTarget(p: Partial<B.RefTarget> = {}): B.RefTarget {
   return { "id": "", "short": "", "title": "", "thread": false, "done": false, "state": "", "blocked": false, "ready": false, "progress": CardProgress(), ...p } as B.RefTarget
 }
 
-/** RelayView with Go's zero values for every field left out. */
-export function RelayView(p: Partial<B.RelayView> = {}): B.RelayView {
-  return { "state": "", ...p } as B.RelayView
-}
-
 /** RepoName with Go's zero values for every field left out. */
 export function RepoName(p: Partial<B.RepoName> = {}): B.RepoName {
   return { "repoKey": "", "name": "", ...p } as B.RepoName
@@ -758,6 +949,11 @@ export function Rollup(p: Partial<B.Rollup> = {}): B.Rollup {
 /** RosterChange with Go's zero values for every field left out. */
 export function RosterChange(p: Partial<B.RosterChange> = {}): B.RosterChange {
   return { "change": Change(), "agents": [], ...p } as B.RosterChange
+}
+
+/** RunHistoryRow with Go's zero values for every field left out. */
+export function RunHistoryRow(p: Partial<B.RunHistoryRow> = {}): B.RunHistoryRow {
+  return { "weight": "", "model": "", "effort": "", "runs": 0, "firstTry": 0, "sentBack": 0, "advised": 0, ...p } as B.RunHistoryRow
 }
 
 /** RunningAgent with Go's zero values for every field left out. */
@@ -805,6 +1001,36 @@ export function Step(p: Partial<B.Step> = {}): B.Step {
   return { "id": "", "text": "", "done": false, ...p } as B.Step
 }
 
+/** StorageCleaned with Go's zero values for every field left out. */
+export function StorageCleaned(p: Partial<B.StorageCleaned> = {}): B.StorageCleaned {
+  return { "removed": 0, "freed": 0, "kept": [], ...p } as B.StorageCleaned
+}
+
+/** StorageHolder with Go's zero values for every field left out. */
+export function StorageHolder(p: Partial<B.StorageHolder> = {}): B.StorageHolder {
+  return { "pid": 0, "name": "", ...p } as B.StorageHolder
+}
+
+/** StorageItem with Go's zero values for every field left out. */
+export function StorageItem(p: Partial<B.StorageItem> = {}): B.StorageItem {
+  return { "id": "", "name": "", "bytes": 0, "at": "", "detail": "", "cards": [], "cleanable": false, "keep": "", "onlyHere": false, "pinned": "", "holders": [], "deleteAnyway": false, ...p } as B.StorageItem
+}
+
+/** StorageKept with Go's zero values for every field left out. */
+export function StorageKept(p: Partial<B.StorageKept> = {}): B.StorageKept {
+  return { "id": "", "why": "", ...p } as B.StorageKept
+}
+
+/** StorageKind with Go's zero values for every field left out. */
+export function StorageKind(p: Partial<B.StorageKind> = {}): B.StorageKind {
+  return { "id": "", "bytes": 0, "items": 0, "measured": false, "path": "", ...p } as B.StorageKind
+}
+
+/** StorageReport with Go's zero values for every field left out. */
+export function StorageReport(p: Partial<B.StorageReport> = {}): B.StorageReport {
+  return { "dir": "", "kinds": [], ...p } as B.StorageReport
+}
+
 /** SubtaskPreview with Go's zero values for every field left out. */
 export function SubtaskPreview(p: Partial<B.SubtaskPreview> = {}): B.SubtaskPreview {
   return { "taskId": "", "ref": "", "title": "", "goal": "", "doneWhen": "", "steps": [], "links": [], "repo": "", ...p } as B.SubtaskPreview
@@ -815,14 +1041,29 @@ export function SummaryMember(p: Partial<B.SummaryMember> = {}): B.SummaryMember
   return { "personId": "", "name": "", "me": false, "presence": "", "working": 0, "free": 0, ...p } as B.SummaryMember
 }
 
+/** TalkAssistant with Go's zero values for every field left out. */
+export function TalkAssistant(p: Partial<B.TalkAssistant> = {}): B.TalkAssistant {
+  return { "person": "", "name": "", "mine": false, "state": "", "why": "", ...p } as B.TalkAssistant
+}
+
 /** TalkCall with Go's zero values for every field left out. */
 export function TalkCall(p: Partial<B.TalkCall> = {}): B.TalkCall {
-  return { "callId": "", "op": "", "durationMs": 0, "people": [], "transcript": false, ...p } as B.TalkCall
+  return { "callId": "", "op": "", "durationMs": 0, "people": [], "transcript": false, "title": "", ...p } as B.TalkCall
+}
+
+/** TalkCanvasItem with Go's zero values for every field left out. */
+export function TalkCanvasItem(p: Partial<B.TalkCanvasItem> = {}): B.TalkCanvasItem {
+  return { "itemId": "", "kind": "", "text": "", "status": "", "reply": "", "refs": [], "why": "", "assistant": false, "byName": "", "label": "", "askerName": "", "mine": false, "askerMine": false, "atMs": 0, "x": null, "y": null, "card": "", "cardByName": "", "cardMine": false, ...p } as B.TalkCanvasItem
 }
 
 /** TalkConversation with Go's zero values for every field left out. */
 export function TalkConversation(p: Partial<B.TalkConversation> = {}): B.TalkConversation {
   return { "convId": "", "kind": "", "name": "", "unread": 0, "mentions": 0, "members": [], "lastAt": "", "lastText": "", "lastBy": "", "readOnly": false, "agentsNow": false, ...p } as B.TalkConversation
+}
+
+/** TalkHuddle with Go's zero values for every field left out. */
+export function TalkHuddle(p: Partial<B.TalkHuddle> = {}): B.TalkHuddle {
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "title": "", "titleByAssistant": false, "startedAtMs": null, "lastAtMs": 0, "ended": false, "durationMs": 0, "over": false, "people": [], "lines": 0, ...p } as B.TalkHuddle
 }
 
 /** TalkMember with Go's zero values for every field left out. */
@@ -857,12 +1098,12 @@ export function TalkReplying(p: Partial<B.TalkReplying> = {}): B.TalkReplying {
 
 /** TalkTranscript with Go's zero values for every field left out. */
 export function TalkTranscript(p: Partial<B.TalkTranscript> = {}): B.TalkTranscript {
-  return { "callId": "", "convId": "", "convName": "", "convKind": "", "startedAtMs": null, "ended": false, "durationMs": 0, "lines": [], ...p } as B.TalkTranscript
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "agents": false, "startedAtMs": null, "ended": false, "durationMs": 0, "title": "", "titleByAssistant": false, "over": false, "assistants": [], "canvas": [], "lines": [], ...p } as B.TalkTranscript
 }
 
 /** TalkTranscriptLine with Go's zero values for every field left out. */
 export function TalkTranscriptLine(p: Partial<B.TalkTranscriptLine> = {}): B.TalkTranscriptLine {
-  return { "name": "", "mine": false, "atMs": 0, "text": "", ...p } as B.TalkTranscriptLine
+  return { "name": "", "mine": false, "agents": false, "atMs": 0, "text": "", ...p } as B.TalkTranscriptLine
 }
 
 /** Target with Go's zero values for every field left out. */
@@ -892,7 +1133,7 @@ export function ThreadCard(p: Partial<B.ThreadCard> = {}): B.ThreadCard {
 
 /** ThreadSummary with Go's zero values for every field left out. */
 export function ThreadSummary(p: Partial<B.ThreadSummary> = {}): B.ThreadSummary {
-  return { "id": "", "short": "", "tag": "", "title": "", "text": "", "state": "", "told": [], "answeredBy": [], "replies": 0, "cards": [], "at": "", "updatedAt": "", "private": false, "agentsNow": false, ...p } as B.ThreadSummary
+  return { "id": "", "short": "", "tag": "", "title": "", "text": "", "state": "", "told": [], "answeredBy": [], "replies": 0, "cards": [], "at": "", "updatedAt": "", "private": false, "agentsNow": false, "unread": false, ...p } as B.ThreadSummary
 }
 
 /** Told with Go's zero values for every field left out. */
@@ -912,7 +1153,7 @@ export function TrustNeed(p: Partial<B.TrustNeed> = {}): B.TrustNeed {
 
 /** TrustStarted with Go's zero values for every field left out. */
 export function TrustStarted(p: Partial<B.TrustStarted> = {}): B.TrustStarted {
-  return { "folder": "", "already": false, ...p } as B.TrustStarted
+  return { "folder": "", "already": false, "said": "", ...p } as B.TrustStarted
 }
 
 /** UnofferedCard with Go's zero values for every field left out. */
@@ -960,6 +1201,11 @@ export function WaitPr(p: Partial<B.WaitPr> = {}): B.WaitPr {
   return { "repo": "", "number": 0, "url": "", ...p } as B.WaitPr
 }
 
+/** Weight with Go's zero values for every field left out. */
+export function Weight(p: Partial<B.Weight> = {}): B.Weight {
+  return { "level": "", "setBy": "", "by": "", "at": "", ...p } as B.Weight
+}
+
 /** WindDownRow with Go's zero values for every field left out. */
 export function WindDownRow(p: Partial<B.WindDownRow> = {}): B.WindDownRow {
   return { "key": "", "name": "", "deviceId": "", "device": "", "deliveryId": "", "state": "", "reply": "", "error": "", ...p } as B.WindDownRow
@@ -967,5 +1213,5 @@ export function WindDownRow(p: Partial<B.WindDownRow> = {}): B.WindDownRow {
 
 /** WindDownStatus with Go's zero values for every field left out. */
 export function WindDownStatus(p: Partial<B.WindDownStatus> = {}): B.WindDownStatus {
-  return { "id": "", "scope": "", "pauseAfter": false, "paused": false, "finished": false, "rows": [], ...p } as B.WindDownStatus
+  return { "on": false, "since": null, "devices": [], "id": "", "scope": "", "finished": false, "off": false, "rows": [], ...p } as B.WindDownStatus
 }

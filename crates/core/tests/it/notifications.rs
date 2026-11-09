@@ -326,3 +326,184 @@ fn a_gone_agent_keeps_its_name() {
     });
     assert_eq!(r.core.agent_name(&r.key_a), "alpha");
 }
+
+/// Every Notifications change seen in a test, to check none named nothing.
+struct Changes {
+    feed: irori_core::Feed,
+    seen: Vec<irori_core::NotifChange>,
+}
+
+impl Changes {
+    /// Keeps a change; a lost feed fails the test.
+    fn take(&mut self, ev: irori_core::CoreEvent) -> Option<&irori_core::NotifChange> {
+        match ev {
+            irori_core::CoreEvent::Notifications(c) => {
+                self.seen.push(c);
+                self.seen.last()
+            }
+            irori_core::CoreEvent::Resync => panic!("the feed lost changes: {:?}", self.seen),
+            _ => None,
+        }
+    }
+
+    /// Reads what the feed holds.
+    fn drain(&mut self) {
+        while let Some(ev) = self.feed.try_recv() {
+            self.take(ev);
+        }
+    }
+
+    /// Waits for a change naming exactly `keys`.
+    fn wait(&mut self, what: &str, keys: &[String]) {
+        let want = irori_core::NotifChange::keys(keys.to_vec());
+        let mut found = false;
+        wait_for(20, what, || {
+            while let Some(ev) = self.feed.try_recv() {
+                found |= self.take(ev).is_some_and(|c| *c == want);
+            }
+            found
+        });
+    }
+}
+
+/// list-signals.md §3.2 (card #1144): every Notifications change names
+/// the items it touched, by the key the history keeps them under: a kept
+/// blocker, an agent's note (which has no key of its own, so its row's
+/// `row:<device>:<seq>`), the person reading one and then the rest, Irori
+/// reading a settled blocker, and a row that comes from the log (another
+/// device's) kept or read. None names nothing, which would read as all.
+#[test]
+fn each_notification_change_names_its_keys() {
+    let (_cards, n) = notifier();
+    let r = Rig::with(|o| {
+        o.headless = false;
+        o.notifier = Some(n.clone());
+    });
+    let mut ch = Changes {
+        feed: r.core.feed(&[irori_core::Topic::Notifications]),
+        seen: Vec::new(),
+    };
+    let co = r.core.coord();
+    let person = r.core.user_sender().key;
+    let task = co
+        .create_task(
+            &r.key_a,
+            NewTask {
+                title: "Pick a colour".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.claim_task(&r.key_a, &task.id).unwrap();
+
+    // A blocker on the person: kept, by its own key.
+    co.block(
+        &r.key_a,
+        &task.id,
+        "Blue or green?",
+        Some(coord::BlockedBy {
+            kind: coord::BLOCKED_ON_PERSON.into(),
+            reference: String::new(),
+        }),
+    )
+    .unwrap();
+    wait_for(10, "the blocker's notification", || {
+        r.core.notifications().len() == 1
+    });
+    let blocker = r.core.notifications()[0].key.clone();
+    assert!(blocker.starts_with("blocker:"), "{blocker}");
+    ch.wait("the blocker's change", std::slice::from_ref(&blocker));
+
+    // An agent's note has no key: its row's.
+    let note = |id: &str, body: &str| {
+        n.post(notify::Note {
+            id: id.into(),
+            title: "alpha".into(),
+            body: body.into(),
+            about: Some(coord::notifications::PostedRow {
+                kind: coord::notifications::KIND_AGENT.into(),
+                from: r.key_a.clone(),
+                ..Default::default()
+            }),
+            ..notify::Note::default()
+        });
+        r.core.notifications()[0].key.clone()
+    };
+    let first = note("notify:1", "the build is green");
+    assert!(first.starts_with("row:"), "{first}");
+    ch.wait("the agent note's change", std::slice::from_ref(&first));
+
+    // The person reads it.
+    r.core
+        .read_notifications(std::slice::from_ref(&first))
+        .unwrap();
+    ch.wait("the read's change", std::slice::from_ref(&first));
+
+    // The person answers the blocker: Irori reads it as settled.
+    let b = co.get_task(&task.id).unwrap().open_blockers()[0].id.clone();
+    co.answer(
+        &person,
+        &task.id,
+        &b,
+        coord::BlockerAnswer {
+            text: "Blue".into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    ch.wait("the settle's change", std::slice::from_ref(&blocker));
+
+    // Two more notes, then "read all": the change names both.
+    let two = note("notify:2", "the tests pass");
+    ch.wait("the second note's change", std::slice::from_ref(&two));
+    let three = note("notify:3", "the PR is open");
+    ch.wait("the third note's change", std::slice::from_ref(&three));
+    let mut rest = vec![two, three];
+    rest.sort();
+    assert_eq!(r.core.notifications().iter().filter(|i| !i.read).count(), 2);
+    r.core.read_notifications(&[]).unwrap();
+    ch.wait("the read-all's change", &rest);
+
+    // A row from the log, as another device's would come: the store
+    // follower folds it and names its key.
+    r.core
+        .store()
+        .append(
+            "irori",
+            coord::notifications::POSTED,
+            &coord::notifications::PostedRow {
+                key: "x:1".into(),
+                kind: coord::notifications::KIND_AGENT.into(),
+                title: "from the other device".into(),
+                at: gocompat::time::GoTime::from_system(std::time::SystemTime::now()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    ch.wait("the synced kept row's change", &["x:1".to_string()]);
+    r.core
+        .store()
+        .append(
+            "user",
+            coord::notifications::READ,
+            &coord::notifications::ReadRow {
+                keys: vec!["x:1".into()],
+                at: gocompat::time::GoTime::from_system(std::time::SystemTime::now()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    ch.wait("the synced read row's change", &["x:1".to_string()]);
+    assert_eq!(r.core.unread_notifications(), 0);
+
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    ch.drain();
+    for c in &ch.seen {
+        assert!(
+            !c.all && !c.is_all(),
+            "a change named nothing: {:?}",
+            ch.seen
+        );
+    }
+    r.core.close().unwrap();
+}

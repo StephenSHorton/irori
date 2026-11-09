@@ -17,6 +17,12 @@ use gocompat::time::GoTime;
 use super::{Core, Services};
 use crate::events::CoreEvent;
 
+/// The Notifications change for one folded `notification.*` row: the
+/// keys it touched (list-signals.md §3.2).
+pub(crate) fn notif_change(ev: &store::Event) -> CoreEvent {
+    CoreEvent::Notifications(crate::events::NotifChange::keys(history::keys_of(ev)))
+}
+
 /// A level's name in the row.
 fn level_name(l: notify::Level) -> &'static str {
     match l {
@@ -47,7 +53,7 @@ impl Services {
         match self.store.append("irori", history::POSTED, &r) {
             Ok(ev) => {
                 if self.notifications.apply(&ev) {
-                    self.hub.publish(CoreEvent::Notifications);
+                    self.hub.publish(notif_change(&ev));
                 }
             }
             Err(e) => crate::logf(format_args!("notifications: keep {}: {e}", note.id)),
@@ -85,7 +91,7 @@ impl Services {
         match self.store.append("irori", history::READ, &row) {
             Ok(ev) => {
                 if self.notifications.apply(&ev) {
-                    self.hub.publish(CoreEvent::Notifications);
+                    self.hub.publish(notif_change(&ev));
                 }
             }
             Err(e) => crate::logf(format_args!("notifications: settle: {e}")),
@@ -232,7 +238,7 @@ impl Core {
             )
             .map_err(|e| e.to_string())?;
         if self.s.notifications.apply(&ev) {
-            self.s.hub.publish(CoreEvent::Notifications);
+            self.s.hub.publish(notif_change(&ev));
         }
         Ok(())
     }

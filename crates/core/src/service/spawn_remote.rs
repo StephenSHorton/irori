@@ -78,6 +78,17 @@ pub struct SpawnHost {
     /// #450): it isn't asked to start anything meanwhile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub held_until: Option<GoTime>,
+    /// This desktop can run the Office Assistant's answering turn (a desktop
+    /// where the `claude` command is found; assistants talk, card 2). That
+    /// is not "signed in": nothing checks that. Older rows have none, so
+    /// such a device is never the assistant's computer.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub assistant_turn: bool,
+    /// This desktop answers the one assistant's chat for the person's other
+    /// devices (one-assistant card 3): `assistantTurn`, and this run has
+    /// the chat turn installed. A build without the worker never says it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub assistant_chat: bool,
 }
 
 impl SpawnHost {
@@ -97,9 +108,9 @@ impl SpawnHost {
     }
 }
 
-/// What a `spawn.host` row last said: the OS, repos, no_agents, moves and
-/// usage hold.
-type HostShown = (String, Vec<HostRepo>, bool, i64, Option<GoTime>);
+/// What a `spawn.host` row last said: the OS, repos, no_agents, moves, usage
+/// hold, assistantTurn and assistantChat.
+type HostShown = (String, Vec<HostRepo>, bool, i64, Option<GoTime>, bool, bool);
 
 /// A `spawn.end.requested` row.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -248,14 +259,37 @@ impl Services {
             .unwrap_or_else(|e| e.into_inner());
         if last.is_none() {
             // After a restart: what this device published before.
-            *last = self
-                .hosts()
-                .remove(&self.device.id)
-                .map(|h| (h.os, h.repos, h.no_agents, h.moves, h.held_until));
+            *last = self.hosts().remove(&self.device.id).map(|h| {
+                (
+                    h.os,
+                    h.repos,
+                    h.no_agents,
+                    h.moves,
+                    h.held_until,
+                    h.assistant_turn,
+                    h.assistant_chat,
+                )
+            });
         }
         let moves = coord::HOST_MOVES;
         let held = self.usage_held();
-        if last.as_ref() == Some(&(os.clone(), repos.clone(), no_agents, moves, held)) {
+        // A desktop where the `claude` command is found can answer for the
+        // assistant; a phone never can.
+        let assistant_turn = ready && os != "android";
+        // It answers the person's other devices only with the chat worker's
+        // turn installed in this run (one-assistant card 3).
+        let assistant_chat = assistant_turn && self.chat_ever();
+        if last.as_ref()
+            == Some(&(
+                os.clone(),
+                repos.clone(),
+                no_agents,
+                moves,
+                held,
+                assistant_turn,
+                assistant_chat,
+            ))
+        {
             return;
         }
         let row = SpawnHost {
@@ -266,9 +300,21 @@ impl Services {
             moves,
             at: now,
             held_until: held,
+            assistant_turn,
+            assistant_chat,
         };
         match self.store.append(SWEEPER, kinds::SPAWN_HOST, &row) {
-            Ok(_) => *last = Some((os, repos, no_agents, moves, held)),
+            Ok(_) => {
+                *last = Some((
+                    os,
+                    repos,
+                    no_agents,
+                    moves,
+                    held,
+                    assistant_turn,
+                    assistant_chat,
+                ))
+            }
             Err(e) => logf(format_args!("spawn host: {e}")),
         }
     }
@@ -383,8 +429,18 @@ impl Services {
         // Pause agents here (card #665): nothing is started here, and a
         // card only this device would run waits.
         let here = self.can_run_here() && !self.agents_paused();
-        if t.open_ask().is_some() || (t.spawn && !t.parent.is_empty()) || t.repo_key.is_empty() {
-            return here.then_some(me);
+        let helper = t.spawn && !t.parent.is_empty();
+        if t.open_ask().is_some() || helper || t.repo_key.is_empty() {
+            // A helper's part is worked in a worktree made here from its
+            // lead's branch, so it can't move to another device; but one
+            // that needs the other machine (`needs:pc` on a Mac) waits
+            // instead of starting an agent that can only hand it back,
+            // over and over (card #1129).
+            let off_machine = helper && {
+                let need = coord::machine_needed(t);
+                !need.is_empty() && self.this_machine() != need
+            };
+            return (here && !off_machine).then_some(me);
         }
         let hosts = self.hosts();
         let cant = self.cant_run_devices();
@@ -512,6 +568,16 @@ impl Services {
         Some(dev)
     }
 
+    /// "pc" or "mac" for this device, as a card's `needs:` hint names them;
+    /// "" otherwise.
+    fn this_machine(&self) -> &'static str {
+        match std::env::consts::OS {
+            "windows" => "pc",
+            "macos" => "mac",
+            _ => "",
+        }
+    }
+
     pub(crate) fn note_tried(&self, id: &str, dev: &str) {
         self.spawn
             .remote
@@ -553,7 +619,7 @@ impl Services {
             None,
             BriefMore::default(),
         );
-        let perms = spawn_permissions(&setting, "", &t.repo_key, &brief);
+        let perms = spawn_permissions(&setting, "", &t.repo_key, &brief, t, self.reviews_unasked());
         // The person's words for its brief go with the request: the device
         // that starts it has no other way to them (card #455).
         let note = self
@@ -564,16 +630,21 @@ impl Services {
             .get(&t.id)
             .cloned()
             .unwrap_or_default();
+        let name_logged = name.clone();
         let ask = SpawnAsk {
             task_id: t.id.clone(),
             device: dev.to_string(),
             repo_key: t.repo_key.clone(),
             permission_mode: perms.mode,
             name,
-            model: setting.model().into(),
-            effort: setting.effort().into(),
+            // By the card's weight (card #963); none is normal.
+            model: setting.pick_for(t).0,
+            effort: setting.pick_for(t).1,
+            weight: t.run_level().to_string(),
+            advisor: super::spawn::advisor_in(std::path::Path::new(&self.presence.claude_dir())),
             note,
             counted: self.start_counts(&self.coord, t),
+            others: brief.others_text,
             ..SpawnAsk::default()
         };
         let out = self
@@ -581,6 +652,8 @@ impl Services {
             .request_spawn(SWEEPER, ask)
             .map_err(|e| e.to_string())?;
         if let Some(g) = out {
+            let on = format!("device {dev}");
+            super::spawn::log_asked(t, t.spawn_request(), g, &name_logged, &on, &(self.now)());
             self.settle_ask(&t.id);
             self.note_tried(&t.id, dev);
             self.spawn
@@ -680,6 +753,12 @@ impl Services {
             // sees the hold on this device's host row and asks elsewhere.
             if let Some(until) = self.usage_held() {
                 let why = super::spawn_limits::usage_reason(&until);
+                logf(format_args!(
+                    "spawn {} gen {}: held by a usage limit until {}",
+                    t.short_ref(),
+                    s.generation,
+                    until.format_rfc3339()
+                ));
                 if let Err(e) =
                     self.coord
                         .end_spawn(SWEEPER, &t.id, s.generation, coord::SPAWN_FAILED, &why)

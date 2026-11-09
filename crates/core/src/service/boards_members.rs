@@ -257,7 +257,9 @@ impl Services {
         self.recheck_board_mesh(board_id);
         // The space's channels leave Talk with it (card #461).
         if self.talk.drop_space(board_id) {
-            self.hub.publish(crate::events::CoreEvent::Talk);
+            self.hub.publish(crate::events::CoreEvent::Talk(
+                crate::events::TalkChange::all(),
+            ));
         }
         self.boards.moved();
         Ok(())

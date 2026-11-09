@@ -32,7 +32,6 @@ import { copyText } from "@/lib/clipboard"
 import { devices, type HomeServerView } from "@/lib/devices"
 import { plainLine, shortRepo } from "@/lib/irori"
 import { go } from "@/lib/nav"
-import { AllSpaces, Personal, spacesOf, withLine } from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
@@ -270,61 +269,15 @@ export function NewBoardDialog({
   )
 }
 
-// PickSpace is Boards with All spaces picked (card #689): boards are never
-// shown across spaces, so it asks for one. A pick shows that space's
-// boards (App's pickSpace follows it there).
-export function PickSpace({
-  boards,
-  onPick,
-}: {
-  boards: BoardSummary[]
-  onPick: (id: string) => void
-}) {
-  const spaces = spacesOf(boards).filter((s) => s.id !== AllSpaces)
-  return (
-    <section className="grid max-w-xl gap-3" aria-label="Pick a space">
-      <p className="px-1 text-[13px] text-muted-foreground">
-        Boards belong to a space. Pick one to see its boards.
-      </p>
-      <ul className="grid gap-1.5">
-        {spaces.map((s) => (
-          <li key={s.id}>
-            <button
-              type="button"
-              onClick={() => onPick(s.id)}
-              className="flex w-full min-w-0 items-center gap-2 px-3 py-2.5 text-left text-sm glass-panel transition-colors hover:border-primary/60 focus-visible:outline-2 focus-visible:outline-primary"
-            >
-              <span className="min-w-0 flex-1 truncate">
-                <span className="font-medium text-ink">
-                  {plainLine(s.name)}
-                </span>
-                {s.id === Personal ? (
-                  <span className="text-muted-foreground">
-                    {" "}
-                    · you and your agents
-                  </span>
-                ) : (
-                  s.others.length > 0 && (
-                    <span className="text-muted-foreground">
-                      {" "}
-                      · {withLine(s.others.map(plainLine))}
-                    </span>
-                  )
-                )}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
 // JoinInvite is Join with an invite: the irori-invite: link someone sent.
 export function JoinInvite({
   onJoined,
+  autoFocus = true,
 }: {
   onJoined: (s: InviteStatus) => void
+  // Settings shows it among other things, so it doesn't take the keyboard
+  // (a phone's would open) (card #1007).
+  autoFocus?: boolean
 }) {
   const [link, setLink] = useState("")
   const [busy, setBusy] = useState(false)
@@ -347,7 +300,7 @@ export function JoinInvite({
       <div className="flex gap-1.5">
         <Input
           value={link}
-          autoFocus
+          autoFocus={autoFocus}
           onChange={(e) => setLink(e.target.value)}
           placeholder="irori-invite:…"
           aria-label="The invite link someone sent you"

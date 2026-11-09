@@ -38,6 +38,7 @@ import { AgentCards } from "@/components/cards/agent-hover"
 import { NewCardDialog } from "@/components/cards/new-card-dialog"
 import { Button } from "@/components/ui/button"
 import { useBoards } from "@/lib/boards"
+import { dropMakingCard, keepMakingCard, makingCard } from "@/lib/drafts"
 import { PostRowsShape } from "@/components/common/loading-shapes"
 import { ReplyingRow } from "@/components/talk/replying-row"
 import { Loading } from "@/components/ui/loading"
@@ -88,10 +89,17 @@ import {
   startShare,
   stopShare,
 } from "@/lib/call"
-import { composing, MentionBoard, type Mention } from "@/lib/mentions"
+import {
+  composing,
+  MentionAssistants,
+  MentionBoard,
+  type Mention,
+} from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
+import { useClockValue, useToday } from "@/lib/clock"
 import { parseTime, plainLine } from "@/lib/irori"
 import { useMedia } from "@/lib/media"
+import { go } from "@/lib/nav"
 import { previewFlag } from "@/lib/preview"
 import { errorText } from "@/lib/talk"
 import { agentStatus } from "@/lib/agent-status"
@@ -175,12 +183,10 @@ export const membersRoomyQuery = "(min-width: 1280px)"
 
 export function ConversationView({
   conv,
-  now,
   narrow,
   onBack,
 }: {
   conv: Conversation
-  now: Date
   narrow: boolean
   onBack: () => void
 }) {
@@ -230,6 +236,8 @@ export function ConversationView({
     () => typeof window !== "undefined" && previewFlag("call") === "sheet"
   )
   const onLeave = () => void huddle(leaveHuddle)
+  // A huddle's page (card #1044).
+  const openHuddle = (callId: string) => go({ kind: "huddle", id: callId })
   // The notice before the mic opens (#656): Huddle's start sheet says it
   // (StartSheet), and every Join here asks first; only Start huddle or Join
   // in it opens the mic.
@@ -240,8 +248,11 @@ export function ConversationView({
     setAsking({
       action: "join",
       callId,
-      convKind: conv.kind,
+      // A Personal channel reads as one (card #1047).
+      convKind:
+        conv.kind !== "channel" ? "dm" : conv.spaceId ? "channel" : "personal",
       convName: plainLine(conv.name),
+      convId: conv.convId,
       run: () => joinHuddle(callId),
     })
   // The transcript open beside the posts (#656); the preview's
@@ -260,7 +271,15 @@ export function ConversationView({
     !narrow && roomy && conv.kind === "channel"
   )
   // Make a card (design §4): the post it's made from, while the form is up.
-  const [making, setMaking] = useState<Post | null>(null)
+  // Back from its Settings link (card #1071), the form opens again as it
+  // was left; it's kept until the form closes or makes the card.
+  const [kept, setKept] = useState(() => makingCard<Post>(conv.convId))
+  const [making, setMaking] = useState<Post | null>(kept?.post ?? null)
+  const stopMaking = () => {
+    dropMakingCard(conv.convId)
+    setKept(undefined)
+    setMaking(null)
+  }
   const { boards } = useBoards()
   const where = conv.kind === "channel" ? `#${conv.name}` : `a DM`
   const prefill = useMemo(
@@ -285,10 +304,20 @@ export function ConversationView({
 
   // Agents a post here woke, until they answer (card #645).
   const replyingAgents = useReplying(conv.convId)
-  const replying = conv.readOnly
-    ? null
-    : replyingLine(replyingAgents, now.getTime())
+  // Read off the shared clock: an agent's row expires after a while, and only
+  // this text changing renders the conversation (card #1137).
+  const replyingJson = useClockValue((now) =>
+    JSON.stringify(
+      conv.readOnly ? null : replyingLine(replyingAgents, now.getTime())
+    )
+  )
+  const replying = useMemo(
+    () => JSON.parse(replyingJson) as ReturnType<typeof replyingLine>,
+    [replyingJson]
+  )
   const replyingText = replying?.text ?? ""
+  // "Today" and "Yesterday" on the day lines roll over at midnight.
+  const today = useToday()
 
   const bottom = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -324,6 +353,7 @@ export function ConversationView({
   }
   // Who the start sheet says gets told.
   const startWhere: StartWhere = {
+    convId: conv.convId,
     label: conv.kind === "channel" ? `#${plainLine(conv.name)}` : personName,
     kind:
       conv.kind !== "channel" ? "dm" : conv.spaceId ? "channel" : "personal",
@@ -527,6 +557,7 @@ export function ConversationView({
               onShare={onShare}
               onStopShare={onStopShare}
               onShareNoteSeen={onShareNoteSeen}
+              onOpenHuddle={() => openHuddle(mine.callId)}
             />
           </div>
         ) : narrow && mine ? (
@@ -539,11 +570,12 @@ export function ConversationView({
             onShare={onShare}
             onStopShare={onStopShare}
             onShareNoteSeen={onShareNoteSeen}
+            onOpenHuddle={() => openHuddle(mine.callId)}
           />
         ) : narrow && transcript ? (
           <TranscriptPane
             callId={transcript}
-            now={now}
+
             wide
             onClose={() => setTranscript("")}
           />
@@ -552,7 +584,9 @@ export function ConversationView({
         ) : narrow && showMembers && conv.kind === "channel" ? (
           <Members members={conv.members} live={live} wide />
         ) : (
-          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto px-3 py-3 mac:overscroll-none">
+          // The newest post clears Ask Irori's button, which sits above
+          // the composer (pb-16, card #783).
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto px-3 pt-3 pb-16 mac:overscroll-none">
             {error && (
               <p className="px-2 text-xs text-destructive" role="alert">
                 Could not load the posts: {error}
@@ -578,13 +612,16 @@ export function ConversationView({
                     const at = parseTime(p.at)
                     const prev = i > 0 ? parseTime(posts[i - 1].at) : null
                     const newDay =
-                      at && (!prev || dayLabel(prev, now) !== dayLabel(at, now))
+                      at &&
+                      (!prev || dayLabel(prev, today) !== dayLabel(at, today))
                     return (
                       <div
                         key={p.postId}
                         className="grid grid-cols-[minmax(0,1fr)]"
                       >
-                        {newDay && at && <DayLine label={dayLabel(at, now)} />}
+                        {newDay && at && (
+                          <DayLine label={dayLabel(at, today)} />
+                        )}
                         <PostRow
                           post={p}
                           who={memberOf(names.values(), p.by)}
@@ -602,6 +639,7 @@ export function ConversationView({
                           }
                           liveCall={liveHere?.callId}
                           onTranscript={setTranscript}
+                          onOpenHuddle={openHuddle}
                         />
                       </div>
                     )
@@ -631,11 +669,12 @@ export function ConversationView({
           onShare={onShare}
           onStopShare={onStopShare}
           onShareNoteSeen={onShareNoteSeen}
+          onOpenHuddle={() => openHuddle(mine.callId)}
         />
       ) : transcript && !narrow ? (
         <TranscriptPane
           callId={transcript}
-          now={now}
+
           onClose={() => setTranscript("")}
         />
       ) : (
@@ -656,7 +695,12 @@ export function ConversationView({
         // A space's channel makes its cards in the space (card #558).
         board={boards.find((b) => b.boardId === conv.spaceId)}
         from={prefill}
-        onClose={() => setMaking(null)}
+        draft={kept && making === kept.post ? kept.form : undefined}
+        onLeave={(form) => {
+          if (making)
+            keepMakingCard({ convId: conv.convId, post: making, form })
+        }}
+        onClose={stopMaking}
         onMade={(id) => {
           if (making) void talkApi.linkCard(making.postId, id).catch(() => {})
         }}
@@ -698,6 +742,7 @@ export function PostRow({
   liveCall,
   onJoinCall,
   onTranscript,
+  onOpenHuddle,
 }: {
   post: Post
   who?: Member
@@ -712,6 +757,8 @@ export function PostRow({
   onJoinCall?: (callId: string) => void
   // Opens an ended huddle's transcript (#656).
   onTranscript?: (callId: string) => void
+  // Opens a huddle's page (card #1044).
+  onOpenHuddle?: (callId: string) => void
 }) {
   const [asking, setAsking] = useState(false)
   // Its @names, so the text shows them as mentions.
@@ -741,6 +788,10 @@ export function PostRow({
       <HuddleEnded
         durationMs={post.call.durationMs}
         people={post.call.people}
+        title={post.call.title}
+        onOpen={
+          onOpenHuddle ? () => onOpenHuddle(post.call!.callId) : undefined
+        }
         onTranscript={
           post.call.transcript && onTranscript
             ? () => onTranscript(post.call!.callId)
@@ -750,6 +801,10 @@ export function PostRow({
     ) : (
       <HuddleStarted
         by={name}
+        title={post.call.title}
+        onOpen={
+          onOpenHuddle ? () => onOpenHuddle(post.call!.callId) : undefined
+        }
         onJoin={
           onJoinCall && post.call.callId === liveCall
             ? () => onJoinCall(post.call!.callId)
@@ -785,7 +840,7 @@ export function PostRow({
           </span>
           {m.kind === "agent" && (
             <span className="shrink-0 text-[10.5px] text-muted-foreground uppercase">
-              agent
+              {m.assistant ? "assistant" : "agent"}
             </span>
           )}
           <time
@@ -806,7 +861,7 @@ export function PostRow({
               type="button"
               onClick={() => setAsking((a) => !a)}
               className="ml-auto hidden items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-secondary hover:text-ink focus-visible:opacity-100 pointer-fine:md:flex"
-              title="Ask about this in a thread: it goes in Threads, and this channel gets a one-line pointer"
+              title="Start a thread about this: it goes in Threads, and this channel gets a one-line pointer"
             >
               <MessageSquareTextIcon className="size-3.5" aria-hidden />
               Start a thread
@@ -931,8 +986,8 @@ function ThreadFrom({
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && onDone()}
-        placeholder="Ask about this in a thread…"
-        aria-label="Your question for the thread"
+        placeholder="Start a thread about this…"
+        aria-label="Start a thread about this"
         readOnly={busy}
         className="rounded-md border border-border bg-card px-2 py-1 text-[12.5px] text-ink outline-none focus:border-primary"
       />
@@ -1074,6 +1129,8 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
   return (
     <form
       className="grid gap-1 border-t border-border px-3 py-2.5"
+      // Ask Irori's button sits above the composer, off its Send (#783).
+      data-assistant-avoid=""
       onSubmit={(e) => void submit(e)}
       {...attach.drop}
     >
@@ -1084,33 +1141,35 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
       <div className="flex flex-wrap items-start gap-2 p-1.5 glass-panel">
         {/* A space's channel offers its other people's agents too (#461). */}
         <MentionBoard.Provider value={conv.spaceId ?? ""}>
-          {/* The mic (card #643): "main", since the ask box, the other
+          <MentionAssistants.Provider value={!!conv.pinned}>
+            {/* The mic (card #643): "main", since the ask box, the other
             "main" composer, never shows beside a conversation. */}
-          <MentionTextarea
-            autoSize
-            voice="main"
-            rows={1}
-            value={text}
-            mentions={mentions}
-            onChange={(v, ms) => {
-              setText(v)
-              setMentions(ms)
-            }}
-            onPaste={(e) => {
-              if (attach.onPaste(e)) setError(null)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !composing(e)) {
-                e.preventDefault()
-                e.currentTarget.form?.requestSubmit()
-              }
-            }}
-            placeholder={placeholder}
-            aria-label={placeholder}
-            className="max-h-40 min-h-9 min-w-40 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent md:min-w-48"
-            readOnly={busy}
-            aria-busy={busy}
-          />
+            <MentionTextarea
+              autoSize
+              voice="main"
+              rows={1}
+              value={text}
+              mentions={mentions}
+              onChange={(v, ms) => {
+                setText(v)
+                setMentions(ms)
+              }}
+              onPaste={(e) => {
+                if (attach.onPaste(e)) setError(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !composing(e)) {
+                  e.preventDefault()
+                  e.currentTarget.form?.requestSubmit()
+                }
+              }}
+              placeholder={placeholder}
+              aria-label={placeholder}
+              className="max-h-40 min-h-9 min-w-40 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent md:min-w-48"
+              readOnly={busy}
+              aria-busy={busy}
+            />
+          </MentionAssistants.Provider>
         </MentionBoard.Provider>
         <div className="ml-auto flex h-9 shrink-0 items-center gap-2">
           {channel && (

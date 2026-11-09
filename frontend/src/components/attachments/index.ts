@@ -6,5 +6,6 @@ export {
   PendingFiles,
   clipboardFiles,
   useFileAttach,
+  withoutSent,
   type FileAttach,
 } from "./file-attach"

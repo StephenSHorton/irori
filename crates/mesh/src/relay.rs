@@ -1,7 +1,7 @@
 //! The advanced TURN relay setting, `relay.json` (mesh.md §2.5, §3.1;
 //! I:internal/mesh/relay.go). Under iroh it has no meaning (D4): the
-//! setting is kept readable and writable so Settings and the API work, and
-//! the transport reports it as `none` with a note.
+//! setting is kept only for the golden files; Settings no longer shows it
+//! (card #1069) and nothing in the app reads or writes `relay.json`.
 
 use std::path::Path;
 use std::sync::LazyLock;

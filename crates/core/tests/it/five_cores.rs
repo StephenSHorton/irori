@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use common::mesh::{Dev, invited, person, restart};
 use common::wait_for;
+use irori_core::{CoreEvent, Feed, Topic};
 use mesh::boardmesh::{
     BoardReads, BoardServer, KIND_BOARD_HELLO, KIND_BOARD_SERVER, SPACES_PROTOCOL, SavedHello,
     saved_hellos,
@@ -2441,6 +2442,30 @@ fn a_dm_survives_a_restart_with_nothing_in_either_switcher() {
     close([a1, b1]);
 }
 
+/// Drains `f`, a Board feed, into the card ids it names, waiting up to
+/// `wait` for each event (`ZERO`: only what is buffered). A board resync
+/// (a board set changing) or agents.changed names no card and is skipped;
+/// a lost feed (`CoreEvent::Resync`) could have hidden a leaked id, so it
+/// fails (card #1144, list-signals.md §3.1).
+fn drain_card_ids(f: &Feed, heard: &mut Vec<String>, wait: Duration) {
+    loop {
+        let ev = if wait.is_zero() {
+            f.try_recv()
+        } else {
+            f.recv_timeout(wait).ok().flatten()
+        };
+        match ev {
+            None => return,
+            Some(CoreEvent::Board(ch)) if !ch.task_id.is_empty() => heard.push(ch.task_id),
+            Some(CoreEvent::Board(_)) => {}
+            Some(CoreEvent::Resync) => {
+                panic!("the Board feed overflowed, so a hidden id may be lost; heard {heard:?}")
+            }
+            Some(other) => panic!("the Board feed got {other:?}"),
+        }
+    }
+}
+
 /// §5: Bob founds a DM and writes into it all a space can hold: a card, an
 /// ask, a note, his agent's card, a board inside. Alice's and his own
 /// lists, tools, feeds and refs show none of it, though each log holds it.
@@ -2460,7 +2485,10 @@ fn nothing_of_a_dm_space_shows_anywhere() {
     let alice_id = a1.core.person().id.clone();
     let id = b1.core.dm_spaces_with(&alice_id)[0].clone();
     assert!(a1.core.is_dm_space(&id) && b1.core.is_dm_space(&id));
-    let changes = a1.core.subscribe_boards();
+    // Card changes, shared ones too, reach the window on the hub's Board
+    // topic (list-signals.md §3.1).
+    let changes = a1.core.feed(&[Topic::Board]);
+    let mut heard: Vec<String> = Vec::new();
 
     let co = b1.core.board_coord(&id).unwrap();
     let bob_key = b1.person_actor();
@@ -2515,6 +2543,9 @@ fn nothing_of_a_dm_space_shows_anywhere() {
         .unwrap();
     b1.core.kick_board(&id);
     wait_for(WAIT, "alice's log holds all of it", || {
+        // Keep a1's 64-slot feed empty while the hidden rows land: their
+        // summary rows each put a board resync on it.
+        drain_card_ids(&changes, &mut heard, Duration::ZERO);
         b1.core.kick_board(&id);
         card_on(a1, &id, &card.id).is_some()
             && card_on(a1, &id, &ask.id).is_some()
@@ -2535,18 +2566,13 @@ fn nothing_of_a_dm_space_shows_anywhere() {
         .create_task(&bob_key, new_task("SEEN card"))
         .unwrap();
     b1.core.kick_board(&board);
-    let mut heard = Vec::new();
     wait_for(WAIT, "the window hears the shared card", || {
         b1.core.kick_board(&board);
-        while let Ok(Some(ch)) = changes.recv_timeout(Duration::from_millis(100)) {
-            heard.push(ch.task_id);
-        }
+        drain_card_ids(&changes, &mut heard, Duration::from_millis(100));
         heard.contains(&seen.id)
     });
     a1.core.sweep_coord().unwrap();
-    while let Ok(Some(ch)) = changes.recv_timeout(Duration::from_millis(100)) {
-        heard.push(ch.task_id);
-    }
+    drain_card_ids(&changes, &mut heard, Duration::from_millis(100));
     assert!(
         !heard.contains(&card.id) && !heard.contains(&ask.id),
         "{heard:?}"
@@ -3399,5 +3425,230 @@ fn a_row_naming_a_hash_its_writer_never_held_lends_nothing() {
     assert_eq!(from, a1.core.device_id());
     assert_eq!(std::fs::read(&path).unwrap(), body);
     assert!(offered(b1, &sha).contains(&b1.core.device_id().to_string()));
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// Card #690: in a shared space a board's description, close and reopen
+/// reach the other person. Bob makes a board and may close it; he can't
+/// close Alice's board, and nobody closes the first; Alice, an owner, may
+/// reopen his. A close moves the open cards (a family together) or
+/// cancels them first. While it's closed neither device puts a card on it.
+#[test]
+fn a_boards_description_close_and_reopen_reach_bob_and_back() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let space = invited(a1, b1);
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        hears(a1, &space, b1)
+            && a1
+                .core
+                .board_rows_not_ready(&space)
+                .is_ok_and(|v| v.is_empty())
+    });
+    wait_for(WAIT, "bob hears alice", || {
+        hears(b1, &space, a1)
+            && b1
+                .core
+                .board_rows_not_ready(&space)
+                .is_ok_and(|v| v.is_empty())
+    });
+    let on = |d: &Dev, id: &str| {
+        d.core
+            .space_boards(&space)
+            .ok()
+            .and_then(|bs| bs.into_iter().find(|x| x.board_id == id))
+    };
+
+    // Bob's board, with its description from New board; Alice's, with none.
+    let net = b1
+        .core
+        .create_space_board_with(&space, "Netcode", "net", "Rollback netcode")
+        .unwrap();
+    let art = a1.core.create_space_board(&space, "Art", "art").unwrap();
+    b1.core.kick_board(&space);
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "alice gets bob's board and its description", || {
+        on(a1, &net).is_some_and(|x| x.description == "Rollback netcode")
+    });
+    let x = on(a1, &net).unwrap();
+    assert_eq!(
+        x.description_by,
+        b1.person_actor(),
+        "named from the row's device"
+    );
+    assert!(x.may_close, "alice owns the space");
+    wait_for(WAIT, "bob gets alice's board", || on(b1, &art).is_some());
+    assert!(on(b1, &net).unwrap().may_close, "his own board");
+    assert!(
+        !on(b1, &art).unwrap().may_close,
+        "not his, and he isn't an owner"
+    );
+
+    // Alice describes the first board and edits Bob's.
+    a1.core
+        .set_space_board_description(&space, &space, "The game")
+        .unwrap();
+    a1.core
+        .set_space_board_description(&space, &net, "Rollback netcode, 4 players")
+        .unwrap();
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob gets alice's descriptions", || {
+        b1.core.space_boards(&space).is_ok_and(|bs| {
+            bs[0].description == "The game"
+                && bs
+                    .iter()
+                    .any(|x| x.board_id == net && x.description == "Rollback netcode, 4 players")
+        })
+    });
+
+    // Who may close what.
+    let keep = || irori_core::OpenCards::Keep;
+    let e = b1.core.close_space_board(&space, &art, keep()).unwrap_err();
+    assert!(e.to_string().contains("only the person who made"), "{e}");
+    let e = b1
+        .core
+        .close_space_board(&space, &space, keep())
+        .unwrap_err();
+    assert!(e.to_string().contains("first board"), "{e}");
+
+    // A card on net, with a subtask: a close that keeps them is refused,
+    // naming it; one that moves them takes the family to art.
+    let co = b1.core.board_coord(&space).unwrap();
+    let t = co
+        .create_task(
+            &b1.person_actor(),
+            coord::NewTask {
+                title: "rollback".into(),
+                board: net.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let (_, kids) = co
+        .split(
+            &b1.person_actor(),
+            &t.id,
+            vec![coord::NewSubtask {
+                title: "inputs".into(),
+                ..Default::default()
+            }],
+            Vec::new(),
+        )
+        .unwrap();
+    let e = b1.core.close_space_board(&space, &net, keep()).unwrap_err();
+    assert!(e.to_string().contains("net#1"), "{e}");
+    let e = b1
+        .core
+        .close_space_board(&space, &net, irori_core::OpenCards::MoveTo(net.clone()))
+        .unwrap_err();
+    assert!(e.to_string().contains("pick another board"), "{e}");
+    b1.core
+        .close_space_board(&space, &net, irori_core::OpenCards::MoveTo(art.clone()))
+        .unwrap();
+    b1.core.kick_board(&space);
+    wait_for(WAIT, "alice sees net closed", || {
+        on(a1, &net).is_some_and(|x| x.closed)
+    });
+    wait_for(WAIT, "alice has the family on art", || {
+        card_on(a1, &space, &t.id).is_some_and(|x| x.board == art)
+            && card_on(a1, &space, &kids[0].id).is_some_and(|x| x.board == art)
+    });
+    let e = a1
+        .core
+        .board_coord(&space)
+        .unwrap()
+        .create_task(
+            &a1.person_actor(),
+            coord::NewTask {
+                title: "late".into(),
+                board: net.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("is closed"), "{e}");
+    assert!(
+        a1.core
+            .set_space_board_description(&space, &net, "x")
+            .is_err()
+    );
+
+    // Alice, an owner, reopens it; Bob closes it again canceling a card.
+    a1.core.reopen_space_board(&space, &net).unwrap();
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob sees net reopened", || {
+        on(b1, &net).is_some_and(|x| !x.closed)
+    });
+    let more = co
+        .create_task(
+            &b1.person_actor(),
+            coord::NewTask {
+                title: "more".into(),
+                board: net.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    b1.core
+        .close_space_board(&space, &net, irori_core::OpenCards::Cancel)
+        .unwrap();
+    b1.core.kick_board(&space);
+    wait_for(WAIT, "alice sees it canceled and net closed", || {
+        on(a1, &net).is_some_and(|x| x.closed)
+            && card_on(a1, &space, &more.id).is_some_and(|x| x.state == coord::CANCELED)
+    });
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// Assistants talk 1 (design §4): a shared space gets #office-assistants by
+/// itself on every Core, one channel of one id. A hidden DM space between
+/// the same two people gets none, and neither does Personal.
+#[test]
+fn every_space_gets_one_office_assistants_channel_of_the_same_id() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let space = invited(a1, b1);
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        hears(a1, &space, b1)
+    });
+    let id = coord::talk::assistants_channel_id(&space);
+    for d in [a1, b1] {
+        wait_for(WAIT, "the assistants channel folds", || {
+            d.core.talk().channel(&id).is_some()
+        });
+    }
+    for d in [a1, b1] {
+        let all = d.core.talk().channels();
+        let oa: Vec<_> = all.iter().filter(|c| c.id.starts_with("ch_oa_")).collect();
+        assert_eq!(oa.len(), 1, "{oa:?}");
+        assert_eq!(
+            (oa[0].id.as_str(), oa[0].space_id.as_str()),
+            (id.as_str(), space.as_str())
+        );
+        assert_eq!(oa[0].name, "office-assistants");
+        assert!(talk_lists(d, &id), "listed without joining");
+    }
+
+    // A DM between them rides a hidden space: no channel there.
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "hi bob");
+    wait_for(WAIT, "bob reads alice's DM", || dm_holds(b1, &dm, "hi bob"));
+    let hidden = a1.core.dm_spaces_with(&b1.core.person().id);
+    assert_eq!(hidden.len(), 1, "{hidden:?}");
+    a1.core.kick_board(&hidden[0]);
+    b1.core.kick_board(&hidden[0]);
+    // Give the sweeps a few passes at the hidden space.
+    std::thread::sleep(Duration::from_secs(3));
+    for d in [a1, b1] {
+        let all = d.core.talk().channels();
+        assert!(
+            all.iter()
+                .all(|c| c.space_id != hidden[0] && !c.space_id.is_empty()),
+            "{all:?}"
+        );
+        assert_eq!(all.iter().filter(|c| c.id.starts_with("ch_oa_")).count(), 1);
+    }
     close(alice.drain(..).chain(bob.drain(..)));
 }

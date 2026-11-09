@@ -41,8 +41,30 @@ describe("Talk list sections (card #463)", () => {
       "kept"
     )
     expect(s.yours.map((c) => c.convId)).toEqual(["kept"])
-    expect(s.gone.map((c) => c.convId)).toEqual(["read", "unread", "named"])
-    expect(s.agents.map((c) => c.convId)).toEqual(["watched"])
+    expect(s.gone.map((c) => c.convId)).toEqual([
+      "read",
+      "unread",
+      "named",
+      "watched",
+    ])
+    expect(s.agents).toEqual([])
+  })
+
+  test("agent↔agent DMs archive once every agent in them has gone (card #1037)", () => {
+    const s = dmSections(
+      [
+        dm("live", { readOnly: true }),
+        dm("dead", { readOnly: true }),
+        dm("yours"),
+      ],
+      (c) => c.convId === "dead"
+    )
+    expect(s.agents.map((c) => c.convId)).toEqual(["live"])
+    expect(s.gone.map((c) => c.convId)).toEqual(["dead"])
+    expect(s.yours.map((c) => c.convId)).toEqual(["yours"])
+    // An agent reattaching brings it back.
+    const back = dmSections([dm("dead", { readOnly: true })], () => false)
+    expect(back.agents.map((c) => c.convId)).toEqual(["dead"])
   })
 
   test("a DM whose agent came back (reattached) leaves the Archive", () => {
@@ -57,6 +79,7 @@ describe("Talk list sections (card #463)", () => {
   test("the Archive and Agents talking start folded; your DMs, Threads and Channels don't", () => {
     expect(foldedByDefault).toEqual({
       threads: false,
+      huddles: false,
       channels: false,
       dms: false,
       gone: true,

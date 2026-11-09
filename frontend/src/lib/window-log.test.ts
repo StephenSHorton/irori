@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { DroppedInARow, windowTally } from "./window-log"
+import { DroppedInARow, Signals, windowTally } from "./window-log"
 
 const read = { ms: 10, dropped: false, reloads: 1 }
 
@@ -48,6 +48,41 @@ describe("the window's line in irori.log (card #551)", () => {
     const t = windowTally()
     t.signal("focus")
     t.line()
+    expect(t.line()).toBe("")
+  })
+
+  test("counts all seven list signals and the roster's", () => {
+    expect(Signals).toEqual([
+      "board:changed",
+      "devices:changed",
+      "inbox:changed",
+      "talk:changed",
+      "notifications:changed",
+      "boards:changed",
+      "roster:changed",
+      "assistant:changed",
+    ])
+    const t = windowTally()
+    for (const name of Signals) t.signal(name)
+    t.signal("talk:changed")
+    expect(t.line()).toContain("talk:changed 2, notifications:changed 1")
+  })
+
+  test("IPC by command ends the line, most called first", () => {
+    const t = windowTally()
+    t.signal("focus")
+    t.call("board_cards")
+    for (let i = 0; i < 3; i++) t.call("board_cards_by_id")
+    t.read("cards", read)
+    expect(t.line()).toBe(
+      "lists: focus 1; 1 reads for 1 reloads; ipc: board_cards_by_id 3, board_cards 1"
+    )
+  })
+
+  test("calls alone make a line, and each line starts new", () => {
+    const t = windowTally()
+    t.call("devices_devices")
+    expect(t.line()).toBe("lists: ipc: devices_devices 1")
     expect(t.line()).toBe("")
   })
 })

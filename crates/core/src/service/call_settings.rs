@@ -54,15 +54,21 @@ impl CallSettings {
 /// device id, so every device settles on the same row whatever order rows
 /// arrived in; on with none.
 fn newest_transcribe(st: &Store) -> bool {
+    newest_switch(st, kinds::TRANSCRIBE_SET, TRANSCRIBE_ON)
+}
+
+/// The newest `{on, by, at}` switch of `kind` in the log, as for
+/// transcribe; `none` with no row (card #782 reads its own this way).
+pub(crate) fn newest_switch(st: &Store, kind: &str, none: bool) -> bool {
     let mut f = Filter {
-        kinds: vec![kinds::TRANSCRIBE_SET.into()],
+        kinds: vec![kind.into()],
         limit: store::MAX_LIST_LIMIT,
         ..Filter::default()
     };
     let mut best: Option<((i64, u32), String, bool)> = None;
     loop {
         let Ok(page) = st.list(&f) else {
-            return TRANSCRIBE_ON;
+            return none;
         };
         for ev in &page {
             if ev.actor != "user" {
@@ -84,7 +90,7 @@ fn newest_transcribe(st: &Store) -> bool {
             _ => break,
         }
     }
-    best.map_or(TRANSCRIBE_ON, |(_, _, on)| on)
+    best.map_or(none, |(_, _, on)| on)
 }
 
 impl Services {
