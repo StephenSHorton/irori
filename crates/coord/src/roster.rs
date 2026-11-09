@@ -107,6 +107,13 @@ crate::go_struct! {
         pub repo_key: String = "repoKey",
         pub permission_mode: String = "permissionMode",
         pub last_tool: String = "lastTool" "omit",
+        /// The context of the agent's newest main-chain call, in tokens
+        /// (agent-continuity §4). Omitted when zero.
+        pub ctx: i64 = "ctx" "omit",
+        /// When that call was made.
+        pub ctx_at: GoTime = "ctxAt" "omit_zero_time",
+        /// A compaction was seen; sticky.
+        pub compacted: bool = "compacted" "omit",
         pub device_state: String = "deviceState" "omit",
         /// While `status` is "waiting", what for ("permission prompt"),
         /// from Claude Code's session file (card #445).
@@ -367,6 +374,9 @@ crate::go_struct! {
         name: String = "name",
         permission_mode: String = "permissionMode",
         name_source: String = "nameSource",
+        ctx: i64 = "ctx",
+        ctx_at: GoTime = "ctxAt",
+        compacted: bool = "compacted",
     }
 }
 
@@ -431,6 +441,13 @@ fn apply(st: &mut State, ev: &Event) -> bool {
             if !p.permission_mode.is_empty() {
                 c.permission_mode = p.permission_mode;
             }
+            // Context rides on the status row (an older row has none: keep
+            // what the card holds).
+            if p.ctx > 0 {
+                c.ctx = p.ctx;
+                c.ctx_at = p.ctx_at;
+            }
+            c.compacted |= p.compacted;
             true
         }
         kinds::AGENT_GONE => {

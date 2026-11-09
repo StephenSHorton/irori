@@ -1405,3 +1405,61 @@ fn talk_conversations_timing() {
         ib.list(usize::MAX).len()
     );
 }
+
+/// Context rides on agent.status (card #1212): a busy agent's growing
+/// transcript writes no rows of its own, the status edge carries the
+/// measure, and context_of reads it back.
+#[test]
+fn test_record_carries_context_without_extra_rows() {
+    let r = Rig::new();
+    let me = r.core.device_id().to_string();
+    let key = format!("{me}/dddddddd-4444-4444-8444-000000000004");
+    let base = presence::AgentCard {
+        key: key.clone(),
+        device_id: me.clone(),
+        agent: "claude".into(),
+        name: "delta".into(),
+        status: "busy".into(),
+        ..presence::AgentCard::default()
+    };
+    let q = gocompat::sub::Queue::new(64);
+    let push = |kind, c: presence::AgentCard| assert!(q.push(presence::Change { kind, card: c }));
+    push(presence::ChangeKind::Added, base.clone());
+    // Many Updated changes where only ctx moved (as if changed() let them by).
+    for i in 1..=20u64 {
+        let mut c = base.clone();
+        c.ctx = 1000 * i;
+        c.ctx_at = gocompat::time::GoTime::unix(1_800_000_000 + i as i64, 0);
+        push(presence::ChangeKind::Updated, c);
+    }
+    let mut idle = base.clone();
+    idle.status = "idle".into();
+    idle.ctx = 21_000;
+    idle.ctx_at = gocompat::time::GoTime::unix(1_800_000_100, 0);
+    idle.compacted = true;
+    push(presence::ChangeKind::Updated, idle);
+    q.close();
+    r.core.record_from(&q);
+
+    let evs = r
+        .core
+        .events(&Filter {
+            kinds: vec![kinds::AGENT_STATUS.into()],
+            limit: store::MAX_LIST_LIMIT,
+            ..Filter::default()
+        })
+        .unwrap();
+    let rows: Vec<serde_json::Value> = evs
+        .iter()
+        .filter_map(|e| serde_json::from_slice::<serde_json::Value>(&e.payload).ok())
+        .filter(|p| p["key"] == key.as_str())
+        .collect();
+    assert_eq!(
+        rows.len(),
+        1,
+        "one status row for the busy-to-idle edge: {rows:?}"
+    );
+    assert_eq!(rows[0]["ctx"], 21_000);
+    assert_eq!(rows[0]["compacted"], true);
+    assert!(rows[0]["ctxAt"].is_string(), "{rows:?}");
+}
