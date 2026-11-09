@@ -358,6 +358,29 @@ The person asked for "one Claude that is started for that". There are two ways t
   - It stays one turn at a time, through the same worker, so the grants rule holds.
 - **Card 8 measures it first,** with tools on the chat's model, against card 3's turns. If the numbers say keep it, it is built. If they say not to, the card posts the numbers on #1093 and asks the person. It doesn't drop the session by itself, since the person asked for it in so many words.
 
+**As measured (#1108).** 2026-11-08, Claude Code 2.1.319, Sonnet at low effort (the chat's default, which the person hasn't changed), the chat's tools, system prompt and argv exactly as `Job::assistant` builds them. The Core was an offline scratch copy of the person's Mac data (a debug build). The harness is `crates/window/tests/it/chat_held_measure.rs`: the same 20-question conversation in both modes, one question at a time, alternating which mode goes first. Some questions lean on earlier answers. A new card was made after question 4 and a comment added to #1095 after question 15, to catch a held session answering from what it saw before. The per-question side used `render_prompt` (the window's port of Core's `chat_prompt`: the same text for questions with no files). The held side kept one process with stdin open, sent the question alone, and started again from the rows (the same prompt the per-question side gets) past 60k tokens. Two passes: the first at load average 15–108 on 18 cores (other agents' checks), the second at 7–16 with the order flipped. Costs at API rates.
+
+| Over 40 questions per mode | Per-question turn (card 3) | Held session |
+|---|---|---|
+| Time to the first word of the reply, median / p90 | 5.0 s / 9.2 s | 3.9 s / 9.9 s |
+| Second pass only (low load), median | 4.4 s | 3.9 s |
+| Model time per question (`duration_api_ms`), median | 3.8 s | 3.8 s |
+| Start-up before the model runs, median / p90 | 0.3 s / 2.5 s (a new `claude` and `irori mcp`) | 4 ms / 7 ms (warm) |
+| Cost for 20 questions | $0.48 and $0.60 | $0.34 and $0.40 (−30%) |
+| Cost per question, median | $0.019 | $0.012 |
+| Tool calls | 69 (9 questions without one) | 54 (14 without one) |
+| Starting again past 60k tokens | n/a | 5 times in 40 questions (every 6–9 questions) |
+| Questions lost to a tool failure | 6 ("Irori isn't running on this device": each new `irori mcp` checks the Core once at start, and under load that check timed out), 5 of them at high load | 1 (a transient error, then it went on) |
+| Memory while held | none between questions | 240–365 MB (`claude` plus `irori mcp`) |
+
+- **The first question of a held session costs what a per-question turn costs**, and at high load its start can take long: the first held question of the first pass took 124 s, of which 4.4 s was the model (the process took 105 s to start under load 85+). A turn per question pays a smaller start every time.
+- **Context grows fast with tools.** A question adds 5–10k tokens of tool output, so a held session reaches 60k in six to nine questions and starts again from the rows. The warm saving applies to most questions, not all.
+- **Answers, judged blind.** Three independent panels judged every question, each answer against its own tool results: which answer is better, and whether each is grounded, stale, right about earlier turns and within the chat's rules. Over 40 questions, the held session was better on 11 by majority, the per-question turn on 10, with 18 ties and one split. Mean correctness was 1.60 of 2 for the held session and 1.43 for the per-question turn; in the low-load pass alone, 1.55 and 1.50. Both found the new card and the new comment (no answer was stale from memory; in the second pass both missed the new card, because the scratch's search hadn't caught up).
+  - Where the held session lost: it answered from memory where a look would have been better (ranking cards by a time it had seen instead of checking their dates), claimed a check it hadn't made, and twice took "the first of those agents" to be a different agent from the first one it had listed.
+  - Where it won: summaries that agree with what it found earlier, being honest that it can't see the start of the chat after starting again (the per-question turn named the wrong "first questions" as fact), and no lost answers when the Core was slow.
+  - Both see only the last 12 turns after a start, so neither remembers the start of a long chat. The held session remembers more between starts.
+- **Verdict: keep it.** It is faster (about a second a question, a fifth of the wait) and cheaper, and it answers no worse. That is the rule above, so card 8 builds it. The margin on quality is small, and the held session's habit of answering from memory is what to watch.
+
 ## 9. Answering other people, and the huddle
 
 ### Assistants talk (docs/design/assistants-talk.md)
