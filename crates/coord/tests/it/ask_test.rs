@@ -982,3 +982,32 @@ fn test_ask_owner_needs_the_posting_device() {
 fn person() -> KeyFn {
     Arc::new(|k: &str| k.starts_with("user:"))
 }
+
+/// Decision 69 (card #1226): "task:<id>" is that card, even when another
+/// device wrote its id in the shape of a ref; the ref still names the card
+/// numbered so. A grant spent as "task:<id>" can't land on another card.
+#[test]
+fn test_a_task_prefixed_id_is_that_card_whatever_its_shape() {
+    let e = Env::with("dev-a", Some(person()));
+    let at = plus(fixed_now(), sec());
+    for (seq, id, num) in [(1, "01M6HPNJ2VWDNPD5FPHVFK4Q0D", 12), (2, "#12", 40)] {
+        let at = plus(at, sec() * seq as u32);
+        e.remote(
+            "dev-p",
+            seq,
+            hlc_at(at),
+            "user",
+            kinds::TASK_CREATED,
+            &TaskCreatedRow {
+                task_id: id.into(),
+                num,
+                title: format!("card {num}"),
+                by: "user:dev-p".into(),
+                at,
+                ..TaskCreatedRow::default()
+            },
+        );
+    }
+    assert_eq!(e.c.task_ref("task:#12").unwrap(), "#12");
+    assert_eq!(e.c.task_ref("#12").unwrap(), "01M6HPNJ2VWDNPD5FPHVFK4Q0D");
+}

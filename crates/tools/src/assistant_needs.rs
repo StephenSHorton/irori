@@ -359,6 +359,22 @@ fn skeleton(s: &str) -> String {
         .to_ascii_lowercase()
 }
 
+/// Whether two name words may be the same name typed two ways: equal
+/// skeletons, one a prefix of the other's, or the same length with every
+/// letter equal or not ASCII ("Søren" and "Soren", "José" and "Jose").
+fn near(a: &str, b: &str) -> bool {
+    let (sa, sb) = (skeleton(a), skeleton(b));
+    if !sa.is_empty() && !sb.is_empty() && (sa.starts_with(&sb) || sb.starts_with(&sa)) {
+        return true;
+    }
+    let (ca, cb): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    ca.len() == cb.len()
+        && ca
+            .iter()
+            .zip(&cb)
+            .all(|(x, y)| x == y || !x.is_ascii() || !y.is_ascii())
+}
+
 /// Who a name at word `i` is, among everyone the snapshot knows (people
 /// and givers together): their key and how many words it took. One
 /// matcher for every name, and any doubt is `Err`:
@@ -396,19 +412,18 @@ fn name_at(
         if parts.iter().any(|p| reserved(p)) {
             // Unmatchable, but "Ann" still means two people when one of
             // them is "Ann 2", "Anné" or "Ann🙂".
-            let (a, b) = (skeleton(&parts[0]), skeleton(bare));
-            if !a.is_empty() && !b.is_empty() && (a.starts_with(&b) || b.starts_with(&a)) {
+            if near(&parts[0], bare) {
                 shadow = true;
             }
             continue;
         }
-        if parts[0].chars().any(|c| !c.is_ascii()) {
-            // A name typed with letters a keyboard may not have: only an
-            // exact match counts, and a near one is doubt.
-            let (a, b) = (skeleton(&parts[0]), skeleton(bare));
-            if parts[0] != bare && !a.is_empty() && (a.starts_with(&b) || b.starts_with(&a)) {
-                shadow = true;
-            }
+        if (parts[0].chars().any(|c| !c.is_ascii()) || bare.chars().any(|c| !c.is_ascii()))
+            && parts[0] != bare
+            && near(&parts[0], bare)
+        {
+            // Letters a keyboard may not have: only an exact match counts,
+            // and a near one is doubt.
+            shadow = true;
         }
         let fits = |n: usize| -> bool {
             n <= max
@@ -482,6 +497,9 @@ struct Clause {
     reason: Option<String>,
     /// "tell Spencer …": only ever a reason for Spencer's give-backs.
     tell: Option<String>,
+    /// Targets came before the verb, and after it.
+    before_verb: bool,
+    after_verb: bool,
 }
 
 struct Reader<'a> {
@@ -689,6 +707,7 @@ impl Reader<'_> {
                 }
                 continue;
             }
+            let targets_before = c.targets.len();
             let n = if is_ref(x) {
                 c.targets.push(Target::Ref(norm_ref(x)));
                 1
@@ -741,6 +760,13 @@ impl Reader<'_> {
             } else {
                 return None;
             };
+            if c.targets.len() > targets_before {
+                if c.verb.is_some() {
+                    c.after_verb = true;
+                } else {
+                    c.before_verb = true;
+                }
+            }
             j += n;
             // A colon inside the clause starts nothing it reads.
             if t[j - n..j].iter().any(|x| x.stop == Some(':')) {
@@ -757,9 +783,18 @@ impl Reader<'_> {
         if c.verb.is_none() || c.targets.is_empty() {
             return None;
         }
-        // A set word stands alone: "Spencer's #12" and "them all" say two
-        // things at once.
-        if c.targets.iter().any(Target::is_set) && c.targets.len() > 1 {
+        // A set word or a pronoun stands alone: "Spencer's #12", "them
+        // all" and "reject them, #13" say two things at once.
+        if c.targets
+            .iter()
+            .any(|t| t.is_set() || matches!(t, Target::It | Target::Them))
+            && c.targets.len() > 1
+        {
+            return None;
+        }
+        // Targets on both sides of the verb: "#13 reject #15" after
+        // "start #12 and" is two clauses run together.
+        if c.before_verb && c.after_verb {
             return None;
         }
         // Cards were given while the question waited: the list the person
@@ -941,7 +976,7 @@ pub(crate) fn read(text: &str, earlier: &[&str], snap: &Snapshot) -> Read {
         .collect();
     let mut everyone = people.clone();
     for g in &givers {
-        if !everyone.iter().any(|(k, _)| *k == g.0) {
+        if !everyone.contains(g) {
             everyone.push(g.clone());
         }
     }
@@ -2399,5 +2434,91 @@ mod tests {
             }
         }
         assert!(runs > 300, "{runs}");
+    }
+
+    /// The invariant round on #1226: member names with accents anywhere,
+    /// a giver known by two names, targets on both sides of a verb, and a
+    /// pronoun beside a ref.
+    #[test]
+    fn invariant_round_cases_grant_nothing() {
+        let pv = |k: &str, n: &str| SnapPerson {
+            person_key: k.into(),
+            name: n.into(),
+        };
+        for (real, ascii) in [
+            ("S\u{f8}ren", "Soren"),
+            ("No\u{eb}l", "Noel"),
+            ("J\u{e9}r\u{f4}me", "Jerome"),
+            ("Bj\u{f6}rn", "Bjorn"),
+            ("Fran\u{e7}ois", "Francois"),
+            ("\u{141}ukasz", "Lukasz"),
+        ] {
+            let mut q = snap();
+            q.people.push(pv("person:pReal", real));
+            q.people.push(pv("person:pEvil", ascii));
+            assert_eq!(g(&format!("give #3 to {ascii}"), &q), vec![], "{real}");
+        }
+        let s = Snapshot::new(
+            vec![
+                item(
+                    "x1",
+                    "dev#1",
+                    ("person:pSoren", "S\u{f8}ren"),
+                    ItemState::Asked,
+                ),
+                item("y1", "evil#9", ("person:pEvil", "Soren"), ItemState::Asked),
+            ],
+            vec![
+                pv("person:pSoren", "S\u{f8}ren"),
+                pv("person:pEvil", "Soren"),
+            ],
+        );
+        assert_eq!(g("start all of Soren's", &s), vec![]);
+
+        // Needs you showed Spencer as "Spencer"; his people name differs.
+        let mut two = snap();
+        two.people.retain(|p| p.person_key != SPENCER);
+        two.people.push(pv(SPENCER, "someone"));
+        two.people.push(pv("person:pEvil", "Spencer"));
+        two.items.push(
+            Snapshot::new(
+                vec![item(
+                    "y1",
+                    "evil#9",
+                    ("person:pEvil", "Spencer"),
+                    ItemState::Asked,
+                )],
+                vec![],
+            )
+            .items
+            .remove(0),
+        );
+        assert_eq!(g("start all of Spencer's", &two), vec![]);
+        assert_eq!(g("give #3 to Spencer", &two), vec![]);
+
+        let s = snap();
+        for text in [
+            "start #12 and #13 reject #15",
+            "start #12, #13 reject #15",
+            "reject #15 and #7 start #12",
+            "park #12 and #13 start #14",
+        ] {
+            assert_eq!(g(text, &s), vec![], "{text}");
+        }
+        for (text, before) in [
+            ("reject them, #13 and #15", "what's #12?"),
+            ("reject that #15", "what's #12?"),
+            ("start this #12", "what's #13?"),
+            ("give it, #3, to Ann", "what's #4?"),
+            ("give that #3 to Ann", "what's #4?"),
+        ] {
+            assert_eq!(gf(text, &[before], &s), vec![], "{text}");
+        }
+        // What still reads.
+        assert_eq!(g("#12 not now", &s), vec![not_now("t12")]);
+        assert_eq!(
+            g("start #12 and #13 later", &s),
+            vec![start("t12"), not_now("t13")]
+        );
     }
 }

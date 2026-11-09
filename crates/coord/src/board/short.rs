@@ -718,6 +718,10 @@ impl Fold {
             && gocompat::text::equal_fold(trim_space(k), "task")
         {
             v = trim_space(id).to_string();
+            // "task:<id>" is that id, whatever shape it has.
+            if self.tasks.contains_key(&v) {
+                return Ok(v);
+            }
         }
         let Some((tag, short)) = parse_ref(&v) else {
             return Ok(v);

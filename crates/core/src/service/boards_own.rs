@@ -867,6 +867,17 @@ impl Services {
             && trim(k).eq_ignore_ascii_case("task")
         {
             v = trim(id);
+            // "task:<id>" names that id, even one another member's device
+            // wrote in the shape of a ref (decision 69: a grant's card is
+            // never moved by how its id reads).
+            if self.coord.get_task(v).is_some()
+                || self
+                    .visible_boards()
+                    .iter()
+                    .any(|b| b.coord().get_task(v).is_some())
+            {
+                return Ok(v.to_string());
+            }
         }
         let Some((tag, _)) = coord::parse_ref(v) else {
             return self.coord.task_ref(r);
