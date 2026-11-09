@@ -31,7 +31,7 @@ fn test_device_free_prints_every_number_after_margins() {
             "CPU: 71% busy over 1 s, 18 cores.",
             "Heavy slots (2): slot-1 free; slot-2 free.",
             "lease resource=heavy/3dc30c94 ttl_minutes=",
-            "Check slots: none held.",
+            "Script slots: none held.",
             "untrusted",
         ],
     );
@@ -101,7 +101,7 @@ fn test_device_free_names_each_kind_of_holder() {
             "board_block on=\"lease heavy/3dc30c94/slot-",
         ],
     );
-    // A script run (no agent, no card) holds a check slot; the store's
+    // A script run (no agent, no card) holds a pool slot; the store's
     // device is dev1, so this device is too for its holders.
     *h.b.device.lock().unwrap() = "dev1".into();
     h.b.co
@@ -116,11 +116,11 @@ fn test_device_free_names_each_kind_of_holder() {
     let out = h.okj(&call_c(), "device_free", json!({}));
     has(
         &out,
-        &["Check slots: check/mac/slot-1 held by script check-card-9-4411 (no card)"],
+        &["Script slots: check/mac/slot-1 held by script check-card-9-4411 (no card)"],
     );
     *h.b.device.lock().unwrap() = "other".into();
     let out = h.okj(&call_c(), "device_free", json!({}));
-    has(&out, &["Check slots: none held."]);
+    has(&out, &["Script slots: none held."]);
 }
 
 #[test]

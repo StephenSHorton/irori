@@ -399,7 +399,7 @@ function sampleNotifications(): Notification[] {
       key: "ask:sample-ask-old",
       kind: Kind.Ask,
       title: "otter: Push to main?",
-      body: "check.sh is green on the branch.",
+      body: "The tests are green on the branch.",
       at: ago(180),
       read: true,
       ask: NotificationAsk({

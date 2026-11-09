@@ -156,7 +156,7 @@ pub const HOLDER_GRACE: Duration = Duration::from_secs(10 * 60);
 /// agent within a minute (card #338); a quick --resume keeps it.
 pub const ENDED_GRACE: Duration = Duration::from_secs(30);
 /// A run holder's agent part starts with this (`<device>/run-<name>`):
-/// a process such as `scripts/check.sh` that holds a slot lease without
+/// a script run that holds a slot lease without
 /// being an agent (card #437). The gone sweep leaves it alone; its lease
 /// ends at its until, so the run renews it while it lives.
 pub const RUN_HOLDER: &str = "run-";

@@ -1778,7 +1778,7 @@
   },
   {
     "name": "device_free",
-    "description": "Free disk, memory and CPU on this computer, what you can use after margins, and who holds its heavy and check slots. Call before anything big (full build, large download, heavy memory use). If it won't fit, wait or ask the person; take the heavy slot it shows for heavy jobs.",
+    "description": "Free disk, memory and CPU on this computer, what you can use after margins, and who holds its heavy and script slots. Call before anything big (full build, large download, heavy memory use). If it won't fit, wait or ask the person; take the heavy slot it shows for heavy jobs.",
     "inputSchema": {
       "type": "object",
       "properties": {
