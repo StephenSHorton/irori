@@ -31,14 +31,25 @@ use super::util::{SWEEPER, contains};
 pub const ASK_THE_PERSON: &str = "ask the person";
 
 impl Fold {
-    /// Every side named anywhere: on a device's pin or on a card.
+    /// Every pinned device's sides, by device id. A removed device's pin
+    /// is left out (card #1240).
+    pub(crate) fn side_pins(&self) -> std::collections::BTreeMap<String, Vec<String>> {
+        let revoked = self.revoked_fn();
+        let mut m = self.sides.all();
+        m.retain(|dev, _| !revoked(dev));
+        m
+    }
+
+    /// Every side named anywhere: on a device's pin or on a card. A side
+    /// only a removed device's pin named is gone (card #1240).
     pub(crate) fn side_names(&self) -> Vec<String> {
-        let mut out = self.sides.names();
         let mut cards: Vec<&Task> = self.tasks.values().filter(|t| !t.side.is_empty()).collect();
         cards.sort_by(|a, b| a.id.cmp(&b.id));
-        for t in cards {
-            if !out.iter().any(|o| crate::sides::same(o, &t.side)) {
-                out.push(t.side.clone());
+        let pinned = self.side_pins().into_values().flatten();
+        let mut out: Vec<String> = Vec::new();
+        for s in pinned.chain(cards.into_iter().map(|t| t.side.clone())) {
+            if !out.iter().any(|o| crate::sides::same(o, &s)) {
+                out.push(s);
             }
         }
         out

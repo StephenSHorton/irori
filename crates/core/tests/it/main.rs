@@ -66,6 +66,7 @@ mod personal_boards;
 mod pr_cards;
 mod prefetch;
 mod prwatch;
+mod removed_device;
 mod review_choice;
 mod review_pick;
 mod review_start;

@@ -329,6 +329,8 @@ impl Servers {
     pub async fn follow(&self, st: Arc<Store>, cancel: CancellationToken) {
         let sub = st.subscribe();
         let _ = self.load(&st);
+        // A device removed before this run is forgotten too (card #1240).
+        self.forget_revoked();
         loop {
             let ev = tokio::select! {
                 _ = cancel.cancelled() => return,
@@ -337,12 +339,34 @@ impl Servers {
             let Some(ev) = ev else { return };
             if ev.seq == 0 {
                 let _ = self.load(&st);
+                self.forget_revoked();
             } else if ev.kind == KIND_NODE_ADDR {
                 fold_addr(&mut self.lock().rows, &ev);
                 self.changed();
             } else if store::is_person_kind(&ev.kind) {
+                self.forget_revoked();
                 self.changed(); // a revoke takes a server out of the list
             }
+        }
+    }
+
+    /// Drops what this device kept about a removed device (card #1240):
+    /// its cached address and hints (saved again without them), its LAN
+    /// sighting and its node.addr row. Its rows stay in the log; a
+    /// revoked writer's are ignored on read.
+    pub fn forget_revoked(&self) {
+        let Some(chain) = &self.chain else { return };
+        let gone = |id: &String| *id != self.self_id && chain.cut(id).is_some();
+        let cache_changed = {
+            let mut g = self.lock();
+            g.rows.retain(|id, _| !gone(id));
+            g.heard.retain(|id, _| !gone(id));
+            let before = g.cache.len();
+            g.cache.retain(|id, _| !gone(id));
+            g.cache.len() != before
+        };
+        if cache_changed {
+            self.save();
         }
     }
 

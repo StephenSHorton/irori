@@ -106,8 +106,9 @@ pub enum Why {
     AgentStartsOff,
     /// That limit is used up.
     AgentStartsFull { used: i64, max: i64 },
-    /// The device that hands it out was removed.
-    DeviceRemoved { device: String },
+    /// The device that hands it out was removed. It is not named (card
+    /// #1240).
+    DeviceRemoved,
     /// No device hands this card out (Irori made it, say).
     NoOrigin,
     /// Nothing in the way.
@@ -244,9 +245,9 @@ impl fmt::Display for Why {
                 f,
                 "the person's agents have started their most agents ({used}/{max}); it starts when one ends, and only the person can change the maximum, in Settings › Agents"
             ),
-            Why::DeviceRemoved { device } => write!(
+            Why::DeviceRemoved => write!(
                 f,
-                "{device} hands this card out and was removed: take it up with board_join"
+                "the device that hands this card out was removed: take it up with board_join"
             ),
             Why::NoOrigin => write!(
                 f,
@@ -321,11 +322,15 @@ impl Services {
             return Why::NoOrigin;
         }
         if origin != me {
+            // From the chain, not the Devices rows: a settled removal has
+            // no row (card #1240).
+            if self.chain.cut(&origin).is_some() {
+                return Why::DeviceRemoved;
+            }
             let device = self.named_device(&origin);
             let rows = self.mesh.node.devices(false);
             let row = rows.iter().find(|r| r.device_id == origin);
             return match row {
-                Some(r) if r.revoked => Why::DeviceRemoved { device },
                 Some(r) if !r.role.is_empty() && r.role != ROLE_DESKTOP => Why::CantRun { device },
                 _ => Why::Elsewhere { device },
             };
@@ -502,6 +507,7 @@ impl Services {
             .filter(|(_, h)| h.repo(&t.repo_key).is_some())
             .filter(|(_, h)| need.is_empty() || h.machine() == need)
             .filter(|(d, _)| self.coord.runs_side(d, &t.side))
+            .filter(|(d, _)| self.chain.cut(d).is_none())
             .filter(|(d, _)| {
                 rows.iter()
                     .find(|r| r.device_id == **d)
@@ -728,7 +734,7 @@ mod tests {
                 },
                 "1 older cards go first",
             ),
-            (Why::DeviceRemoved { device: dev() }, "was removed"),
+            (Why::DeviceRemoved, "was removed"),
             (Why::NoOrigin, "no device hands"),
             (Why::ForLead, "lead"),
             (

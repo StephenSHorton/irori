@@ -63,8 +63,8 @@ use zeroize::Zeroizing;
 
 use crate::boards::{BOARD_LABEL_PREFIX, RefusedRow, pull_board, serve_pull};
 use crate::files::{
-    BLOB_LABEL_PREFIX, FetchError, FileOffer, check_ref, fetch_over, holders_in, prove_over,
-    serve_blob,
+    BLOB_LABEL_PREFIX, FetchError, FileOffer, check_ref, fetch_cands, fetch_over, holders_in,
+    prove_over, serve_blob,
 };
 use crate::node::Intervals;
 use crate::servers::PublicAddr;
@@ -1185,7 +1185,10 @@ impl BoardMesh {
             .into_iter()
             .map(|d| d.device_id)
             .collect();
-        devs.extend(heard.keys().cloned());
+        // A removed device stays forgotten (card #1240): what it last said
+        // here doesn't list it.
+        let v = &self.s.opts.verifier;
+        devs.extend(heard.keys().filter(|d| v.cut(d).is_none()).cloned());
         devs.remove(&self.s.opts.self_id);
         devs.into_iter()
             .map(|dev| {
@@ -1383,8 +1386,8 @@ impl BoardMesh {
         }
         let held =
             holders_in(&s.opts.log, &r.sha256).map_err(|e| FetchError::Other(e.to_string()))?;
-        let me = &s.opts.self_id;
-        let cands: Vec<String> = held.into_iter().filter(|h| h != me).collect();
+        let v = &s.opts.verifier;
+        let cands = fetch_cands("", held, &s.opts.self_id, |d| v.cut(d).is_some());
         if cands.is_empty() {
             return Err(FetchError::Offline(Vec::new()));
         }
@@ -1424,16 +1427,8 @@ impl BoardMesh {
         }
         let held =
             holders_in(&s.opts.log, &r.sha256).map_err(|e| FetchError::Other(e.to_string()))?;
-        let me = &s.opts.self_id;
-        let mut cands: Vec<String> = Vec::new();
-        if !r.device.is_empty() && r.device != *me {
-            cands.push(r.device.clone());
-        }
-        for h in held {
-            if h != *me && !cands.contains(&h) {
-                cands.push(h);
-            }
-        }
+        let v = &s.opts.verifier;
+        let cands = fetch_cands(&r.device, held, &s.opts.self_id, |d| v.cut(d).is_some());
         if cands.is_empty() {
             return Err(FetchError::Offline(Vec::new()));
         }

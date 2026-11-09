@@ -154,16 +154,8 @@ impl Node {
         let held = self
             .holders(&r.sha256)
             .map_err(|e| FetchError::Other(e.to_string()))?;
-        // The origin first, then every other holder in log order.
-        let mut cands: Vec<String> = Vec::new();
-        if !r.device.is_empty() && r.device != self.self_id {
-            cands.push(r.device.clone());
-        }
-        for h in held {
-            if h != self.self_id && h != r.device {
-                cands.push(h);
-            }
-        }
+        let chain = &self.o.chain;
+        let cands = fetch_cands(&r.device, held, &self.self_id, |d| chain.cut(d).is_some());
         if cands.is_empty() {
             return Err(FetchError::Offline(Vec::new()));
         }
@@ -270,6 +262,28 @@ pub fn holders_in(st: &Store, sha: &str) -> store::Result<Vec<String>> {
         }
         f.after = evs.last().map(Event::cursor).unwrap_or_default();
     }
+}
+
+/// Who a fetch asks, in order: the origin first, then every other holder
+/// in log order, never `me`. A removed device (`cut`) is left out, the
+/// origin too, so it is neither dialled nor named as a holder (card
+/// #1240).
+pub(crate) fn fetch_cands(
+    origin: &str,
+    held: Vec<String>,
+    me: &str,
+    cut: impl Fn(&str) -> bool,
+) -> Vec<String> {
+    let mut cands: Vec<String> = Vec::new();
+    if !origin.is_empty() && origin != me && !cut(origin) {
+        cands.push(origin.to_string());
+    }
+    for h in held {
+        if h != me && h != origin && !cut(&h) && !cands.contains(&h) {
+            cands.push(h);
+        }
+    }
+    cands
 }
 
 /// Checks a ref before any fetch: a valid id and a size under the cap.
@@ -529,5 +543,31 @@ pub(crate) async fn serve_blob(
             return;
         }
         left -= k as u64;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(ds: &[&str]) -> Vec<String> {
+        ds.iter().map(|d| d.to_string()).collect()
+    }
+
+    #[test]
+    fn fetch_cands_put_the_origin_first_and_leave_removed_devices_out() {
+        let none = |_: &str| false;
+        assert_eq!(
+            fetch_cands("pc", v(&["mac", "me", "pc", "nd"]), "me", none),
+            v(&["pc", "mac", "nd"])
+        );
+        assert_eq!(fetch_cands("me", v(&["mac"]), "me", none), v(&["mac"]));
+        // Card #1240: a removed origin or holder is never asked or named.
+        let cut = |d: &str| d == "pc" || d == "nd";
+        assert_eq!(
+            fetch_cands("pc", v(&["pc", "mac", "nd"]), "me", cut),
+            v(&["mac"])
+        );
+        assert!(fetch_cands("pc", v(&["nd"]), "me", cut).is_empty());
     }
 }

@@ -146,7 +146,8 @@ impl Core {
 
     /// Go `deviceNames`: what each device is called (the person's name
     /// for it, else its label, card #184), else its id, joined with
-    /// " or "; [`NO_CONNECTED_DEVICE`] for none.
+    /// " or "; [`NO_CONNECTED_DEVICE`] for none. The person's removed
+    /// devices are left out (card #1240).
     pub fn device_names(&self, ids: &[String]) -> String {
         device_names(self.chain(), &self.device_renames(), ids)
     }
@@ -174,10 +175,11 @@ pub(crate) fn device_names(
     renames: &std::collections::HashMap<String, String>,
     ids: &[String],
 ) -> String {
+    let ids: Vec<&String> = ids.iter().filter(|id| chain.cut(id).is_none()).collect();
     if ids.is_empty() {
         return NO_CONNECTED_DEVICE.into();
     }
-    ids.iter()
+    ids.into_iter()
         .map(|id| match (renames.get(id), chain.cert(id)) {
             (Some(n), Some(_)) => n.clone(),
             (_, Some(c)) if !c.label.is_empty() => c.label,

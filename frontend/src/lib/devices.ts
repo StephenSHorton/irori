@@ -261,12 +261,26 @@ const sample = {
     for (const fn of sampleListeners) fn()
     return kept
   },
+  // remove forgets the device at once, as a settled removal is (card
+  // #1240): it leaves the list and every removal waiting on it, and a
+  // removal left waiting on no one is settled too.
   remove(id: string) {
-    const d = sampleList().find((x) => x.deviceId === id)
+    const list = sampleList()
+    const d = list.find((x) => x.deviceId === id)
     if (!d || d.this) throw new Error("that device can't be removed here")
-    d.revoked = true
-    d.state = "offline"
-    d.warning = "Removed."
+    list.splice(list.indexOf(d), 1)
+    for (const x of list) {
+      if (!x.holdouts?.some((h) => h.deviceId === id)) continue
+      x.holdouts = x.holdouts.filter((h) => h.deviceId !== id)
+      if (x.holdouts.length) {
+        const names = x.holdouts.map((h) => h.name).join(", ")
+        x.warning = x.warning?.replace(
+          /Waiting on .*\.$/,
+          `Waiting on ${names}.`
+        )
+      }
+    }
+    sampleDevices = shownDevices(list)
     for (const fn of sampleListeners) fn()
   },
 }
@@ -545,13 +559,26 @@ function watchRoster(reload: () => void): () => void {
   }
 }
 
+// shownDevices leaves out a removed device with no removal still waiting:
+// it is forgotten (card #1240). The host already sends no row for one; this
+// keeps an older host's from showing.
+export function shownDevices(list: DeviceView[]): DeviceView[] {
+  return list.filter((d) => !(d.revoked && !d.holdouts?.length))
+}
+
+// readDevices is one read of the person's devices, as the list shows them.
+export async function readDevices(): Promise<DeviceView[]> {
+  return shownDevices(
+    inWails()
+      ? ((await DevicesService.Devices()) ?? [])
+      : sampleList().map((d) => DeviceView(d))
+  )
+}
+
 const deviceStore = createStore<DeviceView[]>({
   name: "devices",
   initial: [],
-  read: async () =>
-    inWails()
-      ? ((await DevicesService.Devices()) ?? [])
-      : sampleList().map((d) => DeviceView(d)),
+  read: readDevices,
   start(reload) {
     const offPair = onPairing(() => reload())
     const offRoster = inWails() ? watchRoster(reload) : () => {}

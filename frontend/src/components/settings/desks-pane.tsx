@@ -77,6 +77,18 @@ function Field({
 
 type Choice = { value: string; label: string }
 
+// keptPollDevice is the poll device as the desk shows and saves it: one
+// that is no longer among your devices (removed, card #1240) is blank, so
+// the desk follows where the repo was seen. Until the devices are read
+// (`known` false) every id is kept, so a save then can't drop one.
+export function keptPollDevice(
+  id: string,
+  devices: Choice[],
+  known: boolean
+): string {
+  return !known || devices.some((c) => c.value === id) ? id : ""
+}
+
 function DeskEditor({
   start,
   devices,
@@ -188,7 +200,7 @@ function DeskEditor({
 export function DesksPane({ open }: { open: boolean }) {
   const { desks, loaded } = useDesks()
   const roster = useRoster()
-  const { devices } = useDevices(open)
+  const { devices, loading, error: devicesError } = useDevices(open)
   const [editing, setEditing] = useState("")
   const [adding, setAdding] = useState("")
   const [error, setError] = useState("")
@@ -246,7 +258,16 @@ export function DesksPane({ open }: { open: boolean }) {
               // default's, or a saved blank one) is saved blank so it keeps
               // following.
               const start =
-                d.isDefault || d.followsSeen ? { ...s, pollDevice: "" } : s
+                d.isDefault || d.followsSeen
+                  ? { ...s, pollDevice: "" }
+                  : {
+                      ...s,
+                      pollDevice: keptPollDevice(
+                        s.pollDevice,
+                        deviceChoices,
+                        !loading && !devicesError
+                      ),
+                    }
               const follow = d.seenOn ? deviceName(d.seenOn) : ""
               return (
                 <section

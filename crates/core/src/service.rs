@@ -1689,6 +1689,16 @@ impl Core {
                                 .and_then(|s| s.chat.stream_open(turn))
                         }))
                     },
+                    // A settled removal drops the device's row: the
+                    // window reads the list again (card #1240).
+                    on_settled: {
+                        let cell = services_cell.clone();
+                        Some(Arc::new(move |_: &str| {
+                            if let Some(s) = cell.get().and_then(|w| w.upgrade()) {
+                                s.hub.publish(CoreEvent::Devices);
+                            }
+                        }))
+                    },
                 },
             );
             let mut po =
@@ -2280,6 +2290,11 @@ impl Core {
                         // The recorded assistant's computer, or a removal
                         // that may end its rows (one-assistant card 1).
                         s.follow_assistant_home();
+                        if ev.kind == kinds::PERSON_DEVICE_REVOKED {
+                            // The removed device leaves every list and
+                            // name at once (card #1240).
+                            s.hub.publish(CoreEvent::Devices);
+                        }
                     } else if ev.kind == kinds::ASSISTANT_NAMES_SET {
                         // Another device's "Name new threads" (card #782).
                         s.follow_names_on();
@@ -3510,6 +3525,9 @@ impl Core {
         if !(0..=spawn::MAX_CAP).contains(&cap) {
             return Err(format!("a cap is 0 to {}, not {cap}", spawn::MAX_CAP));
         }
+        if self.device_removed(device) {
+            return Err("that device was removed".into());
+        }
         self.s.set_spawn_cap(device, cap)
     }
 
@@ -4049,13 +4067,21 @@ impl Core {
     /// What each of the person's devices is called, by id: the person's
     /// name for it (card #184), else its certificate's label (the
     /// computer's name when it joined), else this device's own name.
-    /// Removed devices keep their name, so old lines still read.
+    /// A removed device is left out (card #1240): nothing names it once
+    /// it is removed, and a line about it reads "another device".
     pub fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
         self.s.device_labels()
     }
 
+    /// Whether `id` is one of the person's devices that was removed (its
+    /// certificate is cut, card #1240). Screens leave it out and never
+    /// name it.
+    pub fn device_removed(&self, id: &str) -> bool {
+        self.s.chain.cut(id).is_some()
+    }
+
     /// The person's renames alone, by device id (card #184).
-    pub(crate) fn device_renames(&self) -> std::collections::HashMap<String, String> {
+    pub fn device_renames(&self) -> std::collections::HashMap<String, String> {
         self.s.device_names.chosen()
     }
 
@@ -4338,8 +4364,9 @@ fn load_notifications(st: &Store, h: &coord::notifications::History) {
 
 /// What the device `id` a row came through is called (card #544): the
 /// person's name for it, else the computer's, else its id's first letters.
+/// "" for a removed device (card #1240): no via is named.
 pub(crate) fn via_name(chain: &Chain, names: &coord::devname::Names, id: &str) -> String {
-    if id.is_empty() {
+    if id.is_empty() || chain.cut(id).is_some() {
         return String::new();
     }
     if let Some(n) = names.chosen().remove(id).filter(|n| !n.is_empty()) {
@@ -4448,6 +4475,7 @@ impl Services {
             .chain
             .devices()
             .into_iter()
+            .filter(|d| !d.revoked)
             .map(|d| (d.cert.device_id, d.cert.label))
             .collect();
         let me = &self.device;

@@ -788,9 +788,10 @@ impl Coord {
         f.sides.home(&f.dev)
     }
 
-    /// Every pinned device's sides, by device id.
+    /// Every pinned device's sides, by device id; a removed device's pin
+    /// is left out (card #1240).
     pub fn device_sides(&self) -> std::collections::BTreeMap<String, Vec<String>> {
-        self.lock().sides.all()
+        self.lock().side_pins()
     }
 
     /// Every side named anywhere: on a device's pin or on a card.
