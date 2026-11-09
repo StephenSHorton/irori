@@ -262,7 +262,7 @@ Snapshot {
 - **Late messages get no grants.** That means a message older than 5 minutes (`LATE_MS`, as today).
 - **Some turns never get these tools:** the owner's-OK turn, and the turns that answer other people.
 - **Decision 67.** #67 lists "starting agents" as task work the assistant never does, and its prompt says "never start an agent yourself". After this change the assistant may start an agent in exactly one case: carrying out the person's granted yes on a card given to them. It still never starts one on its own judgment, never on a card the person made, and never through `agent_start`.
-- The draft decision row is in §11. It goes into decisions.md when the person agrees.
+- The decision row is #69 in decisions.md (§11).
 
 ### 5.4 The **Do it** fallback, and three safety fixes
 
@@ -597,18 +597,18 @@ Each slice is one card, and the order follows the dependencies.
 
 **Done when:** the tests pass, and the preview shows the Do it card at phone width.
 
-## 10. For the person to agree
+## 10. For the person to agree (items 1, 2, 3 and 5 agreed on #1206; item 4 open)
 
-1. **P2: Start an agent is the accept.** *Agreed (b1, 2026-11-09).* A batch shows Start / Not now / Give back per card, with no separate Accept step. "Accept all 4" means 4 agents start now, one yes each. The alternative: Accept takes the cards, and each card then asks "OK to start an agent?". That is two steps per card, the tedium #1204 started from.
-2. **§5.3: your typed words to your assistant count as your yes,** one per card, read by Irori into grants and never by the model. This amends decision 50 for that case only.
+1. **P2: Start an agent is the accept.** *Agreed (b1).* A batch shows Start / Not now / Give back per card, with no separate Accept step. "Accept all 4" means 4 agents start now, one yes each. The alternative: Accept takes the cards, and each card then asks "OK to start an agent?". That is two steps per card, the tedium #1204 started from.
+2. **§5.3: your typed words to your assistant count as your yes,** *Agreed (b3).* one per card, read by Irori into grants and never by the model. This amends decision 50 for that case only.
 3. **P1: tasks someone sends you sit on the shared space's board as soon as they are sent.** That space's members can see them, marked "waiting on you", and can see a give-back's reason. The alternative, a separate proposal that becomes cards only on accept, loses the sender's attribution or waits for the sender's computer to come online (§4).
-4. **§5.2.1: when the assistant sends tasks, are the words its own?** "Send Spencer these four" means the assistant writes the four titles and objectives, and Spencer reads them as yours.
+4. **§5.2.1: when the assistant sends tasks, are the words its own?** *Open (b2 on #1206). S6 builds whichever the person picks, and updates §5.2.1 and this item to match.* "Send Spencer these four" means the assistant writes the four titles and objectives, and Spencer reads them as yours.
    - (a) It sends at once, and the reply has Take back.
    - (b) It shows the four as a draft, and one tap sends them.
    
    My pick is (b), because it would be the first time the model's own words go to another person in your name. You asked for it to work "automatically", though, which points to (a).
 5. **§5.3 also amends decision 67** ("the assistant does no task work, including starting agents"), only for your granted yes on a card given to you.
 
-## 11. Draft decision row (goes in decisions.md once agreed)
+## 11. Decision row
 
-> | 68 | 2026-11-?? | **Sending tasks to people, and your assistant answers Needs you on your word (card #1206).** Amends #50, and #67 for one case: the assistant starts an agent only as the person's granted yes on a card given to them. A batch of tasks is cards the sender makes on a shared space's board and gives to one person at once (`batch` on `task.assigned`; no new kind). Needs you groups them by sender, with Start an agent (the accept, and the OK to start: one yes per card, one agent per yes), Not now, and Give back with an optional reason, which returns the card to its author with a blocker for the card's owner. The person's own message in their own Office Assistant chat, read by Irori into a grant naming the card, is their yes for that card; nothing else's words are. The assistant sends only to people, never to their agents, and the sender hears the outcome from their own assistant. Agents give batches with `board_give`. Standing rules ("always start X's cards") are later. [design/task-proposals.md](design/task-proposals.md). |
+Agreed and recorded as decision 69 in [decisions.md](../decisions.md).
