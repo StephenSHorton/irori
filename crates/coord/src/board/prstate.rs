@@ -969,28 +969,24 @@ impl Fold {
         let Some(t) = self.tasks.get(id) else {
             return;
         };
-        let now: Vec<(String, String)> = t
-            .holders
-            .iter()
-            .chain(&t.co_holders)
-            .map(|h| (String::new(), h.clone()))
-            .chain(
-                t.blockers
-                    .iter()
-                    .filter_map(|b| b.pr_wait().map(|pr| (pr, b.raised_by.clone()))),
-            )
-            .collect();
-        // The creator of a PR card vouches for its PR's state (merge desk
-        // §12.2): nobody holds it, and Irori's row from the author's
-        // devices has to fold on every device.
-        let now: Vec<(String, String)> = now
-            .into_iter()
-            .chain(
-                t.pr_card
-                    .as_ref()
-                    .map(|_| (String::new(), t.created_by.clone())),
-            )
-            .collect();
+        // A PR card's PR state is vouched for by its creator alone (merge
+        // desk §12.2): nobody holds it, and anyone else who joined, held or
+        // raised a wait on it could feed rows that end claims or fake
+        // verdicts.
+        let now: Vec<(String, String)> = if t.pr_card.is_some() {
+            vec![(String::new(), t.created_by.clone())]
+        } else {
+            t.holders
+                .iter()
+                .chain(&t.co_holders)
+                .map(|h| (String::new(), h.clone()))
+                .chain(
+                    t.blockers
+                        .iter()
+                        .filter_map(|b| b.pr_wait().map(|pr| (pr, b.raised_by.clone()))),
+                )
+                .collect()
+        };
         let vs = self.pr_vouchers.entry(id.to_string()).or_default();
         for v in now {
             if !vs.contains(&v) {

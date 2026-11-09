@@ -2096,6 +2096,21 @@ pub async fn agents_reviews_set(w: W<'_>, on: bool) -> R<bool> {
     w.agents_reviews_set(on)
 }
 
+/// "Start a reviewer on this machine when nobody else fits" (merge-desk
+/// §12.10): on unless the person turned it off.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_review_starts(w: W<'_>) -> R<bool> {
+    Ok(w.agents_review_starts())
+}
+
+/// The person changes it: the app only, never a tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_review_starts_set(w: W<'_>, on: bool) -> R<bool> {
+    w.agents_review_starts_set(on)
+}
+
 /// The themes new agents' names come from (card #702), each with its
 /// switch.
 #[tauri::command]
@@ -2666,6 +2681,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             agents_starts_set,
             agents_reviews,
             agents_reviews_set,
+            agents_review_starts,
+            agents_review_starts_set,
             agents_pause,
             agents_pause_set,
             agents_limits,

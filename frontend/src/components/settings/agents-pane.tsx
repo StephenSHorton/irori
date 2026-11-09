@@ -42,6 +42,7 @@ import {
   shortModel,
   runningSince,
   useAgentReviews,
+  useAgentReviewStarts,
   useAgentStarts,
   useRunHistory,
   useAgents,
@@ -523,6 +524,7 @@ function LimitsSection({
         )}
         <AgentStartsRow open={open} />
         <AgentReviewsRow open={open} />
+        <AgentReviewStartsRow open={open} />
         {error && l && (
           <p className="text-[12.5px] text-destructive">{error}</p>
         )}
@@ -640,6 +642,41 @@ function AgentReviewsRow({ open }: { open: boolean }) {
         <Switch
           id={id}
           aria-label="Agents review other people's PRs without asking"
+          checked={on}
+          onCheckedChange={(v) => void set(v)}
+        />
+      </LimitRow>
+    </ul>
+  )
+}
+
+// AgentReviewStartsRow is "Start a reviewer on this machine when nobody else
+// fits" (merge-desk §12.10). On when unset; off makes a reviewer given to
+// you ask "OK to start an agent on this?" first.
+function AgentReviewStartsRow({ open }: { open: boolean }) {
+  const { on, error, set } = useAgentReviewStarts(open)
+  const id = useId()
+  if (on === null) return null
+  return (
+    <ul
+      className="grid divide-y divide-border rounded-md border border-border"
+      data-setting="agents.review-starts"
+    >
+      <LimitRow
+        title="Start a reviewer on this machine when nobody else fits"
+        hint={
+          <>
+            Across all your computers. When a teammate's pull request has no one
+            to review it, Irori may start a read-only reviewer here, in a repo
+            you work in. It can comment and review but never merge, push or run
+            the code. Off, it asks you first. Agents can't change this.
+            {error && <span className="text-destructive"> {error}</span>}
+          </>
+        }
+      >
+        <Switch
+          id={id}
+          aria-label="Start a reviewer on this machine when nobody else fits"
           checked={on}
           onCheckedChange={(v) => void set(v)}
         />
