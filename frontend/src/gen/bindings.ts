@@ -586,6 +586,24 @@ export const commands = {
 	 *  same on every one of the person's devices.
 	 */
 	assistantChatList: (before: string, limit: number) => __TAURI_INVOKE<AssistantChatPage>("assistant_chat_list", { before, limit }),
+	/**
+	 *  The person asks the assistant (one-assistant card 3, §5): writes the
+	 *  question's row, which the assistant's computer answers wherever it is,
+	 *  and returns its turn. `screen` is this device's snapshot; `again` the
+	 *  turn it asks again (Ask again).
+	 */
+	assistantChatAsk: (text: string, screen: string, again: string | null) => __TAURI_INVOKE<string>("assistant_chat_ask", { text, screen, again }),
+	/**
+	 *  Stops a question, from any device: one that hasn't started never runs,
+	 *  and a running one ends at once.
+	 */
+	assistantChatStop: (turn: string) => __TAURI_INVOKE<null>("assistant_chat_stop", { turn }),
+	/**
+	 *  Streams a turn's reply as this computer runs it: from now until the turn
+	 *  ends, starting with what it has said so far. Only the assistant's
+	 *  computer runs turns, so elsewhere nothing comes (card 7 streams there).
+	 */
+	assistantChatWatch: (turn: string, on: Channel<AssistantEvent>) => __TAURI_INVOKE<null>("assistant_chat_watch", { turn, on }),
 };
 
 /* Types */

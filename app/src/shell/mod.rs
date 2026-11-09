@@ -355,7 +355,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         // Free the speech model before exit (#240: Metal
                         // asserts otherwise).
                         window.voice_shutdown();
-                        // Card #783: the corner chat's headless runs end.
+                        // The chat worker takes no new question (one-
+                        // assistant card 3); card #783: the corner chat's
+                        // headless runs end.
+                        h.core.set_chat_turn(None);
                         window.assistant_shutdown();
                         h.core.set_reviver(None);
                         h.core.set_spawner(None);
@@ -555,6 +558,23 @@ fn start_core(
         // And holds a huddle's assistant session (card #1046): one
         // `claude -p` per huddle, kept up between looks.
         core.set_huddle_runner(Some(window.huddle_runner()));
+        // And answers the one assistant's chat from rows when this is the
+        // assistant's computer (one-assistant card 3), from every one of
+        // the person's devices.
+        let w = Arc::downgrade(&window);
+        core.set_chat_turn(Some(Arc::new(
+            move |job: &irori_core::assistant_chat::ChatJob,
+                  emit: &dyn Fn(irori_core::assistant_chat::ChatEvent) -> bool| {
+                match w.upgrade() {
+                    Some(w) => w.chat_turn(job, emit),
+                    // Closing: no reply, so the next start answers it.
+                    None => irori_core::assistant_chat::ChatDone {
+                        later: true,
+                        ..Default::default()
+                    },
+                }
+            },
+        )));
     }
     // Spawning is on by default for the private board where agents can
     // start (card #448, decision 1 (a)); his own switch wins.

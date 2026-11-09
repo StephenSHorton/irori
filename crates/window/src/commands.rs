@@ -2610,6 +2610,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_ask,
             assistant_stop,
             assistant_chat_list,
+            assistant_chat_ask,
+            assistant_chat_stop,
+            assistant_chat_watch,
         ])
         .typ::<RosterChange>()
         .typ::<CaptureChange>()
@@ -2691,6 +2694,50 @@ pub async fn assistant_chat_list(
     limit: u32,
 ) -> R<crate::assistant_chat::AssistantChatPage> {
     blocking(&w, move |w| w.assistant_chat_list(&before, limit as usize)).await
+}
+
+/// The person asks the assistant (one-assistant card 3, §5): writes the
+/// question's row, which the assistant's computer answers wherever it is,
+/// and returns its turn. `screen` is this device's snapshot; `again` the
+/// turn it asks again (Ask again).
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_ask(
+    w: W<'_>,
+    text: String,
+    screen: String,
+    again: Option<String>,
+) -> R<String> {
+    blocking(&w, move |w| {
+        w.core
+            .assistant_chat_ask(&text, &screen, again.as_deref().unwrap_or(""))
+    })
+    .await
+}
+
+/// Stops a question, from any device: one that hasn't started never runs,
+/// and a running one ends at once.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_stop(w: W<'_>, turn: String) -> R<()> {
+    blocking(&w, move |w| w.core.assistant_chat_stop(&turn)).await
+}
+
+/// Streams a turn's reply as this computer runs it: from now until the turn
+/// ends, starting with what it has said so far. Only the assistant's
+/// computer runs turns, so elsewhere nothing comes (card 7 streams there).
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_watch(
+    w: W<'_>,
+    turn: String,
+    on: tauri::ipc::Channel<AssistantEvent>,
+) -> R<()> {
+    blocking(&w, move |w| {
+        w.assistant_chat_watch(&turn, Box::new(move |e| on.send(e).is_ok()));
+        Ok(())
+    })
+    .await
 }
 
 // ---- Terminals (card #369; docs/design/inline-terminals.md section 5) ----------
