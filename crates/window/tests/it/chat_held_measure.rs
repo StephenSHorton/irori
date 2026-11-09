@@ -19,7 +19,7 @@
 //! env -u CLAUDE_EFFORT -u CLAUDECODE ... \
 //!   IRORI_MEASURE_MCP=<scratch>/home/assistant/mcp.json \
 //!   IRORI_MEASURE_OUT=<file>.jsonl \
-//!   IRORI_MEASURE_MUTATE=<script> \
+//!   IRORI_MEASURE_MUTATE=<script> [IRORI_MEASURE_FLIP=1] \
 //!   cargo test -p irori-window --test it chat_held_measure -- --ignored --nocapture
 //! ```
 //!
@@ -367,6 +367,8 @@ fn chat_held_measure() {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(QUESTIONS.len());
+    // A second pass flips which mode goes first on each question.
+    let flip = std::env::var("IRORI_MEASURE_FLIP").is_ok_and(|v| v == "1");
     let cfg: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&mcp).unwrap()).unwrap();
     let srv = &cfg["mcpServers"]["irori"];
@@ -446,7 +448,7 @@ fn chat_held_measure() {
                 h.end();
             }
         };
-        if i % 2 == 0 {
+        if (i % 2 == 0) != flip {
             run_fresh(&mut fresh_hist, &mut out);
             run_held(&mut held_hist, &mut out);
         } else {
