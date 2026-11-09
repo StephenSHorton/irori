@@ -27,7 +27,7 @@ use store::kinds::{self, AGENT_ACTOR_PREFIX, PERSON_ACTOR_PREFIX};
 use super::Services;
 use super::assistant_packet::{self, Verdict};
 use super::boards::BoardLog;
-use super::thread_names::{MAX_TEXT, NameAsk, Namer};
+use super::thread_names::{NameAsk, Namer};
 use crate::logf;
 
 /// The turn: the question in, the text to post out.
@@ -340,7 +340,8 @@ impl Services {
                         &packet,
                         &self.asker_name(&b, &q.asker),
                         &q.text,
-                        MAX_TEXT,
+                        // The inbox's limit on a message (§6).
+                        inbox::MAX_TEXT,
                     ),
                 };
                 let reply = match turn(&ask) {

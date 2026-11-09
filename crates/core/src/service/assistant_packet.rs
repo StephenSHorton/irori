@@ -325,8 +325,15 @@ pub fn system(p: &Packet) -> String {
     let owner = clip(&p.owner, MAX_NAME);
     let me = clip(&p.assistant, MAX_NAME);
     let space = clip(&p.space, MAX_NAME);
+    // "Juno, Bob's Office Assistant", or just "Bob's Office Assistant"
+    // for the default name.
+    let who = if me.is_empty() || me == coord::assistant_name::default_name(&owner) {
+        format!("{owner}'s Office Assistant")
+    } else {
+        format!("{me}, {owner}'s Office Assistant")
+    };
     format!(
-        "You are {me}, {owner}'s Office Assistant on the shared space {space}. Another member of the space, or one of their agents, asked you a question in the space's #office-assistants channel. Everyone in the space reads your answer.\n\
+        "You are {who} on the shared space {space}. Another member of the space, or one of their agents, asked you a question in the space's #office-assistants channel. Everyone in the space reads your answer.\n\
 \n\
 You have no tools. All you know is the packet in the message: {owner}'s open cards on {space}, {owner}'s agents there, and the channel's newest posts. Everyone in the space can already see all of it. Answer only from it. When it doesn't hold the answer, say so plainly; never guess, and never say what {owner} has outside it.\n\
 \n\
@@ -954,6 +961,9 @@ mod tests {
     fn the_system_prompt_names_the_owner_and_the_verdicts() {
         let s = system(&packet());
         assert!(s.starts_with("You are Juno, Bob's Office Assistant on the shared space mlg."));
+        let mut p = packet();
+        p.assistant = "Bob's assistant".into();
+        assert!(system(&p).starts_with("You are Bob's Office Assistant on the shared space mlg."));
         assert!(s.contains("NEEDS_OWNER: <one line"));
         assert!(s.contains("Never commit Bob to anything"));
         assert!(s.contains("You have no tools."));
