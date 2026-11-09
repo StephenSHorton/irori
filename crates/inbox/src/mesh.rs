@@ -54,6 +54,7 @@ impl Inner {
         self.bridged = HashSet::new();
         self.visible_at = HashMap::new();
         self.held_first = HashSet::new();
+        self.early = HashMap::new();
         // handled stays: a request already applied isn't applied again.
         self.last = BTreeMap::new();
         self.requests = vec![];

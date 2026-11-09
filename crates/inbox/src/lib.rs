@@ -213,7 +213,7 @@ pub const MAX_NOTE: usize = 500;
 pub const MAX_REF: usize = 200;
 pub const MAX_ATTACHMENTS: usize = 10;
 /// Each subscriber's queue size; a full reader gets [`ChangeKind::Resync`]
-/// in place of the next change that fits.
+/// before the next change that fits.
 pub const SUB_BUFFER: usize = 64;
 /// The sender key of notices Irori itself sends.
 pub const SYSTEM_KEY: &str = "irori";
@@ -580,7 +580,7 @@ pub enum ChangeKind {
     /// Anything else; UIs refresh.
     Updated,
     /// This reader lost changes when its queue was full: re-read
-    /// everything (list-signals.md §3.1). It comes in place of the next
+    /// everything (list-signals.md §3.1). It comes just before the next
     /// change that fits, with empty `to` and `delivery_id`.
     Resync,
 }

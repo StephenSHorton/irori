@@ -291,8 +291,10 @@ fn full_queue_gives_a_resync() {
     let cs = slow.drain();
     assert_eq!(cs.len(), SUB_BUFFER);
     assert!(cs.iter().all(|c| *c == updated), "{cs:?}");
+    // The Resync comes before the next change, which still comes (an
+    // agent's stream acts on a held or moved one).
     h.ib.set_reachable(KEY_B, path::MOD, true);
-    assert_eq!(slow.drain(), vec![resync]);
+    assert_eq!(slow.drain(), vec![resync, updated.clone()]);
     assert_eq!(fast.drain(), vec![updated.clone()]);
     h.ib.set_reachable(KEY_B, path::MOD, false);
     assert_eq!(slow.drain(), vec![updated.clone()]);

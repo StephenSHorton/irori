@@ -4096,8 +4096,12 @@ pub(crate) fn dm_change(
 ) -> Option<crate::events::TalkChange> {
     use crate::events::TalkChange;
     use inbox::ChangeKind as K;
-    // Lost changes may have held a delivery's first row.
-    if ch.kind == K::Resync {
+    // Lost changes may have held a delivery's first row; a re-fold after a
+    // revoke's cut (an Updated naming nobody and no delivery, as a policy
+    // write also sends) may drop or bring back any DM's posts.
+    if ch.kind == K::Resync
+        || (ch.kind == K::Updated && ch.to.is_empty() && ch.delivery_id.is_empty())
+    {
         return Some(TalkChange::all());
     }
     let moved = ch.kind == K::MovedAway || ch.was_to.is_some();
@@ -6006,5 +6010,17 @@ mod tests {
         let d = delivery(TO, msg());
         assert_eq!(dm_change(&ch(K::WakeReady, true, ""), Some(&d)), None);
         assert_eq!(dm_change(&ch(K::MovedAway, false, ""), Some(&d)), None);
+    }
+
+    /// The inbox's re-fold after a revoke's cut (an Updated naming nobody
+    /// and no delivery) may change any DM: Talk reads everything (card
+    /// #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_refold_is_all() {
+        let r = Change {
+            to: String::new(),
+            ..ch(K::Updated, false, "")
+        };
+        assert_eq!(dm_change(&r, None), Some(TalkChange::all()));
     }
 }

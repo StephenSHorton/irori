@@ -182,6 +182,41 @@ fn a_foreign_delivery_is_created_on_its_first_fold_here() {
     assert!(cs.iter().all(|c| !c.created), "{cs:?}");
 }
 
+/// A delivery from another device can fold before its message: its
+/// first row is `created` then, while the message is missing, and it is
+/// `created` again once the message folds, so Talk can name its DM then
+/// (card #1144, list-signals.md §3.2).
+#[test]
+fn a_delivery_before_its_message_is_created_again_with_it() {
+    let h = Harness::new();
+    h.abc();
+    let sub = h.ib.subscribe();
+    let seen = Mutex::new(Vec::<Change>::new());
+    let _f = follow(&h);
+    let mut f = Foreign { h: &h, seq: 0 };
+    f.row(
+        &format!("agent:{KEY_R}"),
+        kinds::DELIVERY_STATE,
+        json!({"deliveryId": "dlv_r2", "messageId": "msg_r2", "to": KEY_B, "state": "queued", "by": KEY_R}),
+    );
+    f.message("msg_r2", KEY_R, "claude", "agent", KEY_B, "hello", "");
+    eventually("the message's change", || {
+        let mut s = seen.lock().unwrap();
+        s.extend(sub.drain());
+        s.iter()
+            .filter(|c| c.delivery_id == "dlv_r2" && c.created)
+            .count()
+            >= 2
+    });
+    assert_eq!(h.ib.get("dlv_r2").unwrap().message.id, "msg_r2");
+    let cs = std::mem::take(&mut *seen.lock().unwrap());
+    let mine: Vec<_> = cs.iter().filter(|c| c.delivery_id == "dlv_r2").collect();
+    assert!(
+        mine.iter().filter(|c| c.created).count() == 2 && mine.iter().all(|c| c.to == KEY_B),
+        "{cs:?}"
+    );
+}
+
 #[test]
 fn repo_work_is_assigned_only_by_its_writer() {
     let mut h = Harness::new();

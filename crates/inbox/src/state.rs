@@ -722,6 +722,10 @@ pub(crate) struct Inner {
     pub appendable: HashMap<String, bool>,
     pub visible_at: HashMap<String, GoTime>,
     pub held_first: HashSet<String>,
+    /// Deliveries folded before their message (a row from another device
+    /// can come first), by message id: when the message folds, each is
+    /// noted as new then, so Talk shows its DM (list-signals.md §3.2).
+    pub early: HashMap<String, Vec<String>>,
     pub subs: Vec<Sub>,
 
     pub replaying: bool,
@@ -898,6 +902,7 @@ impl Inbox {
             appendable: HashMap::new(),
             visible_at: HashMap::new(),
             held_first: HashSet::new(),
+            early: HashMap::new(),
             subs: vec![],
             replaying: false,
             changes: vec![],
@@ -933,8 +938,8 @@ impl Inbox {
     }
 
     /// Changes until the subscription is dropped (buffered, 64; a full
-    /// reader gets a [`ChangeKind::Resync`] in place of the next change
-    /// that fits, and should re-read).
+    /// reader gets a [`ChangeKind::Resync`] before the next change that
+    /// fits, and should re-read).
     pub fn subscribe(&self) -> Subscription {
         let q = Arc::new(Queue::new(SUB_BUFFER));
         lock(&self.inner).subs.push(Sub {
@@ -1091,9 +1096,16 @@ impl Inner {
                 m.writer = ev.device_id.clone();
                 self.fold_bridged(&m);
                 let from = m.from.clone();
+                let id = m.id.clone();
                 self.msgs.insert(m.id.clone(), m);
                 if !from.key.is_empty() && !self.is_person(&from) && !from.is_system() {
                     self.known.entry(from.key).or_default();
+                }
+                // Deliveries that came first show their message only now.
+                for did in self.early.remove(&id).unwrap_or_default() {
+                    if let Some(to) = self.dels.get(&did).map(|d| d.d.to.clone()) {
+                        self.note_delivery(ChangeKind::Updated, &to, &did, true, None);
+                    }
                 }
             }
             kinds::DELIVERY_STATE => {
@@ -1242,6 +1254,12 @@ impl Inner {
             };
             self.dels.insert(r.delivery_id.clone(), d);
             self.order.push(r.delivery_id.clone());
+            if !self.msgs.contains_key(&r.message_id) {
+                self.early
+                    .entry(r.message_id.clone())
+                    .or_default()
+                    .push(r.delivery_id.clone());
+            }
             if !self.counted.contains(&r.message_id) {
                 self.counted.insert(r.message_id.clone());
                 if let Some(m) = self.msgs.get(&r.message_id)
@@ -1430,20 +1448,21 @@ impl Inner {
         self.subs.retain(|s| !s.q.is_closed());
         for c in self.changes.drain(..) {
             for s in &mut self.subs {
-                // A full reader loses it and gets a Resync in place of the
-                // next one that fits (list-signals.md §3.1).
-                let msg = if s.lost {
-                    Change {
+                // A full reader loses changes and gets a Resync before the
+                // next one that fits, which still comes: an agent's stream
+                // acts on a held or moved one (list-signals.md §3.1).
+                if s.lost {
+                    s.lost = !s.q.push(Change {
                         kind: ChangeKind::Resync,
                         to: String::new(),
                         delivery_id: String::new(),
                         created: false,
                         was_to: None,
-                    }
-                } else {
-                    c.clone()
-                };
-                s.lost = !s.q.push(msg);
+                    });
+                }
+                if !s.lost {
+                    s.lost = !s.q.push(c.clone());
+                }
             }
         }
     }
