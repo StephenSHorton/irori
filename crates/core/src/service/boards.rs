@@ -2964,3 +2964,39 @@ fn checked_face(raw: &str) -> String {
         .map(|a| coord::avatar::to_json(&a))
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use coord::Change;
+    use gocompat::sub::TryRecv;
+    use sys::cancel::Cancel;
+
+    use super::Boards;
+
+    /// A full `Boards::subscribe` reader that lost a change gets a zero
+    /// Change in place of the next one that fits (card #1144,
+    /// list-signals.md §3.1). Every message `moved` sends is a zero Change
+    /// already, so this can't tell the lost flag's push from a plain one:
+    /// it checks only that the reader hears again once it drains.
+    #[test]
+    fn tell_lost_reader_hears_again() {
+        let b = Boards::new(Cancel::new());
+        let q = b.subscribe();
+        for _ in 0..65 {
+            b.moved();
+        }
+        assert_eq!(q.len(), 64, "the 65th is lost");
+        for _ in 0..64 {
+            assert!(matches!(q.try_recv(), TryRecv::Item(_)));
+        }
+        assert!(q.is_empty());
+        b.moved();
+        assert_eq!(q.len(), 1);
+        match q.try_recv() {
+            TryRecv::Item(ch) => assert_eq!(ch, Change::default()),
+            _ => panic!("no change after the drain"),
+        }
+        b.moved();
+        assert_eq!(q.len(), 1, "the flag cleared: the next push lands too");
+    }
+}

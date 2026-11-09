@@ -459,4 +459,26 @@ mod tests {
         assert_eq!(c.repo_keys, ["root:abc"]);
         assert!(capture_change(&[CoreEvent::Resync]).is_none());
     }
+
+    /// A kick still counts when the inbox pump's feed is full (card #1144,
+    /// list-signals.md §3.1): the second push is dropped, but the flag the
+    /// pump takes each batch says a kick came, once.
+    #[test]
+    fn kick_counts_when_the_feed_is_full() {
+        use std::sync::Arc;
+
+        use gocompat::sub::Queue;
+
+        use super::Kick;
+
+        let k = Kick::default();
+        assert!(!k.take(), "no kick yet");
+        let q = Arc::new(Queue::new(1));
+        k.set(q.clone());
+        k.notify();
+        k.notify();
+        assert_eq!(q.len(), 1, "the second push is dropped");
+        assert!(k.take(), "the kick is taken");
+        assert!(!k.take(), "taken once");
+    }
 }

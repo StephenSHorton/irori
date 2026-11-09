@@ -912,9 +912,15 @@ fn test_device_colors() {
     assert!(coord::devcolor::valid(&cs[&me]));
     assert!(r.core.set_device_color(&me, "mauve").is_err());
     assert!(r.core.set_device_color("not-mine", "teal").is_err());
+    // Cards and the header show device colours: a pick tells the window
+    // (list-signals.md §3.2, card #1144).
+    let feed = r.core.feed(&[irori_core::Topic::Devices]);
     r.core.set_device_color(&me, "pink").unwrap();
     wait_for(5, "the pick folded", || {
         r.core.device_colors()[&me] == "pink"
+    });
+    wait_for(5, "devices:changed", || {
+        matches!(feed.try_recv(), Some(CoreEvent::Devices))
     });
 }
 

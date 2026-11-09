@@ -5808,3 +5808,164 @@ impl StartLaps {
         logf(format_args!("start: core ready in {}", self.summary()));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use coord::talk::dm_id;
+    use inbox::{Change, ChangeKind as K, Delivery, Message, Sender};
+
+    use super::dm_change;
+    use crate::events::TalkChange;
+
+    const AGENT: &str = "agent:dev1/s1";
+    const TO: &str = "user";
+
+    fn ch(kind: K, created: bool, delivery_id: &str) -> Change {
+        Change {
+            kind,
+            to: TO.into(),
+            delivery_id: delivery_id.into(),
+            created,
+        }
+    }
+
+    /// An agent's message to the person: one that shows as a DM.
+    fn msg() -> Message {
+        Message {
+            id: "m1".into(),
+            from: Sender::new(AGENT, "Ann", "claude"),
+            text: "hi".into(),
+            ..Default::default()
+        }
+    }
+
+    fn delivery(to: &str, m: Message) -> Delivery {
+        Delivery {
+            id: "d1".into(),
+            message_id: m.id.clone(),
+            to: to.into(),
+            message: m,
+            ..Default::default()
+        }
+    }
+
+    /// A delivery's first row shows its message in the sender's DM with the
+    /// recipient (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_first_row_names_the_dm() {
+        let d = delivery(TO, msg());
+        assert_eq!(
+            dm_change(&ch(K::WakeReady, true, "d1"), Some(&d)),
+            Some(TalkChange::convs([dm_id(AGENT, TO)]))
+        );
+    }
+
+    /// A later row of the same delivery (read, replied) shows nothing new,
+    /// and is not looked up (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_later_row_is_none() {
+        let d = delivery(TO, msg());
+        assert_eq!(dm_change(&ch(K::Updated, false, "d1"), Some(&d)), None);
+        assert_eq!(dm_change(&ch(K::Updated, false, "d1"), None), None);
+        assert_eq!(dm_change(&ch(K::WakeReady, false, "d1"), Some(&d)), None);
+    }
+
+    /// A notice, a stop and a mention's wake never show as a DM (card
+    /// #1144, list-signals.md §3.2; tools::talk::mirrors).
+    #[test]
+    fn dm_change_unmirrored_is_none() {
+        let cases = [
+            Message {
+                notice: true,
+                ..msg()
+            },
+            Message {
+                stop: true,
+                ..msg()
+            },
+            Message {
+                reason: inbox::REASON_MENTIONED.into(),
+                ..msg()
+            },
+        ];
+        for m in cases {
+            let d = delivery(TO, m.clone());
+            assert_eq!(
+                dm_change(&ch(K::WakeReady, true, "d1"), Some(&d)),
+                None,
+                "{m:?}"
+            );
+        }
+    }
+
+    /// A move takes the message from the old recipient's DM to the new
+    /// one's: both, old first (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_move_names_old_and_new_dm() {
+        let other = "agent:dev1/s2";
+        let d = Delivery {
+            moved_to: other.into(),
+            ..delivery(TO, msg())
+        };
+        assert_eq!(
+            dm_change(&ch(K::MovedAway, false, "d1"), Some(&d)),
+            Some(TalkChange::convs([dm_id(AGENT, TO), dm_id(AGENT, other)]))
+        );
+    }
+
+    /// A move with no new recipient names only the old DM (card #1144,
+    /// list-signals.md §3.2).
+    #[test]
+    fn dm_change_move_without_target_names_old_dm() {
+        let d = delivery(TO, msg());
+        assert_eq!(
+            dm_change(&ch(K::MovedAway, false, "d1"), Some(&d)),
+            Some(TalkChange::convs([dm_id(AGENT, TO)]))
+        );
+    }
+
+    /// A delivery whose message hasn't arrived yet can't be placed: Talk
+    /// reads everything (card #1144, list-signals.md §3.2).
+    #[test]
+    fn dm_change_missing_message_is_all() {
+        let d = delivery(TO, Message::default());
+        assert_eq!(
+            dm_change(&ch(K::WakeReady, true, "d1"), Some(&d)),
+            Some(TalkChange::all())
+        );
+    }
+
+    /// A lost inbox change may have held a first row: Talk reads everything
+    /// (card #1144, list-signals.md §3.1).
+    #[test]
+    fn dm_change_resync_is_all() {
+        let r = Change {
+            kind: K::Resync,
+            to: String::new(),
+            delivery_id: String::new(),
+            created: false,
+        };
+        assert_eq!(dm_change(&r, None), Some(TalkChange::all()));
+    }
+
+    /// A message between two of the person's own keys has no DM (card
+    /// #1144, list-signals.md §3.2; coord::talk::canon).
+    #[test]
+    fn dm_change_same_party_is_none() {
+        let m = Message {
+            from: Sender::new("user:dev1", "Me", "user"),
+            ..msg()
+        };
+        let d = delivery("user:dev2", m);
+        assert_eq!(dm_change(&ch(K::WakeReady, true, "d1"), Some(&d)), None);
+    }
+
+    /// A change that names no delivery shows nothing (card #1144,
+    /// list-signals.md §3.2).
+    #[test]
+    fn dm_change_without_delivery_id_is_none() {
+        let d = delivery(TO, msg());
+        assert_eq!(dm_change(&ch(K::WakeReady, true, ""), Some(&d)), None);
+        assert_eq!(dm_change(&ch(K::MovedAway, false, ""), Some(&d)), None);
+    }
+}

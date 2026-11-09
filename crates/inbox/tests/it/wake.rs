@@ -4,9 +4,9 @@ use crate::common;
 
 use common::*;
 use inbox::{
-    ChangeKind, DIRECT_LIMIT, ErrorKind, GONE_GRACE, MAX_REF, MAX_TEXT, MAX_WAKE_BYTES,
-    QUIET_LIMIT, REATTACH_GRACE, SYSTEM_KEY, SendOptions, UNENGAGED_LIMIT, kinds, mode, path, st,
-    system_sender, trust,
+    Change, ChangeKind, DIRECT_LIMIT, ErrorKind, GONE_GRACE, MAX_REF, MAX_TEXT, MAX_WAKE_BYTES,
+    QUIET_LIMIT, REATTACH_GRACE, SUB_BUFFER, SYSTEM_KEY, SendOptions, UNENGAGED_LIMIT, kinds, mode,
+    path, st, system_sender, trust,
 };
 use store::Filter;
 
@@ -255,6 +255,91 @@ fn subscribe_edges() {
     let s2 = h.ib.subscribe();
     s2.cancel();
     assert!(s2.recv().is_none());
+}
+
+/// A reader whose queue fills loses changes and gets one Resync (empty
+/// `to` and `delivery_id`) in place of the next change that fits, then
+/// the real changes again; the flag is per subscriber, so a reader that
+/// keeps up never sees it (card #1144, list-signals.md §3.1).
+#[test]
+fn full_queue_gives_a_resync() {
+    let h = Harness::new();
+    h.abc();
+    assert_eq!(ChangeKind::Resync.as_str(), "resync");
+    let resync = Change {
+        kind: ChangeKind::Resync,
+        to: String::new(),
+        delivery_id: String::new(),
+        created: false,
+    };
+    let updated = Change {
+        kind: ChangeKind::Updated,
+        to: KEY_B.into(),
+        delivery_id: String::new(),
+        created: false,
+    };
+    let slow = h.ib.subscribe();
+    let fast = h.ib.subscribe();
+    // set_reachable notes exactly one Updated per call (route.rs
+    // set_reachable); beta has no deliveries, so no wake edges.
+    for i in 0..SUB_BUFFER + 5 {
+        h.ib.set_reachable(KEY_B, path::MOD, i % 2 == 0);
+        assert_eq!(fast.drain(), vec![updated.clone()], "call {i}");
+    }
+    let cs = slow.drain();
+    assert_eq!(cs.len(), SUB_BUFFER);
+    assert!(cs.iter().all(|c| *c == updated), "{cs:?}");
+    h.ib.set_reachable(KEY_B, path::MOD, true);
+    assert_eq!(slow.drain(), vec![resync]);
+    assert_eq!(fast.drain(), vec![updated.clone()]);
+    h.ib.set_reachable(KEY_B, path::MOD, false);
+    assert_eq!(slow.drain(), vec![updated.clone()]);
+    assert_eq!(fast.drain(), vec![updated]);
+}
+
+/// Only a delivery's first row folded here is marked `created`; its later
+/// rows (delivered, engaged, a release from held) are not, and wake edges
+/// never are (card #1144, list-signals.md §3.2).
+#[test]
+fn created_marks_only_a_deliverys_first_row() {
+    let h = Harness::new();
+    h.abc();
+    h.ros.put(&[grok_card(KEY_G, "grok", "")]);
+    h.block_grok();
+    let sub = h.ib.subscribe();
+    let for_id = |cs: &[Change], id: &str| -> Vec<Change> {
+        cs.iter().filter(|c| c.delivery_id == id).cloned().collect()
+    };
+    let (_, d) = h.send(&claude(KEY_A, "alpha"), &to("beta"), "1");
+    let cs = sub.drain();
+    let mine = for_id(&cs, &d.id);
+    assert!(
+        mine.len() == 1 && mine[0].created && mine[0].kind == ChangeKind::Updated,
+        "{cs:?}"
+    );
+    assert!(
+        cs.iter()
+            .filter(|c| c.delivery_id.is_empty())
+            .all(|c| !c.created),
+        "{cs:?}"
+    );
+    let w = h.wake(KEY_B);
+    h.ib.mark_delivered(KEY_B, &w.token).unwrap();
+    h.ib.mark_engaged(KEY_B, &w.token, "t1").unwrap();
+    let cs = sub.drain();
+    assert!(for_id(&cs, &d.id).len() >= 2, "{cs:?}");
+    assert!(cs.iter().all(|c| !c.created), "{cs:?}");
+    let (_, hd) = h.send(&grok(KEY_G, "grok"), &to("beta"), "held");
+    let cs = sub.drain();
+    let mine = for_id(&cs, &hd.id);
+    assert!(
+        mine.len() == 1 && mine[0].created && mine[0].kind == ChangeKind::HeldNew,
+        "{cs:?}"
+    );
+    h.ib.release(&hd.id, USER).unwrap();
+    let cs = sub.drain();
+    assert!(!for_id(&cs, &hd.id).is_empty(), "{cs:?}");
+    assert!(cs.iter().all(|c| !c.created), "{cs:?}");
 }
 
 #[test]

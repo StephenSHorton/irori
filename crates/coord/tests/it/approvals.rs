@@ -478,5 +478,53 @@ fn test_ask_id_and_posted_payload() {
             r#"{{"askId":"dmer4j36rk00-1","by":"{AGENT1}","name":"","text":"x\u003cy","actions":["Ok"],"until":"2026-10-26T12:00:00Z","device":"","resolved":false}}"#
         )
     );
-    let _ = approvals::SUB_BUFFER;
+}
+
+fn drain_ids(q: &gocompat::sub::Queue<String>) -> Vec<String> {
+    let mut out = Vec::new();
+    while let gocompat::sub::TryRecv::Item(id) = q.try_recv() {
+        out.push(id);
+    }
+    out
+}
+
+/// Card #1144 (list-signals.md §3.1): a subscriber that fills up loses ids,
+/// and in place of the next one that fits gets "" (every ask), then ids
+/// again; it never just drops changes silently.
+#[test]
+fn a_full_reader_gets_one_all_marker_then_ids_again() {
+    let g = rig(None);
+    let sub = g.book.subscribe();
+    let posted: Vec<String> = (0..approvals::SUB_BUFFER + 5)
+        .map(|_| g.post(AGENT1).id)
+        .collect();
+    let got = drain_ids(&sub);
+    assert_eq!(got, posted[..approvals::SUB_BUFFER].to_vec());
+    // It lost five: the next change reaches it as "".
+    g.post(AGENT1);
+    assert_eq!(drain_ids(&sub), vec![String::new()]);
+    // Caught up: ids again.
+    let a = g.post(AGENT1);
+    assert_eq!(drain_ids(&sub), vec![a.id]);
+}
+
+/// Card #1144 (list-signals.md §3.1): a re-fold after a revoke's cut sends
+/// one "" (every ask may have changed), not every ask's id.
+#[test]
+fn a_refold_after_a_cut_sends_one_all_marker() {
+    let g = rig(None);
+    for _ in 0..3 {
+        g.post(AGENT1);
+    }
+    let sub = g.book.subscribe();
+    let db = rusqlite::Connection::open(g._dir.path().join("irori.db")).unwrap();
+    db.execute(
+        "DELETE FROM events WHERE device_id = 'dev1' AND seq > 1",
+        [],
+    )
+    .unwrap();
+    drop(db);
+    g.book.catch_up();
+    assert_eq!(drain_ids(&sub), vec![String::new()]);
+    assert_eq!(g.book.open().len(), 1, "the cut took two asks");
 }

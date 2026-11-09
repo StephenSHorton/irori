@@ -73,6 +73,7 @@ mod spawn_settings_devices;
 mod spawn_trees;
 mod spawn_why;
 mod spawn_why_devices;
+mod talk_ids;
 mod talk_notify;
 mod talk_replying;
 mod thread_board;

@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 
 use common::*;
 use inbox::{
-    ErrorKind, GONE_GRACE, Inbox, Message, Policy, SendOptions, UNENGAGED_LIMIT, hold, kinds, mode,
-    path, st,
+    Change, ErrorKind, GONE_GRACE, Inbox, Message, Policy, SendOptions, UNENGAGED_LIMIT, hold,
+    kinds, mode, path, st,
 };
 use serde_json::{Value, json};
 use store::{Event, Filter, Timestamp};
@@ -143,6 +143,43 @@ fn a_remote_recipient_is_the_hosts_to_wake_and_sweep() {
         h.sweep();
     }
     assert_eq!(h.want_state(&d.id, st::QUEUED).to, KEY_R);
+}
+
+/// Another device's delivery is marked `created` on its first row folded
+/// here (it reached this device, so Talk shows it from now); the host's
+/// own later rows for it are not (card #1144, list-signals.md §3.2).
+#[test]
+fn a_foreign_delivery_is_created_on_its_first_fold_here() {
+    let h = Harness::new();
+    h.abc();
+    let sub = h.ib.subscribe();
+    let seen = Mutex::new(Vec::<Change>::new());
+    let _f = follow(&h);
+    let mut f = Foreign { h: &h, seq: 0 };
+    f.message("msg_r1", KEY_R, "claude", "agent", KEY_B, "hello", "");
+    f.row(
+        &format!("agent:{KEY_R}"),
+        kinds::DELIVERY_STATE,
+        json!({"deliveryId": "dlv_r1", "messageId": "msg_r1", "to": KEY_B, "state": "queued", "by": KEY_R}),
+    );
+    eventually("the first row's change", || {
+        let mut s = seen.lock().unwrap();
+        s.extend(sub.drain());
+        s.iter().any(|c| c.delivery_id == "dlv_r1")
+    });
+    let cs = std::mem::take(&mut *seen.lock().unwrap());
+    let mine: Vec<_> = cs.iter().filter(|c| c.delivery_id == "dlv_r1").collect();
+    assert!(
+        mine.len() == 1 && mine[0].created && mine[0].to == KEY_B,
+        "{cs:?}"
+    );
+    let w = h.wake(KEY_B);
+    assert_eq!(w.delivery_ids, vec!["dlv_r1".to_string()]);
+    h.ib.mark_delivered(KEY_B, &w.token).unwrap();
+    h.want_state("dlv_r1", st::DELIVERED);
+    let cs = sub.drain();
+    assert!(cs.iter().any(|c| c.delivery_id == "dlv_r1"), "{cs:?}");
+    assert!(cs.iter().all(|c| !c.created), "{cs:?}");
 }
 
 #[test]
