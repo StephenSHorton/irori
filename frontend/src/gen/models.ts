@@ -36,6 +36,7 @@ export type AssistantImportEntry = B.AssistantImportEntry
 export type AssistantImportPosted = B.AssistantImportPosted
 export type AssistantImported = B.AssistantImported
 export type AssistantTalkCard = B.AssistantTalkCard
+export type AssistantSignal = B.AssistantSignal
 export type AttachmentInfo = B.AttachmentInfo
 export type BlockedBy = B.BlockedBy
 export type Blocker = B.Blocker
@@ -46,6 +47,7 @@ export type BoardMember = B.BoardMember
 export type BoardReviewer = B.BoardReviewer
 export type BoardSettings = B.BoardSettings
 export type BoardSummary = B.BoardSummary
+export type BoardsSignal = B.BoardsSignal
 export type CallCaptionView = B.CallCaptionView
 export type CallLiveView = B.CallLiveView
 export type CallMineView = B.CallMineView
@@ -85,6 +87,7 @@ export type CardWait = B.CardWait
 export type CardWaitOn = B.CardWaitOn
 export type CardWeight = B.CardWeight
 export type CardWhere = B.CardWhere
+export type CardsChange = B.CardsChange
 export type Change = B.Change
 export type ChangeKind = B.ChangeKind
 export type ClearedCard = B.ClearedCard
@@ -104,8 +107,8 @@ export type DeskSnapshotView = B.DeskSnapshotView
 export type DeskView = B.DeskView
 export type DeviceCap = B.DeviceCap
 export type DeviceView = B.DeviceView
+export type DevicesSignal = B.DevicesSignal
 export type DonePage = B.DonePage
-export type Empty = B.Empty
 export type Event = B.Event
 export type FileRef = B.FileRef
 export type Folder = B.Folder
@@ -119,6 +122,7 @@ export type HomeServerView = B.HomeServerView
 export type Identity = B.Identity
 export type IdleReport = B.IdleReport
 export type InboxCounts = B.InboxCounts
+export type InboxSignal = B.InboxSignal
 export type InviteStatus = B.InviteStatus
 export type LaterBack = B.LaterBack
 export type Link = B.Link
@@ -143,6 +147,7 @@ export type NoteEditInput = B.NoteEditInput
 export type NoteEventView = B.NoteEventView
 export type NoteInput = B.NoteInput
 export type NoteView = B.NoteView
+export type NotifSignal = B.NotifSignal
 export type Notification = B.Notification
 export type NotificationAsk = B.NotificationAsk
 export type NotificationCard = B.NotificationCard
@@ -193,6 +198,7 @@ export type TalkPerson = B.TalkPerson
 export type TalkPost = B.TalkPost
 export type TalkReplier = B.TalkReplier
 export type TalkReplying = B.TalkReplying
+export type TalkSignal = B.TalkSignal
 export type TalkTranscript = B.TalkTranscript
 export type TalkTranscriptLine = B.TalkTranscriptLine
 export type Target = B.Target
@@ -382,6 +388,11 @@ export function AssistantTalkCard(p: Partial<B.AssistantTalkCard> = {}): B.Assis
   return { "space": "", "card": "", "conv": "", "owner": "", ...p } as B.AssistantTalkCard
 }
 
+/** AssistantSignal with Go's zero values for every field left out. */
+export function AssistantSignal(p: Partial<B.AssistantSignal> = {}): B.AssistantSignal {
+  return { "seq": 0, "all": false, ...p } as B.AssistantSignal
+}
+
 /** AttachmentInfo with Go's zero values for every field left out. */
 export function AttachmentInfo(p: Partial<B.AttachmentInfo> = {}): B.AttachmentInfo {
   return { "sha256": "", "name": "", "size": 0, "mime": "", "device": "", "here": false, "url": "", "openable": false, ...p } as B.AttachmentInfo
@@ -415,6 +426,11 @@ export function BoardReviewer(p: Partial<B.BoardReviewer> = {}): B.BoardReviewer
 /** BoardSettings with Go's zero values for every field left out. */
 export function BoardSettings(p: Partial<B.BoardSettings> = {}): B.BoardSettings {
   return { "boardId": "", "members": [], "receive": "", "people": [], "receiveOwn": false, "autonomy": "", "autonomyOwn": false, "threads": "", "leaving": false, "conflicts": [], "reviewers": [], "agents": [], ...p } as B.BoardSettings
+}
+
+/** BoardsSignal with Go's zero values for every field left out. */
+export function BoardsSignal(p: Partial<B.BoardsSignal> = {}): B.BoardsSignal {
+  return { "seq": 0, ...p } as B.BoardsSignal
 }
 
 /** BoardSummary with Go's zero values for every field left out. */
@@ -582,6 +598,11 @@ export function CardRound(p: Partial<B.CardRound> = {}): B.CardRound {
   return { "id": "", "round": 0, "proof": "", "answer": "", "thread": [], "sameProof": false, ...p } as B.CardRound
 }
 
+/** CardsChange with Go's zero values for every field left out. */
+export function CardsChange(p: Partial<B.CardsChange> = {}): B.CardsChange {
+  return { "seq": 0, "all": false, "cards": [], "notes": [], "desk": false, ...p } as B.CardsChange
+}
+
 /** CardSubtask with Go's zero values for every field left out. */
 export function CardSubtask(p: Partial<B.CardSubtask> = {}): B.CardSubtask {
   return { "id": "", "short": "", "tag": "", "title": "", "state": "", "holder": CardHolder(), "progress": CardProgress(), "blocked": false, ...p } as B.CardSubtask
@@ -697,6 +718,11 @@ export function DeviceCap(p: Partial<B.DeviceCap> = {}): B.DeviceCap {
   return { "device": "", "name": "", "here": false, "cap": 0, "chosen": false, "running": 0, ...p } as B.DeviceCap
 }
 
+/** DevicesSignal with Go's zero values for every field left out. */
+export function DevicesSignal(p: Partial<B.DevicesSignal> = {}): B.DevicesSignal {
+  return { "seq": 0, "all": false, ...p } as B.DevicesSignal
+}
+
 /** DeviceView with Go's zero values for every field left out. */
 export function DeviceView(p: Partial<B.DeviceView> = {}): B.DeviceView {
   return { "deviceId": "", "name": "", "role": "", "state": "", ...p } as B.DeviceView
@@ -760,6 +786,11 @@ export function IdleReport(p: Partial<B.IdleReport> = {}): B.IdleReport {
 /** InboxCounts with Go's zero values for every field left out. */
 export function InboxCounts(p: Partial<B.InboxCounts> = {}): B.InboxCounts {
   return { "unread": 0, "held": 0, "paused": false, ...p } as B.InboxCounts
+}
+
+/** InboxSignal with Go's zero values for every field left out. */
+export function InboxSignal(p: Partial<B.InboxSignal> = {}): B.InboxSignal {
+  return { ...InboxCounts(), "seq": 0, "all": false, "deliveries": [], "cards": [], ...p } as B.InboxSignal
 }
 
 /** InviteStatus with Go's zero values for every field left out. */
@@ -880,6 +911,11 @@ export function NotificationAsk(p: Partial<B.NotificationAsk> = {}): B.Notificat
 /** NotificationCard with Go's zero values for every field left out. */
 export function NotificationCard(p: Partial<B.NotificationCard> = {}): B.NotificationCard {
   return { "id": "", "short": "", "tag": "", "title": "", ...p } as B.NotificationCard
+}
+
+/** NotifSignal with Go's zero values for every field left out. */
+export function NotifSignal(p: Partial<B.NotifSignal> = {}): B.NotifSignal {
+  return { "seq": 0, "all": false, "keys": [], "asks": [], ...p } as B.NotifSignal
 }
 
 /** NotifyOptions with Go's zero values for every field left out. */
@@ -1100,6 +1136,11 @@ export function TalkReplier(p: Partial<B.TalkReplier> = {}): B.TalkReplier {
 /** TalkReplying with Go's zero values for every field left out. */
 export function TalkReplying(p: Partial<B.TalkReplying> = {}): B.TalkReplying {
   return { "convId": "", "agents": [], ...p } as B.TalkReplying
+}
+
+/** TalkSignal with Go's zero values for every field left out. */
+export function TalkSignal(p: Partial<B.TalkSignal> = {}): B.TalkSignal {
+  return { "seq": 0, "all": false, "convs": [], "calls": [], ...p } as B.TalkSignal
 }
 
 /** TalkTranscript with Go's zero values for every field left out. */

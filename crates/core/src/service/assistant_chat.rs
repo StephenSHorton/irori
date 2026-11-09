@@ -24,7 +24,7 @@
 //! No tool writes these rows, and the events tool and `/v1/events` leave
 //! their text out (`tools::observe::redact`, `api::redact`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 use store::{Event, Filter, Store, kinds};
 
 use super::{Core, Services};
+use crate::assistant_draft;
 use crate::events::CoreEvent;
 
 pub const ASKED: &str = kinds::ASSISTANT_CHAT_ASKED;
@@ -96,6 +97,15 @@ pub struct ChatJob {
     /// The files that came with the question: the window reads them from
     /// its store, fetching from the device that holds them if need be.
     pub files: Vec<AskedFile>,
+    /// The question as the held session gets it (card 8, §8): what it
+    /// hasn't seen since its last message ("Since we last spoke:"), then
+    /// the question alone. [`Self::prompt`] seeds a new session instead.
+    pub message: String,
+    /// The held session this question belongs to: the window keeps its
+    /// `claude` only while this stays the same, and seeds a new one from
+    /// [`Self::prompt`] when it changes (New chat, another computer, a
+    /// failed or stopped turn).
+    pub session: u64,
 }
 
 /// How a run ended.
@@ -746,6 +756,10 @@ pub const EARLIER_CAP: usize = 50;
 /// The header of a run of follow-up lines in the history (`historyFor`).
 pub const UPDATES_HEAD: &str = "(The chat's own lines on the work it follows:)";
 
+/// The head of what a held session hasn't seen since its last message
+/// (card 8, §8).
+pub const SINCE_HEAD: &str = "Since we last spoke:";
+
 /// A turn as the worker reads it: where its question sits, whether New
 /// chat hides it, and the turn.
 #[derive(Debug, Clone)]
@@ -755,14 +769,20 @@ pub(crate) struct TurnAt {
     pub(crate) turn: ChatTurn,
 }
 
+/// What the history adds to a reply whose draft did not post: the model
+/// must never say it did.
+pub const NOT_POSTED: &str =
+    "(This draft was not posted. It waits for the person to tap Post thread.)";
+
 /// A reply as the history gives it to the model: with a posted draft's
-/// thread named (`turnText`).
+/// thread named, or a draft that did not post said so.
 fn reply_text(text: &str, posted: Option<&Posted>) -> String {
     match posted {
         Some(p) => format!(
             "{text}\n\n(This draft was posted as thread {}#{}.)",
             p.tag, p.short
         ),
+        None if assistant_draft::has_draft(text).is_some() => format!("{text}\n\n{NOT_POSTED}"),
         None => text.to_string(),
     }
 }
@@ -842,6 +862,80 @@ impl Fold {
             .collect()
     }
 
+    /// What a held session hasn't seen (card 8, §8), one line each, oldest
+    /// first: the entries after the question at `from` and before the one
+    /// at `at` that the session didn't write (follow-up lines, and turns
+    /// another computer answered), then the threads posted from its own
+    /// replies (`mine`) that it wasn't told of (`told`). Returns the lines
+    /// and the turns whose threads they tell.
+    pub(crate) fn since(
+        &self,
+        from: &Order,
+        at: &Order,
+        mine: &HashSet<String>,
+        told: &HashSet<String>,
+    ) -> (Vec<String>, Vec<String>) {
+        let (lo, hi) = (Place::new(false, from), Place::new(false, at));
+        let mut lines = Vec::new();
+        let mut posted = Vec::new();
+        for (place, entry) in self.shown() {
+            match entry {
+                ChatEntry::Turn(t) => {
+                    if mine.contains(&t.asked.turn) {
+                        if let Some(p) = t.posted.as_ref().filter(|_| !told.contains(&t.asked.turn))
+                        {
+                            lines.push(format!(
+                                "- Your draft in reply to \"{}\" was posted as thread {}#{}.",
+                                short_line(&t.asked.text),
+                                p.tag,
+                                p.short
+                            ));
+                            posted.push(t.asked.turn.clone());
+                        } else if t.posted.is_none() {
+                            // A draft meant to post by itself that didn't,
+                            // told once (its own key, so a later tap on
+                            // Post thread is still told).
+                            let key = format!("{} {UNPOSTED}", t.asked.turn);
+                            let unposted = t.said.as_ref().is_some_and(|s| {
+                                assistant_draft::has_draft(&s.text) == Some(false)
+                            });
+                            if unposted && !told.contains(&key) {
+                                lines.push(format!(
+                                    "- Your draft in reply to \"{}\" was not posted. It waits for the person to tap Post thread.",
+                                    short_line(&t.asked.text)
+                                ));
+                                posted.push(key);
+                            }
+                        }
+                        continue;
+                    }
+                    if place <= lo || place >= hi {
+                        continue;
+                    }
+                    let Some(said) = t.said.as_ref() else {
+                        continue;
+                    };
+                    if said.skipped || !said.error.is_empty() {
+                        continue;
+                    }
+                    lines.push(format!(
+                        "- The person asked: {}\n  The reply: {}",
+                        with_files(&t.asked),
+                        cut_chars(
+                            reply_text(&said.text, t.posted.as_ref()).trim(),
+                            SINCE_REPLY
+                        )
+                    ));
+                }
+                ChatEntry::Update(u) if place > lo && place < hi => {
+                    lines.push(format!("- {}", u.text.trim()));
+                }
+                _ => {}
+            }
+        }
+        (lines, posted)
+    }
+
     /// The conversation before the question at `at`, as history turns
     /// (`true`: the assistant's), the port of the chat's `historyFor`:
     /// each answered turn as the person's words and the reply, a posted
@@ -886,6 +980,28 @@ impl Fold {
         out.drain(..skip);
         out
     }
+}
+
+/// What marks a `told` key for a draft that did not post.
+const UNPOSTED: &str = "unposted";
+
+/// The most of another computer's reply a since line carries, in
+/// characters: the message stays smaller than a seed.
+const SINCE_REPLY: usize = 600;
+
+/// `s` cut to `max` characters, with an ellipsis when cut.
+fn cut_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let cut: String = s.chars().take(max - 1).collect();
+    format!("{}\u{2026}", cut.trim_end())
+}
+
+/// A question cut to one short line, for a since line.
+fn short_line(text: &str) -> String {
+    let one = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    cut_chars(&one, 80)
 }
 
 /// A question's words for the history, with a line naming its files, those
@@ -1593,6 +1709,101 @@ mod tests {
             panic!()
         };
         assert_eq!(t.posted.as_ref().unwrap().id, "own");
+    }
+
+    #[test]
+    fn the_history_says_which_drafts_did_not_post() {
+        let draft = "Posting it.\n<<thread>>\nFix the lobby.\n<</thread>>";
+        let unclosed = "Posting it.\n<<thread>>\nFix the stairs.";
+        let check = "Waiting for you.\n<<thread check>>\nFix the roof.\n<</thread>>";
+        let p = Posted {
+            id: "id".into(),
+            short: "12".into(),
+            tag: String::new(),
+        };
+        let f = Fold::new();
+        f.apply(&ev(ASKED, "user", 10, "phone", 1, asked("t1", "lobby")));
+        f.apply(&ev(
+            SAID,
+            "irori",
+            11,
+            "mac",
+            1,
+            Said {
+                posted: Some(p.clone()),
+                ..said("t1", draft)
+            },
+        ));
+        f.apply(&ev(ASKED, "user", 12, "phone", 2, asked("t2", "stairs")));
+        f.apply(&ev(SAID, "irori", 13, "mac", 2, said("t2", unclosed)));
+        f.apply(&ev(ASKED, "user", 14, "phone", 3, asked("t3", "roof")));
+        f.apply(&ev(SAID, "irori", 15, "mac", 3, said("t3", check)));
+        f.apply(&ev(ASKED, "user", 16, "phone", 4, asked("t4", "plain")));
+        f.apply(&ev(
+            SAID,
+            "irori",
+            17,
+            "mac",
+            4,
+            said("t4", "Two cards wait."),
+        ));
+        f.apply(&ev(
+            ASKED,
+            "user",
+            18,
+            "phone",
+            5,
+            asked("t5", "where is it?"),
+        ));
+        let at = f.turn_at("t5").unwrap().at;
+        let replies: Vec<String> = f
+            .history_before(&at)
+            .into_iter()
+            .filter(|(mine, _)| *mine)
+            .map(|(_, t)| t)
+            .collect();
+        assert_eq!(
+            replies,
+            [
+                format!("{draft}\n\n(This draft was posted as thread #12.)"),
+                format!("{unclosed}\n\n{NOT_POSTED}"),
+                format!("{check}\n\n{NOT_POSTED}"),
+                "Two cards wait.".to_string(),
+            ]
+        );
+
+        // A held session is told once of its own draft that didn't post by
+        // itself, and still told when a tap posts it later.
+        let mine: HashSet<String> = ["t1", "t2", "t3", "t4"].map(String::from).into();
+        let from = f.turn_at("t4").unwrap().at;
+        let (lines, told) = f.since(&from, &at, &mine, &HashSet::new());
+        assert_eq!(
+            lines,
+            [
+                "- Your draft in reply to \"lobby\" was posted as thread #12.",
+                "- Your draft in reply to \"stairs\" was not posted. It waits for the person to tap Post thread.",
+            ]
+        );
+        let told: HashSet<String> = told.into_iter().collect();
+        assert!(f.since(&from, &at, &mine, &told).0.is_empty());
+        f.apply(&ev(
+            POSTED,
+            "user",
+            19,
+            "phone",
+            6,
+            PostedThread {
+                turn: "t2".into(),
+                posted: Posted {
+                    short: "13".into(),
+                    ..p
+                },
+            },
+        ));
+        assert_eq!(
+            f.since(&from, &at, &mine, &told).0,
+            ["- Your draft in reply to \"stairs\" was posted as thread #13."]
+        );
     }
 
     #[test]

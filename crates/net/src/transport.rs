@@ -103,6 +103,9 @@ impl PeerAddr {
     }
 }
 
+/// Where the transport writes its log lines.
+pub type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// How the transport binds and times its handshakes.
 #[derive(Clone)]
 pub struct NetConfig {
@@ -150,6 +153,9 @@ pub struct NetConfig {
     /// on, the relay map holds only them, so every device homes on one and
     /// can be reached from any network; dials add all four. Off by default.
     pub public_relays: crate::public::PublicRelays,
+    /// Where a private-mesh dial that fails (or works again after failing)
+    /// is logged, with the device id and why; `None` logs nothing.
+    pub logf: Option<LogFn>,
 }
 
 impl NetConfig {
@@ -170,6 +176,7 @@ impl NetConfig {
             pair_lan: crate::pairnet::PairLan::default(),
             boards: crate::board::BoardMembers::new(),
             public_relays: crate::public::PublicRelays::default(),
+            logf: None,
         }
     }
 }
@@ -225,6 +232,8 @@ pub(crate) struct Inner {
     /// (board or "" for the private mesh, epoch, peer) dials in flight.
     dialing: Mutex<HashSet<(String, i64, String)>>,
     pub(crate) dial_errors: Mutex<BTreeMap<String, String>>,
+    /// The last private-mesh dial failure logged per device.
+    dial_logged: Mutex<BTreeMap<String, String>>,
     pub(crate) gossip: OnceCell<iroh_gossip::net::Gossip>,
     /// The open pairing room (epoch 0), at most one (M7).
     pub(crate) pair: Mutex<Option<Arc<crate::pairnet::PairRoom>>>,
@@ -441,6 +450,7 @@ impl IrohNet {
                 calls: Mutex::new(HashMap::new()),
                 dialing: Mutex::new(HashSet::new()),
                 dial_errors: Mutex::new(BTreeMap::new()),
+                dial_logged: Mutex::new(BTreeMap::new()),
                 gossip: OnceCell::new(),
                 pair: Mutex::new(None),
                 pair_open: Arc::new(AtomicBool::new(false)),
@@ -1075,6 +1085,30 @@ impl Inner {
                 me.dial(&room, &peer).await
             };
             me.dialing.lock().expect("dialing").remove(&key);
+            // Private-mesh dials are logged once per new reason (a peer
+            // that stays away is dialled every 30 s), and once when one
+            // works again.
+            let line = match (&res, room.board.is_none()) {
+                // Lost to the peer's own dial: a session is up.
+                (Err(e), _) if e.replaced() => None,
+                (_, false) => None,
+                (Ok(()), true) => me
+                    .dial_logged
+                    .lock()
+                    .expect("dial logged")
+                    .remove(&peer)
+                    .map(|_| format!("mesh: dial {peer}: works again")),
+                (Err(e), true) => {
+                    let e = e.to_string();
+                    let mut logged = me.dial_logged.lock().expect("dial logged");
+                    let same = logged.get(&peer).is_some_and(|o| *o == e);
+                    logged.insert(peer.clone(), e.clone());
+                    (!same).then(|| format!("mesh: dial {peer}: {e}"))
+                }
+            };
+            if let (Some(l), Some(f)) = (line, &me.cfg.logf) {
+                f(&l);
+            }
             let mut errs = me.dial_errors.lock().expect("errs");
             match res {
                 Ok(()) => {
