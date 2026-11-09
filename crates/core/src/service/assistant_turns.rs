@@ -480,11 +480,7 @@ impl Services {
         };
         let turn = &t.turn;
         // The first check that fails drops it.
-        if turn.asked.imported
-            || !self.is_assistant_home()
-            || turn.said.is_some()
-            || t.hidden
-        {
+        if turn.asked.imported || !self.is_assistant_home() || turn.said.is_some() || t.hidden {
             return;
         }
         if turn.stopped || cancel.load(Ordering::SeqCst) {
@@ -566,7 +562,9 @@ mod tests {
         assert!(!p.contains("turn 7\n"));
         assert!(p.contains("The person: turn 8\n"));
         assert!(p.contains("You: turn 19\n"));
-        assert!(p.ends_with("Now answer the person's new message.\n\nThe person: what's blocked?\n"));
+        assert!(
+            p.ends_with("Now answer the person's new message.\n\nThe person: what's blocked?\n")
+        );
     }
 
     #[test]

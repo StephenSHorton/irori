@@ -5,45 +5,26 @@
 
 use crate::common;
 
-use std::net::SocketAddr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use common::mesh::{Dev, Edit, free_udp, person, person_with};
+use common::chat::{self, apart, holds_for, meet, skewed, spawner};
+use common::mesh::{Dev, person, person_with};
 use common::wait_for;
 use gocompat::time::GoTime;
 use irori_core::SpawnHost;
 use irori_core::assistant_home::HomeRow;
-use irori_core::spawn::{SpawnStarted, Spawner};
-use irori_core::{Core, CoreEvent, Options, Topic};
+use irori_core::{Core, CoreEvent, Topic};
 use store::kinds;
 use store::{Event, Filter};
 
 const WAIT: u64 = 90;
 
-/// A spawner that can start `claude` while `ready` holds.
-fn spawner(ready: &Arc<AtomicBool>) -> Spawner {
-    let r = ready.clone();
-    Spawner {
-        ready: Some(Arc::new(move || r.load(Ordering::SeqCst))),
-        spawn: Arc::new(|r| {
-            Ok(SpawnStarted {
-                name: r.name.clone(),
-                prefix: String::new(),
-            })
-        }),
-        end: Arc::new(|_| Ok(String::new())),
-        trusted: Arc::new(|_| true),
-        list: None,
-    }
-}
-
-/// `d` can run the assistant's turn; flip the flag to take Claude Code away.
+/// `d` can run the assistant's turn and its chat; flip the flag to take
+/// Claude Code away.
 fn able(d: &Dev) -> Arc<AtomicBool> {
-    let ready = Arc::new(AtomicBool::new(true));
-    d.core.set_spawner(Some(spawner(&ready)));
-    ready
+    chat::able(&d.core)
 }
 
 /// Every `assistant.home` row in `c`'s log, in store order, with its writer.
@@ -86,145 +67,6 @@ fn write_row(c: &Core, device: &str, how: &str, at: GoTime) {
         .unwrap();
 }
 
-/// Waits `secs` and checks `cond` held the whole time.
-fn holds_for(secs: u64, what: &str, cond: impl Fn() -> bool) {
-    let end = std::time::Instant::now() + Duration::from_secs(secs);
-    while std::time::Instant::now() < end {
-        assert!(cond(), "{what}");
-
-        std::thread::sleep(Duration::from_millis(250));
-    }
-}
-
-// ---- Cores that can be kept apart, then meet ----
-
-type Links = Arc<Mutex<Vec<SocketAddr>>>;
-
-fn start_dyn(data: &std::path::Path, cl: &std::path::Path, lan: SocketAddr, links: Links) -> Core {
-    let mut o = common::options(data, cl);
-    o.pair_net = Some(Arc::new(move |ident, chain, guests| {
-        let mut nc = irori_core::devices::default_net_config(ident, chain, guests);
-        nc.ip = irori_net::endpoint::IpMode::Loopback;
-        nc.gossip = false;
-        let lc = nc.lan_config.as_mut().expect("a LAN lookup");
-        lc.bind = Some(lan);
-        let links = links.clone();
-        lc.targets = Some(Arc::new(move || links.lock().unwrap().clone()));
-        lc.every = Duration::from_millis(200);
-        irori_net::transport::IrohNet::new(nc)
-    }));
-    Core::start(o).unwrap()
-}
-
-fn dev_dyn(data: tempfile::TempDir, name: &str, sess: &str, lan: SocketAddr, links: Links) -> Dev {
-    let (cl, w) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let sessions = cl.path().join("sessions");
-    std::fs::create_dir_all(&sessions).unwrap();
-    common::write_session(&sessions, "900001.json", sess, name, w.path());
-    let core = start_dyn(data.path(), cl.path(), lan, links);
-    let agent = format!("{}/{sess}", core.device_id());
-    wait_for(60, "presence lists the session", || {
-        core.local_agents().iter().any(|a| a.key == agent)
-    });
-    Dev {
-        core,
-        agent,
-        data: data.path().to_path_buf(),
-        claude: cl.path().to_path_buf(),
-        lan,
-        to: Vec::new(),
-        edit: None,
-        _dirs: vec![data, cl, w],
-    }
-}
-
-/// One person on two devices that know each other but can't reach each
-/// other until [`meet`].
-fn apart(who: &str) -> (Vec<Dev>, Vec<Links>, Vec<SocketAddr>) {
-    let lans: Vec<SocketAddr> = (0..2).map(|_| free_udp()).collect();
-    let links: Vec<Links> = (0..2).map(|_| Links::default()).collect();
-    let sess = |i: usize| format!("{:08x}-1111-4111-8111-{:012x}", i + 1, i + 1);
-    let first = dev_dyn(
-        tempfile::tempdir().unwrap(),
-        &format!("{who}1"),
-        &sess(0),
-        lans[0],
-        links[0].clone(),
-    );
-    let d = tempfile::tempdir().unwrap();
-    std::fs::copy(
-        first.data.join(irori_identity::PERSON_FILE),
-        d.path().join(irori_identity::PERSON_FILE),
-    )
-    .unwrap();
-    let second = dev_dyn(d, &format!("{who}2"), &sess(1), lans[1], links[1].clone());
-    let add = first
-        .core
-        .identity()
-        .cert_for(
-            second.core.device_id(),
-            &hex::encode(second.core.identity().device_pub()),
-            &format!("{who}2"),
-            irori_identity::ROLE_DESKTOP,
-            presence::now_local(),
-        )
-        .unwrap();
-    first
-        .core
-        .store()
-        .append("irori", kinds::PERSON_DEVICE_ADDED, &add)
-        .unwrap();
-    let rows = first
-        .core
-        .store()
-        .list(&Filter {
-            kinds: vec!["person.".into()],
-            ..Filter::default()
-        })
-        .unwrap();
-    for _ in 0..2 {
-        for ev in &rows {
-            let _ = second.core.chain().learn(ev.into());
-        }
-    }
-    wait_for(45, "the devices own each other's keys", || {
-        let devs = [&first, &second];
-        devs.iter().all(|x| {
-            devs.iter()
-                .all(|y| x.core.is_owner(&format!("user:{}", y.core.device_id())))
-        })
-    });
-    // Nothing is dialed: each one's lookup has no targets yet.
-    (vec![first, second], links, lans)
-}
-
-fn meet(links: &[Links], lans: &[SocketAddr]) {
-    for (i, l) in links.iter().enumerate() {
-        *l.lock().unwrap() = lans
-            .iter()
-            .enumerate()
-            .filter(|(j, _)| *j != i)
-            .map(|(_, a)| *a)
-            .collect();
-    }
-}
-
-/// A clock that runs `skew` seconds ahead.
-fn skewed(skew: Arc<AtomicI64>) -> Edit {
-    Arc::new(move |o: &mut Options| {
-        let sk = skew.clone();
-        o.now = Some(Arc::new(move || {
-            let d = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap();
-            GoTime::unix(
-                d.as_secs() as i64 + sk.load(Ordering::SeqCst),
-                i64::from(d.subsec_nanos()),
-            )
-        }));
-    })
-}
-
 // ---- the tests ----
 
 /// Two computers that claim while they can't see each other each think they
@@ -232,7 +74,7 @@ fn skewed(skew: Arc<AtomicI64>) -> Edit {
 /// store's order, wins on both.
 #[test]
 fn two_cores_that_claim_apart_agree_on_the_first_claim_when_they_meet() {
-    let (devs, links, lans) = apart("stephen");
+    let (devs, links, lans) = apart("stephen", 2);
     let (a, b) = (&devs[0], &devs[1]);
     let (ra, rb) = (able(a), able(b));
     wait_for(WAIT, "each claims for itself", || {

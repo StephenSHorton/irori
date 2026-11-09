@@ -62,6 +62,7 @@ fn the_home_device_mints_one_card_per_space_and_points_at_it() {
         d.core.create_board("Wind Waker", "wind").unwrap(),
         d.core.create_board("Other", "oth").unwrap(),
     );
+    d.core.set_chat_turn(Some(common::chat::idle_turn()));
     d.core.set_spawner(Some(ready_spawner()));
     for s in [&a, &b] {
         wait_for(90, "the assistant card is minted and pointed at", || {
@@ -96,10 +97,12 @@ fn a_restart_reuses_the_card_rather_than_minting_a_second() {
     let mut devs = person("stephen", 1);
     let d = devs.pop().unwrap();
     let a = d.core.create_board("Wind Waker", "wind").unwrap();
+    d.core.set_chat_turn(Some(common::chat::idle_turn()));
     d.core.set_spawner(Some(ready_spawner()));
     wait_for(90, "minted", || !pointer(&d.core, &a).is_empty());
     let first = pointer(&d.core, &a);
     let d = common::mesh::restart(d);
+    d.core.set_chat_turn(Some(common::chat::idle_turn()));
     d.core.set_spawner(Some(ready_spawner()));
     std::thread::sleep(Duration::from_secs(8));
     assert_eq!(pointer(&d.core, &a), first);
@@ -114,6 +117,7 @@ fn a_rename_or_a_colour_keeps_the_pointer() {
     let mut devs = person("stephen", 1);
     let d = devs.pop().unwrap();
     let a = d.core.create_board("Wind Waker", "wind").unwrap();
+    d.core.set_chat_turn(Some(common::chat::idle_turn()));
     d.core.set_spawner(Some(ready_spawner()));
     wait_for(90, "minted", || !pointer(&d.core, &a).is_empty());
     let first = pointer(&d.core, &a);
@@ -161,6 +165,7 @@ fn only_the_recorded_computer_mints() {
         mac.core.device_id().to_string(),
         pc.core.device_id().to_string(),
     );
+    mac.core.set_chat_turn(Some(common::chat::idle_turn()));
     mac.core.set_spawner(Some(ready_spawner()));
     wait_for(90, "the Mac is the assistant's computer on both", || {
         mac.core.assistant_home().as_deref() == Some(&*mac_id)

@@ -408,7 +408,10 @@ mod tests {
                 false
             )
         );
-        let s = split_draft(&format!("Here it is.\n{}\nTap Post thread.", draft("Fix the lobby.")));
+        let s = split_draft(&format!(
+            "Here it is.\n{}\nTap Post thread.",
+            draft("Fix the lobby.")
+        ));
         assert_eq!(s.text, "Here it is.\n\nTap Post thread.");
         assert_eq!(s.draft, "Fix the lobby.");
         assert_eq!(
@@ -434,7 +437,10 @@ mod tests {
             assert_eq!(split_draft(&format!("Writing.\n{tail}")).text, "Writing.");
         }
         assert_eq!(
-            split_draft(&format!("A thread goes between {DRAFT_OPEN} and {DRAFT_CLOSE}.")).draft,
+            split_draft(&format!(
+                "A thread goes between {DRAFT_OPEN} and {DRAFT_CLOSE}."
+            ))
+            .draft,
             "and"
         );
     }

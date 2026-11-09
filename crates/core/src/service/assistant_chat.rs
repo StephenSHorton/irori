@@ -767,7 +767,10 @@ impl Fold {
             .collect();
         rows.sort();
         let skip = rows.len().saturating_sub(max);
-        rows.into_iter().skip(skip).map(|(_, t)| t.to_string()).collect()
+        rows.into_iter()
+            .skip(skip)
+            .map(|(_, t)| t.to_string())
+            .collect()
     }
 
     /// The conversation before the question at `at`, as history turns
@@ -882,7 +885,12 @@ impl Core {
     /// returns the turn. The assistant's computer answers it, wherever
     /// that is. `screen` is this device's snapshot; `again` the turn it
     /// asks again (Ask again), or "".
-    pub fn assistant_chat_ask(&self, text: &str, screen: &str, again: &str) -> Result<String, String> {
+    pub fn assistant_chat_ask(
+        &self,
+        text: &str,
+        screen: &str,
+        again: &str,
+    ) -> Result<String, String> {
         if text.trim().is_empty() {
             return Err("ask something first".into());
         }

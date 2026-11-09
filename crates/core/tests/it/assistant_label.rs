@@ -34,6 +34,7 @@ fn only_the_owners_real_assistant_is_labelled_and_mentioned() {
         person("stephen", 1).pop().unwrap(),
         person("eve", 1).pop().unwrap(),
     );
+    a.core.set_chat_turn(Some(common::chat::idle_turn()));
     a.core.set_spawner(Some(ready_spawner()));
     let id = invited(&a, &b);
     let (a_id, b_id) = (a.core.person().id, b.core.person().id);

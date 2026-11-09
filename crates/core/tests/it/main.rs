@@ -12,6 +12,7 @@ mod assistant_chat;
 mod assistant_home;
 mod assistant_label;
 mod assistant_names;
+mod assistant_turns;
 mod assistant_weighs;
 mod attachments;
 mod board_servers;
