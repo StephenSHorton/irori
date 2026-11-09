@@ -357,6 +357,17 @@ impl Services {
         given: bool,
     ) -> Result<(), String> {
         let now = (self.now)();
+        // It let go when the rest was asked: what the person wrote while it
+        // owed its hand-off is the next agent's to answer.
+        let asked = self
+            .spawn
+            .ending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(key)
+            .copied()
+            .filter(|a| !a.is_zero() && before(a, &now))
+            .unwrap_or(now);
         let current = self.coord.spawned(key).map(|m| m.current().to_string());
         let left = self.coord.rest_leave(key).map_err(|e| e.to_string())?;
         if !given {
@@ -395,7 +406,7 @@ impl Services {
         let row = RestRow {
             key: key.to_string(),
             life: FIRST_LIFE,
-            at: now,
+            at: asked,
             reason: reason.into(),
             ctx: card.ctx,
             ctx_at: card.ctx_at,
@@ -418,7 +429,7 @@ impl Services {
                 .remove(key);
             return Err(e.to_string());
         }
-        self.coord.mark_rested(key, now);
+        self.coord.mark_rested(key, asked);
         self.hub.publish(crate::events::CoreEvent::Roster);
         Ok(())
     }
@@ -670,11 +681,15 @@ impl Services {
                 if d.mode == inbox::mode::NEXT_TURN || !d.hold.is_empty() {
                     return false;
                 }
-                // Irori's notices from before the rest are about what it
+                // Irori's own notices from before the rest are about what it
                 // handed off as it rested (the change that settled its card,
-                // say), not something new for it. A person's own message
-                // still counts, whenever it came.
-                if d.message.notice && before(&d.created_at, &rested) {
+                // say), not something new for it. Anything from the person
+                // (a message, their comment's notice) still counts, whenever
+                // it came.
+                if d.message.notice
+                    && d.message.from.kind == "irori"
+                    && before(&d.created_at, &rested)
+                {
                     return false;
                 }
                 let r = d.message.reason.as_str();

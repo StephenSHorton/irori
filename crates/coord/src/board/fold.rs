@@ -708,7 +708,12 @@ impl Fold {
                     self.usage_limited.insert(k.clone());
                 }
                 if ev.kind == kinds::AGENT_REST {
-                    self.rest_times.insert(k, gotime::hlc_wall(ev.hlc));
+                    // When the rest was asked (its row's `at`), else the row's.
+                    let at = row::<crate::roster::RestRow>(&ev.payload)
+                        .map(|r| r.at)
+                        .filter(|a| !a.is_zero())
+                        .unwrap_or_else(|| gotime::hlc_wall(ev.hlc));
+                    self.rest_times.insert(k, at);
                 } else if ev.kind == kinds::AGENT_GONE {
                     self.gone_rows.insert(k, gotime::hlc_wall(ev.hlc));
                 } else {

@@ -274,3 +274,35 @@ fn a_word_written_while_it_rested_starts_the_next_agent_after_its_retire() {
     e.c.mark_ended(SPAWNED, e.clk.now());
     assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
 }
+
+/// Review of card #1215: a word the person writes while the agent owes
+/// its hand-off (the rest is asked, it never answers) starts the next
+/// agent: the let-go is when the rest was asked, not when it finished.
+#[test]
+fn a_word_written_during_the_hand_off_wait_starts_the_next_agent() {
+    let mut e = Env::new();
+    let rs = rig(&mut e);
+    let (tk, _) =
+        e.c.post_ask(
+            USER,
+            NewAsk {
+                text: "Should we drop Windows 10?".into(),
+                ..NewAsk::default()
+            },
+            &[],
+        )
+        .unwrap();
+    e.ros.set(SPAWNED, "idle");
+    bound(&e, &tk.id);
+    e.c.sweep_asks(&[]).unwrap();
+    // The rest is asked now; the person writes; the wait runs out.
+    let asked = e.clk.now();
+    e.clk.add(mins(1));
+    e.c.add_comment(USER, &tk.id, "Look at the install numbers.", false)
+        .unwrap();
+    e.clk.add(mins(2));
+    rest(&e, &rs);
+    e.c.mark_rested(SPAWNED, asked);
+    e.c.sweep_asks(&[]).unwrap();
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
+}

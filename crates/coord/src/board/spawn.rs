@@ -1139,8 +1139,12 @@ impl Fold {
         // retire after a rest doesn't either).
         // After a retire its rest still counts: a word the person wrote
         // while it rested starts the next agent.
-        let let_go = rested
-            .or_else(|| self.rest_times.get(&s.key).copied())
+        // The rest's let-go is when the rest was asked, kept after a retire.
+        let let_go = self
+            .rest_times
+            .get(&s.key)
+            .copied()
+            .or(rested)
             .or_else(|| self.gone_rows.get(&s.key).copied());
         let since = match let_go {
             Some(at) if gotime::before(&s.at, &at) => at,
