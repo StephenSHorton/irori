@@ -585,7 +585,7 @@ fn a_ping_never_wakes_and_goes_once_per_agent() {
 /// whose they are, so Alice's ask and ping to them are missed live. Then
 /// the mappings come. Returns the world, the card, the asked and pinged
 /// agents' board keys and the ask's row key.
-fn missed_world(gh: &Arc<FakeGh>) -> (Two, Task, String, String, String) {
+pub(crate) fn missed_world(gh: &Arc<FakeGh>) -> (Two, Task, String, String, String) {
     let t = pick_world(gh, |_| {});
     let cards = [
         (

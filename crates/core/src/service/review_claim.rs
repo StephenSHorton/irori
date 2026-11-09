@@ -26,12 +26,12 @@ pub(super) fn clean_name(n: &str) -> String {
 
 impl Services {
     /// The member a board key is on `b`, `""` for none.
-    fn key_person_on(&self, b: &BoardLog, key: &str) -> String {
+    pub(super) fn key_person_on(&self, b: &BoardLog, key: &str) -> String {
         b.verifier.key_person(key)
     }
 
     /// The board and PR card for `pr` in a space the person belongs to.
-    fn pr_card_here(&self, pr: &str) -> Option<(Arc<BoardLog>, Task)> {
+    pub(super) fn pr_card_here(&self, pr: &str) -> Option<(Arc<BoardLog>, Task)> {
         let me = self.person_id();
         let mut boards: Vec<Arc<BoardLog>> = self
             .visible_boards()
@@ -86,7 +86,7 @@ impl Services {
     }
 
     /// The holder's name on `b`: its card's, cleaned; `an agent` if none.
-    fn holder_name(&self, b: &BoardLog, holder: &str) -> String {
+    pub(super) fn holder_name(&self, b: &BoardLog, holder: &str) -> String {
         let name = holder
             .strip_prefix(store::kinds::AGENT_ACTOR_PREFIX)
             .and_then(|id| lock(&b.maps).cards.get(id).map(|c| c.name.clone()))

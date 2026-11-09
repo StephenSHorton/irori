@@ -126,3 +126,74 @@ fn an_old_desk_lease_call_points_at_the_merge_question() {
         h.fails(&a, "lease", args, &["never merges", "Can I merge PR #N?"]);
     }
 }
+
+// ---- prs shows who holds a review with capture off (card #1080) ----------
+
+struct Reviews(Vec<tools::PrReviewLine>);
+
+impl tools::TaskRouter for Reviews {
+    fn task_coord(
+        &self,
+        _task_id: &str,
+        _keys: &[String],
+    ) -> Result<(Arc<Coord>, Vec<String>), coord::Error> {
+        unreachable!()
+    }
+    fn private_notice(&self, n: coord::Notice) -> coord::Notice {
+        n
+    }
+    fn task_ref(&self, r: &str) -> Result<String, coord::Error> {
+        Ok(r.into())
+    }
+    fn pr_reviews(&self, repo: &str) -> Vec<tools::PrReviewLine> {
+        if repo == "acme/app" {
+            self.0.clone()
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+#[test]
+fn prs_shows_the_claimer_with_capture_off() {
+    let h = new_harness();
+    let line = tools::PrReviewLine {
+        number: 7,
+        url: "https://github.com/acme/app/pull/7".into(),
+        pick: "claimed".into(),
+        review: "CHANGES_REQUESTED".into(),
+        claimer: "fern (Maya)".into(),
+        until: "2026-11-08T15:00:00Z".into(),
+        related: vec!["kestrel (Kit): same files".into()],
+        ..Default::default()
+    };
+    let waiting = tools::PrReviewLine {
+        number: 8,
+        url: "https://github.com/acme/app/pull/8".into(),
+        pick: "waiting".into(),
+        why_none: "nobody in the space is free to review this PR yet".into(),
+        ..Default::default()
+    };
+    assert!(
+        h.b.router
+            .set(Arc::new(Reviews(vec![line, waiting])))
+            .is_ok()
+    );
+    let a = call_a();
+    let out = h.ok(&a, "prs", r#"{"repo":"acme/app"}"#);
+    has(
+        &out,
+        &[
+            "#7 https://github.com/acme/app/pull/7",
+            "claimed by fern (Maya) until 2026-11-08T15:00:00Z",
+            "GitHub CHANGES_REQUESTED",
+            "related kestrel (Kit): same files",
+            "#8",
+            "nobody picked",
+            "why: nobody in the space is free",
+            "capture is off",
+        ],
+    );
+    // A repo with nothing to say still answers "capture is off".
+    h.fails(&a, "prs", r#"{"repo":"acme/other"}"#, &["capture is off"]);
+}
