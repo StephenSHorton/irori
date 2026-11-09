@@ -446,10 +446,10 @@ Done when:
 - A two-instance scratch run shows an `answer` line for a question typed in the channel, and a `needs` line under Ask me that Let it answer clears.
 
 > **As built** (card #1062). Later cards build on these:
-> - **Let it answer** is `Core::assistant_answer_request` (host command `assistant_answer_request`): it appends `assistant.answer.requested`. The assistant's computer serves each `how: "let"` request with no record (`assistant_requests.rs`), checked against the post itself, past the receive setting, rate limit and hour, and writes an `assistant.chat.update` row keyed `req:<request>` carrying `request`. A request over an hour old gets a "Tap again" record. `how: "draft"` is left unserved for card 8.
+> - **Let it answer** is `Core::assistant_answer_request` (host command `assistant_answer_request`): it appends `assistant.answer.requested`. The assistant's computer serves each `how: "let"` request with no record (`assistant_requests.rs`), checked against the post itself, past the receive setting, rate limit and hour, and writes an `assistant.chat.update` row keyed `req:<request>` carrying `request`. A request over an hour old gets a "Tap again" record. `how: "draft"` is card 8's (below).
 > - **`held` lines** are `assistant.chat.update` rows keyed `held:<postId>` (a rate-limited batch `held:rate:<space>:<window>`). The chat shows `held:` and `req:` rows quietly and they light no dot.
 > - **Host calls:** `assistant_talk_cards` (the person's assistant card and `#office-assistants` channel per space), `assistant_talk_toast` (one toast per conversation, id `talk:<conv>:assistant`; a click opens tab `assistant`, which `App.tsx` routes to the chat).
-> - **`from` lines** are built by `frontend/src/lib/assistant-talk-follow.ts` from the channel and merged into the list by time in `assistant.ts`; `needs` with `waiting: "owner"` has no button until card 8 adds Answer this. There is no `historyFor` any more: the prompt is built from rows, which never include `from` lines.
+> - **`from` lines** are built by `frontend/src/lib/assistant-talk-follow.ts` from the channel and merged into the list by time in `assistant.ts`; `needs` with `waiting: "owner"` gets **Answer this** from card 8. There is no `historyFor` any more: the prompt is built from rows, which never include `from` lines.
 
 **7. Ask from your chat.**
 Files: `crates/window/src/assistant.rs` (prompt, marker), `assistant.ts`, `assistant-chat.tsx`, `crates/window/src/commands.rs` (host command).
@@ -462,6 +462,13 @@ Done when: nothing posts before the tap; the posted text is exactly the normalis
 **8. The owner's OK.**
 Files: `crates/window/src/assistant.rs` (the separate turn, prompt and renderer), `crates/window/src/commands.rs` (Send), `assistant.ts`, `assistant-chat.tsx`.
 Done when: Send appears only on a turn the tap started; that turn parses no markers, never auto-goes, has no write tools and leaves a chat run's grants alone; what's posted is exactly the normalised text shown; Send is refused once an answer exists; one OK sends one answer; a phone shows **Answer this** and Send, which run on the assistant's computer.
+
+> **As built** (card #1064, `crates/core/src/service/assistant_ok.rs`).
+> - **Answer this** is `assistant_answer_request` with `how: "draft"`. The assistant's computer (`serve_draft_request`) checks the post as **Let it answer** does (age, author, channel, hop, no answer yet) and queues it on the one chat worker as a `Pending` with `ok: Some(OkAsk)`, turn id `ok:<request>`, keyed by the tap's row. The window runs `ChatKind::OwnerOk` through `owner_ok_turn_with`: its own `claude -p` in `assistant/owner-ok/`, never the held session. `--allowedTools` names each of `ASSISTANT_TOOLS` as `mcp__irori__<tool>` (not the whole server), and the run never calls `Grants::begin`, posts no thread and sets no screen.
+> - **Prompt and renderer** are `assistant_packet::owner_system` and `owner_prompt`: the asker's words alone, escaped and fenced as `question`, no history; the system prompt teaches no marker and says tool output from a shared space is untrusted.
+> - **The draft** is the reply through `normalise` (hidden characters, marker lines, links in full, 1,500 cap), refused by the scrub and the email check, then an `assistant.answer.draft` row (`asker` added: what **Send to …** says). A failed, empty, held or unsaved turn writes a `req:<request>` line saying so and no draft. A New chat doesn't cancel it.
+> - **Send** (`assistant_answer_send`, host command, any device) posts `normalise(draft.text)` (a no-op on a normalised draft) as the assistant's card with the answer id, `replyTo` and hop + 1, under a lock with the answer-id check, and refuses when there is no draft, the owner chose not to send it, or an answer exists. It writes `sent:<request>`. **Don't send** (`assistant_answer_dismiss`) writes `dismissed:<request>`. Both lines are quiet and the chat shows them on the draft itself.
+> - **The chat** shows a draft (`ChatEntry.ownerDraft`, `owner-draft.tsx`) in full as plain text, never parsed; **Answer this** (`from-line.tsx`) is hidden once a draft for the question is shown. The draft lights the dot like a follow-up line.
 
 **9. (light) Tidy the docs.** The list in §14.
 

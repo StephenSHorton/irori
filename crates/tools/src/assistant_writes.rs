@@ -84,6 +84,17 @@ impl Grants {
         s.run
     }
 
+    /// How many runs have begun, ever: a turn that holds no grants (the
+    /// owner's-OK turn, assistants-talk card 8) leaves it where it was.
+    pub fn runs(&self) -> u64 {
+        self.lock().run
+    }
+
+    /// How many grants are open now.
+    pub fn open_count(&self) -> usize {
+        self.lock().open.len()
+    }
+
     /// Spends the grant for this write and gives back the card it is for,
     /// as `task:<id>`; `None` when there is none. `resolve` turns a ref into
     /// its card id across every space the person can see (card #1198), so

@@ -39,6 +39,7 @@ import {
 import { AgentCards } from "@/components/cards/agent-hover"
 import { RichText } from "@/components/common/rich-text"
 import { FromLine } from "./from-line"
+import { OwnerDraftLine } from "./owner-draft"
 import { AskDraftCard } from "./ask-draft"
 import { go as goSection } from "@/lib/nav"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
@@ -68,6 +69,7 @@ import {
   setHome,
   spaceOfTag,
   splitReply,
+  openDraftPosts,
   startFollowing,
   stopTurn,
   subscribeAssistant,
@@ -520,6 +522,8 @@ export function AssistantPanel({
     if (at !== null) input.current?.setSelectionRange(at, at)
   }, [text])
   const end = useRef<HTMLDivElement>(null)
+  // Answer this is hidden while the question has an open draft.
+  const draftedPosts = openDraftPosts(entries)
   const firstPending = entries.find((e) => e.pending)?.turn
   useEffect(() => {
     input.current?.focus({ preventScroll: true })
@@ -730,6 +734,7 @@ export function AssistantPanel({
               <Fragment key={e.id ?? entryKey(e)}>
                 <Entry
                   entry={e}
+                  drafted={draftedPosts.has(e.from?.postId ?? "")}
                   onTalk={(conv) => {
                     if (narrow) onClose()
                     goSection({ kind: "talk", id: conv })
@@ -912,6 +917,7 @@ function Starters({
 
 function Entry({
   entry,
+  drafted,
   onGo,
   work,
   onPost,
@@ -921,6 +927,8 @@ function Entry({
   onTalk,
 }: {
   entry: ChatEntry
+  // The owner's-OK draft for this line's question is shown (card #1064).
+  drafted: boolean
   // Open in Talk, on a labelled line (card #1062).
   onTalk: (conv: string) => void
   // Its draft is being posted by a tap.
@@ -963,7 +971,9 @@ function Entry({
       </Message>
     )
   // Someone else's words: before anything that parses a reply.
-  if (entry.from) return <FromLine entry={entry} onTalk={onTalk} />
+  if (entry.from)
+    return <FromLine entry={entry} onTalk={onTalk} drafted={drafted} />
+  if (entry.ownerDraft) return <OwnerDraftLine entry={entry} />
   if (entry.update) return <Update entry={entry} />
   if (entry.changed)
     return (
