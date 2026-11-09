@@ -107,6 +107,11 @@ export type ChatEntry = {
   at?: number
   // A quiet line: a held line or a tap's record. No dot.
   quiet?: boolean
+  // Decision 69: another person's words a follow-up line quotes (a
+  // give-back's reason), shown as a quote and never as the assistant's own.
+  quote?: { name: string; words: string }
+  // What the display fold joined into this given line (see foldGiven).
+  givenFold?: GivenFold
   // The reply was stopped or failed before it ended, so a draft it never
   // closed is cut short (splitDraft's ended).
   cutOff?: boolean
@@ -826,6 +831,12 @@ export function entriesFrom(page: readonly AssistantChatItem[]): ChatEntry[] {
       if (quietKey(u.key)) e.quiet = true
       if (u.act && u.act.kind === "answer" && u.act.card && u.act.blocker)
         e.act = { kind: "answer", card: u.act.card, blocker: u.act.blocker }
+      if (u.from?.words) e.quote = { name: u.from.name, words: u.from.words }
+      const g = givenLine(u.key, u.thread, u.text, u.at)
+      if (g) {
+        if (foldGiven(out, g)) continue
+        e.givenFold = g
+      }
       out.push(e)
       continue
     }
@@ -904,8 +915,89 @@ export function quietKey(key: string): boolean {
     key.startsWith("held:") ||
     key.startsWith("req:") ||
     key.startsWith(SentKey) ||
-    key.startsWith(DismissedKey)
+    key.startsWith(DismissedKey) ||
+    givenOutcome(key) === GIVEN_START_FACT ||
+    givenOutcome(key) === GIVEN_NOT_NOW_FACT
   )
+}
+
+// ---- cards given to people: what the sender hears (decision 69) ---------------
+// Core writes one row per card outcome (given_follow.rs) on the sender's
+// assistant's computer; these are the strings both sides use. The thread is
+// given:<batch>, or given:<giver> with no batch, and the key is
+// updateKey(thread, <fact>:<card>:<which>).
+export const GIVEN_THREAD = "given:"
+export const GIVEN_START_FACT = "start"
+export const GIVEN_NOT_NOW_FACT = "notnow"
+export const GIVEN_BACK_FACT = "back"
+export const GIVEN_START_VERB = " started an agent on "
+export const GIVEN_NOT_NOW_VERB = " put "
+export const GIVEN_NOT_NOW_TAIL = " aside for now"
+export const GIVEN_BACK_VERB = " gave back "
+// Lines of one thread and outcome this close together are shown as one.
+const GIVEN_FOLD_MS = 2 * 60 * 1000
+
+// givenOutcome is the fact (start, notnow or back) of a given: row's key,
+// or "" for any other row.
+export function givenOutcome(key: string): string {
+  if (!key.startsWith(GIVEN_THREAD)) return ""
+  const i = key.indexOf("|")
+  if (i < 0) return ""
+  return key.slice(i + 1).split(":", 1)[0]
+}
+
+// GivenFold is what a shown given line was made of.
+export type GivenFold = {
+  thread: string
+  outcome: string
+  name: string
+  refs: string[]
+  last: number
+}
+
+// givenLine reads a start or not-now row: who, which card, how it was said.
+function givenLine(
+  key: string,
+  thread: string,
+  text: string,
+  at: number
+): GivenFold | null {
+  const outcome = givenOutcome(key)
+  const m =
+    outcome === GIVEN_START_FACT
+      ? text.match(/^(.+?) started an agent on (\S+)\.$/)
+      : outcome === GIVEN_NOT_NOW_FACT
+        ? text.match(/^(.+?) put (\S+) aside for now\.$/)
+        : null
+  if (!m) return null
+  return { thread, outcome, name: m[1], refs: [m[2]], last: at }
+}
+
+// givenText is the line a fold shows: one card says it as Core did; more
+// join their refs.
+function givenText(f: GivenFold): string {
+  const refs = f.refs.join(", ")
+  if (f.outcome === GIVEN_START_FACT)
+    return f.refs.length === 1
+      ? `${f.name}${GIVEN_START_VERB}${refs}.`
+      : `${f.name} started agents on ${f.refs.length} of your tasks (${refs}).`
+  return `${f.name}${GIVEN_NOT_NOW_VERB}${refs}${GIVEN_NOT_NOW_TAIL}.`
+}
+
+// foldGiven joins the row `e` (a start or not-now line) onto the entry
+// before it when that is the same thread and outcome within a short while
+// (the display fold, not the rows: each card keeps its own row). It
+// returns true when it did. Give-back lines are never folded.
+function foldGiven(out: ChatEntry[], f: GivenFold): boolean {
+  const prev = out[out.length - 1]
+  const p = prev?.givenFold
+  if (!p || p.thread !== f.thread || p.outcome !== f.outcome) return false
+  if (p.name !== f.name || f.last - p.last > GIVEN_FOLD_MS) return false
+  if (p.refs.includes(f.refs[0])) return true
+  p.refs.push(f.refs[0])
+  p.last = f.last
+  prev.text = givenText(p)
+  return true
 }
 
 // mergeLines puts the labelled lines among the conversation's entries by
@@ -1563,6 +1655,7 @@ let follower: Follower | null = null
 export function updateEntries(id: string, lines: readonly Fact[]): ChatEntry[] {
   return lines.map((f) => {
     const e: ChatEntry = { role: "assistant", text: f.text, update: id }
+    if (quietKey(updateKey(id, f.key))) e.quiet = true
     if (f.act) e.act = f.act
     return e
   })

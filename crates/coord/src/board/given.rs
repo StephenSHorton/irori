@@ -25,6 +25,18 @@ pub const GIVEN_BACK_KEEP_ONLY: &str = "Keep it on the board";
 /// Cancel the card.
 pub const GIVEN_BACK_CANCEL: &str = "Cancel it";
 
+/// What comes right before the receiver's reason in a give-back item's
+/// context. [`given_back_reason`] reads it back.
+const REASON_MARK: &str = " Their reason: ";
+
+/// The receiver's reason, as a give-back item's context carries it, or "".
+/// The giver's Core shows it fenced as the other person's words.
+pub fn given_back_reason(context: &str) -> &str {
+    context
+        .split_once(REASON_MARK)
+        .map_or("", |(_, why)| why.trim())
+}
+
 /// A batch holds at most this many cards.
 pub const MAX_BATCH: usize = 20;
 /// How much of the receiver's reason a give-back's context carries.
@@ -176,7 +188,7 @@ impl Fold {
         };
         let mut cx = format!("{} gave this card back.", self.named(&g.key));
         if !reason.is_empty() {
-            cx.push_str(&format!(" Their reason: {}", cut(&reason, MAX_REASON)));
+            cx.push_str(&format!("{REASON_MARK}{}", cut(&reason, MAX_REASON)));
         }
         self.raise_with(
             &by,
@@ -361,6 +373,29 @@ impl Fold {
         });
         let _ = Ordering::Equal;
         v
+    }
+
+    /// The open cards this person gave that their receiver has answered,
+    /// and the open cards given back to them: what the giver's assistant
+    /// tells them of (decision 69). Filtered under the lock, so a sweep
+    /// copies only these.
+    pub(crate) fn given_news(&self, me: &str) -> Vec<Task> {
+        let me_key = format!("{}{me}", kinds::PERSON_ACTOR_PREFIX);
+        self.tasks
+            .values()
+            .filter(|t| !is_terminal(&t.state))
+            .filter(|t| {
+                t.given
+                    .as_ref()
+                    .is_some_and(|g| g.by_person == me && t.given_said.is_some())
+                    || t.blockers.iter().any(|b| {
+                        b.given_back
+                            && b.open()
+                            && b.on.as_ref().is_some_and(|o| o.reference == me_key)
+                    })
+            })
+            .cloned()
+            .collect()
     }
 
     /// The give-back item's pick, when `answer` is on one (decision 69).
