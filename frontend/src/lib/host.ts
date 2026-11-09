@@ -748,6 +748,11 @@ export const AssistantService = {
   // newest); limit 0 is 50. "assistant:changed" says to read it again.
   ChatList: (before: string, limit: number) =>
     call(commands.assistantChatList(before, limit)),
+  // Brings this computer's old localStorage history in, once (card #1105):
+  // refused anywhere but the assistant's computer, and the second time
+  // with "the history was already imported".
+  ChatImport: (entries: B.AssistantImportEntry[]) =>
+    call(commands.assistantChatImport(entries)),
   // Asks the one assistant (one-assistant card 3): writes the question's
   // row and returns its turn; the assistant's computer answers it, wherever
   // it is. again is the turn Ask again repeats.

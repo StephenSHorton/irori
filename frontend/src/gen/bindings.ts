@@ -612,6 +612,13 @@ export const commands = {
 	 */
 	assistantChatUpdate: (line: AssistantChatUpdateIn) => __TAURI_INVOKE<null>("assistant_chat_update", { line }),
 	/**
+	 *  Brings this computer's old chat history (localStorage) in as the
+	 *  conversation's first rows, once (card #1105, one-assistant §10). Refused
+	 *  on any device but the assistant's computer, and a second time with
+	 *  "the history was already imported".
+	 */
+	assistantChatImport: (entries: AssistantImportEntry[]) => __TAURI_INVOKE<AssistantImported>("assistant_chat_import", { entries }),
+	/**
 	 *  Streams a turn's reply as this computer runs it: from now until the turn
 	 *  ends, starting with what it has said so far. Only the assistant's
 	 *  computer runs turns, so elsewhere nothing comes (card 7 streams there).
@@ -1117,6 +1124,45 @@ export type AssistantHomeStatus = {
 	 *  "" otherwise.
 	 */
 	none: string,
+};
+
+/**  What an old follow-up line lets the person do. */
+export type AssistantImportAct = {
+	kind?: string,
+	card?: string,
+	blocker?: string,
+};
+
+/**
+ *  One entry of the old localStorage history (`ChatEntry` in
+ *  `lib/assistant.ts`), for `assistant_chat_import`.
+ */
+export type AssistantImportEntry = {
+	/**  `person` or `assistant`. */
+	role?: string,
+	text?: string,
+	note?: boolean,
+	changed?: boolean,
+	posted?: AssistantImportPosted | null,
+	/**  The thread an assistant line follows. */
+	update?: string,
+	act?: AssistantImportAct | null,
+	to?: string,
+	/**  The text the reply read off the screen; only its label is kept. */
+	looked?: string,
+};
+
+/**  A thread an old history entry posted. */
+export type AssistantImportPosted = {
+	id?: string,
+	short?: string,
+	tag?: string,
+};
+
+/**  What `assistant_chat_import` wrote. */
+export type AssistantImported = {
+	turns: number,
+	updates: number,
 };
 
 /**  One comment file as the window shows it. */

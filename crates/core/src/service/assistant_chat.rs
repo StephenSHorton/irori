@@ -552,6 +552,9 @@ impl Place {
 #[derive(Debug, Default)]
 pub struct Fold {
     m: Mutex<State>,
+    /// Held across an import's check and its writes, so two calls can't
+    /// both pass the check.
+    import_gate: Mutex<()>,
 }
 
 impl Fold {
@@ -767,6 +770,15 @@ impl Fold {
     /// Turn `id`, hidden or not.
     pub fn turn(&self, id: &str) -> Option<ChatTurn> {
         self.turn_at(id).map(|t| t.turn)
+    }
+
+    /// Whether any imported row is held, hidden by New chat or not: the
+    /// import happens once.
+    pub(crate) fn has_imported(&self) -> bool {
+        let st = self.lock();
+        st.asked.values().any(|a| a.row.imported)
+            || st.said.values().any(|a| a.row.imported)
+            || st.updates.values().any(|a| a.row.imported)
     }
 
     /// The questions with no reply that New chat doesn't hide, imported
@@ -996,10 +1008,215 @@ impl Core {
         (self.s.now)().unix_milli_value()
     }
 
+    /// Brings this computer's old chat history in, once (one-assistant §10,
+    /// card #1105): refused unless this device is the assistant's computer
+    /// and no imported row is held yet. The rows are `imported`, scrubbed
+    /// like any row, written in the history's order, and never run.
+    pub fn assistant_chat_import(&self, entries: &[ImportEntry]) -> Result<Imported, String> {
+        let _gate = self
+            .s
+            .assistant_chat
+            .import_gate
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if !self.s.is_assistant_home() {
+            return Err("only the assistant's computer imports its history".into());
+        }
+        if self.s.assistant_chat.has_imported() {
+            return Err(ALREADY_IMPORTED.into());
+        }
+        if entries.len() > MAX_IMPORT {
+            return Err(format!("at most {MAX_IMPORT} entries"));
+        }
+        let now = (self.s.now)();
+        let mut new_turn = || coord::new_id(&now);
+        let rows = import_rows(
+            entries,
+            &self.s.device.id,
+            now.unix_milli_value(),
+            &mut new_turn,
+        );
+        let mut done = Imported::default();
+        for row in rows {
+            match &row {
+                ChatRow::Asked(_) => done.turns += 1,
+                ChatRow::Update(_) => done.updates += 1,
+                _ => {}
+            }
+            self.s.write_chat(row)?;
+        }
+        Ok(done)
+    }
+
     /// Turn `turn` as the fold has it, hidden by New chat or not.
     pub fn assistant_chat_turn(&self, turn: &str) -> Option<ChatTurn> {
         self.s.assistant_chat.turn(turn)
     }
+}
+
+// ---- moving today's history (card #1105, one-assistant.md §10) ---------------
+
+/// The refusal for a second import. The chat treats it as done.
+pub const ALREADY_IMPORTED: &str = "the history was already imported";
+
+/// The most entries one import takes: the old chat kept 50.
+pub const MAX_IMPORT: usize = 500;
+
+/// The words on a person's question the old history has no reply for.
+pub const NO_REPLY: &str = "(no reply)";
+
+/// One entry of the old localStorage history, as `parseHistory` read it
+/// (`frontend/src/lib/assistant.ts`'s `ChatEntry`).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct ImportEntry {
+    /// `person` or `assistant`.
+    pub role: String,
+    pub text: String,
+    /// A plain line of the chat's own (an error, "Stopped.").
+    pub note: bool,
+    /// A note saying what the chat changed.
+    pub changed: bool,
+    pub posted: Option<Posted>,
+    /// The thread an assistant line follows: the entry is a follow-up line.
+    pub update: String,
+    pub act: Option<Act>,
+    /// A reply sent on a thread by an older build: not a question.
+    pub to: String,
+    /// The label of the screen the reply looked at.
+    pub looked: String,
+}
+
+/// What an import wrote.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Imported {
+    pub turns: usize,
+    pub updates: usize,
+}
+
+/// A reply being gathered from the assistant entries after one question.
+#[derive(Default)]
+struct Gathered {
+    texts: Vec<String>,
+    changed: Vec<String>,
+    errors: Vec<String>,
+    posted: Option<Posted>,
+    looked: String,
+}
+
+impl Gathered {
+    fn into_said(self, turn: &str, device: &str, at: i64) -> Said {
+        let none = self.texts.is_empty() && self.changed.is_empty() && self.errors.is_empty();
+        Said {
+            turn: turn.into(),
+            text: self.texts.join("\n\n"),
+            changed: self.changed,
+            posted: self.posted,
+            looked: self.looked,
+            error: if none {
+                NO_REPLY.into()
+            } else {
+                self.errors.join("\n")
+            },
+            device: device.into(),
+            at,
+            imported: true,
+            ..Said::default()
+        }
+    }
+}
+
+/// Maps the old history to rows (§10), in the order they must be written;
+/// every row is `imported`. `new_turn` makes a turn id.
+///
+/// - A person's entry becomes an `asked` row.
+/// - The assistant entries after it, up to the next person's entry, become
+///   its `said` row: the text, its `posted`, its `changed` notes, and an
+///   error note as `error`. `looked` keeps only the label.
+/// - A question with no reply gets a `said` row whose `error` is
+///   "(no reply)", so nothing imported is left unanswered.
+/// - `update` entries become `update` rows keyed by thread and text.
+/// - Assistant entries before the first question (the 50-line cap cut it),
+///   and old `to` entries (and the assistant entries after them), are
+///   dropped.
+pub fn import_rows(
+    entries: &[ImportEntry],
+    device: &str,
+    at: i64,
+    new_turn: &mut dyn FnMut() -> String,
+) -> Vec<ChatRow> {
+    let mut rows = Vec::new();
+    // The open question and its gathered reply.
+    let mut open: Option<(String, Gathered)> = None;
+    let close = |open: &mut Option<(String, Gathered)>, rows: &mut Vec<ChatRow>| {
+        if let Some((turn, g)) = open.take() {
+            rows.push(ChatRow::Said(g.into_said(&turn, device, at)));
+        }
+    };
+    for e in entries {
+        let text = e.text.trim();
+        match e.role.as_str() {
+            "person" => {
+                close(&mut open, &mut rows);
+                if !e.to.is_empty() {
+                    continue;
+                }
+                let turn = new_turn();
+                rows.push(ChatRow::Asked(Asked {
+                    turn: turn.clone(),
+                    text: if text.is_empty() {
+                        "(attachment)"
+                    } else {
+                        text
+                    }
+                    .into(),
+                    device: device.into(),
+                    at,
+                    imported: true,
+                    ..Asked::default()
+                }));
+                open = Some((turn, Gathered::default()));
+            }
+            "assistant" if !e.update.is_empty() => {
+                if text.is_empty() {
+                    continue;
+                }
+                rows.push(ChatRow::Update(Update {
+                    key: format!("{}:{}", e.update, text),
+                    thread: e.update.clone(),
+                    text: text.into(),
+                    act: e.act.clone(),
+                    at,
+                    imported: true,
+                    ..Update::default()
+                }));
+            }
+            "assistant" => {
+                let Some((_, g)) = open.as_mut() else {
+                    continue;
+                };
+                if text.is_empty() {
+                    continue;
+                }
+                if e.note && e.changed {
+                    g.changed.push(text.into());
+                } else if e.note {
+                    g.errors.push(text.into());
+                } else {
+                    g.texts.push(text.into());
+                    if g.posted.is_none() {
+                        g.posted = e.posted.clone().filter(|p| !p.id.is_empty());
+                    }
+                    if g.looked.is_empty() {
+                        g.looked = e.looked.trim().into();
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    close(&mut open, &mut rows);
+    rows
 }
 
 #[cfg(test)]

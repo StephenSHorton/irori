@@ -75,6 +75,12 @@ import {
   type Reply,
   type WorkThread,
 } from "@/lib/assistant"
+import { OldHistory } from "@/components/assistant/assistant-old-history"
+import {
+  clearOldHistory,
+  startHistoryImport,
+  useOldHistory,
+} from "@/lib/assistant-import"
 import { goLabel, type GoTarget } from "@/lib/goto"
 import { BlockerState, useCard } from "@/lib/cards"
 import { useDraft } from "@/lib/drafts"
@@ -180,6 +186,10 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
   // #785), panel open or not: its lines light the button's dot.
   useEffect(() => startFollowing(), [])
 
+  // Today's history moves into the shared chat on the assistant's computer
+  // (card #1105), at load and when the computer changes.
+  useEffect(() => startHistoryImport(), [])
+
   // A window check's ?assistant-ask (lib/assistant.ts autoAsk).
   useEffect(() => {
     autoAsk((p) => cards?.onOpenThread(p.id))
@@ -207,7 +217,10 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
             onAsk={(t, files) => void ask(t, files)}
             onAskAgain={(t, turn) => void ask(t, [], turn)}
             onStop={stopTurn}
-            onNew={newChat}
+            onNew={() => {
+              clearOldHistory()
+              newChat()
+            }}
             onOlder={loadOlder}
             onGo={goTo}
             onPost={async (turn) => {
@@ -541,6 +554,7 @@ export function AssistantPanel({
 
   // The composer stays on while questions wait or run: only files on
   // their way hold it.
+  const old = useOldHistory()
   const attach = useFileAttach(
     sending,
     "Add files once the last ones are sent.",
@@ -631,7 +645,7 @@ export function AssistantPanel({
             variant="ghost"
             size="icon-sm"
             aria-label="New chat"
-            disabled={sending || !entries.length}
+            disabled={sending || (!entries.length && !old.length)}
             onClick={() => {
               onNew()
               input.current?.focus()
@@ -659,6 +673,7 @@ export function AssistantPanel({
         aria-live="polite"
         aria-busy={Object.keys(streams).length > 0}
       >
+        <OldHistory entries={old} narrow={narrow} />
         {!entries.length ? (
           <Starters
             onPick={(q) => send(q, pending)}
