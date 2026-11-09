@@ -821,6 +821,11 @@ impl Fold {
                 if p.by.is_empty() {
                     return;
                 }
+                if self.tasks.get(&p.task_id).is_some_and(pr_card) {
+                    // Nobody holds a PR card (merge desk §12.2).
+                    self.ignore(&ev.device_id);
+                    return;
+                }
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
                     return;
                 };
@@ -849,6 +854,10 @@ impl Fold {
                     return;
                 };
                 if p.to.is_empty() {
+                    return;
+                }
+                if self.tasks.get(&p.task_id).is_some_and(pr_card) {
+                    self.ignore(&ev.device_id);
                     return;
                 }
                 let gave = self.gave_to_person(ev, &p);
@@ -925,6 +934,11 @@ impl Fold {
                     return;
                 };
                 if p.who.is_empty() {
+                    return;
+                }
+                if ev.kind == kinds::TASK_JOINED && self.tasks.get(&p.task_id).is_some_and(pr_card)
+                {
+                    self.ignore(&ev.device_id);
                     return;
                 }
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
@@ -1456,7 +1470,10 @@ impl Fold {
         if !valid_state(&p.state) || !self.tasks.contains_key(&p.task_id) {
             return;
         }
-        if p.state == CANCELED
+        // On a PR card every end counts only from where a cancel does: the
+        // creator's person (which follows the PR) or the board's owner
+        // (merge desk §12.2).
+        if (p.state == CANCELED || (is_terminal(&p.state) && pr_card(&self.tasks[&p.task_id])))
             && !self.may_cancel(
                 &self.tasks[&p.task_id],
                 &ev.device_id,

@@ -632,7 +632,10 @@ async fn an_offline_device_gets_the_new_key_on_the_previous_topic() {
     })
     .await;
     let w = mac_row(&pc, &mac.id()).warning;
-    assert_eq!(w, "Removal pending: seen by 1 of 2 devices.");
+    assert_eq!(
+        w,
+        "Removal pending: seen by 1 of 2 devices. Waiting on node."
+    );
     nd.start();
     eventually("the removal is seen by both", || {
         mac_row(&pc, &mac.id()).warning == "Removed."
@@ -652,6 +655,28 @@ async fn an_offline_device_gets_the_new_key_on_the_previous_topic() {
         2,
         "the adopted key did not survive a restart"
     );
+}
+
+/// The node never comes back: the pending removal names it, and removing it
+/// clears the line.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_pending_removal_names_the_holdout_and_removing_it_clears_the_line() {
+    let net = FakeNet::new();
+    let (pc, mut mac, mut nd) = trio(&net).await;
+    nd.stop().await;
+    mac.stop().await;
+    pc.node().revoke(&mac.id(), "lost").await.unwrap();
+    let row = mac_row(&pc, &mac.id());
+    assert!(row.warning.starts_with("Removal pending: seen by 1 of 2"));
+    assert_eq!(row.holdouts.len(), 1);
+    assert_eq!(row.holdouts[0].device_id, nd.id());
+    assert!(row.warning.contains(&row.holdouts[0].name));
+    pc.node().revoke(&nd.id(), "gone for good").await.unwrap();
+    eventually("the line clears", || {
+        let r = mac_row(&pc, &mac.id());
+        r.warning == "Removed." && r.holdouts.is_empty()
+    })
+    .await;
 }
 
 /// The PC and the node can't reach each other, and the person removes the

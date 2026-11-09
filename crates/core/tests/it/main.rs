@@ -58,6 +58,7 @@ mod personal_boards;
 mod pr_cards;
 mod prefetch;
 mod prwatch;
+mod review_choice;
 mod review_pick;
 mod review_start;
 mod reviews_setting;
