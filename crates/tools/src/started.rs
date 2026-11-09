@@ -61,17 +61,27 @@ pub(crate) fn agents_started(s: &Inner, _: &Caller, raw: &[u8]) -> String {
         let Some(m) = co.spawned(&a.key) else {
             continue;
         };
-        let card = match s.task(&m.task_id) {
+        let item = |id: &str| match s.task(id) {
             Some(t) => format!(
                 "{} [{}] {}",
                 t.short_ref(),
                 t.state,
                 quoted(&one_line(&t.title, MAX_TITLE), MAX_TITLE)
             ),
-            None => format!("task:{}", m.task_id),
+            None => format!("task:{id}"),
         };
+        let card = item(m.current());
+        // Every other item it has served, newest first (A.3).
+        let mut also = String::new();
+        let mut seen = vec![m.current().to_string()];
+        for i in m.items.iter().rev() {
+            if !seen.contains(&i.task_id) {
+                seen.push(i.task_id.clone());
+                also += &format!("; also {}", item(&i.task_id));
+            }
+        }
         b += &format!(
-            "- {} ({}): {}; on {card}; last active {}{}\n",
+            "- {} ({}): {}; on {card}{also}; last active {}{}\n",
             a.name,
             a.key,
             a.status,

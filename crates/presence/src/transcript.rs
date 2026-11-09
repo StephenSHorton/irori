@@ -82,6 +82,14 @@ pub struct Tail {
     /// assistant row ends in a tool_use with no result after it. "" while
     /// it writes prose, thinks or waits.
     pub last_tool: String,
+    /// The context of the newest main-chain API call: input + cache read +
+    /// cache creation tokens of its last `message` iteration (agent-continuity
+    /// §4). 0 when the tail holds no such row.
+    pub ctx: u64,
+    /// When that call was made; zero with `ctx`.
+    pub ctx_at: GoTime,
+    /// A compaction row was seen. The watcher keeps it set.
+    pub compacted: bool,
 }
 
 /// Go `transcriptRow`: the tolerant subset of a transcript line.
@@ -90,6 +98,7 @@ static ROW: LazyLock<Schema> = LazyLock::new(|| {
         ("type", Schema::String),
         ("timestamp", Schema::String),
         ("isSidechain", Schema::Bool),
+        ("subtype", Schema::String),
         ("aiTitle", Schema::String),
         ("customTitle", Schema::String),
         ("permissionMode", Schema::String),
@@ -108,8 +117,31 @@ static MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
     )])
 });
 
+/// The usage-bearing part of an assistant message, parsed apart from MESSAGE
+/// so a surprise in `usage` can never cost the row's text.
+static USAGE_MESSAGE: LazyLock<Schema> = LazyLock::new(|| {
+    let counts = || {
+        vec![
+            ("type", Schema::String),
+            ("input_tokens", Schema::Int(64)),
+            ("cache_read_input_tokens", Schema::Int(64)),
+            ("cache_creation_input_tokens", Schema::Int(64)),
+        ]
+    };
+    let mut usage = counts();
+    usage.push((
+        "iterations",
+        Schema::Slice(Box::new(Schema::object(counts()))),
+    ));
+    Schema::object(vec![
+        ("model", Schema::String),
+        ("usage", Schema::object(usage)),
+    ])
+});
+
 struct Row {
     kind: String,
+    subtype: String,
     timestamp: String,
     is_sidechain: bool,
     ai_title: String,
@@ -122,6 +154,7 @@ fn parse_row(line: &[u8]) -> Option<Row> {
     let o = unmarshal(line, &ROW).ok()?;
     Some(Row {
         kind: o.get_str("type").to_string(),
+        subtype: o.get_str("subtype").to_string(),
         timestamp: o.get_str("timestamp").to_string(),
         is_sidechain: matches!(o.get("isSidechain"), Some(Out::Bool(true))),
         ai_title: o.get_str("aiTitle").to_string(),
@@ -235,6 +268,17 @@ pub fn read_tail<R: Read + Seek>(f: &mut R, size: u64, n: u64) -> Tail {
                     t.last_text = text;
                 }
                 t.last_tool = running_tool(row.message.as_deref());
+                if let Some(ctx) = context_of(row.message.as_deref()) {
+                    t.ctx = ctx;
+                    if let Some(ts) = GoTime::parse_rfc3339(&row.timestamp) {
+                        t.ctx_at = ts;
+                    }
+                }
+            }
+            // A compaction: worn out, not small again (the next call
+            // reports a small size, but `compacted` stays set).
+            "system" if !row.is_sidechain && row.subtype == "compact_boundary" => {
+                t.compacted = true;
             }
             // The tool's result (or the person's next prompt): nothing runs.
             "user" if !row.is_sidechain => t.last_tool.clear(),
@@ -315,6 +359,42 @@ fn last_text_block(raw: Option<&[u8]>) -> String {
         }
     }
     String::new()
+}
+
+/// The context an assistant message's API call carried: the input, cache
+/// read and cache creation tokens of the last iteration of type `message`
+/// (a row that called the advisor adds iterations, and its top-level total
+/// counts about double), else the top-level usage. None for a row with no
+/// usage, an all-zero usage, or a `<synthetic>` model.
+fn context_of(raw: Option<&[u8]>) -> Option<u64> {
+    let raw = raw.filter(|r| !r.is_empty())?;
+    let msg = unmarshal(raw, &USAGE_MESSAGE).ok()?;
+    if msg.get_str("model") == "<synthetic>" {
+        return None;
+    }
+    let usage = msg.get("usage")?;
+    let sum = |o: &Out| {
+        [
+            "input_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+        ]
+        .iter()
+        .map(|k| match o.get(k) {
+            Some(Out::Int(n)) => (*n).max(0) as u64,
+            _ => 0,
+        })
+        .sum::<u64>()
+    };
+    let last = usage
+        .get("iterations")
+        .map(Out::items)
+        .unwrap_or(&[])
+        .iter()
+        .rev()
+        .find(|i| i.get_str("type") == "message");
+    let n = sum(last.unwrap_or(usage));
+    (n > 0).then_some(n)
 }
 
 /// The tool an assistant message ends on: the name of its last block when

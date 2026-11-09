@@ -186,6 +186,10 @@ fn json_matches_go() {
         device_via: String::new(),
         // Rust-only (card #489) and omitted when zero.
         status_since: GoTime::default(),
+        // Rust-only (card #1212) and omitted when zero.
+        ctx: 0,
+        ctx_at: GoTime::default(),
+        compacted: false,
     };
     assert_eq!(m(&full), want("cardFull"));
     // And back, as another device's row is read.
