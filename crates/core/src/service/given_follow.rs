@@ -20,7 +20,7 @@
 //! of one thread when it shows them (`frontend/src/lib/assistant.ts`); the
 //! constants below are the strings both sides use.
 
-use coord::{Task, TaskFilter};
+use coord::Task;
 
 use super::Services;
 use super::assistant_chat::{Act, ChatRow, Update, UpdateFrom};
@@ -70,15 +70,12 @@ impl Services {
         if !self.is_assistant_home() {
             return;
         }
-        let open = TaskFilter {
-            open: true,
-            ..TaskFilter::default()
-        };
+        let me = self.person_id();
         for b in self.visible_boards() {
             if self.board_leaving(&b) || self.is_hidden_space(&b.id) {
                 continue;
             }
-            for t in b.coord().list_tasks(&open) {
+            for t in b.coord().given_news(&me) {
                 self.given_follow_task(&b, &t);
             }
         }
@@ -89,6 +86,13 @@ impl Services {
     /// the row yet, so fold what the log holds first.
     pub(crate) fn given_follow_row(&self, b: &BoardLog, t: &Task) {
         if !self.is_assistant_home() {
+            return;
+        }
+        // Only a card this person gave, or one given back to them.
+        let me = self.person_id();
+        let mine = t.given.as_ref().is_some_and(|g| g.by_person == me)
+            || t.blockers.iter().any(|bl| bl.given_back);
+        if !mine {
             return;
         }
         let co = b.coord();

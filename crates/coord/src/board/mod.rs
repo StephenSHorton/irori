@@ -2079,6 +2079,11 @@ impl Coord {
         self.lock()
             .give_batch(by, board, to, items, note, assistant)
     }
+    /// What the giver's assistant has to say about the cards `person` gave
+    /// (decision 69). See [`Fold::given_news`].
+    pub fn given_news(&self, person: &str) -> Vec<Task> {
+        self.lock().given_news(person)
+    }
     /// What is given to `viewer`, in a fixed order (decision 69).
     pub fn given_to(&self, viewer: &str) -> Vec<GivenItem> {
         self.lock().given_to(viewer)

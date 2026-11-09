@@ -375,6 +375,29 @@ impl Fold {
         v
     }
 
+    /// The open cards this person gave that their receiver has answered,
+    /// and the open cards given back to them: what the giver's assistant
+    /// tells them of (decision 69). Filtered under the lock, so a sweep
+    /// copies only these.
+    pub(crate) fn given_news(&self, me: &str) -> Vec<Task> {
+        let me_key = format!("{}{me}", kinds::PERSON_ACTOR_PREFIX);
+        self.tasks
+            .values()
+            .filter(|t| !is_terminal(&t.state))
+            .filter(|t| {
+                t.given
+                    .as_ref()
+                    .is_some_and(|g| g.by_person == me && t.given_said.is_some())
+                    || t.blockers.iter().any(|b| {
+                        b.given_back
+                            && b.open()
+                            && b.on.as_ref().is_some_and(|o| o.reference == me_key)
+                    })
+            })
+            .cloned()
+            .collect()
+    }
+
     /// The give-back item's pick, when `answer` is on one (decision 69).
     /// `Ok(Some(task))` when it settled the card (Cancel it); `Ok(None)`
     /// leaves the plain resolve to the caller.
