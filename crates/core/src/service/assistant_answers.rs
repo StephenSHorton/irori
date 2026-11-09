@@ -47,6 +47,11 @@ pub const RATE_WINDOW_SECS: i64 = 10 * 60;
 /// The longest reply Irori posts, in characters (counted after
 /// normalising).
 pub const MAX_REPLY: usize = assistant_packet::MAX_REPLY;
+/// What a held line's `assistant.chat.update` key starts with; the chat
+/// shows such a line but it lights no dot.
+pub const HELD_KEY: &str = "held:";
+/// What the record of a tap starts with (`req:<request>`); quiet too.
+pub const REQUEST_KEY: &str = "req:";
 /// How many held lines are kept in memory.
 const HELD_KEEP: usize = 50;
 
@@ -87,23 +92,44 @@ pub(crate) enum JobKind {
     Wait,
 }
 
+/// How a job ended, for the record of a tap (`assistant.answer.requested`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Done {
+    /// The answer is posted.
+    Answered,
+    /// The waiting line stands: only the owner can answer.
+    NeedsOwner,
+    /// The scrub held the answer back.
+    Held(String),
+    /// The turn or the post failed.
+    Failed,
+    /// Nothing happened that a record could say: tried again later.
+    Later,
+    /// A post with the answer id was there already.
+    AlreadyAnswered,
+}
+
 /// One question for the worker.
 #[derive(Debug, Clone)]
 pub(crate) struct Job {
-    kind: JobKind,
-    board_id: String,
-    q: Question,
+    pub(crate) kind: JobKind,
+    pub(crate) board_id: String,
+    pub(crate) q: Question,
+    /// The tap (`assistant.answer.requested`) this job serves, or "": the
+    /// owner chose it, and its outcome is written as the request's record
+    /// (§8, "Let it answer").
+    pub(crate) request: String,
 }
 
 /// What the worker needs of a question post.
 #[derive(Debug, Clone)]
 pub(crate) struct Question {
-    post_id: String,
-    conv_id: String,
-    text: String,
+    pub(crate) post_id: String,
+    pub(crate) conv_id: String,
+    pub(crate) text: String,
     /// The asker's board key (`person:<id>` or `agent:<cardId>`).
-    asker: String,
-    hop: i64,
+    pub(crate) asker: String,
+    pub(crate) hop: i64,
 }
 
 /// The answering path's state.
@@ -134,6 +160,7 @@ impl Services {
         *lock(&self.asst.answerer) = a;
         if some {
             self.assistant_scan();
+            self.serve_answer_requests();
         }
     }
 
@@ -147,8 +174,28 @@ impl Services {
         lock(&self.asst.held).clone()
     }
 
-    fn hold(&self, board_id: &str, post_id: &str, text: String) {
+    /// Keeps a line the assistant held back (in memory) and says it in the
+    /// chat as a quiet `assistant.chat.update` row, so every device of the
+    /// person shows it (one-assistant §9). The row is keyed by the
+    /// question's post id (a rate-limited batch by space and window), so the
+    /// first one wins. `request` is the tap this line answers, or "".
+    fn hold(&self, board_id: &str, post_id: &str, text: String, request: &str) {
         logf(format_args!("assistant: held on {board_id}: {text}"));
+        let key = if post_id.is_empty() {
+            let window = (self.now)().unix_nano() / 1_000_000 / (RATE_WINDOW_SECS * 1000);
+            format!("{HELD_KEY}rate:{board_id}:{window}")
+        } else {
+            format!("{HELD_KEY}{post_id}")
+        };
+        let _ = self.write_chat(super::assistant_chat::ChatRow::Update(
+            super::assistant_chat::Update {
+                key,
+                text: text.clone(),
+                request: request.to_string(),
+                at: (self.now)().unix_milli_value(),
+                ..Default::default()
+            },
+        ));
         let mut h = lock(&self.asst.held);
         h.push(Held {
             board_id: board_id.into(),
@@ -234,6 +281,7 @@ impl Services {
                     &b.id,
                     "",
                     format!("Questions from {name} were not answered"),
+                    "",
                 );
                 return;
             }
@@ -250,6 +298,7 @@ impl Services {
                     "{}'s assistant didn't get to this in time",
                     self.ident.current().name
                 ),
+                "",
             );
             return;
         }
@@ -261,6 +310,7 @@ impl Services {
             kind,
             board_id: b.id.clone(),
             q,
+            request: String::new(),
         });
     }
 
@@ -286,10 +336,10 @@ impl Services {
         }
     }
 
-    fn assistant_queue(&self, job: Job) {
+    pub(crate) fn assistant_queue(&self, job: Job) -> bool {
         let id = job.q.post_id.clone();
         if !lock(&self.asst.busy).insert(id.clone()) {
-            return;
+            return false;
         }
         let queued = lock(&self.asst.jobs)
             .as_ref()
@@ -298,6 +348,7 @@ impl Services {
             lock(&self.asst.busy).remove(&id);
             lock(&self.asst.settled).remove(&id);
         }
+        queued
     }
 
     /// The worker: one job at a time until the Core stops.
@@ -306,32 +357,40 @@ impl Services {
             let id = job.q.post_id.clone();
             let run =
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.answers_run(&job)));
-            if run.is_err() {
-                logf(format_args!("assistant: answering {id} failed"));
+            match run {
+                Ok(done) => {
+                    if !job.request.is_empty() {
+                        self.request_served(&job, done);
+                    }
+                }
+                Err(_) => logf(format_args!("assistant: answering {id} failed")),
             }
             lock(&self.asst.busy).remove(&id);
         }
     }
 
-    fn answers_run(&self, job: &Job) {
+    fn answers_run(&self, job: &Job) -> Done {
         let Ok(b) = self.board(&job.board_id) else {
-            return;
+            return Done::Later;
         };
         let card = self.my_assistant_card(&b);
         if card.is_empty() {
-            return;
+            return Done::Later;
         }
         let q = &job.q;
         if self.talk.has_post(&answer_id(&card, &q.post_id)) {
-            return;
+            return Done::AlreadyAnswered;
         }
         match job.kind {
-            JobKind::Wait => self.post_waiting(&b, &card, q, "ask"),
+            JobKind::Wait => {
+                self.post_waiting(&b, &card, q, "ask");
+                Done::NeedsOwner
+            }
             JobKind::Answer => {
                 let Some(turn) = lock(&self.asst.answerer).clone() else {
                     // No turn here yet: set_answerer scans for it later.
                     lock(&self.asst.settled).remove(&q.post_id);
-                    return;
+                    return Done::Later;
                 };
                 let packet = self.answer_packet(&b, &q.post_id);
                 let ask = NameAsk {
@@ -348,7 +407,7 @@ impl Services {
                     Ok(r) => r,
                     Err(e) => {
                         logf(format_args!("assistant: answering {}: {e}", q.post_id));
-                        return;
+                        return Done::Failed;
                     }
                 };
                 let text = match assistant_packet::parse(&reply) {
@@ -359,26 +418,29 @@ impl Services {
                             q.post_id,
                             assistant_packet::clip(&why, 200)
                         ));
-                        return self.post_waiting(&b, &card, q, "owner");
+                        self.post_waiting(&b, &card, q, "owner");
+                        return Done::NeedsOwner;
                     }
                 };
                 // Nothing visible was left: only the owner can answer.
                 if text.is_empty() {
-                    return self.post_waiting(&b, &card, q, "owner");
+                    self.post_waiting(&b, &card, q, "owner");
+                    return Done::NeedsOwner;
                 }
                 let mut why = scrub::board_reasons(&text);
                 why.extend(assistant_packet::held_reasons(&text));
                 if !why.is_empty() {
-                    self.hold(
-                        &b.id,
-                        &q.post_id,
-                        format!("An answer was held back: it held {}", why.join(", ")),
-                    );
-                    return;
+                    let line = format!("An answer was held back: it held {}", why.join(", "));
+                    self.hold(&b.id, &q.post_id, line.clone(), &job.request);
+                    return Done::Held(line);
                 }
                 let id = answer_id(&card, &q.post_id);
-                if let Err(e) = self.assistant_post(&b, &card, q, id, text, None) {
-                    logf(format_args!("assistant: posting {}: {e}", q.post_id));
+                match self.assistant_post(&b, &card, q, id, text, None) {
+                    Ok(()) => Done::Answered,
+                    Err(e) => {
+                        logf(format_args!("assistant: posting {}: {e}", q.post_id));
+                        Done::Failed
+                    }
                 }
             }
         }
@@ -401,7 +463,7 @@ impl Services {
     }
 
     /// The owner's name as the space knows it.
-    fn owner_name(&self, b: &BoardLog) -> String {
+    pub(crate) fn owner_name(&self, b: &BoardLog) -> String {
         let me = self.person_id();
         b.verifier
             .profile(&me)
@@ -411,7 +473,7 @@ impl Services {
 
     /// The asker's name for the turn, from the space log only: a person's
     /// profile, or their agent's card name.
-    fn asker_name(&self, b: &BoardLog, key: &str) -> String {
+    pub(crate) fn asker_name(&self, b: &BoardLog, key: &str) -> String {
         let person = b.verifier.key_person(key);
         let name = self.board_person_name(b, &person);
         match key.strip_prefix(AGENT_ACTOR_PREFIX) {
@@ -537,5 +599,7 @@ impl Services {
         if home && !was {
             self.assistant_scan();
         }
+        // Taps that waited for this computer, or for a turn to be free.
+        self.serve_answer_requests();
     }
 }

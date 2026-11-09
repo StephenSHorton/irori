@@ -18,9 +18,9 @@ use inbox::{ReceiveSetting, receive};
 use irori_core::assistant_answers::{answer_id, waiting_id};
 use irori_core::spawn::{SpawnStarted, Spawner};
 
-const WAIT: u64 = 90;
+pub(crate) const WAIT: u64 = 90;
 /// What the fake turn's answer posts as.
-const FIXED: &str = "Sam can review it; ask them.";
+pub(crate) const FIXED: &str = "Sam can review it; ask them.";
 /// The fake turn's reply: a reason, then the answer (card 5's form).
 const FIXED_REPLY: &str = "REASON: the packet names Sam.\nANSWER: Sam can review it; ask them.";
 
@@ -40,7 +40,7 @@ fn ready_spawner() -> Spawner {
 }
 
 /// A fake turn that counts its runs and answers [`FIXED`].
-fn fake_turn(runs: &Arc<AtomicUsize>) -> irori_core::assistant_answers::Answerer {
+pub(crate) fn fake_turn(runs: &Arc<AtomicUsize>) -> irori_core::assistant_answers::Answerer {
     let runs = runs.clone();
     Arc::new(move |_| {
         runs.fetch_add(1, Ordering::SeqCst);
@@ -48,12 +48,12 @@ fn fake_turn(runs: &Arc<AtomicUsize>) -> irori_core::assistant_answers::Answerer
     })
 }
 
-struct World {
-    alice: Vec<Dev>,
-    bob: Vec<Dev>,
-    space: String,
-    conv: String,
-    card: String,
+pub(crate) struct World {
+    pub(crate) alice: Vec<Dev>,
+    pub(crate) bob: Vec<Dev>,
+    pub(crate) space: String,
+    pub(crate) conv: String,
+    pub(crate) card: String,
 }
 
 fn pointer(d: &Dev, space: &str, person: &str) -> String {
@@ -66,7 +66,7 @@ fn pointer(d: &Dev, space: &str, person: &str) -> String {
 /// Alice in Bob's space, Bob's `bobs` devices ready to run the turn (their
 /// assistant card minted, the channel there on both sides). `turns` are
 /// installed on the first `turns.len()` of Bob's devices.
-fn world(bobs: usize, installed: bool) -> World {
+pub(crate) fn world(bobs: usize, installed: bool) -> World {
     let alice = person("alice", 1);
     let bob = person("bob", bobs);
     let (a1, b1) = (&alice[0], &bob[0]);
@@ -119,7 +119,7 @@ fn world(bobs: usize, installed: bool) -> World {
 static N: AtomicUsize = AtomicUsize::new(0);
 
 /// What a question looks like on the wire, before the test edits it.
-fn question(w: &World, text: &str) -> PostRow {
+pub(crate) fn question(w: &World, text: &str) -> PostRow {
     PostRow {
         post_id: format!("post_q{:04}", N.fetch_add(1, Ordering::SeqCst)),
         conv_id: w.conv.clone(),
@@ -133,7 +133,7 @@ fn question(w: &World, text: &str) -> PostRow {
 }
 
 /// Alice's device writes `r` into the space, with a hop when it has one.
-fn send(w: &World, r: &PostRow, hop: i64) {
+pub(crate) fn send(w: &World, r: &PostRow, hop: i64) {
     let a1 = &w.alice[0];
     let mut v = serde_json::to_value(r).unwrap();
     if hop > 0 {
@@ -146,7 +146,7 @@ fn send(w: &World, r: &PostRow, hop: i64) {
 }
 
 /// The posts answering `q`, as `d` has them.
-fn answers(d: &Dev, conv: &str, q: &str) -> Vec<Post> {
+pub(crate) fn answers(d: &Dev, conv: &str, q: &str) -> Vec<Post> {
     d.core
         .talk()
         .posts(conv)
@@ -156,7 +156,7 @@ fn answers(d: &Dev, conv: &str, q: &str) -> Vec<Post> {
 }
 
 /// Waits for the answer to `q` on Bob's device `d` and returns it.
-fn answered(w: &World, d: &Dev, q: &str) -> Post {
+pub(crate) fn answered(w: &World, d: &Dev, q: &str) -> Post {
     wait_for(WAIT, "the assistant answers", || {
         !answers(d, &w.conv, q).is_empty()
     });
@@ -165,13 +165,13 @@ fn answered(w: &World, d: &Dev, q: &str) -> Post {
 
 /// After `q` is answered, every question sent before it has been looked at
 /// too (one device writes in order, and the bridge reads in order).
-fn control(w: &World) {
+pub(crate) fn control(w: &World) {
     let c = question(w, "control?");
     send(w, &c, 0);
     answered(w, &w.bob[0], &c.post_id);
 }
 
-fn set_receive(d: &Dev, space: &str, preset: &str) {
+pub(crate) fn set_receive(d: &Dev, space: &str, preset: &str) {
     d.core
         .inbox()
         .set_receive(
@@ -185,7 +185,7 @@ fn set_receive(d: &Dev, space: &str, preset: &str) {
         .unwrap();
 }
 
-fn close(w: World) {
+pub(crate) fn close(w: World) {
     for d in w.alice.into_iter().chain(w.bob) {
         d.core.close().unwrap();
     }

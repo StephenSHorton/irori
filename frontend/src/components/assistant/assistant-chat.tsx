@@ -38,6 +38,8 @@ import {
 } from "@/components/attachments"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { RichText } from "@/components/common/rich-text"
+import { FromLine } from "./from-line"
+import { go as goSection } from "@/lib/nav"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Button } from "@/components/ui/button"
 import { Message, MessageContent } from "@/components/ui/message"
@@ -725,6 +727,10 @@ export function AssistantPanel({
               <Fragment key={e.id ?? entryKey(e)}>
                 <Entry
                   entry={e}
+                  onTalk={(conv) => {
+                    if (narrow) onClose()
+                    goSection({ kind: "talk", id: conv })
+                  }}
                   onGo={onGo}
                   work={e.posted ? work[e.posted.id] : undefined}
                   onPost={() => onPost(e.turn ?? "")}
@@ -909,8 +915,11 @@ function Entry({
   posting,
   failed,
   onAskAgain,
+  onTalk,
 }: {
   entry: ChatEntry
+  // Open in Talk, on a labelled line (card #1062).
+  onTalk: (conv: string) => void
   // Its draft is being posted by a tap.
   posting: boolean
   // Why the post failed.
@@ -950,6 +959,8 @@ function Entry({
         </Bubble>
       </Message>
     )
+  // Someone else's words: before anything that parses a reply.
+  if (entry.from) return <FromLine entry={entry} onTalk={onTalk} />
   if (entry.update) return <Update entry={entry} />
   if (entry.changed)
     return (
@@ -1381,7 +1392,11 @@ function Update({ entry }: { entry: ChatEntry }) {
     <div
       ref={row}
       tabIndex={-1}
-      className="grid min-w-0 gap-1.5 border-l-2 border-primary/40 pl-2.5 text-[13px] leading-relaxed [overflow-wrap:anywhere] outline-none"
+      className={
+        entry.quiet
+          ? "grid min-w-0 gap-1.5 border-l-2 border-border pl-2.5 text-[13px] leading-relaxed [overflow-wrap:anywhere] text-muted-foreground outline-none"
+          : "grid min-w-0 gap-1.5 border-l-2 border-primary/40 pl-2.5 text-[13px] leading-relaxed [overflow-wrap:anywhere] outline-none"
+      }
       data-assistant-update=""
     >
       <RichText bold text={replyText(entry.text)} />

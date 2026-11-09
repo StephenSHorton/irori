@@ -36,6 +36,7 @@ export type AssistantImportEntry = B.AssistantImportEntry
 export type AssistantImportPosted = B.AssistantImportPosted
 export type AssistantImported = B.AssistantImported
 export type AssistantSignal = B.AssistantSignal
+export type AssistantTalkCard = B.AssistantTalkCard
 export type AttachmentInfo = B.AttachmentInfo
 export type BlockedBy = B.BlockedBy
 export type Blocker = B.Blocker
@@ -385,6 +386,11 @@ export function AssistantImportPosted(p: Partial<B.AssistantImportPosted> = {}):
 /** AssistantSignal with Go's zero values for every field left out. */
 export function AssistantSignal(p: Partial<B.AssistantSignal> = {}): B.AssistantSignal {
   return { "seq": 0, "all": false, ...p } as B.AssistantSignal
+}
+
+/** AssistantTalkCard with Go's zero values for every field left out. */
+export function AssistantTalkCard(p: Partial<B.AssistantTalkCard> = {}): B.AssistantTalkCard {
+  return { "space": "", "card": "", "conv": "", "owner": "", ...p } as B.AssistantTalkCard
 }
 
 /** AttachmentInfo with Go's zero values for every field left out. */

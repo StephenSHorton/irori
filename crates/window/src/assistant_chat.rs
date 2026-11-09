@@ -408,3 +408,52 @@ impl Window {
         })
     }
 }
+
+/// A space where the person has an assistant (assistants-talk.md §8): what
+/// the chat reads the channel with to build its labelled lines.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantTalkCard {
+    pub space: String,
+    /// The person's assistant card on the space (`agent:<card>` posts).
+    pub card: String,
+    /// The space's `#office-assistants` channel.
+    pub conv: String,
+    /// The person's name as the space knows it.
+    pub owner: String,
+}
+
+impl Window {
+    /// The spaces where this person has an assistant, with its card and
+    /// channel.
+    pub fn assistant_talk_cards(&self) -> Vec<AssistantTalkCard> {
+        self.core
+            .assistant_talk_cards()
+            .into_iter()
+            .map(|c| AssistantTalkCard {
+                space: c.space,
+                card: c.card,
+                conv: c.conv,
+                owner: c.owner,
+            })
+            .collect()
+    }
+
+    /// Let it answer (`how` = `let`) on question `post` of `space`, from
+    /// this device or any other: the assistant's computer serves the tap.
+    /// Returns the request's id.
+    pub fn assistant_answer_request(
+        &self,
+        post: &str,
+        space: &str,
+        how: &str,
+    ) -> Result<String, String> {
+        self.core.assistant_answer_request(post, space, how)
+    }
+
+    /// The toast for a line that waits on the person; a click opens the
+    /// Office Assistant chat.
+    pub fn assistant_talk_toast(&self, conv: &str, title: &str, body: &str) -> bool {
+        self.core.assistant_talk_toast(conv, title, body)
+    }
+}
