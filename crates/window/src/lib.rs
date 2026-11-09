@@ -54,6 +54,7 @@ pub mod board;
 pub mod boards;
 pub mod call;
 pub mod cards;
+pub mod cards_cache;
 pub mod claude_trust;
 pub mod commands;
 pub mod comment_edit;
@@ -175,6 +176,8 @@ pub struct Window {
     pub seams: Seams,
     cfg: Config,
     cards: Mutex<roster::CardIndex>,
+    /// The grid's summary cache (card #1147), kept by the board pump.
+    cards_cache: Mutex<cards_cache::CardsCache>,
     revives: Mutex<roster::ReviveGuard>,
     inbox_snap: Mutex<Option<inbox::Snapshot>>,
     inbox_kick: events::Kick,
@@ -224,6 +227,7 @@ impl Window {
             seams,
             cfg,
             cards: Mutex::default(),
+            cards_cache: Mutex::default(),
             revives: Mutex::default(),
             inbox_snap: Mutex::default(),
             inbox_kick: events::Kick::default(),

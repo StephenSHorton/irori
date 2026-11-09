@@ -88,6 +88,7 @@ export type CardWaitOn = B.CardWaitOn
 export type CardWeight = B.CardWeight
 export type CardWhere = B.CardWhere
 export type CardsChange = B.CardsChange
+export type CardsPatch = B.CardsPatch
 export type Change = B.Change
 export type ChangeKind = B.ChangeKind
 export type ClearedCard = B.ClearedCard
@@ -601,6 +602,11 @@ export function CardRound(p: Partial<B.CardRound> = {}): B.CardRound {
 /** CardsChange with Go's zero values for every field left out. */
 export function CardsChange(p: Partial<B.CardsChange> = {}): B.CardsChange {
   return { "seq": 0, "all": false, "cards": [], "notes": [], "desk": false, ...p } as B.CardsChange
+}
+
+/** CardsPatch with Go's zero values for every field left out. */
+export function CardsPatch(p: Partial<B.CardsPatch> = {}): B.CardsPatch {
+  return { "rows": [], "order": [], ...p } as B.CardsPatch
 }
 
 /** CardSubtask with Go's zero values for every field left out. */

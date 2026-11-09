@@ -102,7 +102,7 @@ fn held_why(name: &str) -> String {
 const NOT_YET: &str = "Not yet: ";
 
 /// Card t's Not yet as the person reads it; a card hold's line names its
-/// card later, in [`fill_later_card`], where the log is at hand.
+/// card later, in [`later_card_line`], where the log is at hand.
 pub(crate) fn later_of(t: &Task, p: &People) -> Option<CardLater> {
     let b = t.parked()?;
     let back = b.back().unwrap_or(Back::Word);
@@ -131,13 +131,14 @@ pub(crate) fn later_of(t: &Task, p: &People) -> Option<CardLater> {
     })
 }
 
-/// Names a card hold's card: "when #12 is done".
-pub(crate) fn fill_later_card(co: &coord::Coord, s: &mut CardSummary) {
-    if let Some(l) = s.later.as_mut().filter(|l| l.back == LaterBack::Card)
-        && let Some(k) = co.get_task(&l.card)
-    {
-        l.line = format!("when {} is done", k.short_ref());
-    }
+/// A card hold's line naming its card, "when #12 is done", read through
+/// `get`; None when `s` holds no card hold or its card isn't found.
+pub(crate) fn later_card_line(
+    get: &dyn Fn(&str) -> Option<Task>,
+    s: &CardSummary,
+) -> Option<String> {
+    let l = s.later.as_ref().filter(|l| l.back == LaterBack::Card)?;
+    get(&l.card).map(|k| format!("when {} is done", k.short_ref()))
 }
 
 fn now() -> GoTime {
@@ -262,18 +263,22 @@ fn step_of(t: &Task) -> OrderStep {
 
 /// The card t comes after: its first open after item, else, once that
 /// card is done, the first it came after.
-fn before_of(co: &coord::Coord, t: &Task, seen: &HashSet<String>) -> Option<Task> {
+fn before_of(
+    get: &dyn Fn(&str) -> Option<Task>,
+    t: &Task,
+    seen: &HashSet<String>,
+) -> Option<Task> {
     let open = t.after_cards();
     if !open.is_empty() {
         return open
             .iter()
             .filter(|id| !seen.contains(*id))
-            .find_map(|id| co.get_task(id));
+            .find_map(|id| get(id));
     }
     t.after_cards_ended()
         .iter()
         .filter(|id| !seen.contains(*id))
-        .filter_map(|id| co.get_task(id))
+        .filter_map(|id| get(id))
         .find(|k| coord::is_terminal(coord::effective_state(k)) && k.state == coord::COMPLETED)
 }
 
@@ -281,7 +286,7 @@ fn before_of(co: &coord::Coord, t: &Task, seen: &HashSet<String>) -> Option<Task
 /// what comes after it, one path each way. None when it is in no order or
 /// in a loop (the loop shows instead).
 pub(crate) fn order_of(
-    co: &coord::Coord,
+    get: &dyn Fn(&str) -> Option<Task>,
     follows: &Followers,
     loops: &coord::OrderLoops,
     t: &Task,
@@ -293,7 +298,7 @@ pub(crate) fn order_of(
     let mut back: Vec<OrderStep> = Vec::new();
     let mut cur = t.clone();
     while back.len() < MAX_STEPS {
-        let Some(k) = before_of(co, &cur, &seen) else {
+        let Some(k) = before_of(get, &cur, &seen) else {
             break;
         };
         seen.insert(k.id.clone());
@@ -311,7 +316,7 @@ pub(crate) fn order_of(
             break;
         };
         seen.insert(id.clone());
-        let Some(k) = co.get_task(&id) else { break };
+        let Some(k) = get(&id) else { break };
         ahead.push(step_of(&k));
         at = id;
     }

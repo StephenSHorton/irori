@@ -4,7 +4,7 @@
 //! |---|---|---|
 //! | `roster:changed` | [`RosterChange`] | coalesced, 250 ms, only when the roster changed (#1135) |
 //! | `inbox:changed` | [`InboxSignal`]: [`InboxCounts`] + `seq, all, deliveries, cards` | coalesced, 250 ms |
-//! | `board:changed` | [`CardsChange`] `{seq, all, cards, notes, desk}` | coalesced, 250 ms: a card, note or desk change, a presence or roster change that dirties a row, a queue move, a clock time passing |
+//! | `board:changed` | [`CardsChange`] `{seq, all, cards, notes, desk}` | coalesced, 250 ms: a card, note or desk change, a presence, roster or lease change that dirties a row, a queue move, a clock time passing. `cards` holds every row that reads a changed card (the grid's summary cache, card #1147) |
 //! | `capture:changed` | [`CaptureChange`] | coalesced, 300 ms |
 //! | `boards:changed` | [`BoardsSignal`] `{seq}` | a shared board opened, went or was renamed, or its pin moved |
 //! | `boards:invite` | `InviteStatus` | every change of the open invite |
@@ -261,6 +261,17 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
             &w,
             &[Topic::Board, Topic::Presence, Topic::Roster, Topic::Inbox],
         );
+        // From here every change reaches this pump, which keeps the grid's
+        // summary cache (card #1147): reads may use it until it stops.
+        w.cache_live(true);
+        let live_reg = {
+            let w = Arc::downgrade(&w);
+            stop.on_cancel(move || {
+                if let Some(w) = w.upgrade() {
+                    w.cache_live(false);
+                }
+            })
+        };
         // Every board's card changes, shared or private, come on the Board
         // feed, and so does a board opening, going or renamed, as a resync
         // (list-signals.md §3.1). That is also boards:changed (Go
@@ -321,6 +332,7 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
             }));
         }
         out.push(spawn("irori-window-board", move || {
+            let _live = live_reg;
             let q = feed.queue().clone();
             coalesce(&q, BOARD_EMIT_EVERY, &stop, |batch| {
                 let mut f = signals::fold_board(&batch);
@@ -351,6 +363,9 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
         out.push(spawn("irori-window-devices", move || {
             let q = feed.queue().clone();
             coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
+                // A device's sides change what its cards wait on with no
+                // card change: the grid's cache starts again (card #1147).
+                w.cache_clear();
                 w.emit_change(EVENT_DEVICES_CHANGED, |seq| DevicesSignal {
                     seq,
                     all: true,
