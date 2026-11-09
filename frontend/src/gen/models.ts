@@ -31,6 +31,10 @@ export type AssistantChatUpdateIn = B.AssistantChatUpdateIn
 export type AssistantEvent = B.AssistantEvent
 export type AssistantFile = B.AssistantFile
 export type AssistantHomeStatus = B.AssistantHomeStatus
+export type AssistantImportAct = B.AssistantImportAct
+export type AssistantImportEntry = B.AssistantImportEntry
+export type AssistantImportPosted = B.AssistantImportPosted
+export type AssistantImported = B.AssistantImported
 export type AttachmentInfo = B.AttachmentInfo
 export type BlockedBy = B.BlockedBy
 export type Blocker = B.Blocker
@@ -344,6 +348,26 @@ export function AssistantFile(p: Partial<B.AssistantFile> = {}): B.AssistantFile
 /** AssistantHomeStatus with Go's zero values for every field left out. */
 export function AssistantHomeStatus(p: Partial<B.AssistantHomeStatus> = {}): B.AssistantHomeStatus {
   return { "device": "", "name": "", "here": false, "state": "", "lastSeenMs": 0, "claude": false, "chat": false, "none": "", ...p } as B.AssistantHomeStatus
+}
+
+/** AssistantImportAct with Go's zero values for every field left out. */
+export function AssistantImportAct(p: Partial<B.AssistantImportAct> = {}): B.AssistantImportAct {
+  return { ...p } as B.AssistantImportAct
+}
+
+/** AssistantImported with Go's zero values for every field left out. */
+export function AssistantImported(p: Partial<B.AssistantImported> = {}): B.AssistantImported {
+  return { "turns": 0, "updates": 0, ...p } as B.AssistantImported
+}
+
+/** AssistantImportEntry with Go's zero values for every field left out. */
+export function AssistantImportEntry(p: Partial<B.AssistantImportEntry> = {}): B.AssistantImportEntry {
+  return { ...p } as B.AssistantImportEntry
+}
+
+/** AssistantImportPosted with Go's zero values for every field left out. */
+export function AssistantImportPosted(p: Partial<B.AssistantImportPosted> = {}): B.AssistantImportPosted {
+  return { ...p } as B.AssistantImportPosted
 }
 
 /** AttachmentInfo with Go's zero values for every field left out. */
