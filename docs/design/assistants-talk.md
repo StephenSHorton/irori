@@ -445,6 +445,12 @@ Done when:
 - There are screenshots at desktop and phone width, matching §15's mockups.
 - A two-instance scratch run shows an `answer` line for a question typed in the channel, and a `needs` line under Ask me that Let it answer clears.
 
+> **As built** (card #1062). Later cards build on these:
+> - **Let it answer** is `Core::assistant_answer_request` (host command `assistant_answer_request`): it appends `assistant.answer.requested`. The assistant's computer serves each `how: "let"` request with no record (`assistant_requests.rs`), checked against the post itself, past the receive setting, rate limit and hour, and writes an `assistant.chat.update` row keyed `req:<request>` carrying `request`. A request over an hour old gets a "Tap again" record. `how: "draft"` is left unserved for card 8.
+> - **`held` lines** are `assistant.chat.update` rows keyed `held:<postId>` (a rate-limited batch `held:rate:<space>:<window>`). The chat shows `held:` and `req:` rows quietly and they light no dot.
+> - **Host calls:** `assistant_talk_cards` (the person's assistant card and `#office-assistants` channel per space), `assistant_talk_toast` (one toast per conversation, id `talk:<conv>:assistant`; a click opens tab `assistant`, which `App.tsx` routes to the chat).
+> - **`from` lines** are built by `frontend/src/lib/assistant-talk-follow.ts` from the channel and merged into the list by time in `assistant.ts`; `needs` with `waiting: "owner"` has no button until card 8 adds Answer this. There is no `historyFor` any more: the prompt is built from rows, which never include `from` lines.
+
 **7. Ask from your chat.**
 Files: `crates/window/src/assistant.rs` (prompt, marker), `assistant.ts`, `assistant-chat.tsx`, `crates/window/src/commands.rs` (host command).
 Done when: nothing posts before the tap; the posted text is exactly the normalised text shown; a draft with tag characters posts without them, and an emoji survives; the scrub runs; an answer raises the toast; the `ASSISTANT_TOOLS` and `ASSISTANT_WRITE_TOOLS` tests are untouched, and the draft grants nothing.
