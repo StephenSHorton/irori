@@ -133,7 +133,7 @@ const SINCE_GO: [&str; 34] = [
 /// history, card #377; spawned agents, card #446; the sides a device
 /// runs, card #494; spawning across the person's devices, card #455; a
 /// hidden DM space's marker, card #538; the names themes, card #702).
-const SINCE_GO_REFUSED: [&str; 41] = [
+const SINCE_GO_REFUSED: [&str; 42] = [
     kinds::AGENT_OFFER,
     kinds::SPAWN_HOST,
     kinds::SPAWN_END_REQUESTED,
@@ -183,6 +183,8 @@ const SINCE_GO_REFUSED: [&str; 41] = [
     kinds::ASSISTANT_CHAT_STOP,
     kinds::ASSISTANT_ANSWER_REQUESTED,
     kinds::ASSISTANT_ANSWER_DRAFT,
+    // A background run's summary for the other devices (card #1249).
+    kinds::AGENT_RUN,
 ];
 
 /// Device-local kinds added after the Go port: the last hello this device

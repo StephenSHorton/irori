@@ -67,6 +67,11 @@ kinds! {
     AGENT_SEEN = "agent.seen" => Replicated, Refuses;
     /// `{"key","status","name","permissionMode"?}`.
     AGENT_STATUS = "agent.status" => Replicated, Refuses;
+    /// A background run's summary for the person's other devices (card
+    /// #1249): `{"key","run","kind","op":"start"|"end","cmd","startedAt",
+    /// "endedAt"?,"exit"?,"stopped"?,"peakCores"?,"peakMemMb"?,"at"}`.
+    /// Written only by the run's own device, once per op.
+    AGENT_RUN = "agent.run" => Replicated, Refuses;
     /// `{"key","reason"}`.
     AGENT_GONE = "agent.gone" => Replicated, Refuses;
     // v0.4 identity (written by identity)
