@@ -165,7 +165,7 @@ pub(crate) fn untouched<S: AsRef<str>>(statuses: &[S]) -> bool {
 /// What this device sees of the asked agent, beyond the rows.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct AskedNow {
-    /// Gone, on an OFFLINE device, or no card on the board.
+    /// Gone, or on an OFFLINE device.
     pub gone: bool,
     /// Its turn ended after the ask ([`untouched`]).
     pub turn_ended: bool,
@@ -322,12 +322,13 @@ pub(crate) fn live_cands(
         .collect()
 }
 
-/// Whether the asked agent can still be asked: on the board, not gone,
-/// not on an OFFLINE device.
+/// Whether the asked agent still holds the ask: not gone and not on an
+/// OFFLINE device. A card not folded here yet holds it: absence is lag,
+/// not a trigger.
 pub(crate) fn asked_live(roster: &[AgentCard], key: &str) -> bool {
-    roster
+    !roster
         .iter()
-        .any(|a| a.key == key && a.status != "gone" && a.device_state != OFFLINE)
+        .any(|a| a.key == key && (a.status == "gone" || a.device_state == OFFLINE))
 }
 
 /// Whether a lease or scope in `repo` bears on `want`, the PR card's repo:
@@ -879,7 +880,7 @@ mod tests {
         assert!(asked_live(&roster, "agent:b2"));
         assert!(!asked_live(&roster, "agent:b3"), "offline");
         assert!(!asked_live(&roster, "agent:b4"), "gone");
-        assert!(!asked_live(&roster, "agent:zz"), "no card");
+        assert!(asked_live(&roster, "agent:zz"), "not folded yet holds");
     }
 
     fn asked(to: &str) -> ReviewPhase {
