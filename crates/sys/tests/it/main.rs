@@ -7,3 +7,4 @@ mod awake;
 mod awake_mac;
 mod fswatch;
 mod proc;
+mod runmeter;
