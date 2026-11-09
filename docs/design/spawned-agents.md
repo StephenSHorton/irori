@@ -135,6 +135,7 @@ Stephen: "they should all still talk to eachother where relevant in this eco sys
 - it ends, after the exit protocol, when the thread closes (an ask's outcome: an edit, none, or a card), or when the thread has been quiet for the board's idle limit;
 - if the ask becomes a card, the agent carries on as that card's agent (its mark moves to the card); a card made from a Talk thread is a new card and gets its own agent;
 - naming an agent still sends to that agent, as now; in a channel, naming nobody still wakes nobody.
+- *Card #1208:* **a card made from a thread (`board_create from=`) is offered first to that thread's agent**, while it is alive on this device and holds no other card (one made card at a time, standing for "its context is small" until #1209's budget replaces it in `thread_agent_reusable`). The card is assigned to it with a note (work code in its own worktree, since a thread agent starts in the main checkout), and `may_hand_to`/`spawned_may_take` let it take that card only. An @-mention or assign overrides, since an assigned card is never offered; with the agent gone, or busy with another made card, the card gets a fresh spawn as above. **A thread agent that is still wanted is not ended by the idle limit** (sa-10): while a card made from its thread is open and held by or assigned to it, even after the thread resolves. A thread with no such card keeps the idle-limit clock. Decision 68.
 
 sa-10 shows a Talk thread answered by a spawned agent that then goes, leaving its answer and a proposed note.
 

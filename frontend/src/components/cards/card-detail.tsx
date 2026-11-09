@@ -65,6 +65,7 @@ import {
   type CardSummary,
   type CardWait,
   type Step,
+  type ThreadCard,
   type ThreadSummary,
   type Told,
   cardStore,
@@ -371,8 +372,8 @@ export function CardPage({
       p={p}
       links={links}
       files={files}
+      tasks={thread?.cards ?? []}
       gone={gone}
-
       spinning={spinning}
       onOpen={onOpen}
     />
@@ -622,13 +623,14 @@ const PaneLayout = {
 }
 
 // AboutCard is the page's side column: Progress, Who's on it, Review,
-// PRs, Links and Files.
+// PRs, Links, Tasks (a thread's cards) and Files.
 function AboutCard({
   detail,
   live,
   p,
   links,
   files,
+  tasks,
   gone,
   spinning,
   onOpen,
@@ -638,6 +640,7 @@ function AboutCard({
   p: number | null
   links: CardDetail["links"]
   files: FileRef[]
+  tasks: ThreadCard[]
   gone: GoneSession[]
   spinning: boolean
   onOpen?: (id: string) => void
@@ -691,6 +694,7 @@ function AboutCard({
           !detail.reviews.length &&
           !detail.prs.length &&
           !links.length &&
+          !tasks.length &&
           !files.length
         }
       >
@@ -700,7 +704,12 @@ function AboutCard({
       {detail.reviews.length > 0 && (
         <Section
           title="Review"
-          last={!detail.prs.length && !links.length && !files.length}
+          last={
+            !detail.prs.length &&
+            !links.length &&
+            !tasks.length &&
+            !files.length
+          }
         >
           <div className="grid gap-2">
             {detail.reviews.map((r) => (
@@ -711,7 +720,10 @@ function AboutCard({
       )}
 
       {detail.prs.length > 0 && (
-        <Section title="Pull requests" last={!links.length && !files.length}>
+        <Section
+          title="Pull requests"
+          last={!links.length && !tasks.length && !files.length}
+        >
           <div className="grid gap-2">
             {detail.prs.map((pr) => (
               <PRRow key={`${pr.repo}#${pr.number}`} pr={pr} />
@@ -721,12 +733,18 @@ function AboutCard({
       )}
 
       {links.length > 0 && (
-        <Section title="Links" last={!files.length}>
+        <Section title="Links" last={!tasks.length && !files.length}>
           <div className="flex flex-wrap gap-1.5">
             {links.map((l) => (
               <LinkChip key={`${l.kind}:${l.ref}`} link={l} />
             ))}
           </div>
+        </Section>
+      )}
+
+      {tasks.length > 0 && (
+        <Section title="Tasks" last={!files.length}>
+          <ThreadTasks list={tasks} onOpen={onOpen} />
         </Section>
       )}
 
@@ -1378,6 +1396,49 @@ function Subtasks({
           </li>
         )
       })}
+    </ul>
+  )
+}
+
+// ThreadTasks are the cards made or changed from a thread (card #1203),
+// each a row like a subtask's: ref, title, state. The state is the live
+// one: the thread's cards come from the same list the thread bar reads.
+function ThreadTasks({
+  list,
+  onOpen,
+}: {
+  list: ThreadCard[]
+  onOpen?: (id: string) => void
+}) {
+  return (
+    <ul className="grid gap-1" aria-label="Tasks">
+      {list.map((c) => (
+        <li key={c.id}>
+          <button
+            type="button"
+            className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 px-1.5 py-1 text-left text-[13px] hover:bg-accent disabled:hover:bg-transparent"
+            disabled={!onOpen}
+            onClick={() => onOpen?.(c.id)}
+          >
+            <span className="font-mono text-xs text-muted-foreground">
+              {cardRef(c)}
+            </span>
+            <span
+              className={cn(
+                "truncate",
+                c.state === "completed" || c.state === "canceled"
+                  ? "text-muted-foreground line-through"
+                  : "text-ink"
+              )}
+            >
+              {plainLine(c.title) || "(untitled)"}
+            </span>
+            <span className="text-[11px] tracking-wide text-muted-foreground uppercase">
+              {c.state.replace("_", " ")}
+            </span>
+          </button>
+        </li>
+      ))}
     </ul>
   )
 }

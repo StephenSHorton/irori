@@ -178,6 +178,9 @@ pub struct Window {
     cards: Mutex<roster::CardIndex>,
     /// The grid's summary cache (card #1147), kept by the board pump.
     cards_cache: Mutex<cards_cache::CardsCache>,
+    /// How many times a card read has built the roster's people (card
+    /// #1148): a test reads it to see one build per `cards_by_id` call.
+    people_builds: std::sync::atomic::AtomicU64,
     revives: Mutex<roster::ReviveGuard>,
     inbox_snap: Mutex<Option<inbox::Snapshot>>,
     inbox_kick: events::Kick,
@@ -228,6 +231,7 @@ impl Window {
             cfg,
             cards: Mutex::default(),
             cards_cache: Mutex::default(),
+            people_builds: Default::default(),
             revives: Mutex::default(),
             inbox_snap: Mutex::default(),
             inbox_kick: events::Kick::default(),

@@ -25,6 +25,13 @@ pub trait Backend: Send + Sync + 'static {
     fn assistant_grants(&self) -> Option<&tools::Grants> {
         None
     }
+    /// The card id a ref names across every space the person can see
+    /// (card #1198): `tag#12`, a bare `#12` only when one log has it, or
+    /// `task:<id>`. `None` (the default) when it names no single card.
+    fn card_id(&self, r: &str) -> Option<String> {
+        let _ = r;
+        None
+    }
     /// This device (`device.json`, Go `device.Identity`).
     fn device(&self) -> DeviceJson;
     /// This device's roster (Go `LocalAgents`): presence plus Grok members.
@@ -127,6 +134,9 @@ impl Backend for Core {
     }
     fn assistant_grants(&self) -> Option<&tools::Grants> {
         Some(Core::assistant_grants(self))
+    }
+    fn card_id(&self, r: &str) -> Option<String> {
+        Core::task_ref(self, r).ok()
     }
     fn device(&self) -> DeviceJson {
         Core::device(self).clone()
