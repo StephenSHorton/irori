@@ -300,10 +300,18 @@ impl Window {
         let mut seqs = self.seqs.lock().unwrap_or_else(|e| e.into_inner());
         let n = seqs.entry(name.to_string()).or_insert(0);
         *n += 1;
+        let dev = self.skip_seq > 0 || signals::dev_switch(signals::DEV_FEED_QUEUE_ENV) > 0;
         if self.skip_seq > 0 && (*n as usize).is_multiple_of(self.skip_seq) {
             *n += 1;
+            irori_core::log(&format!("dev: {name} skipped a seq, now {n}"));
         }
         let payload = build(*n);
+        // With a debug switch on, every `all` the page is told is logged,
+        // so a forced fallback can be counted against the full reads it
+        // caused (card #1153).
+        if dev && serde_json::to_value(&payload).is_ok_and(|v| v["all"] == true) {
+            irori_core::log(&format!("dev: {name} all, seq {n}"));
+        }
         self.emit(name, &payload);
     }
 
