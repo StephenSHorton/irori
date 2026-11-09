@@ -1383,6 +1383,99 @@ impl Services {
         Ok(shared)
     }
 
+    /// Shares the person's Personal cards `task_ids` to space `board_id`'s
+    /// first board and gives the copies to `to` (`person:<id>`) as one
+    /// batch (decision 69, §5.2.1): the person's office assistant, on
+    /// their granted words. The copies are made and given under one Fold
+    /// lock (`give_batch`), so no sweep sees them unheld; then each private
+    /// card closes pointing at its copy, as a share does. Every card is
+    /// checked first: one with open subtasks would arrive split, which a
+    /// give refuses, so it is refused before anything is shared.
+    pub(crate) fn share_give(
+        &self,
+        task_ids: &[String],
+        board_id: &str,
+        to: &str,
+    ) -> Result<Vec<Task>> {
+        let b = self.board(board_id)?;
+        let mut previews = Vec::with_capacity(task_ids.len());
+        for id in task_ids {
+            let p = self.preview_share(id, board_id)?;
+            if !p.subtasks.is_empty() {
+                return Err(Error::coord(
+                    CK::Invalid,
+                    format_args!(
+                        "{} has open subtasks, so it would arrive split: give a part instead",
+                        self.coord
+                            .get_task(id)
+                            .map(|t| t.short_ref())
+                            .unwrap_or_else(|| id.clone())
+                    ),
+                ));
+            }
+            previews.push(p);
+        }
+        let mut news = Vec::with_capacity(previews.len());
+        for (id, p) in task_ids.iter().zip(&previews) {
+            let from = self.coord.get_task(id).unwrap_or_default();
+            news.push(coord::NewTask {
+                title: p.title.clone(),
+                objective: p.goal.clone(),
+                done_criteria: p.done_when.clone(),
+                repo_key: p.repo.clone(),
+                links: p.links.clone(),
+                steps: p
+                    .steps
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| Step {
+                        text: s.clone(),
+                        done: from.steps.get(i).is_some_and(|x| x.done),
+                        ..Default::default()
+                    })
+                    .collect(),
+                title_by_person: from.title_by_person && p.title == from.title,
+                ..Default::default()
+            });
+        }
+        let actor = self.person_actor();
+        let given =
+            b.coord()
+                .give_batch(&actor, "", to, coord::GiveItems::Tasks(news), "", true)?;
+        for (priv_id, k) in task_ids.iter().zip(&given) {
+            self.boards
+                .inner
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .task_of
+                .insert(k.id.clone(), board_id.into());
+            let row = SharedCopyRow {
+                private_task_id: priv_id.clone(),
+                board_id: board_id.into(),
+                task_id: k.id.clone(),
+            };
+            self.store.append("irori", kinds::SHARED_COPY, &row)?;
+            self.boards
+                .inner
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .copies
+                .insert(priv_id.clone(), row);
+        }
+        let user = self.user_sender().key;
+        for ((priv_id, k), p) in task_ids.iter().zip(&given).zip(&previews) {
+            let note = format!(
+                "Shared to {} as {} and given to another member there (visible to: {}). This private card is closed.",
+                p.board_name,
+                k.short_ref(),
+                p.visible_to.join(", ")
+            );
+            self.coord
+                .set_task_state(&user, priv_id, coord::CANCELED, &note)?;
+        }
+        Ok(given)
+    }
+
     /// Takes a shared card back off its board as the person (§5.3): it is
     /// canceled with withdrawn set, other members hide it, and its holders
     /// on this device carry on in the private card it came from, or a new

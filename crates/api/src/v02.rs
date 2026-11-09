@@ -186,7 +186,7 @@ fn tool(h: &Handler, name: &str) -> Resp {
             None => {
                 return http::error(
                     403,
-                    "the person's message didn't ask for that: say it plainly, naming the card or agent (close #12, tick s2 on #12, tell ringo ..., comment on #12: ...; tag#12 for a space's card, and a bare #12 that is on two boards needs its tag)",
+                    "the person's message didn't ask for that: say it plainly, naming the card or agent (close #12, tick s2 on #12, tell ringo ..., comment on #12: ...; for cards given to them: start #12, not now #12, give back #12 because ..., accept the first three, reject the rest, start all of Spencer's; give #12 and #13 to Spencer; tag#12 for a space's card, and a bare #12 that is on two boards needs its tag)",
                 );
             }
         }
@@ -224,11 +224,17 @@ fn assistant_write_allowed(h: &Handler, name: &str, args: &[u8]) -> Option<Vec<u
     // Exactly the names read here: the tool's decoder also folds case, so
     // a `TASK_ID` beside `task_id` would act on a card this didn't check.
     // `text` is allowed to be sent but is never used (card #1193).
+    // Decision 69: a give-back's reason is the grant's, like a comment's
+    // words; a give's `note` is dropped, and it takes no `board` or
+    // `tasks`: Irori picks the board, and it never writes new cards.
     let known: &[&str] = match name {
-        "assistant_tick" => &["task_id", "step_id"],
-        "assistant_send" => &["to", "text"],
-        "assistant_comment" => &["task_id", "text"],
-        _ => &["task_id"],
+        tools::TOOL_TICK => &["task_id", "step_id"],
+        tools::TOOL_SEND => &["to", "text"],
+        tools::TOOL_COMMENT => &["task_id", "text"],
+        tools::TOOL_GIVE_BACK => &["task_id", "reason"],
+        tools::TOOL_GIVE => &["to", "task_ids", "note"],
+        tools::TOOL_CLOSE | tools::TOOL_START | tools::TOOL_NOT_NOW => &["task_id"],
+        _ => return None,
     };
     if v.keys().any(|k| !known.contains(&k.as_str())) {
         return None;
@@ -238,6 +244,30 @@ fn assistant_write_allowed(h: &Handler, name: &str, args: &[u8]) -> Option<Vec<u
     // tool runs on that card by id, so the model's spelling never picks it.
     let resolve = |r: &str| h.s.b.card_id(r);
     match name {
+        tools::TOOL_GIVE_BACK => {
+            let (card, reason) = g.take_text(name, arg("task_id"), &resolve)?;
+            Some(
+                serde_json::json!({ "task_id": card, "reason": reason })
+                    .to_string()
+                    .into_bytes(),
+            )
+        }
+        tools::TOOL_GIVE => {
+            // Every entry a string, or nothing is spent.
+            let ids: Vec<String> = match v.get("task_ids") {
+                Some(serde_json::Value::Array(a)) => a
+                    .iter()
+                    .map(|x| x.as_str().map(str::to_string))
+                    .collect::<Option<Vec<_>>>()?,
+                _ => return None,
+            };
+            let (to, cards) = g.take_give(arg("to"), &ids, &resolve)?;
+            Some(
+                serde_json::json!({ "to": to, "task_ids": cards })
+                    .to_string()
+                    .into_bytes(),
+            )
+        }
         tools::TOOL_SEND => {
             let (to, text) = g.take_text(name, arg("to"), &resolve)?;
             Some(
@@ -262,6 +292,7 @@ fn assistant_write_allowed(h: &Handler, name: &str, args: &[u8]) -> Option<Vec<u
                     .into_bytes(),
             )
         }
+        // Close, start and not now: the card alone.
         _ => {
             let card = g.take(name, arg("task_id"), "", &resolve)?;
             Some(

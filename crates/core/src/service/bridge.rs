@@ -1200,6 +1200,17 @@ impl tools::SharedBoards for super::ToolsView {
             .map_err(|e| e.to_string())
     }
 
+    fn share_give(
+        &self,
+        task_ids: &[String],
+        board_id: &str,
+        to: &str,
+    ) -> Result<Vec<coord::Task>, String> {
+        self.0
+            .share_give(task_ids, board_id, to)
+            .map_err(|e| e.to_string())
+    }
+
     fn board_mentionables(&self, board_id: &str) -> Vec<coord::roster::AgentCard> {
         self.0.board_mentionables(board_id)
     }

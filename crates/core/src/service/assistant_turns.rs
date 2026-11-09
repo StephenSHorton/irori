@@ -821,7 +821,15 @@ impl Services {
         } else {
             let earlier = self.assistant_chat.typed_before(&t.at, EARLIER_CAP);
             let earlier: Vec<&str> = earlier.iter().map(String::as_str).collect();
-            tools::grants_for(&turn.asked.text, &earlier)
+            // What was given to them now (decision 69): Needs you targets
+            // resolve against this, never tool output or the model's words.
+            let snap = self
+                .this
+                .get()
+                .and_then(std::sync::Weak::upgrade)
+                .map(|me| tools::needs_snapshot(&super::ToolsView(me)))
+                .unwrap_or_default();
+            tools::grants_for(&turn.asked.text, &earlier, &snap)
         };
         let note = late.then(|| self.chat_late_note(&turn.asked_on, asked_ms, p.took_ms));
         let history = self.assistant_chat.history_before(&t.at);
