@@ -181,6 +181,11 @@ kinds! {
     /// `taskId` and is never offered another; kept after it goes. On a
     /// shared board `key` is the agent's `agent:<cardId>` (card #455).
     TASK_SPAWNED = "task.spawned" => Replicated, Accepts;
+    /// The multi-item mark (agent-continuity A.3, card #1214): `{key,
+    /// taskId, life, at, by}`. Agent `key` took up another item; the
+    /// `task.spawned` mark stays its origin. Written by the same devices
+    /// as the mark, in the same log only.
+    AGENT_TOOK = "agent.took" => Replicated, Accepts;
     /// What a device can start agents in (card #455): `{device, os,
     /// repos: [{repoKey, folder, trusted}], at}`, actor `irori`, written by
     /// that device only when it changes. The device that hands a card out

@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
 use common::*;
 use coord::roster::AgentCard;
-use coord::rows::TaskSpawnRow;
+use coord::rows::{AgentTookRow, TaskSpawnRow, TaskSpawnedRow};
 use coord::*;
 use gocompat::time::GoTime;
 use store::kinds;
@@ -1205,4 +1205,126 @@ fn an_agents_counted_start_queues_behind_the_persons_cards() {
         ids(&e.c.cards_to_spawn()),
         [older.id.clone(), newer.id.clone()]
     );
+}
+
+// Agent-continuity A.3: one spawned agent serves several items. The
+// task.spawned mark stays its origin; agent.took rows add the others.
+
+fn took(e: &Env, key: &str, id: &str, life: i64) {
+    e.write_raw(
+        SWEEPER_KEY,
+        kinds::AGENT_TOOK,
+        &AgentTookRow {
+            key: key.into(),
+            task_id: id.into(),
+            life,
+            by: SWEEPER_KEY.into(),
+            at: e.clk.now(),
+        },
+    );
+}
+
+#[test]
+fn two_items_on_one_agent_make_the_newest_unsettled_one_current() {
+    let e = Env::new();
+    let first = e.c.create_task(USER, nt("First")).unwrap();
+    let second = e.c.create_task(USER, nt("Second")).unwrap();
+    let g =
+        e.c.request_spawn(SWEEPER_KEY, ask(&first.id))
+            .unwrap()
+            .unwrap();
+    e.c.bind_spawn(&first.id, g, SPAWNED).unwrap();
+    assert_eq!(e.c.spawned_card(SPAWNED), Some(first.id.clone()));
+    took(&e, SPAWNED, &second.id, 1);
+    let m = e.c.spawned(SPAWNED).unwrap();
+    assert_eq!(m.task_id, first.id, "the origin stays");
+    assert_eq!(m.items.len(), 2);
+    assert!(m.serves(&first.id) && m.serves(&second.id));
+    assert_eq!(m.current(), second.id);
+    assert_eq!(e.c.spawned_card(SPAWNED), Some(second.id.clone()));
+    // A replay reads the same.
+    assert_eq!(e.reopen().spawned_card(SPAWNED), Some(second.id.clone()));
+    // Settle the second: the first, still open, is current again.
+    e.c.set_task_state(SPAWNED, &second.id, "canceled", "no longer needed")
+        .unwrap();
+    assert_eq!(e.c.spawned_card(SPAWNED), Some(first.id.clone()));
+    // Both settled: the newest.
+    e.c.set_task_state(SPAWNED, &first.id, "canceled", "no longer needed")
+        .unwrap();
+    assert_eq!(e.c.spawned_card(SPAWNED), Some(second.id.clone()));
+}
+
+#[test]
+fn a_free_check_accepts_the_agents_own_items_and_no_other_card() {
+    let e = Env::new();
+    let first = e.c.create_task(USER, nt("First")).unwrap();
+    let second = e.c.create_task(USER, nt("Second")).unwrap();
+    let other = e.c.create_task(ALICE, nt("Another card")).unwrap();
+    let g =
+        e.c.request_spawn(SWEEPER_KEY, ask(&first.id))
+            .unwrap()
+            .unwrap();
+    e.c.bind_spawn(&first.id, g, SPAWNED).unwrap();
+    want_err(e.c.claim_task(SPAWNED, &second.id), ErrorKind::NotAllowed);
+    took(&e, SPAWNED, &second.id, 1);
+    e.c.leave(SPAWNED, &first.id, SPAWNED).unwrap();
+    e.c.claim_task(SPAWNED, &second.id).unwrap();
+    // The first is still its own item, once the second is let go.
+    e.c.leave(SPAWNED, &second.id, SPAWNED).unwrap();
+    e.c.claim_task(SPAWNED, &first.id).unwrap();
+    want_err(e.c.claim_task(SPAWNED, &other.id), ErrorKind::NotAllowed);
+}
+
+#[test]
+fn a_crash_on_the_second_item_counts_on_the_second_item() {
+    let e = Env::new();
+    let first = e.c.create_task(USER, nt("First")).unwrap();
+    let second = e.c.create_task(USER, nt("Second")).unwrap();
+    let g =
+        e.c.request_spawn(SWEEPER_KEY, ask(&first.id))
+            .unwrap()
+            .unwrap();
+    e.c.bind_spawn(&first.id, g, SPAWNED).unwrap();
+    e.c.leave(SPAWNED, &first.id, SPAWNED).unwrap();
+    took(&e, SPAWNED, &second.id, 1);
+    e.c.claim_task(SPAWNED, &second.id).unwrap();
+    e.ros.set(SPAWNED, "");
+    e.c.sweep_notices().unwrap();
+    e.clk.add(HOLDER_GRACE + std::time::Duration::from_secs(1));
+    e.c.sweep_notices().unwrap();
+    assert!(e.c.get_task(&second.id).unwrap().holders.is_empty());
+    assert_eq!(e.c.get_task(&second.id).unwrap().spawn_crashes, 1);
+    assert_eq!(e.c.get_task(&first.id).unwrap().spawn_crashes, 0);
+}
+
+#[test]
+fn a_second_task_spawned_mark_for_another_card_is_still_refused() {
+    let e = Env::new();
+    let first = e.c.create_task(USER, nt("First")).unwrap();
+    let second = e.c.create_task(USER, nt("Second")).unwrap();
+    let g =
+        e.c.request_spawn(SWEEPER_KEY, ask(&first.id))
+            .unwrap()
+            .unwrap();
+    e.c.bind_spawn(&first.id, g, SPAWNED).unwrap();
+    took(&e, SPAWNED, &second.id, 1);
+    e.write_raw(
+        SWEEPER_KEY,
+        kinds::TASK_SPAWNED,
+        &TaskSpawnedRow {
+            task_id: second.id.clone(),
+            key: SPAWNED.into(),
+            generation: 1,
+            device: "dev-a".into(),
+            by: SWEEPER_KEY.into(),
+            at: e.clk.now(),
+            ..Default::default()
+        },
+    );
+    let m = e.c.spawned(SPAWNED).unwrap();
+    assert_eq!(m.task_id, first.id, "the origin never moves");
+    assert_eq!(m.items.len(), 2, "and keeps what it took");
+    // An agent.took for an agent nobody marked folds as nothing.
+    took(&e, "dev-a/unmarked", &second.id, 1);
+    assert!(e.c.spawned("dev-a/unmarked").is_none());
 }

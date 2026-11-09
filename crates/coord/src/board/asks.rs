@@ -446,7 +446,7 @@ impl Fold {
                     && self
                         .spawned
                         .get(&gone_was)
-                        .is_some_and(|m| m.task_id == p.task_id)
+                        .is_some_and(|m| m.serves(&p.task_id))
                     && !self.ended_by_irori.contains(&gone_was)
                 {
                     t.spawn_crashes += 1;

@@ -253,6 +253,30 @@ pub type OwnerAtFn = Arc<dyn Fn(&str, Option<&RowPos>) -> bool + Send + Sync>;
 /// Whether an agent takes work Irori hands out ([`Options::offers`]).
 pub type OffersFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
+/// What the hand-out knows of an agent's context (agent-continuity §5,
+/// A.2), filled by core off the coord's lock.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Reuse {
+    /// Tokens of its newest main-chain call.
+    pub ctx: u64,
+    /// When that call was made.
+    pub ctx_at: gocompat::time::GoTime,
+    /// A compaction was seen: worn out, not small again.
+    pub compacted: bool,
+    /// The person's budget in tokens; 0 is [`DEFAULT_CTX_BUDGET`], -1 is
+    /// "always start a fresh agent".
+    pub budget: i64,
+}
+
+/// The context budget when the person never chose one: 200k tokens.
+pub const DEFAULT_CTX_BUDGET: u64 = 200_000;
+/// A prompt cache lives an hour; reuse goes only to an agent whose last
+/// call was under this long ago.
+pub const WARM_FOR_SECS: i64 = 55 * 60;
+
+/// [`Options::reusable`]: an agent's [`Reuse`], `None` when unknown.
+pub type ReusableFn = Arc<dyn Fn(&str) -> Option<Reuse> + Send + Sync>;
+
 /// The tag of another board in a space, by id (card #392); None for an id
 /// the space doesn't hold.
 pub type BoardTagFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -417,6 +441,11 @@ pub struct Options {
     /// a mention, its own board_join or ask_claim). Read when the hand-out
     /// runs. `None`: every agent does, as before.
     pub offers: Option<OffersFn>,
+    /// Each local agent's context figure and the person's budget (card
+    /// #1213, agent-continuity §5), read by [`Fold::reusable`]. A map core
+    /// keeps filled, never a file read under the lock. `None`: every agent
+    /// is reusable, as before.
+    pub reusable: Option<ReusableFn>,
     /// How many of a card's agents may crash in a row before Irori stops
     /// and asks the person (card #576). Read when it's needed. `None` or
     /// below 1: [`MAX_SPAWN_CRASHES`].
@@ -1763,7 +1792,8 @@ impl Coord {
     /// The card agent `key` was started for, if Irori spawned it; still
     /// there after the agent goes (card #452).
     pub fn spawned_card(&self, key: &str) -> Option<String> {
-        self.lock().spawned_for(key).map(|s| s.task_id.clone())
+        let f = self.lock();
+        f.spawned_for(key).map(|s| f.spawned_now(s).to_string())
     }
     /// Whether this log's cards get a spawned agent each (its spawning
     /// switch, card #446).
@@ -1798,6 +1828,11 @@ impl Coord {
     /// The crash limit in force (card #576).
     pub fn crash_limit(&self) -> u32 {
         self.lock().crash_limit()
+    }
+    /// Whether agent `key` may take another item (agent-continuity §5):
+    /// under the person's context budget, never compacted, and warm.
+    pub fn reusable(&self, key: &str) -> bool {
+        self.lock().reusable(key)
     }
     /// Asks the person about card `id` if its crashes reached the limit,
     /// it doesn't ask yet and this device hands it out: the limit was
@@ -1923,7 +1958,11 @@ impl Coord {
         self.lock().thread_agents(id)
     }
     pub fn spawned(&self, key: &str) -> Option<Spawned> {
-        self.lock().spawned_for(key).cloned()
+        let f = self.lock();
+        f.spawned_for(key).map(|s| Spawned {
+            now: f.spawned_now(s).to_string(),
+            ..s.clone()
+        })
     }
     /// Writes card `a.task_id`'s next spawn request; Ok(None) when one is
     /// pending already or the card no longer needs an agent.
