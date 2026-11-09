@@ -2411,6 +2411,8 @@ export type DeviceView = {
 	 *  #494). Empty (omitted): every side.
 	 */
 	sides?: string[],
+	/**  (A removal pending) the remaining devices that have not seen it. */
+	holdouts?: HoldoutView[],
 };
 
 /**  One page of the Done tab. */
@@ -2505,6 +2507,12 @@ export type HoldReason = "blocked" | "not_allowed" | "bypass_receiver" | "paused
 export type Holding = "nobody" | "person" | "waiting" | "assigned" | "active" | "idle" | 
 /**  Its session runs but leaves its wakes unread (card #110). */
 "silent" | "offline" | "gone";
+
+/**  A remaining device a pending removal waits on. */
+export type HoldoutView = {
+	deviceId: string,
+	name: string,
+};
 
 /**  The Home server section of Devices. */
 export type HomeServerView = {

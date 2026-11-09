@@ -71,6 +71,10 @@ pub struct PeerState {
     pub pending: i64,
     #[serde(skip_serializing_if = "is_zero")]
     pub remaining: i64,
+    /// (A removed device) the remaining devices that have not seen its
+    /// removal yet: what holds the removal up.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub holdouts: Vec<String>,
     #[serde(skip_serializing_if = "is_zero")]
     pub held: i64,
     /// Why its stream stopped here.
@@ -144,6 +148,10 @@ pub struct DeviceRow {
     /// device's is older; "" when it is not behind (or either is unknown).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub behind: String,
+    /// (A removal pending) the remaining devices that have not seen it:
+    /// each can be removed from this row when it is gone for good.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub holdouts: Vec<Holdout>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<PeerState>,
 }
@@ -186,6 +194,14 @@ pub fn behind_of(have: &str, newest: &str) -> String {
         (Some(h), Some(n)) if h < n => newest.to_string(),
         _ => String::new(),
     }
+}
+
+/// A remaining device a pending removal waits on.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct Holdout {
+    #[serde(rename = "deviceId")]
+    pub device_id: String,
+    pub name: String,
 }
 
 /// One device the private log syncs with, and when this device was last in
@@ -313,7 +329,7 @@ impl Node {
                 ..PeerState::default()
             };
             if d.revoked {
-                (ps.pending, ps.remaining) = self.removal_seen(&id, &known);
+                (ps.pending, ps.remaining, ps.holdouts) = self.removal_seen(&id, &known);
             }
             for s in &sessions {
                 if s.conn.id() == id && s.hello_done() {
@@ -484,10 +500,26 @@ impl Node {
                 }
             }
             if p.revoked && p.pending < p.remaining {
+                r.holdouts = p
+                    .holdouts
+                    .iter()
+                    .map(|id| Holdout {
+                        device_id: id.clone(),
+                        name: match self.o.chain.cert(id) {
+                            Some(c) if !c.label.is_empty() => c.label,
+                            _ => id.clone(),
+                        },
+                    })
+                    .collect();
                 r.warning = format!(
                     "Removal pending: seen by {} of {} devices.",
                     p.pending, p.remaining
                 );
+                if !r.holdouts.is_empty() {
+                    let names: Vec<&str> = r.holdouts.iter().map(|h| h.name.as_str()).collect();
+                    r.warning
+                        .push_str(&format!(" Waiting on {}.", names.join(", ")));
+                }
             } else if p.revoked {
                 r.warning = "Removed.".into();
             } else if !p.stopped.is_empty() {
@@ -543,7 +575,11 @@ impl Node {
     /// Go `removalSeen`: the remaining devices (certified, unrevoked, this
     /// one included) whose last vector holds a revoke of `dev`, of how
     /// many there are.
-    fn removal_seen(&self, dev: &str, known: &BTreeMap<String, PeerInfo>) -> (i64, i64) {
+    fn removal_seen(
+        &self,
+        dev: &str,
+        known: &BTreeMap<String, PeerInfo>,
+    ) -> (i64, i64, Vec<String>) {
         let revokes: Vec<Event> = self
             .revokes(false)
             .into_iter()
@@ -553,11 +589,12 @@ impl Node {
             .collect();
         let devices = self.o.chain.devices();
         let (mut seen, mut of) = (0, 0);
+        let mut holdouts = Vec::new();
         if revokes.is_empty() {
             // Only a revoke kept in refused_events: it travels loose,
             // outside any vector, so there is nothing to count.
             of = devices.iter().filter(|d| !d.revoked).count() as i64;
-            return (of, of);
+            return (of, of, Vec::new());
         }
         for d in devices {
             if d.revoked {
@@ -575,9 +612,11 @@ impl Node {
                     || vec.and_then(|v| v.get(&ev.device_id)).copied().unwrap_or(0) >= ev.seq
             }) {
                 seen += 1;
+            } else {
+                holdouts.push(id.clone());
             }
         }
-        (seen, of)
+        (seen, of, holdouts)
     }
 
     /// Go `revokedBy`: the label (else id) of the device that wrote the

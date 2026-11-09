@@ -277,6 +277,27 @@ function DeviceRow({
       {d.warning && (
         <span className="col-start-2 col-end-4 flex items-center gap-2 text-xs text-warning">
           <span className="min-w-0">{plainLine(d.warning)}</span>
+          {d.revoked &&
+            d.holdouts?.map((h) => (
+              <ConfirmButton
+                key={h.deviceId}
+                label={`Remove ${plainLine(h.name) || "device"}`}
+                variant="destructive"
+                confirmLabel="Remove device"
+                question={
+                  <>
+                    Remove <b>{plainLine(h.name) || "this device"}</b>? Do this
+                    if it is gone for good and will never sync again: the
+                    removal then no longer waits on it. It keeps everything it
+                    already has.
+                  </>
+                }
+                onConfirm={async () => {
+                  await actions.remove(h.deviceId)
+                  await onRemoved()
+                }}
+              />
+            ))}
           {d.this && d.action === "reset" && (
             <ConfirmButton
               label="Reset"
