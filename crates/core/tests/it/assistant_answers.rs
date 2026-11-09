@@ -558,6 +558,24 @@ fn the_packet_holds_only_what_the_space_log_holds() {
             .any(|t| t.title == ALICES)
     });
 
+    // Bob and his agent post in the channel: the packet names them as the
+    // space does, not as "an agent".
+    b1.core
+        .talk_post(
+            &b1.core.user_sender(),
+            &w.conv,
+            "OWNERPOST: I'm away on Friday",
+            &[],
+            false,
+            None,
+            vec![],
+        )
+        .unwrap();
+    ok(b1.tool(
+        "talk_post",
+        serde_json::json!({ "conv": w.conv, "text": "AGENTPOST: signing is next" }),
+    ));
+
     let seen: Seen = Arc::default();
     b1.core.set_answerer(Some(recording_turn(&seen, |_| {
         "REASON: the packet shows the card.\nANSWER: Bob's agent holds it.".into()
@@ -598,6 +616,18 @@ fn the_packet_holds_only_what_the_space_log_holds() {
     assert!(
         prompt.contains(&format!("{bob}'s agents on MLG farming:\n- ")),
         "{prompt}"
+    );
+    assert!(
+        prompt.contains(&format!("- {bob}: OWNERPOST: I'm away on Friday")),
+        "{prompt}"
+    );
+    let agent_post = prompt
+        .lines()
+        .find(|l| l.contains("AGENTPOST:"))
+        .unwrap_or_else(|| panic!("no agent post:\n{prompt}"));
+    assert!(
+        agent_post.contains(&format!("({bob}'s agent): AGENTPOST")),
+        "{agent_post}"
     );
     for never in [PRIVATE, OTHER, ALICES, WAIT_NOTE, "Solo"] {
         assert!(

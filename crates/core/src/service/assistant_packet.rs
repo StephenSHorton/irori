@@ -73,6 +73,9 @@ const BLOCKERS_PER_CARD: usize = 3;
 const OPTIONS_PER_BLOCKER: usize = 4;
 /// A blocker option's answer is clipped to this many characters.
 const MAX_OPTION: usize = 100;
+/// The most bytes one card's lines take, so one card written in a wide
+/// script can't crowd out the rest.
+const CARD_BYTES: usize = 4 * 1024;
 /// The PR links shown per card.
 const LINKS_PER_CARD: usize = 5;
 /// The owner's agents a packet lists.
@@ -126,6 +129,9 @@ pub struct Packet {
     /// The owner's open cards, newest activity first, at most
     /// [`MAX_CARDS`].
     pub cards: Vec<PacketCard>,
+    /// How many open cards the owner has on the space in all, so the turn
+    /// knows when the list isn't all of them.
+    pub total_cards: usize,
     /// The owner's agents on the space: name and status.
     pub agents: Vec<(String, String)>,
     /// The channel's newest posts, oldest first, at most [`MAX_POSTS`].
@@ -143,8 +149,9 @@ pub enum Verdict {
 }
 
 /// Strips what can carry text the reader doesn't see (§7): the tag block
-/// (U+E0000–E007F), bidi controls, zero-width and every other format (Cf)
-/// character, variation selectors, invisible fillers and control
+/// (U+E0000–E007F) and the rest of plane 14's ignorables, bidi controls,
+/// zero-width and every other format (Cf) and default-ignorable character,
+/// variation selectors, invisible fillers and control
 /// characters other than a newline or tab. A zero-width joiner between two
 /// symbols and a variation selector 15 or 16 after one stay, so emoji
 /// sequences ("👨‍👩‍👧", "❤️", "1️⃣") survive. Line and paragraph separators
@@ -179,17 +186,25 @@ pub fn strip_hidden(s: &str) -> String {
     out
 }
 
-/// A character that carries nothing visible on its own.
+/// A character that carries nothing visible on its own: a format (Cf) or
+/// control character, or any Default_Ignorable_Code_Point (which renderers
+/// draw as nothing even when unassigned), or a blank filler.
 fn hidden(c: char) -> bool {
     let u = c as u32;
     text::is_cf(c)
         || text::is_control(c)
-        || (0xE0000..=0xE007F).contains(&u)
+        // All of plane 14's ignorable block: tags, the variation
+        // selectors supplement and the unassigned rest.
+        || (0xE0000..=0xE0FFF).contains(&u)
         // Variation selectors, and the Mongolian free ones.
         || (0xFE00..=0xFE0F).contains(&u)
-        || (0xE0100..=0xE01EF).contains(&u)
         || (0x180B..=0x180F).contains(&u)
-        // Invisible fillers that aren't Cf.
+        // The other default ignorables that aren't Cf.
+        || matches!(u, 0x034F | 0x17B4 | 0x17B5 | 0x2065)
+        || (0xFFF0..=0xFFF8).contains(&u)
+        || (0x1BCA0..=0x1BCA3).contains(&u)
+        || (0x1D173..=0x1D17A).contains(&u)
+        // Blank fillers.
         || matches!(u, 0x115F | 0x1160 | 0x3164 | 0xFFA0 | 0x2800)
 }
 
@@ -247,11 +262,12 @@ fn show_links(s: &str) -> String {
     out
 }
 
-/// The text Irori shows and posts for an answer (§7): markers dropped,
-/// hidden characters stripped, links shown in full, trimmed, and capped at
-/// [`MAX_REPLY`] characters counted after all that.
+/// The text Irori shows and posts for an answer (§7): hidden characters
+/// stripped, then marker lines dropped (so a hidden character can't keep
+/// one), links shown in full, trimmed, and capped at [`MAX_REPLY`]
+/// characters counted after all that.
 pub fn normalise(s: &str) -> String {
-    let s = show_links(&strip_hidden(&strip_markers(s)));
+    let s = show_links(&strip_markers(&strip_hidden(s)));
     cap(s.trim(), MAX_REPLY)
 }
 
@@ -281,24 +297,26 @@ pub fn clip(s: &str, n: usize) -> String {
 /// an empty answer, or a `NEEDS_OWNER:` anywhere in it: `NEEDS_OWNER`.
 pub fn parse(reply: &str) -> Verdict {
     let lines: Vec<&str> = reply.lines().collect();
+    // A line's text after tag `t` (`ANSWER`), tolerating Markdown
+    // emphasis or a heading around it: `**ANSWER:**`, `**ANSWER**:`.
     let tag = |l: &str, t: &str| -> Option<String> {
-        // Tolerates Markdown emphasis or a heading around the tag.
         let l = l.trim().trim_start_matches(['*', '#', '_', ' ']);
-        let rest = l.strip_prefix(t)?;
+        let rest = l.strip_prefix(t)?.trim_start_matches(['*', '_']);
+        let rest = rest.strip_prefix(':')?;
         Some(rest.trim_start_matches(['*', '_']).trim().to_string())
     };
-    if let Some(l) = lines.iter().find_map(|l| tag(l, "NEEDS_OWNER:")) {
+    if let Some(l) = lines.iter().find_map(|l| tag(l, "NEEDS_OWNER")) {
         return Verdict::NeedsOwner(l);
     }
-    let Some(at) = lines.iter().position(|l| tag(l, "ANSWER:").is_some()) else {
+    let Some(at) = lines.iter().position(|l| tag(l, "ANSWER").is_some()) else {
         return Verdict::NeedsOwner("the reply had no verdict".into());
     };
     // A reason before the verdict: its tag's line and the lines after it.
     let reason = lines[..at]
         .iter()
-        .position(|l| tag(l, "REASON:").is_some())
+        .position(|l| tag(l, "REASON").is_some())
         .map(|r| {
-            let mut s = tag(lines[r], "REASON:").unwrap_or_default();
+            let mut s = tag(lines[r], "REASON").unwrap_or_default();
             for l in &lines[r + 1..at] {
                 s.push_str(l.trim());
             }
@@ -308,7 +326,7 @@ pub fn parse(reply: &str) -> Verdict {
     if reason.trim().is_empty() {
         return Verdict::NeedsOwner("the reply gave no reason first".into());
     }
-    let mut body = tag(lines[at], "ANSWER:").unwrap_or_default();
+    let mut body = tag(lines[at], "ANSWER").unwrap_or_default();
     for l in &lines[at + 1..] {
         body.push('\n');
         body.push_str(l);
@@ -316,6 +334,14 @@ pub fn parse(reply: &str) -> Verdict {
     let body = body.trim().to_string();
     if body.is_empty() {
         return Verdict::NeedsOwner("the answer was empty".into());
+    }
+    // "ANSWER: NEEDS_OWNER: …" is the owner's, not an answer.
+    if body
+        .trim_start_matches(['*', '_', ' '])
+        .to_ascii_uppercase()
+        .starts_with("NEEDS_OWNER")
+    {
+        return Verdict::NeedsOwner(body);
     }
     Verdict::Answer(body)
 }
@@ -461,19 +487,38 @@ pub fn render(p: &Packet) -> String {
     }
     let agents = cut_bytes(&escape(&agents), AGENTS_BYTES);
 
-    let mut posts = "Newest posts in #office-assistants, oldest first:".to_string();
-    if p.posts.is_empty() {
-        posts.push_str("\n(none)");
-    }
+    // The newest posts are kept first (they are what a question follows
+    // from), then listed oldest first.
+    let head = "Newest posts in #office-assistants, oldest first:";
+    let mut kept: Vec<String> = Vec::new();
+    let mut used = head.len();
     let skip = p.posts.len().saturating_sub(MAX_POSTS);
-    for post in &p.posts[skip..] {
-        posts.push_str(&format!(
-            "\n- {}: {}",
+    let mut older = 0;
+    for post in p.posts[skip..].iter().rev() {
+        let line = escape(&format!(
+            "- {}: {}",
             clip(&post.by, MAX_NAME),
             clip(&post.text, MAX_SHORT)
         ));
+        if used + 1 + line.len() + 40 > POSTS_BYTES {
+            older += 1;
+            continue;
+        }
+        used += 1 + line.len();
+        kept.push(line);
     }
-    let posts = cut_bytes(&escape(&posts), POSTS_BYTES);
+    let mut posts = head.to_string();
+    if older > 0 {
+        posts.push_str(&format!("\n({older} older posts didn't fit)"));
+    }
+    if kept.is_empty() && older == 0 {
+        posts.push_str("\n(none)");
+    }
+    for line in kept.iter().rev() {
+        posts.push('\n');
+        posts.push_str(line);
+    }
+    let posts = cut_bytes(&posts, POSTS_BYTES);
 
     // The cards get what is left, whole cards only.
     let fixed = [about.len(), agents.len(), posts.len()]
@@ -488,16 +533,21 @@ pub fn render(p: &Packet) -> String {
     if p.cards.is_empty() {
         cards.push_str("\n(none)");
     }
-    let shown = p.cards.len().min(MAX_CARDS);
-    for (i, c) in p.cards.iter().take(shown).enumerate() {
-        let line = escape(&card_lines(c));
-        let more = format!("\n({} more cards didn't fit)", shown - i);
-        if cards.len() + 1 + line.len() + more.len() > budget {
-            cards.push_str(&more);
-            break;
+    // Room for the line saying how many weren't listed.
+    const MORE_ROOM: usize = 64;
+    let mut listed = 0;
+    for c in p.cards.iter().take(MAX_CARDS) {
+        let line = cut_bytes(&escape(&card_lines(c)), CARD_BYTES);
+        if cards.len() + 1 + line.len() + MORE_ROOM > budget {
+            continue;
         }
         cards.push('\n');
         cards.push_str(&line);
+        listed += 1;
+    }
+    let more = p.total_cards.max(p.cards.len()) - listed;
+    if more > 0 {
+        cards.push_str(&format!("\n({more} more open cards not listed)"));
     }
     let cards = cut_bytes(&cards, budget);
     [
@@ -688,6 +738,7 @@ impl Services {
                 .cmp(&a.updated)
                 .then_with(|| a.card_ref.cmp(&b.card_ref))
         });
+        let total_cards = cards.len();
         cards.truncate(MAX_CARDS);
 
         let mut agents: Vec<(String, String)> = names
@@ -710,6 +761,20 @@ impl Services {
         agents.sort();
         agents.truncate(MAX_AGENTS);
 
+        // Talk folds a space's rows with the person's own keys in this
+        // device's form (`user:<device>`, an agent's session key): turn them
+        // back into the space's, never minting a card.
+        let user = self.user_sender().key;
+        let keys = lock(&b.maps).keys.clone();
+        let board_form = |k: &str| -> String {
+            if k == user {
+                format!("{PERSON_ACTOR_PREFIX}{me}")
+            } else if let Some(id) = keys.get(k) {
+                format!("{AGENT_ACTOR_PREFIX}{id}")
+            } else {
+                k.to_string()
+            }
+        };
         let conv = coord::talk::assistants_channel_id(&b.id);
         let all: Vec<PacketPost> = self
             .talk
@@ -723,7 +788,7 @@ impl Services {
                     && !p.text.trim().is_empty()
             })
             .map(|p| PacketPost {
-                by: names.key(&p.by),
+                by: names.key(&board_form(&p.by)),
                 text: p.text,
             })
             .collect();
@@ -733,6 +798,7 @@ impl Services {
             owner,
             assistant,
             cards,
+            total_cards,
             agents,
             posts: all[skip..].to_vec(),
         }
@@ -797,6 +863,19 @@ mod tests {
         // No reason first.
         assert!(owner("ANSWER: Bob approves."));
         assert!(owner("REASON:\nANSWER: Bob approves."));
+        // An answer that is the owner's.
+        assert!(owner(
+            "REASON: only Bob decides.\nANSWER: NEEDS_OWNER: Bob decides"
+        ));
+        assert!(owner("REASON: r\nANSWER: **needs_owner**"));
+        // Emphasis around the colon still finds the owner's verdict.
+        assert!(owner("REASON: r\n**NEEDS_OWNER**: whether Bob reviews"));
+        assert_eq!(
+            parse("**REASON**: the card\n**ANSWER**: Kit holds it"),
+            Verdict::Answer("Kit holds it".into())
+        );
+        // A tag must end at its colon.
+        assert!(owner("REASON: r\nANSWERS: yes"));
         // Both verdicts: the owner's wins, wherever it is.
         assert!(owner("REASON: r\nANSWER: yes\nNEEDS_OWNER: no"));
         assert!(owner("REASON: r\nNEEDS_OWNER: x\nANSWER: yes"));
@@ -833,6 +912,20 @@ mod tests {
         assert_eq!(strip_hidden("a\u{200D}b"), "ab");
         // Invisible fillers.
         assert_eq!(strip_hidden("a\u{3164}b\u{115F}c\u{2800}d"), "abcd");
+        // Default ignorables that aren't Cf, assigned or not: the combining
+        // grapheme joiner, Khmer inherent vowels, U+2065, and plane 14 past
+        // the tags and the selectors.
+        assert_eq!(
+            strip_hidden(
+                "a\u{34F}b\u{17B4}c\u{17B5}d\u{2065}e\u{FFF0}f\u{E0080}g\u{E01F0}h\u{E0FFF}i"
+            ),
+            "abcdefghi"
+        );
+        // A run of selectors after an emoji keeps one.
+        assert_eq!(
+            strip_hidden("\u{2764}\u{FE0F}\u{FE0F}\u{FE0F}"),
+            "\u{2764}\u{FE0F}"
+        );
     }
 
     #[test]
@@ -852,6 +945,54 @@ mod tests {
         assert!(n.ends_with('\u{2026}'));
         assert!(!n.contains('\u{E0041}'));
         assert_eq!(normalise("  short  "), "short");
+    }
+
+    #[test]
+    fn a_marker_cant_hide_behind_a_hidden_character() {
+        assert_eq!(
+            normalise("ok\n\u{200B}<<go mlg#12>>\n\u{FEFF} <<thread x>>"),
+            "ok"
+        );
+        assert_eq!(normalise("ok\u{2028}<<go>>"), "ok");
+    }
+
+    #[test]
+    fn one_wide_card_cant_empty_the_list() {
+        let mut p = packet();
+        // The newest card, in a three-byte script, fills a card's budget.
+        let mut wide = card("mlg#1", 9);
+        wide.title = "語".repeat(MAX_SHORT);
+        wide.objective = "語".repeat(MAX_LONG);
+        wide.steps = (0..12).map(|_| (' ', "語".repeat(MAX_SHORT))).collect();
+        wide.comments = (0..3)
+            .map(|_| ("E".into(), "語".repeat(MAX_LONG)))
+            .collect();
+        p.cards = vec![wide, card("mlg#2", 8), card("mlg#3", 7)];
+        p.total_cards = 45;
+        let out = render(&p);
+        assert!(out.len() <= MAX_PACKET, "{}", out.len());
+        assert!(out.contains("- mlg#1 "), "{out}");
+        assert!(out.contains("- mlg#2 Card mlg#2"), "{out}");
+        assert!(out.contains("- mlg#3 Card mlg#3"), "{out}");
+        // Cards past the list are counted, so the turn knows it's not all.
+        assert!(out.contains("(42 more open cards not listed)"), "{out}");
+    }
+
+    #[test]
+    fn the_newest_posts_are_kept_when_posts_dont_fit() {
+        let mut p = packet();
+        p.posts = (0..10)
+            .map(|i| PacketPost {
+                by: format!("P{i}"),
+                text: "語".repeat(MAX_SHORT),
+            })
+            .collect();
+        let out = render(&p);
+        assert!(out.contains("- P9: "), "the newest post is dropped:\n{out}");
+        assert!(out.contains("older posts didn't fit"), "{out}");
+        assert!(!out.contains("- P0: "), "{out}");
+        // Still oldest first.
+        assert!(out.find("- P8: ").unwrap() < out.find("- P9: ").unwrap());
     }
 
     #[test]
@@ -931,7 +1072,7 @@ mod tests {
             .collect();
         let out = render(&p);
         assert!(out.len() <= MAX_PACKET, "{}", out.len());
-        assert!(out.contains("more cards didn't fit"), "{out}");
+        assert!(out.contains("more open cards not listed"), "{out}");
         assert!(!out.contains(&"t".repeat(MAX_SHORT + 1)));
         assert!(!out.contains(&"😀".repeat(MAX_SHORT + 1)));
         assert_eq!(out.matches("</irori-data>").count(), 4);
