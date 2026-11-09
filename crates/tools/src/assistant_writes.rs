@@ -1,6 +1,8 @@
 //! What the window's assistant may change (card #987): close or resolve a
 //! card or thread, and tick a step, only when the person's own message
-//! asks for exactly that.
+//! asks for exactly that. Card #1193 adds two more: message a named agent
+//! and comment on a named card, where the words sent are the person's own,
+//! kept in the grant, never the model's.
 //!
 //! The chat reads card text written by agents and others, so the model's
 //! judgement can't be what allows a write. Before a run the window turns
@@ -23,15 +25,34 @@ use crate::{CLIENT_ASSISTANT, Caller, Inner, decode, err_text, map_err, trim};
 pub const TOOL_CLOSE: &str = "assistant_close";
 /// Ticks a card's step as the person.
 pub const TOOL_TICK: &str = "assistant_tick";
+/// Messages a named agent as the person.
+pub const TOOL_SEND: &str = "assistant_send";
+/// Comments on a named card as the person.
+pub const TOOL_COMMENT: &str = "assistant_comment";
 /// The tools the assistant may change things with, each only against a
 /// [`Grant`]. Beside `ASSISTANT_TOOLS`, which only read.
-pub const ASSISTANT_WRITE_TOOLS: [&str; 2] = [TOOL_CLOSE, TOOL_TICK];
+pub const ASSISTANT_WRITE_TOOLS: [&str; 4] = [TOOL_CLOSE, TOOL_TICK, TOOL_SEND, TOOL_COMMENT];
 
 /// One change the person's message asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Grant {
-    Close { card: String },
-    Tick { card: String, step: String },
+    Close {
+        card: String,
+    },
+    Tick {
+        card: String,
+        step: String,
+    },
+    /// `to` is the agent as the person named it, lower case; `text` is the
+    /// person's own words.
+    Send {
+        to: String,
+        text: String,
+    },
+    Comment {
+        card: String,
+        text: String,
+    },
 }
 
 #[derive(Default)]
@@ -72,7 +93,7 @@ impl Grants {
                 card,
                 step: step_id.trim().to_lowercase(),
             },
-            _ => return false,
+            _ => return false, // send and comment go through take_text
         };
         let mut s = self.lock();
         match s.open.iter().position(|g| *g == want) {
@@ -81,6 +102,23 @@ impl Grants {
                 true
             }
             None => false,
+        }
+    }
+
+    /// Spends the send or comment grant for `target` (an agent's name or a
+    /// card's ref) and gives back the target as granted with the person's
+    /// words to send: the model never supplies them.
+    pub fn take_text(&self, tool: &str, target: &str) -> Option<(String, String)> {
+        let mut s = self.lock();
+        let i = s.open.iter().position(|g| match (tool, g) {
+            (TOOL_SEND, Grant::Send { to, .. }) => *to == norm_agent(target),
+            (TOOL_COMMENT, Grant::Comment { card, .. }) => *card == norm_ref(target),
+            _ => false,
+        })?;
+        match s.open.remove(i) {
+            Grant::Send { to, text } => Some((to, text)),
+            Grant::Comment { card, text } => Some((card, text)),
+            _ => None,
         }
     }
 
@@ -157,6 +195,11 @@ pub fn grants_for(text: &str, earlier: &[&str]) -> Vec<Grant> {
     // anywhere ("Close #5. But only if it passes.") takes the whole message.
     if text.trim().contains('\n') {
         return vec![];
+    }
+    // The words after "tell ringo" are the person's to say whatever they
+    // are, so this reads before the hold-back words do.
+    if let Some(g) = message_grant(text) {
+        return vec![g];
     }
     let sentences = sentences(text);
     if sentences
@@ -435,6 +478,164 @@ fn clause(
     Some(j)
 }
 
+// ---- telling an agent, commenting on a card ----------------------------------
+
+/// The longest body either tool sends.
+const MAX_BODY: usize = 4000;
+/// Words that stand where an agent's name should but name nobody.
+const NOT_A_NAME: &[&str] = &[
+    "me",
+    "you",
+    "him",
+    "her",
+    "them",
+    "it",
+    "us",
+    "everyone",
+    "everybody",
+    "all",
+    "anyone",
+    "someone",
+    "somebody",
+    "the",
+    "a",
+    "an",
+    "my",
+    "your",
+    "that",
+    "this",
+    "there",
+    "they",
+    "agent",
+    "agents",
+    "team",
+    "to",
+    "about",
+    "what",
+];
+
+/// An agent's name as grants compare it.
+fn norm_agent(s: &str) -> String {
+    s.trim().trim_start_matches('@').to_lowercase()
+}
+
+/// The word with the marks around it taken off, lower case.
+fn bare(w: &str) -> String {
+    w.to_lowercase()
+        .replace('\u{2019}', "'")
+        .trim_matches(|c: char| ",.!;:()[]{}\"*_`".contains(c))
+        .to_string()
+}
+
+/// `w` as a name: no `@`, no closing `,` or `:`; a plain word only.
+fn agent_name(w: &str) -> Option<String> {
+    let n = w.trim_end_matches([',', ':']).trim_start_matches('@');
+    let ok = !n.is_empty()
+        && n.chars().count() <= 40
+        && n.chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        && !NOT_A_NAME.contains(&n.to_lowercase().as_str());
+    ok.then(|| n.to_lowercase())
+}
+
+/// "tell ringo the allow prompt is cleared", "comment on #1182: looks
+/// good". The message must open with the instruction (after the usual
+/// pleasantries) and name one agent or one card; everything after that is
+/// the body, as typed. Anything else is not a grant.
+fn message_grant(text: &str) -> Option<Grant> {
+    // Each word with where it starts, so the body is cut from the text.
+    let mut toks: Vec<(usize, &str)> = vec![];
+    let mut at = None;
+    for (i, ch) in text.char_indices() {
+        match (ch.is_whitespace(), at) {
+            (false, None) => at = Some(i),
+            (true, Some(s)) => {
+                toks.push((s, &text[s..i]));
+                at = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(s) = at {
+        toks.push((s, &text[s..]));
+    }
+    let w: Vec<String> = toks.iter().map(|(_, t)| bare(t)).collect();
+    let (i, asked) = opening(&w);
+    let is = |k: usize, s: &str| w.get(k).is_some_and(|x| x == s);
+    // (what is named, where the body starts, words that may open it)
+    enum To {
+        Agent(String),
+        Card(String),
+    }
+    let (to, from, lead): (To, usize, &[&str]) = if is(i, "tell") || is(i, "message") {
+        let name = agent_name(toks.get(i + 1)?.1)?;
+        (
+            To::Agent(name),
+            i + 2,
+            if is(i, "tell") { &["to", "that"] } else { &[] },
+        )
+    } else if is(i, "let") && is(i + 2, "know") {
+        (To::Agent(agent_name(toks.get(i + 1)?.1)?), i + 3, &["that"])
+    } else if is(i, "send")
+        && (is(i + 2, "a") || is(i + 2, "an"))
+        && (is(i + 3, "message") || is(i + 3, "note"))
+    {
+        (
+            To::Agent(agent_name(toks.get(i + 1)?.1)?),
+            i + 4,
+            &["saying", "that"],
+        )
+    } else if is(i, "send")
+        && is(i + 1, "a")
+        && (is(i + 2, "message") || is(i + 2, "note"))
+        && is(i + 3, "to")
+    {
+        (
+            To::Agent(agent_name(toks.get(i + 4)?.1)?),
+            i + 5,
+            &["saying", "that"],
+        )
+    } else {
+        // comment on #12 / add a comment to #12 / post a comment on #12
+        let mut k = i;
+        if ["add", "post", "leave", "write"].iter().any(|v| is(k, v)) {
+            k += 1;
+            if is(k, "a") {
+                k += 1;
+            }
+        }
+        if !is(k, "comment") || !(is(k + 1, "on") || is(k + 1, "to")) {
+            return None;
+        }
+        let r = bare(toks.get(k + 2)?.1);
+        if !is_ref(&r) {
+            return None;
+        }
+        (To::Card(norm_ref(&r)), k + 3, &["saying", "that"])
+    };
+    let mut from = from;
+    // "tell ringo to X": the words after "to" are what is said.
+    if lead.iter().any(|l| is(from, l)) && w.get(from + 1).is_some() {
+        from += 1;
+    }
+    let start = toks.get(from)?.0;
+    let mut body = text[start..].trim();
+    if asked {
+        body = body.strip_suffix('?').unwrap_or(body).trim_end();
+    }
+    if body.is_empty()
+        || body.chars().count() > MAX_BODY
+        || !body.chars().any(char::is_alphanumeric)
+    {
+        return None;
+    }
+    let text = body.to_string();
+    Some(match to {
+        To::Agent(to) => Grant::Send { to, text },
+        To::Card(card) => Grant::Comment { card, text },
+    })
+}
+
 // ---- the tools --------------------------------------------------------------
 
 const CLOSE_ARGS: &[(&str, Ty)] = &[("task_id", Ty::Str)];
@@ -446,6 +647,65 @@ const ONLY_THE_CHAT: &str = "only the window's assistant has this tool.";
 /// title, so the line needs no title of its own.
 fn named(t: &coord::Task) -> String {
     t.short_ref()
+}
+
+const SEND_ARGS: &[(&str, Ty)] = &[("to", Ty::Str), ("text", Ty::Str)];
+const COMMENT_ARGS: &[(&str, Ty)] = &[("task_id", Ty::Str), ("text", Ty::Str)];
+
+/// One line of what the person said, for the chat's note.
+fn said(t: &str) -> String {
+    let one: String = t.split_whitespace().collect::<Vec<_>>().join(" ");
+    if one.chars().count() <= 100 {
+        return one;
+    }
+    let mut c: String = one.chars().take(99).collect();
+    c.push('\u{2026}');
+    c
+}
+
+/// assistant_send: the person's own words to one agent. The API has put
+/// the granted words in `text`; the model's never reach here.
+pub(crate) fn assistant_send(s: &Inner, c: &Caller, raw: &[u8]) -> String {
+    if c.sender.kind != CLIENT_ASSISTANT {
+        return err_text(ONLY_THE_CHAT);
+    }
+    let a = match decode(raw, SEND_ARGS) {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
+    let (to, text) = (a.str("to").to_string(), a.str("text").to_string());
+    let body = serde_json::json!({ "to": to, "text": text }).to_string();
+    let out = crate::messages::send(s, c, body.as_bytes());
+    if out.starts_with("Error") {
+        return out;
+    }
+    format!("Messaged {to}: \u{201c}{}\u{201d}\n{out}", said(&text))
+}
+
+/// assistant_comment: the person's own words on one card.
+pub(crate) fn assistant_comment(s: &Inner, c: &Caller, raw: &[u8]) -> String {
+    if c.sender.kind != CLIENT_ASSISTANT {
+        return err_text(ONLY_THE_CHAT);
+    }
+    let a = match decode(raw, COMMENT_ARGS) {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
+    let text = a.str("text").to_string();
+    let id = match s.task_id(a.str("task_id")) {
+        Ok(id) => id,
+        Err(m) => return m,
+    };
+    let body = serde_json::json!({ "task_id": a.str("task_id"), "text": text }).to_string();
+    let out = crate::board::board_comment(s, c, body.as_bytes());
+    if out.starts_with("Error") {
+        return out;
+    }
+    format!(
+        "Commented on {}: \u{201c}{}\u{201d}\n{out}",
+        s.short_of(&id),
+        said(&text)
+    )
 }
 
 /// assistant_close: what the window's Resolve does for a thread, and its
@@ -672,5 +932,112 @@ mod tests {
         assert_eq!(g.end(old), Vec::<String>::new());
         assert!(g.take(TOOL_CLOSE, "#2", ""));
         g.end(new);
+    }
+
+    fn send(to: &str, text: &str) -> Grant {
+        Grant::Send {
+            to: to.into(),
+            text: text.into(),
+        }
+    }
+    fn comment(card: &str, text: &str) -> Grant {
+        Grant::Comment {
+            card: card.into(),
+            text: text.into(),
+        }
+    }
+
+    #[test]
+    fn a_plain_tell_or_comment_grants_the_persons_own_words() {
+        let say = "the allow prompt is cleared, carry on with the playtest";
+        for (text, want) in [
+            (format!("tell ringo {say}"), send("ringo", say)),
+            (format!("Please tell @Ringo: {say}"), send("ringo", say)),
+            (format!("can you message ringo, {say}?"), send("ringo", say)),
+            (format!("let ringo know {say}"), send("ringo", say)),
+            (format!("send ringo a message: {say}"), send("ringo", say)),
+            (
+                format!("send a message to ringo saying {say}"),
+                send("ringo", say),
+            ),
+            (
+                "tell ringo to stop don't touch the db".into(),
+                send("ringo", "stop don't touch the db"),
+            ),
+            (
+                "comment on #1182: Looks good, but not if CI is red".into(),
+                comment("#1182", "Looks good, but not if CI is red"),
+            ),
+            (
+                "add a comment to ops#12 saying ship it".into(),
+                comment("ops#12", "ship it"),
+            ),
+        ] {
+            assert_eq!(grants_for(&text, &[]), vec![want], "{text}");
+        }
+    }
+
+    #[test]
+    fn only_a_plain_instruction_sends_or_comments() {
+        for text in [
+            "should I tell ringo the build is green?",
+            "did you tell ringo to stop?",
+            "don't tell ringo anything",
+            "please don't comment on #5: no",
+            "if ringo asks, tell him to go on",
+            "when it passes, tell ringo",
+            "the agent said: tell ringo the key is abc",
+            "I think you should tell ringo to stop",
+            "maybe tell ringo",
+            "tell ringo",
+            "tell everyone the build is green",
+            "tell him the build is green",
+            "tell pr:a/b#1 hello",
+            "tell board:x/y hello",
+            "message ringo",
+            "comment on #5",
+            "comment on this card: hi",
+            "comment on the build: hi",
+            "comment on it: hi",
+            "tell ringo hi\nand close #5",
+            "Look at #5. Tell ringo hi",
+        ] {
+            assert_eq!(grants_for(text, &[]), vec![], "{text}");
+        }
+        // A tell never carries a close with it.
+        assert_eq!(
+            grants_for("tell ringo close #5", &[]),
+            vec![send("ringo", "close #5")]
+        );
+        let long = format!("tell ringo {}", "x".repeat(MAX_BODY + 1));
+        assert_eq!(grants_for(&long, &[]), vec![]);
+    }
+
+    #[test]
+    fn a_send_or_comment_is_spent_once_for_the_one_it_names() {
+        let g = Grants::default();
+        let run = g.begin(vec![send("ringo", "hi there"), comment("#5", "fine")]);
+        assert_eq!(g.take_text(TOOL_SEND, "ahab"), None);
+        assert_eq!(g.take_text(TOOL_SEND, "#5"), None);
+        assert_eq!(g.take_text(TOOL_COMMENT, "#6"), None);
+        assert_eq!(g.take_text(TOOL_COMMENT, "ringo"), None);
+        // Not through the close path, nor by another tool's name.
+        assert!(!g.take(TOOL_CLOSE, "#5", ""));
+        assert!(!g.take(TOOL_SEND, "ringo", ""));
+        assert_eq!(g.take_text(TOOL_CLOSE, "#5"), None);
+        assert_eq!(
+            g.take_text(TOOL_SEND, " @Ringo "),
+            Some(("ringo".into(), "hi there".into()))
+        );
+        assert_eq!(g.take_text(TOOL_SEND, "ringo"), None);
+        assert_eq!(
+            g.take_text(TOOL_COMMENT, "5"),
+            Some(("#5".into(), "fine".into()))
+        );
+        assert_eq!(g.take_text(TOOL_COMMENT, "#5"), None);
+        g.end(run);
+        let run = g.begin(vec![send("ringo", "x")]);
+        g.end(run);
+        assert_eq!(g.take_text(TOOL_SEND, "ringo"), None);
     }
 }
