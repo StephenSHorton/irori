@@ -177,7 +177,7 @@ export const commands = {
 	/**  Every thread on this device, each with its space (card #558). */
 	boardThreadsAll: () => __TAURI_INVOKE<ThreadSummary[]>("board_threads_all"),
 	/**  Just these threads' rows (card #1136). */
-	boardThreadsById: (ids: string[]) => __TAURI_INVOKE<ThreadSummary[]>("board_threads_by_id", { ids }),
+	boardThreadsById: (ids: string[]) => __TAURI_INVOKE<ThreadsById>("board_threads_by_id", { ids }),
 	/**  What a #ref in text names (card #144), or null. */
 	boardCardRef: (r: string) => __TAURI_INVOKE<RefTarget | null>("board_card_ref", { r }),
 	/**  The person has a thread open: what is in it now is read (card #719). */
@@ -4019,6 +4019,15 @@ export type ThreadSummary = {
 	 *  agent's own thread is unread until the person first opens it.
 	 */
 	unread: boolean,
+};
+
+/**
+ *  ThreadsById's answer (card #1149): the rows asked for that exist, and
+ *  the ids that don't, for the page to drop.
+ */
+export type ThreadsById = {
+	rows: ThreadSummary[],
+	gone: string[],
 };
 
 /**  Who an action's notice went to. */

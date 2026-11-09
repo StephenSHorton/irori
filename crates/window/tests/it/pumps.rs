@@ -722,6 +722,38 @@ fn a_made_card_takes_the_thread_that_made_it() {
     );
 }
 
+/// Card #1149: a thread leaving the resolved lists (reopened) sends `all`:
+/// the page keeps the newest few resolved per bucket, so it can't bring
+/// back the one that was pushed out. Resolving one, or a comment on a
+/// resolved one, names it instead.
+#[test]
+fn a_reopened_thread_sends_all() {
+    let r = Rig::new();
+    let w = &r.w;
+    let t = w.start_thread("Just me", &[], &[], "").unwrap().task.id;
+    let mut ex = Expander::default();
+    let mut send = |id: &str| {
+        w.expand(
+            &mut ex,
+            &mut signals::fold_board(&[board_ev(coord::TASK_CHANGED, id, "")]),
+        )
+    };
+    // The first batch builds the index.
+    let c = send(&t).unwrap();
+    assert!(!c.all && c.cards.contains(&t));
+    w.resolve_thread(&t).unwrap();
+    let c = send(&t).unwrap();
+    assert!(!c.all, "resolving names the thread: {c:?}");
+    assert!(c.cards.contains(&t));
+    let c = send(&t).unwrap();
+    assert!(!c.all, "still resolved: {c:?}");
+    w.reopen_thread(&t).unwrap();
+    let c = send(&t).unwrap();
+    assert!(c.all, "reopened: {c:?}");
+    let c = send(&t).unwrap();
+    assert!(!c.all, "only once: {c:?}");
+}
+
 /// A talking line ends and a card goes stale with no event: the window
 /// keeps the earliest time and `due_cards` hands the ids over then.
 #[test]
