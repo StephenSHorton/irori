@@ -339,10 +339,7 @@ pub async fn board_cards(w: W<'_>) -> R<Vec<CardSummary>> {
 /// every live card's id in grid order.
 #[tauri::command]
 #[specta::specta]
-pub async fn board_cards_patch(
-    w: W<'_>,
-    ids: Vec<String>,
-) -> R<crate::cards_cache::CardsPatch> {
+pub async fn board_cards_patch(w: W<'_>, ids: Vec<String>) -> R<crate::cards_cache::CardsPatch> {
     blocking(&w, move |w| Ok(w.cards_patch(&ids))).await
 }
 

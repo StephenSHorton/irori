@@ -263,11 +263,7 @@ fn step_of(t: &Task) -> OrderStep {
 
 /// The card t comes after: its first open after item, else, once that
 /// card is done, the first it came after.
-fn before_of(
-    get: &dyn Fn(&str) -> Option<Task>,
-    t: &Task,
-    seen: &HashSet<String>,
-) -> Option<Task> {
+fn before_of(get: &dyn Fn(&str) -> Option<Task>, t: &Task, seen: &HashSet<String>) -> Option<Task> {
     let open = t.after_cards();
     if !open.is_empty() {
         return open

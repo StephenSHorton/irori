@@ -3563,9 +3563,7 @@ pub(crate) fn family_aux(
         }
     }
     if !s.wait_task.is_empty() {
-        f.wait_name = get(&s.wait_task)
-            .map(|x| x.short_ref())
-            .unwrap_or_default();
+        f.wait_name = get(&s.wait_task).map(|x| x.short_ref()).unwrap_or_default();
     }
     if !t.parent.is_empty() {
         f.parent = card(&t.parent);

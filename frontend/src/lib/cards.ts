@@ -26,6 +26,7 @@ import {
   CardMessage,
   CardResolution,
   CardSummary,
+  type CardsPatch,
   CardLater,
   CardThreadItem,
   CommentResult,
@@ -70,6 +71,7 @@ import {
 } from "./irori"
 import { safeHref } from "./rich"
 import { EventInboxChanged, useLatest } from "./talk"
+import { usePatched, type Follow, type Want } from "./patched"
 import {
   NoteItem,
   sampleAgents,
@@ -2740,15 +2742,86 @@ export type CardsState = {
   error: string | null
 }
 
+// CardsRead is one grid read: every row with no order (a full read), or
+// the rows named with every live card's id in grid order (a patch).
+export type CardsRead = { rows: CardSummary[]; order: string[] | null }
+
+// The grid's ids in a notice: board:changed's cards.
+export const CardsBucket = "board:changed.cards"
+
+// The grid follows card changes (the focus read rides on them) and device
+// changes, whose names and colours show on every row (always `all`).
+const cardsFollow: readonly Follow[] = [
+  { signal: EventBoardChanged, buckets: ["cards"], focus: true },
+  { signal: EventDevicesChanged },
+]
+
+export type CardsHost = {
+  Cards(): Promise<CardSummary[] | null>
+  CardsCold(): Promise<CardSummary[] | null>
+  CardsPatch(ids: string[]): Promise<CardsPatch | null>
+}
+
+// readGrid is the grid's one read (card #1147, list-signals.md §6.1): a
+// drift sample reads cold on the host (never from its summary cache, which
+// it then replaces), `all` reads the whole grid, and a notice's cards read
+// just their rows with the whole order.
+export async function readGrid(
+  want: Want,
+  host: CardsHost
+): Promise<CardsRead> {
+  if (want.drift) return { rows: (await host.CardsCold()) ?? [], order: null }
+  if (want.full) return { rows: (await host.Cards()) ?? [], order: null }
+  const p = await host.CardsPatch(want.ids[CardsBucket] ?? [])
+  return { rows: p?.rows ?? [], order: p?.order ?? [] }
+}
+
+// mergeCards puts a read on the grid: a full read replaces it; a patch
+// upserts its rows and lays them out in the host's order, so a card the
+// order leaves out (closed) goes, and an id with no row yet is skipped
+// (its own notice brings the row). The result is always the whole grid,
+// which pending.observeSummaries needs: a card missing from it is gone.
+export function mergeCards(
+  current: CardSummary[],
+  read: CardsRead,
+  want: Want
+): CardSummary[] {
+  if (want.full || read.order === null) return read.rows
+  const byId = new Map(current.map((c) => [c.id, c]))
+  for (const r of read.rows) byId.set(r.id, r)
+  return read.order.flatMap((id) => {
+    const c = byId.get(id)
+    return c ? [c] : []
+  })
+}
+
 // useCards is the grid: every live card, cards waiting on a decision first,
-// with the person's pending changes on them (card #644).
+// with the person's pending changes on them (card #644). It patches (card
+// #1147): a card change reads only the rows it names.
 export function useCards(): CardsState {
-  const { value, loading, error, reload } = useLatest<CardSummary[]>(
-    loadCards,
-    [],
-    "cards"
-  )
-  useFresh(reload, error)
+  const { value, loading, error, reload } = usePatched<
+    CardSummary[],
+    CardsRead
+  >({
+    name: "cards",
+    initial: [],
+    follow: cardsFollow,
+    read: (want) =>
+      inWails()
+        ? readGrid(want, BoardService)
+        : loadCards().then((rows) => ({ rows, order: null })),
+    merge: mergeCards,
+    rows: (v) => v.map((c) => [c.id, c]),
+  })
+  // The sample has no host signals: its changes read it whole.
+  useEffect(() => {
+    if (inWails()) return
+    const fn = () => void reload()
+    sampleListeners.add(fn)
+    return () => {
+      sampleListeners.delete(fn)
+    }
+  }, [reload])
   // A read the person sees ends the changes it agrees with: after it is
   // shown, so the old state never paints in between (the change applied
   // to data that already says so changes nothing). Not the empty list

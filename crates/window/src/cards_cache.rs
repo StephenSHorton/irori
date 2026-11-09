@@ -404,8 +404,14 @@ impl Window {
         match found {
             Some((log, t)) if !coord::is_terminal(coord::effective_state(&t)) => {
                 let blocked = self.blocked(&log, &t);
-                c.entries
-                    .insert(id.to_string(), Entry { log, task: t, blocked });
+                c.entries.insert(
+                    id.to_string(),
+                    Entry {
+                        log,
+                        task: t,
+                        blocked,
+                    },
+                );
             }
             _ => {
                 c.entries.remove(id);
@@ -442,8 +448,11 @@ impl Window {
             self.refresh_entry(&mut c, id);
         }
         // Loops of waits: one new wait closes a loop for every card on it.
-        let logs: Vec<(String, Arc<Coord>)> =
-            c.logs.iter().map(|l| (l.id.clone(), l.co.clone())).collect();
+        let logs: Vec<(String, Arc<Coord>)> = c
+            .logs
+            .iter()
+            .map(|l| (l.id.clone(), l.co.clone()))
+            .collect();
         let mut rings: HashMap<String, Vec<String>> = HashMap::new();
         for (log, co) in logs {
             let loops = co.order_loops();
@@ -518,9 +527,7 @@ impl Window {
         }
         Aux {
             fam,
-            act_at: co
-                .activity(&t.id)
-                .and_then(|a| a.first().map(|a| a.at)),
+            act_at: co.activity(&t.id).and_then(|a| a.first().map(|a| a.at)),
             talk: comments[from..].to_vec(),
             commenters: if l.board.is_some() && t.comments > 0 {
                 comments.iter().map(|c| c.by.clone()).collect()
@@ -581,8 +588,7 @@ impl Window {
             }
             Some(b) => {
                 let private = |k: &str| self.core.private_key(k);
-                s.given_no =
-                    co.mine_to_serve(t) && t.given_said.as_ref().is_some_and(|y| !y.yes);
+                s.given_no = co.mine_to_serve(t) && t.given_said.as_ref().is_some_and(|y| !y.yes);
                 s.ours = ours(t, [], private)
                     || (t.comments > 0
                         && ours(t, a.commenters.iter().map(String::as_str), private));
@@ -658,7 +664,10 @@ impl Window {
             let want: HashSet<&str> = ids.iter().map(String::as_str).collect();
             return CardsPatch {
                 order: all.iter().map(|s| s.id.clone()).collect(),
-                rows: all.into_iter().filter(|s| want.contains(s.id.as_str())).collect(),
+                rows: all
+                    .into_iter()
+                    .filter(|s| want.contains(s.id.as_str()))
+                    .collect(),
             };
         }
         self.build(&mut c);
