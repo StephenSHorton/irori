@@ -42,7 +42,7 @@ impl Fold {
         self.pr_card_by_resource(&want)
     }
 
-    fn pr_card_by_resource(&self, want: &str) -> Option<&Task> {
+    pub(crate) fn pr_card_by_resource(&self, want: &str) -> Option<&Task> {
         self.tasks
             .values()
             .filter(|t| {

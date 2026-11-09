@@ -1108,6 +1108,11 @@ impl Fold {
         self.pr_states.clear();
         self.pr_ahead.clear();
         self.pr_vouchers.clear();
+        // Review asks keep their row's place, and a replay folds them again.
+        self.reviews.clear();
+        self.reviewers.clear();
+        self.pr_claims.clear();
+        self.created_pos.clear();
         self.pins.clear();
         self.archived.clear();
         // Pins from rows the cut moved out go too (card #494).

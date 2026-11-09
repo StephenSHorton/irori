@@ -154,6 +154,9 @@ crate::go_struct! {
         /// The first 100 paths the PR changes, and whether there are more.
         pub paths: Vec<String> = "paths" "omit",
         pub paths_cut: bool = "pathsCut" "omit",
+        /// The PR's head commit (merge desk §12.5). A row without it keeps
+        /// the last known.
+        pub head: String = "head" "omit",
     }
 }
 
@@ -660,6 +663,8 @@ crate::go_struct! {
         /// Wakes an idle recipient: a review ask is something to act on
         /// now (§12.12 B1b). Rows without it were next-turn asks.
         pub wake: bool = "wake" "omit",
+        /// A ping (merge desk §12.7): look at the PR, no review asked.
+        pub look: bool = "look" "omit",
     }
 }
 

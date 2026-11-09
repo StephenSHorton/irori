@@ -20,21 +20,21 @@ use irori_core::prcard::{Activity, PrComment};
 use store::Filter;
 
 const WAIT: u64 = 45;
-const REPO: &str = "remote:github.com/example-org/example-app";
-const ALICE: &str = "alicehub";
-const BOB: &str = "bobhub";
+pub(crate) const REPO: &str = "remote:github.com/example-org/example-app";
+pub(crate) const ALICE: &str = "alicehub";
+pub(crate) const BOB: &str = "bobhub";
 
 /// One fake gh: the desk's list, who it is signed in as, and what
 /// `gh pr view` says of comments.
-struct FakeGh {
-    viewer: String,
-    prs: Mutex<Vec<DeskPr>>,
-    act: Mutex<Activity>,
-    views: Mutex<usize>,
+pub(crate) struct FakeGh {
+    pub(crate) viewer: String,
+    pub(crate) prs: Mutex<Vec<DeskPr>>,
+    pub(crate) act: Mutex<Activity>,
+    pub(crate) views: Mutex<usize>,
 }
 
 impl FakeGh {
-    fn new(viewer: &str, prs: Vec<DeskPr>) -> Arc<FakeGh> {
+    pub(crate) fn new(viewer: &str, prs: Vec<DeskPr>) -> Arc<FakeGh> {
         Arc::new(FakeGh {
             viewer: viewer.into(),
             prs: Mutex::new(prs),
@@ -69,11 +69,11 @@ impl PrLister for FakeGh {
     }
 }
 
-fn url(n: i64) -> String {
+pub(crate) fn url(n: i64) -> String {
     format!("https://github.com/example-org/example-app/pull/{n}")
 }
 
-fn pr(n: i64, author: &str, updated: i64) -> DeskPr {
+pub(crate) fn pr(n: i64, author: &str, updated: i64) -> DeskPr {
     DeskPr {
         number: n,
         url: url(n),

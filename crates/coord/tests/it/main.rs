@@ -61,6 +61,7 @@ mod prstate_test;
 mod rename_test;
 mod repo_case_test;
 mod resource_test;
+mod review_pick_test;
 mod review_test;
 mod room_thread_test;
 mod said_test;
