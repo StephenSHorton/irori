@@ -196,6 +196,14 @@ Pinned today and to update:
 - `docs/port/surface.md` §2.10 and the table at the top of `events.rs` list `{}`.
 - The doc comment on `Empty` says only `board:changed` and `boards:changed` use it, but six events do.
 
+**As built (card 4, #1145).** `crates/window/src/signals.rs` has the envelopes (`CardsChange`, `TalkSignal`, `NotifSignal`, `InboxSignal` = the counts flattened plus `seq, all, deliveries, cards`, `DevicesSignal`, `BoardsSignal`, `AssistantSignal`; `seq` is a `u32`, as specta has no 64-bit number) and the folds; the kind table is `signals::KINDS` (re-exported in the `events.rs` header). Where the build differs or chooses:
+- **Presence and Roster before card 6's index.** A Presence change names the cards whose rows show that agent key, from an index the pump keeps (holders, step owners, who left); a Roster change (no key) names the cards held by any agent of another device. A batch that names no row sends nothing. Waits `by` an agent aren't in the index, so the tray count (`decide_count`) also runs when a presence change removes an agent or reports it gone.
+- **Expansion state** (`Expander`) is built by one scan of every log on the first batch, again after a lost event, and kept by re-reading each card a batch names: its one-hop edges (parent, subtasks, thread, after cards, blockers on a card) both ways, `made_by` (card → threads, from `Task.made`), the agent index and the clock times. Closed cards are in the scan.
+- **Due timer.** A thread (`irori-window-due`, 1 s) hands over the cards whose time passed: `last activity + STALE_AFTER`, newest comment `+ TALK_WINDOW`, a pending spawn `+ SPAWN_GRACE`, and every queued card when a usage hold ends.
+- **The tray count** runs on a batch that sent `board:changed`, held a Board, Inbox or `Resync` event, or removed an agent: not on each agent line.
+- **Inbox cards** come from the delivery's message: a `task:` ref, a `comment:` ref's card, and the comment with the message's id (a message recorded on a card).
+- **Debug switches** are `IRORI_DEV_SKIP_SEQ=N` (every Nth emit of a name jumps a seq) and `IRORI_DEV_FEED_QUEUE=N` (the Core feeds and `moved_q` get N slots; `Core::feed_sized`). A release build ignores both.
+
 ## 5. The page side: one listener module
 
 A new `frontend/src/lib/changes.ts` takes over **every `Events.On`/`OnShown` of `board:changed`, `talk:changed`, `notifications:changed`, `inbox:changed`, `devices:changed`, `boards:changed` and `assistant:changed` in `frontend/src`**, except `window-log.ts`, which only counts. At `3f8d9224` that is:

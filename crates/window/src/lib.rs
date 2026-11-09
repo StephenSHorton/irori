@@ -287,7 +287,7 @@ impl Window {
         let mut seqs = self.seqs.lock().unwrap_or_else(|e| e.into_inner());
         let n = seqs.entry(name.to_string()).or_insert(0);
         *n += 1;
-        if self.skip_seq > 0 && (*n as usize) % self.skip_seq == 0 {
+        if self.skip_seq > 0 && (*n as usize).is_multiple_of(self.skip_seq) {
             *n += 1;
         }
         let payload = build(*n);

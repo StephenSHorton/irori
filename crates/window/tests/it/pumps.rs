@@ -167,8 +167,11 @@ fn board_pump_forwards_and_coalesces() {
             .all(|v| v["seq"].is_u64() && v["all"].is_boolean() && v["cards"].is_array())
     );
     assert!(
-        all.iter()
-            .any(|v| v["cards"].as_array().unwrap().iter().any(|c| *c == t.id.as_str())),
+        all.iter().any(|v| v["cards"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| *c == t.id.as_str())),
         "no payload named the card {}: {all:?}",
         t.id
     );
@@ -289,7 +292,11 @@ fn the_kind_map_sends_each_kind_to_its_bucket() {
         board_ev(coord::BOARD_PIN_CHANGED, "board:b1", ""),
     ]);
     assert!(!f.all && f.desk && f.pin);
-    assert_eq!(f.cards, ["t1", "t2"], "a card once, the pin's id not a card");
+    assert_eq!(
+        f.cards,
+        ["t1", "t2"],
+        "a card once, the pin's id not a card"
+    );
     assert_eq!(f.notes, ["n1"]);
     // Expanded: unknown ids are carried as they are, the desk and the note
     // ride along.
@@ -348,34 +355,63 @@ fn a_card_change_takes_its_family_and_a_quiet_presence_nothing() {
     let r = Rig::new();
     let co = r.w.core.coord();
     let parent = co
-        .create_task(&r.key_a, coord::NewTask { title: "p".into(), ..Default::default() })
+        .create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: "p".into(),
+                ..Default::default()
+            },
+        )
         .unwrap();
     let kid = co
         .create_task(
             &r.key_a,
-            coord::NewTask { title: "k".into(), parent: parent.id.clone(), ..Default::default() },
+            coord::NewTask {
+                title: "k".into(),
+                parent: parent.id.clone(),
+                ..Default::default()
+            },
         )
         .unwrap();
     let mut ex = Expander::default();
-    let c = r
-        .w
-        .expand(&mut ex, &mut signals::fold_board(&[board_ev(coord::TASK_CHANGED, &kid.id, "")]))
+    let c =
+        r.w.expand(
+            &mut ex,
+            &mut signals::fold_board(&[board_ev(coord::TASK_CHANGED, &kid.id, "")]),
+        )
         .unwrap();
     assert!(!c.all);
-    assert!(c.cards.contains(&kid.id) && c.cards.contains(&parent.id), "{:?}", c.cards);
+    assert!(
+        c.cards.contains(&kid.id) && c.cards.contains(&parent.id),
+        "{:?}",
+        c.cards
+    );
     // And the other way: the parent's change names the kid.
-    let c = r
-        .w
-        .expand(&mut ex, &mut signals::fold_board(&[board_ev(coord::TASK_CHANGED, &parent.id, "")]))
+    let c =
+        r.w.expand(
+            &mut ex,
+            &mut signals::fold_board(&[board_ev(coord::TASK_CHANGED, &parent.id, "")]),
+        )
         .unwrap();
     assert!(c.cards.contains(&kid.id) && c.cards.contains(&parent.id));
 
     // An agent that holds nothing moved: no row to read.
-    let card = r.w.core.local_agents().into_iter().find(|c| c.key == r.key_b).unwrap();
-    let pc = presence::Change { kind: presence::ChangeKind::Updated, card };
+    let card =
+        r.w.core
+            .local_agents()
+            .into_iter()
+            .find(|c| c.key == r.key_b)
+            .unwrap();
+    let pc = presence::Change {
+        kind: presence::ChangeKind::Updated,
+        card,
+    };
     let mut f = signals::fold_board(&[CoreEvent::Presence(Box::new(pc.clone()))]);
-    assert_eq!(f.agents, [r.key_b.clone()]);
-    assert!(r.w.expand(&mut ex, &mut f).is_none(), "nothing shows agent b");
+    assert_eq!(f.agents, std::slice::from_ref(&r.key_b));
+    assert!(
+        r.w.expand(&mut ex, &mut f).is_none(),
+        "nothing shows agent b"
+    );
     // Once agent b holds the card, its presence change names the card.
     co.claim_task(&r.key_b, &parent.id).unwrap();
     r.w.expand(
@@ -400,13 +436,23 @@ fn seq_counts_up_per_name_including_boards_pin() {
         if i == 2 {
             r.w.core
                 .coord()
-                .create_task(&r.key_a, coord::NewTask { title: "t".into(), ..Default::default() })
+                .create_task(
+                    &r.key_a,
+                    coord::NewTask {
+                        title: "t".into(),
+                        ..Default::default()
+                    },
+                )
                 .unwrap();
         }
     }
     std::thread::sleep(Duration::from_millis(600));
     for name in [events::EVENT_BOARDS_CHANGED, events::EVENT_BOARD_CHANGED] {
-        let seqs: Vec<u64> = seen.of(name).iter().map(|v| v["seq"].as_u64().unwrap()).collect();
+        let seqs: Vec<u64> = seen
+            .of(name)
+            .iter()
+            .map(|v| v["seq"].as_u64().unwrap())
+            .collect();
         assert!(seqs.len() >= 2, "{name}: {seqs:?}");
         let want: Vec<u64> = (1..=seqs.len() as u64).collect();
         assert_eq!(seqs, want, "{name} counts 1, 2, 3 with no gap");
@@ -426,9 +472,13 @@ fn a_board_set_resync_reads_everything_and_a_card_names_itself() {
     let (seen, stop) = pumps(&r);
     r.w.core.create_board("Alpha", "alpha").unwrap();
     wait("board:changed all", || {
-        seen.of(events::EVENT_BOARD_CHANGED).iter().any(|v| v["all"] == true)
+        seen.of(events::EVENT_BOARD_CHANGED)
+            .iter()
+            .any(|v| v["all"] == true)
     });
-    wait("boards:changed", || !seen.of(events::EVENT_BOARDS_CHANGED).is_empty());
+    wait("boards:changed", || {
+        !seen.of(events::EVENT_BOARDS_CHANGED).is_empty()
+    });
     let all = seen
         .of(events::EVENT_BOARD_CHANGED)
         .into_iter()
@@ -436,12 +486,17 @@ fn a_board_set_resync_reads_everything_and_a_card_names_itself() {
         .unwrap();
     assert!(strs(&all["cards"]).is_empty() && strs(&all["notes"]).is_empty());
 
-    let t = r
-        .w
-        .core
-        .coord()
-        .create_task(&r.key_a, coord::NewTask { title: "x".into(), ..Default::default() })
-        .unwrap();
+    let t =
+        r.w.core
+            .coord()
+            .create_task(
+                &r.key_a,
+                coord::NewTask {
+                    title: "x".into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
     wait("the card's id", || {
         seen.of(events::EVENT_BOARD_CHANGED)
             .iter()
@@ -457,27 +512,31 @@ fn a_board_set_resync_reads_everything_and_a_card_names_itself() {
 fn inbox_names_deliveries_and_cards_and_reads_all_for_the_rest() {
     let r = Rig::new();
     let (seen, stop) = pumps(&r);
-    let t = r
-        .w
-        .core
-        .coord()
-        .create_task(&r.key_a, coord::NewTask { title: "c".into(), ..Default::default() })
-        .unwrap();
+    let t =
+        r.w.core
+            .coord()
+            .create_task(
+                &r.key_a,
+                coord::NewTask {
+                    title: "c".into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
     let to = inbox::Address::new(inbox::addr::AGENT, &r.key_b);
-    let (_, d) = r
-        .w
-        .core
-        .inbox()
-        .send_with(
-            &agent(&r.key_a),
-            &to,
-            "see this",
-            inbox::SendOptions {
-                ref_: format!("task:{}", t.id),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+    let (_, d) =
+        r.w.core
+            .inbox()
+            .send_with(
+                &agent(&r.key_a),
+                &to,
+                "see this",
+                inbox::SendOptions {
+                    ref_: format!("task:{}", t.id),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
     wait("inbox:changed names the delivery and its card", || {
         seen.of(events::EVENT_INBOX_CHANGED).iter().any(|v| {
             v["all"] == false
@@ -509,12 +568,18 @@ fn inbox_names_deliveries_and_cards_and_reads_all_for_the_rest() {
         })
     };
     let updated = inbox::ChangeKind::Updated;
-    assert_eq!(signals::fold_inbox(&[ch(updated, "", "")], false), (true, vec![]));
+    assert_eq!(
+        signals::fold_inbox(&[ch(updated, "", "")], false),
+        (true, vec![])
+    );
     assert_eq!(
         signals::fold_inbox(&[ch(inbox::ChangeKind::Resync, "", "")], false),
         (true, vec![])
     );
-    assert_eq!(signals::fold_inbox(&[CoreEvent::Resync], false), (true, vec![]));
+    assert_eq!(
+        signals::fold_inbox(&[CoreEvent::Resync], false),
+        (true, vec![])
+    );
     assert_eq!(signals::fold_inbox(&[], true), (true, vec![]));
     // A wake issued names a recipient and no delivery: nothing to read.
     assert_eq!(
@@ -522,7 +587,13 @@ fn inbox_names_deliveries_and_cards_and_reads_all_for_the_rest() {
         (false, vec![])
     );
     assert_eq!(
-        signals::fold_inbox(&[ch(updated, "k", "d1"), ch(inbox::ChangeKind::HeldNew, "k", "d1")], false),
+        signals::fold_inbox(
+            &[
+                ch(updated, "k", "d1"),
+                ch(inbox::ChangeKind::HeldNew, "k", "d1")
+            ],
+            false
+        ),
         (false, vec!["d1".to_string()])
     );
 }
@@ -575,15 +646,24 @@ fn notifications_name_keys_and_asks_and_read_all_for_the_rest() {
         CoreEvent::Asks("a1".into()),
     ]);
     assert!(!all);
-    assert_eq!((keys.as_slice(), asks.as_slice()), (&["k1".to_string(), "k2".to_string()][..], &["a1".to_string()][..]));
+    assert_eq!(
+        (keys.as_slice(), asks.as_slice()),
+        (
+            &["k1".to_string(), "k2".to_string()][..],
+            &["a1".to_string()][..]
+        )
+    );
     for ev in [
         n(NotifChange::all()),
         n(NotifChange::keys(Vec::<String>::new())),
         CoreEvent::Asks(String::new()),
         CoreEvent::Resync,
     ] {
-        let (all, keys, asks) =
-            signals::fold_notifications(&[n(NotifChange::keys(["k1"])), CoreEvent::Asks("a1".into()), ev]);
+        let (all, keys, asks) = signals::fold_notifications(&[
+            n(NotifChange::keys(["k1"])),
+            CoreEvent::Asks("a1".into()),
+            ev,
+        ]);
         assert!(all && keys.is_empty() && asks.is_empty());
     }
 }
@@ -599,4 +679,76 @@ fn the_debug_switches_take_a_number() {
         assert_eq!(v("3"), 0, "a release build ignores it");
     }
     assert_eq!(signals::dev_switch_of(None), 0);
+}
+
+/// A card a thread made takes its thread with it (the made-card index,
+/// §3.3 step 1), and the thread's own change does not name the card.
+#[test]
+fn a_made_card_takes_the_thread_that_made_it() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let (th, _) = co
+        .post_agent_thread(
+            &r.key_a,
+            coord::NewAsk {
+                text: "Should we?".into(),
+                thread: true,
+                ..coord::NewAsk::default()
+            },
+        )
+        .unwrap();
+    let card = co
+        .create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: "made".into(),
+                from: th.id.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let mut ex = Expander::default();
+    let c =
+        r.w.expand(
+            &mut ex,
+            &mut signals::fold_board(&[board_ev(coord::TASK_CHANGED, &card.id, "")]),
+        )
+        .unwrap();
+    assert!(!c.all);
+    assert!(
+        c.cards.contains(&card.id) && c.cards.contains(&th.id),
+        "the made card names its thread: {:?}",
+        c.cards
+    );
+}
+
+/// A talking line ends and a card goes stale with no event: the window
+/// keeps the earliest time and `due_cards` hands the ids over then.
+#[test]
+fn rows_that_change_by_the_clock_come_due() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let t = co
+        .create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: "w".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    co.claim_task(&r.key_a, &t.id).unwrap();
+    co.add_comment(&r.key_a, &t.id, "hello", false).unwrap();
+    let mut ex = Expander::default();
+    r.w.expand(
+        &mut ex,
+        &mut signals::fold_board(&[board_ev(coord::TASK_CHANGED, &t.id, "")]),
+    );
+    let due = ex.next_due().expect("a working card turns stale later");
+    let now = unix_ms();
+    assert!(
+        due > now && due <= now + 2 * 3600 * 1000 + 5000,
+        "due {due} now {now}"
+    );
+    assert!(r.w.due_cards(&mut ex).is_empty(), "nothing is due yet");
 }

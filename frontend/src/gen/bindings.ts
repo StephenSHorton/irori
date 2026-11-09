@@ -1177,6 +1177,12 @@ export type AssistantImported = {
 	updates: number,
 };
 
+/**  `assistant:changed`: `all` after a lost event. Later `turns`. */
+export type AssistantSignal = {
+	seq: number,
+	all: boolean,
+};
+
 /**  One comment file as the window shows it. */
 export type AttachmentInfo = {
 	sha256: string,
@@ -1340,6 +1346,11 @@ export type BoardSummary = {
 	 *  a card's `board` names one of them (empty: the space's own).
 	 */
 	boards: SpaceBoard[],
+};
+
+/**  `boards:changed`: its lists are small and always read whole. */
+export type BoardsSignal = {
+	seq: number,
 };
 
 /**  One line said in the call (#656). */
@@ -2224,6 +2235,18 @@ export type CardWhere = {
 	at: string,
 };
 
+/**
+ *  `board:changed`: which cards, notes and desks a change touched.
+ *  `cards` includes thread ids and is already expanded (§3.3).
+ */
+export type CardsChange = {
+	seq: number,
+	all: boolean,
+	cards: string[],
+	notes: string[],
+	desk: boolean,
+};
+
 /**  presence.Change. */
 export type Change = {
 	kind: ChangeKind,
@@ -2516,15 +2539,21 @@ export type DeviceView = {
 	holdouts?: HoldoutView[],
 };
 
+/**
+ *  `devices:changed`: always `all` (rare, and names, colours and faces show
+ *  on every row).
+ */
+export type DevicesSignal = {
+	seq: number,
+	all: boolean,
+};
+
 /**  One page of the Done tab. */
 export type DonePage = {
 	cards: CardSummary[],
 	/**  The cursor for the next page ("" on the last). */
 	next: string,
 };
-
-/**  The board:changed and boards:changed payload. */
-export type Empty = Record<string, never>;
 
 /**
  *  store.Event: one log row. `payload` is the row's JSON as stored; `hlc`
@@ -2663,6 +2692,14 @@ export type InboxCounts = {
 	held: number,
 	paused: boolean,
 };
+
+/**  `inbox:changed`: the counts, as they always were, plus what changed. */
+export type InboxSignal = {
+	seq: number,
+	all: boolean,
+	deliveries: string[],
+	cards: string[],
+} & InboxCounts;
 
 /**
  *  What either side's screen shows (the invite flow's `Status`, with the
@@ -2941,6 +2978,14 @@ export type NoteView = {
 	 *  this device, or a source card that is gone.
 	 */
 	stale: string,
+};
+
+/**  `notifications:changed`: notification keys and ask ids. */
+export type NotifSignal = {
+	seq: number,
+	all: boolean,
+	keys: string[],
+	asks: string[],
 };
 
 /**  One notification. */
@@ -3672,6 +3717,17 @@ export type TalkReplying = {
 	convId: string,
 	/**  The earliest woken first. */
 	agents: TalkReplier[],
+};
+
+/**
+ *  `talk:changed`: conversation ids (bare thread ids for a thread's read
+ *  cursor) and call ids.
+ */
+export type TalkSignal = {
+	seq: number,
+	all: boolean,
+	convs: string[],
+	calls: string[],
 };
 
 /**  A huddle's transcript (#656), as the person reads it. */

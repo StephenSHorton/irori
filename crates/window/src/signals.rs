@@ -392,7 +392,10 @@ impl Expander {
         }
         edges.retain(|e| e != id);
         for e in &edges {
-            self.rev.entry(e.clone()).or_default().insert(id.to_string());
+            self.rev
+                .entry(e.clone())
+                .or_default()
+                .insert(id.to_string());
             add_id(&mut touched, e);
         }
         self.fwd.insert(id.to_string(), edges);

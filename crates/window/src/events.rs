@@ -89,7 +89,6 @@ const ROSTER_EMIT_EVERY: Duration = Duration::from_millis(250);
 /// speaking change about twice a second.
 const CALL_EMIT_EVERY: Duration = Duration::from_millis(100);
 
-/// The board:changed and boards:changed payload.
 /// The capture:changed payload: what changed since the last one.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -271,8 +270,7 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
             let q = w.core.subscribe_boards();
             // boards:changed is coalesced too (card #233): a board synced
             // from another device moves once per board.* / member.* row.
-            let moved_q: Arc<Queue<CoreEvent>> =
-                Arc::new(Queue::new(feed_cap_or(64)));
+            let moved_q: Arc<Queue<CoreEvent>> = Arc::new(Queue::new(feed_cap_or(64)));
             let reg = {
                 let (q, moved_q) = (q.clone(), moved_q.clone());
                 stop.on_cancel(move || {
@@ -353,7 +351,10 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
         out.push(spawn("irori-window-devices", move || {
             let q = feed.queue().clone();
             coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
-                w.emit_change(EVENT_DEVICES_CHANGED, |seq| DevicesSignal { seq, all: true });
+                w.emit_change(EVENT_DEVICES_CHANGED, |seq| DevicesSignal {
+                    seq,
+                    all: true,
+                });
             });
         }));
     }

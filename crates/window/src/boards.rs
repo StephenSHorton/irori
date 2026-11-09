@@ -307,7 +307,9 @@ impl Window {
             .coord()
             .pin_ref(&self.user_key(), &board_pin_key(id), pinned, "", false)
             .map_err(|e| e.to_string())?;
-        self.emit_change(EVENT_BOARDS_CHANGED, |seq| crate::signals::BoardsSignal { seq });
+        self.emit_change(EVENT_BOARDS_CHANGED, |seq| crate::signals::BoardsSignal {
+            seq,
+        });
         Ok(())
     }
 
