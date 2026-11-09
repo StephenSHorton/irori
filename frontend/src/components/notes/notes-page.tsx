@@ -5,6 +5,7 @@
 // row says who wrote it, and you edit or remove any of them. The list is
 // filtered by kind.
 
+import { Ago } from "@/components/common/ago"
 import { useMemo, useState } from "react"
 import {
   AlertTriangleIcon,
@@ -18,7 +19,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loading } from "@/components/ui/loading"
 import type { BoardSummary } from "@/lib/boards"
-import { plainLine, relativeTime, type Roster } from "@/lib/irori"
+import { plainLine, type Roster } from "@/lib/irori"
 import {
   kindCounts,
   notes,
@@ -35,13 +36,11 @@ export function NotesPage({
   boards,
   roster,
   onOpen,
-  now,
 }: {
   // For board: tags, which name a space by its tag.
   boards: BoardSummary[]
   roster: Roster
   onOpen: (cardId: string) => void
-  now: Date
 }) {
   const { notes: list, loading, error } = useNotes()
   const [kind, setKind] = useState<NoteKind | "all">("all")
@@ -151,7 +150,6 @@ export function NotesPage({
                       who={who}
                       boardName={boardName}
                       onOpen={onOpen}
-                      now={now}
                     />
                   ))}
                 </ul>
@@ -232,13 +230,11 @@ function Meta({
   who,
   boardName,
   onOpen,
-  now,
 }: {
   n: Note
   who: Who
   boardName: (tag: string) => string
   onOpen: (cardId: string) => void
-  now: Date
 }) {
   const src = sourceLabel(n)
   return (
@@ -268,7 +264,7 @@ function Meta({
           <> · kept by {who(n.acceptedBy)}</>
         )}
         {" · "}
-        {relativeTime(new Date(n.updated), now)}
+        <Ago at={new Date(n.updated)} />
       </span>
       {n.stale && (
         <span
@@ -288,13 +284,11 @@ function NoteRow({
   who,
   boardName,
   onOpen,
-  now,
 }: {
   n: Note
   who: Who
   boardName: (tag: string) => string
   onOpen: (cardId: string) => void
-  now: Date
 }) {
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState("")
@@ -331,7 +325,7 @@ function NoteRow({
           <Trash2Icon className="size-3.5" aria-hidden />
         </Button>
       </div>
-      <Meta n={n} who={who} boardName={boardName} onOpen={onOpen} now={now} />
+      <Meta n={n} who={who} boardName={boardName} onOpen={onOpen} />
       {error && <p className="text-xs text-destructive">{error}</p>}
       <NoteForm
         open={editing}

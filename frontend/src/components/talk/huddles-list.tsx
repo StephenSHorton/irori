@@ -3,6 +3,7 @@
 // was, who was in it, how long it ran and whether it's on. A row opens the
 // huddle's page. huddlesFor is pure, so the tests feed it.
 
+import { useToday } from "@/lib/clock"
 import { HeadphonesIcon } from "lucide-react"
 
 import { dayLabel } from "./conversation"
@@ -55,15 +56,14 @@ export function whenShort(h: TalkHuddle, now: Date): string {
 
 export function HuddleRow({
   h,
-  now,
   current,
   onOpen,
 }: {
   h: TalkHuddle
-  now: Date
   current?: boolean
   onOpen: () => void
 }) {
+  const today = useToday()
   const live = isLive(h)
   const sub = [placeText(h), peopleText(h.people)].filter(Boolean).join(" · ")
   return (
@@ -105,7 +105,7 @@ export function HuddleRow({
         <span className="truncate text-[11px] text-muted-foreground">
           {sub}
           {sub && " · "}
-          {whenShort(h, now)}
+          {whenShort(h, today)}
         </span>
       </span>
     </button>

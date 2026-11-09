@@ -43,7 +43,7 @@ export const commands = {
 	boardCards: () => __TAURI_INVOKE<CardSummary[]>("board_cards"),
 	boardCard: (id: string) => __TAURI_INVOKE<CardDetail>("board_card", { id }),
 	/**  Several cards in one call, each with its card or why not (card #468). */
-	boardCardsById: (ids: string[]) => __TAURI_INVOKE<CardRead[]>("board_cards_by_id", { ids }),
+	boardCardsById: (ids: string[], have: CardHave[]) => __TAURI_INVOKE<CardRead[]>("board_cards_by_id", { ids, have }),
 	boardDoneCards: (limit: number, before: string) => __TAURI_INVOKE<DonePage>("board_done_cards", { limit, before }),
 	/**
 	 *  One scope's live cards (card #161): "" every card, "own" the private
@@ -173,6 +173,8 @@ export const commands = {
 	boardThreads: (boardId: string) => __TAURI_INVOKE<ThreadSummary[]>("board_threads", { boardId }),
 	/**  Every thread on this device, each with its space (card #558). */
 	boardThreadsAll: () => __TAURI_INVOKE<ThreadSummary[]>("board_threads_all"),
+	/**  Just these threads' rows (card #1136). */
+	boardThreadsById: (ids: string[]) => __TAURI_INVOKE<ThreadSummary[]>("board_threads_by_id", { ids }),
 	/**  What a #ref in text names (card #144), or null. */
 	boardCardRef: (r: string) => __TAURI_INVOKE<RefTarget | null>("board_card_ref", { r }),
 	/**  The person has a thread open: what is in it now is read (card #719). */
@@ -232,6 +234,13 @@ export const commands = {
 	storageLog: () => __TAURI_INVOKE<LogPart[]>("storage_log"),
 	storageItems: (kind: string) => __TAURI_INVOKE<StorageItem[]>("storage_items", { kind }),
 	storageClean: (kind: string, ids: string[]) => __TAURI_INVOKE<StorageCleaned>("storage_clean", { kind, ids }),
+	/**  Ends a process that holds a worktree (card #1118): Storage's End it. */
+	storageEndHolder: (tree: string, pid: number) => __TAURI_INVOKE<string>("storage_end_holder", { tree, pid }),
+	/**
+	 *  Deletes a canceled card's worktree whole (card #1118): Storage's
+	 *  "delete anyway".
+	 */
+	storageDeleteTree: (tree: string) => __TAURI_INVOKE<null>("storage_delete_tree", { tree }),
 	storageCleared: () => __TAURI_INVOKE<ClearedCard[]>("storage_cleared"),
 	storageUnclear: (ids: string[]) => __TAURI_INVOKE<number>("storage_unclear", { ids }),
 	threadsClearCount: (olderThanSecs: number) => __TAURI_INVOKE<number>("threads_clear_count", { olderThanSecs }),
@@ -385,6 +394,14 @@ export const commands = {
 	assistantWeighs: () => __TAURI_INVOKE<boolean>("assistant_weighs"),
 	/**  Turns "Weigh new cards" on or off, on all the person's devices. */
 	assistantWeighsSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_weighs_set", { on }),
+	/**  "Let my assistant add notes from what I say" (#1053): on unless turned off. */
+	assistantHuddleNotes: () => __TAURI_INVOKE<boolean>("assistant_huddle_notes"),
+	/**  Turns the notes switch on or off, on all the person's devices. */
+	assistantHuddleNotesSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_huddle_notes_set", { on }),
+	/**  "Let my assistant chair huddles I start" (#1053): on unless turned off. */
+	assistantHuddleChair: () => __TAURI_INVOKE<boolean>("assistant_huddle_chair"),
+	/**  Turns the chair switch on or off, on all the person's devices. */
+	assistantHuddleChairSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_huddle_chair_set", { on }),
 	/**  A huddle's transcript (#656): every line, named. */
 	talkCallTranscript: (callId: string) => __TAURI_INVOKE<TalkTranscript>("talk_call_transcript", { callId }),
 	/**  Every huddle in Talk (card #1044), newest first. */
@@ -1588,6 +1605,12 @@ export type CardDetail = {
 	sharedTo?: SharedCopy | null,
 } & CardSummary;
 
+/**  What the window holds of one card: the `rev` it was last sent. */
+export type CardHave = {
+	id: string,
+	rev: string,
+};
+
 /**  The holder line. */
 export type CardHolder = {
 	who: AgentRef,
@@ -1736,6 +1759,15 @@ export type CardRead = {
 	card: CardDetail | null,
 	/**  "" when card is there. */
 	error: string,
+	/**
+	 *  A stamp of the card as read (card #1136): the window sends it back in
+	 *  `have`, and a card that still hashes to it comes back `unchanged`
+	 *  with no card, so a quiet board costs a few bytes a card, not every
+	 *  comment and step of it. "" when the card isn't there.
+	 */
+	rev: string,
+	/**  The card is what `have` said: `card` is empty on purpose. */
+	unchanged: boolean,
 };
 
 /**  Another card: a subtask's parent. */
@@ -3175,6 +3207,12 @@ export type StorageCleaned = {
 	kept: StorageKept[],
 };
 
+/**  A process that holds a worktree (card #1118). */
+export type StorageHolder = {
+	pid: number,
+	name: string,
+};
+
 /**  One item of a kind: a file, a folder, a space, a tree. */
 export type StorageItem = {
 	/**
@@ -3200,6 +3238,19 @@ export type StorageItem = {
 	 *  no copy, so deleting it here may lose it.
 	 */
 	onlyHere: boolean,
+	/**
+	 *  Why the sweep keeps a worktree (card #1118), when it does: "waiting
+	 *  for Done", or "canceled, 3 unpushed commits". A process holding it
+	 *  is `holders`.
+	 */
+	pinned: string,
+	/**  Processes with their folder in this worktree: End it ends one. */
+	holders: StorageHolder[],
+	/**
+	 *  A canceled card's worktree, which the person may delete whole,
+	 *  unpushed work and all.
+	 */
+	deleteAnyway: boolean,
 };
 
 /**  One item a clean left. */
@@ -3278,8 +3329,12 @@ export type SummaryMember = {
 
 /**  One person's assistant in a huddle's roster (card #1049). */
 export type TalkAssistant = {
-	/**  The person, as a key (`names` in the transcript read it). */
+	/**  The person, as a key. */
 	person: string,
+	/**  The person's name ("you" for this person), never a key (card #1052). */
+	name: string,
+	/**  The person is this one. */
+	mine: boolean,
 	/**  `connected`, `reconnecting` or `not connected`. */
 	state: string,
 	/**  Why it isn't connected, when this device knows; else empty. */
@@ -3551,6 +3606,11 @@ export type TalkTranscriptLine = {
 	name: string,
 	/**  The person said it. */
 	mine: boolean,
+	/**
+	 *  Said under the notice that lets agents read it (card #1047); the
+	 *  roster says when a person's lines aren't (card #1052).
+	 */
+	agents: boolean,
 	/**  When the phrase began, Unix ms. */
 	atMs: number,
 	text: string,

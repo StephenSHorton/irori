@@ -194,7 +194,10 @@ export const BoardService = {
   Cards: () => call(commands.boardCards()),
   IdleReport: () => call(commands.boardIdleReport()),
   Card: (id: string) => call(commands.boardCard(id)),
-  CardsById: (ids: string[]) => call(commands.boardCardsById(ids)),
+  // have: the rev of each card the caller already holds (card #1136); one
+  // that still matches comes back unchanged, without its card.
+  CardsById: (ids: string[], have: { id: string; rev: string }[] = []) =>
+    call(commands.boardCardsById(ids, have)),
   DoneCards: (limit: number, before: string) =>
     call(commands.boardDoneCards(limit, before)),
   DoneCardsIn: (limit: number, before: string, scope: string) =>
@@ -315,6 +318,8 @@ export const BoardService = {
     done(commands.boardThreadAgentsNow(id, on)),
   Threads: (boardId: string) => call(commands.boardThreads(boardId)),
   ThreadsAll: () => call(commands.boardThreadsAll()),
+  // Just these threads' rows (card #1136).
+  ThreadsById: (ids: string[]) => call(commands.boardThreadsById(ids)),
   CardRef: (r: string) => call(commands.boardCardRef(r)),
   ReadThread: (id: string) => done(commands.boardReadThread(id)),
   ResolveThread: (id: string) => done(commands.boardResolveThread(id)),
@@ -335,6 +340,19 @@ export const TalkService = {
   Huddles: () => call(commands.talkHuddles()),
   CallTitleSet: (callId: string, title: string) =>
     call(commands.talkCallTitleSet(callId, title)),
+  // A huddle's canvas, as the person (card #1052).
+  HuddleItemAdd: (callId: string, kind: string, text: string) =>
+    call(commands.huddleItemAdd(callId, kind, text)),
+  HuddleItemSet: (
+    callId: string,
+    itemId: string,
+    text: string | null,
+    status: string | null,
+    x: number | null,
+    y: number | null
+  ) => call(commands.huddleItemSet(callId, itemId, text, status, x, y)),
+  HuddleAsk: (callId: string, text: string) =>
+    call(commands.huddleAsk(callId, text)),
   Posts: (convId: string, before: string | null, limit: number) =>
     call(commands.talkPosts(convId, before, limit)),
   // mentions: the keys the composer's picker recorded (#461).
@@ -405,6 +423,9 @@ export const StorageService = {
   Items: (kind: string) => call(commands.storageItems(kind)),
   Clean: (kind: string, ids: string[]) =>
     call(commands.storageClean(kind, ids)),
+  EndHolder: (tree: string, pid: number) =>
+    call(commands.storageEndHolder(tree, pid)),
+  DeleteTree: (tree: string) => call(commands.storageDeleteTree(tree)),
   Cleared: () => call(commands.storageCleared()),
   Unclear: (ids: string[]) => call(commands.storageUnclear(ids)),
   ClearThreadsCount: (olderThanSecs: number) =>
@@ -762,4 +783,9 @@ export const AssistantService = {
   // "Weigh new cards" (card #965): on unless the person turned it off.
   Weighs: () => call(commands.assistantWeighs()),
   WeighsSet: (on: boolean) => done(commands.assistantWeighsSet(on)),
+  // The two huddle switches (card #1053): on unless the person turned them off.
+  HuddleNotes: () => call(commands.assistantHuddleNotes()),
+  HuddleNotesSet: (on: boolean) => done(commands.assistantHuddleNotesSet(on)),
+  HuddleChair: () => call(commands.assistantHuddleChair()),
+  HuddleChairSet: (on: boolean) => done(commands.assistantHuddleChairSet(on)),
 }

@@ -55,6 +55,7 @@ export type CardBlocker = B.CardBlocker
 export type CardBoard = B.CardBoard
 export type CardColors = B.CardColors
 export type CardDetail = B.CardDetail
+export type CardHave = B.CardHave
 export type CardHolder = B.CardHolder
 export type CardLater = B.CardLater
 export type CardLeftOff = B.CardLeftOff
@@ -162,6 +163,7 @@ export type StartedAgent = B.StartedAgent
 export type State = B.State
 export type Step = B.Step
 export type StorageCleaned = B.StorageCleaned
+export type StorageHolder = B.StorageHolder
 export type StorageItem = B.StorageItem
 export type StorageKept = B.StorageKept
 export type StorageKind = B.StorageKind
@@ -453,6 +455,11 @@ export function CardDetail(p: Partial<B.CardDetail> = {}): B.CardDetail {
   return { ...CardSummary(), "goal": "", "doneWhen": "", "note": "", "steps": [], "blockers": [], "reviews": [], "prs": [], "links": [], "recent": [], "comments": [], "thread": [], "threadEarlier": 0, "historyTrimmed": false, "subtaskList": [], "waits": [], ...p } as B.CardDetail
 }
 
+/** CardHave with Go's zero values for every field left out. */
+export function CardHave(p: Partial<B.CardHave> = {}): B.CardHave {
+  return { "id": "", "rev": "", ...p } as B.CardHave
+}
+
 /** CardHolder with Go's zero values for every field left out. */
 export function CardHolder(p: Partial<B.CardHolder> = {}): B.CardHolder {
   return { "who": AgentRef(), "state": "", "others": 0, ...p } as B.CardHolder
@@ -510,7 +517,7 @@ export function CardProgress(p: Partial<B.CardProgress> = {}): B.CardProgress {
 
 /** CardRead with Go's zero values for every field left out. */
 export function CardRead(p: Partial<B.CardRead> = {}): B.CardRead {
-  return { "id": "", "card": null, "error": "", ...p } as B.CardRead
+  return { "id": "", "card": null, "error": "", "rev": "", "unchanged": false, ...p } as B.CardRead
 }
 
 /** CardRef with Go's zero values for every field left out. */
@@ -933,9 +940,14 @@ export function StorageCleaned(p: Partial<B.StorageCleaned> = {}): B.StorageClea
   return { "removed": 0, "freed": 0, "kept": [], ...p } as B.StorageCleaned
 }
 
+/** StorageHolder with Go's zero values for every field left out. */
+export function StorageHolder(p: Partial<B.StorageHolder> = {}): B.StorageHolder {
+  return { "pid": 0, "name": "", ...p } as B.StorageHolder
+}
+
 /** StorageItem with Go's zero values for every field left out. */
 export function StorageItem(p: Partial<B.StorageItem> = {}): B.StorageItem {
-  return { "id": "", "name": "", "bytes": 0, "at": "", "detail": "", "cards": [], "cleanable": false, "keep": "", "onlyHere": false, ...p } as B.StorageItem
+  return { "id": "", "name": "", "bytes": 0, "at": "", "detail": "", "cards": [], "cleanable": false, "keep": "", "onlyHere": false, "pinned": "", "holders": [], "deleteAnyway": false, ...p } as B.StorageItem
 }
 
 /** StorageKept with Go's zero values for every field left out. */
@@ -965,7 +977,7 @@ export function SummaryMember(p: Partial<B.SummaryMember> = {}): B.SummaryMember
 
 /** TalkAssistant with Go's zero values for every field left out. */
 export function TalkAssistant(p: Partial<B.TalkAssistant> = {}): B.TalkAssistant {
-  return { "person": "", "state": "", "why": "", ...p } as B.TalkAssistant
+  return { "person": "", "name": "", "mine": false, "state": "", "why": "", ...p } as B.TalkAssistant
 }
 
 /** TalkCall with Go's zero values for every field left out. */
@@ -1025,7 +1037,7 @@ export function TalkTranscript(p: Partial<B.TalkTranscript> = {}): B.TalkTranscr
 
 /** TalkTranscriptLine with Go's zero values for every field left out. */
 export function TalkTranscriptLine(p: Partial<B.TalkTranscriptLine> = {}): B.TalkTranscriptLine {
-  return { "name": "", "mine": false, "atMs": 0, "text": "", ...p } as B.TalkTranscriptLine
+  return { "name": "", "mine": false, "agents": false, "atMs": 0, "text": "", ...p } as B.TalkTranscriptLine
 }
 
 /** Target with Go's zero values for every field left out. */

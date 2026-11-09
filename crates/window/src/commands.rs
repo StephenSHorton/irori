@@ -313,8 +313,12 @@ pub async fn board_card(w: W<'_>, id: String) -> R<CardDetail> {
 /// Several cards in one call, each with its card or why not (card #468).
 #[tauri::command]
 #[specta::specta]
-pub async fn board_cards_by_id(w: W<'_>, ids: Vec<String>) -> R<Vec<crate::cards::CardRead>> {
-    blocking(&w, move |w| Ok(w.cards_by_id(&ids))).await
+pub async fn board_cards_by_id(
+    w: W<'_>,
+    ids: Vec<String>,
+    have: Vec<crate::cards::CardHave>,
+) -> R<Vec<crate::cards::CardRead>> {
+    blocking(&w, move |w| Ok(w.cards_by_id(&ids, &have))).await
 }
 
 #[tauri::command]
@@ -829,6 +833,16 @@ pub async fn board_threads_all(w: W<'_>) -> R<Vec<crate::threads::ThreadSummary>
     blocking(&w, move |w| Ok(w.threads_all())).await
 }
 
+/// Just these threads' rows (card #1136).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_threads_by_id(
+    w: W<'_>,
+    ids: Vec<String>,
+) -> R<Vec<crate::threads::ThreadSummary>> {
+    blocking(&w, move |w| Ok(w.threads_by_id(&ids))).await
+}
+
 /// The person has a thread open: what is in it now is read (card #719).
 #[tauri::command]
 #[specta::specta]
@@ -1166,6 +1180,29 @@ pub async fn storage_clean(
     timed(
         "storage_clean",
         blocking(&w, move |w| w.storage_clean(&kind, &ids)),
+    )
+    .await
+}
+
+/// Ends a process that holds a worktree (card #1118): Storage's End it.
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_end_holder(w: W<'_>, tree: String, pid: u32) -> R<String> {
+    timed(
+        "storage_end_holder",
+        blocking(&w, move |w| w.storage_end_holder(&tree, pid)),
+    )
+    .await
+}
+
+/// Deletes a canceled card's worktree whole (card #1118): Storage's
+/// "delete anyway".
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_delete_tree(w: W<'_>, tree: String) -> R<()> {
+    timed(
+        "storage_delete_tree",
+        blocking(&w, move |w| w.storage_delete_tree(&tree)),
     )
     .await
 }
@@ -1816,6 +1853,34 @@ pub async fn assistant_weighs_set(w: W<'_>, on: bool) -> R<()> {
     blocking(&w, move |w| w.assistant_weighs_set(on)).await
 }
 
+/// "Let my assistant add notes from what I say" (#1053): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_notes(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_huddle_notes())).await
+}
+
+/// Turns the notes switch on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_notes_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_huddle_notes_set(on)).await
+}
+
+/// "Let my assistant chair huddles I start" (#1053): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_chair(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_huddle_chair())).await
+}
+
+/// Turns the chair switch on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_huddle_chair_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_huddle_chair_set(on)).await
+}
+
 /// "Transcribe what I say in calls" (#656): on unless turned off.
 #[tauri::command]
 #[specta::specta]
@@ -2405,6 +2470,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_start_thread_with_files,
             board_threads,
             board_threads_all,
+            board_threads_by_id,
             board_card_ref,
             board_read_thread,
             board_resolve_thread,
@@ -2452,6 +2518,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             storage_log,
             storage_items,
             storage_clean,
+            storage_end_holder,
+            storage_delete_tree,
             storage_cleared,
             storage_unclear,
             threads_clear_count,
@@ -2539,6 +2607,10 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_rewrite,
             assistant_weighs,
             assistant_weighs_set,
+            assistant_huddle_notes,
+            assistant_huddle_notes_set,
+            assistant_huddle_chair,
+            assistant_huddle_chair_set,
             talk_call_transcript,
             talk_huddles,
             talk_call_title_set,

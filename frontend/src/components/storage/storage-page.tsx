@@ -5,6 +5,7 @@
 // page here. Nothing is cleaned out by itself (board.md "No retention
 // rules"), and each clean says plainly what can't be undone.
 
+import { Tick } from "@/components/common/ago"
 import { useCallback, useMemo, useState } from "react"
 import {
   AlertTriangleIcon,
@@ -60,13 +61,11 @@ export function StoragePage({
   tab,
   onTab,
   onOpen,
-  now,
 }: {
   // "" for the overview, else one kind's page.
   tab: string
   onTab: (tab: string) => void
   onOpen: (cardId: string) => void
-  now: Date
 }) {
   const { report, loading, error } = useStorageReport()
   // Build output and Claude Code's folder are measured by listing them.
@@ -100,7 +99,7 @@ export function StoragePage({
           cards clear with Clear done cards on Irori's log's page. Open one to
           read it or reopen it.
         </p>
-        <ClosedBoards list={closed.list} error={closed.error} now={now} />
+        <ClosedBoards list={closed.list} error={closed.error} />
       </div>
     )
 
@@ -133,7 +132,6 @@ export function StoragePage({
         }
         onTab={onTab}
         onOpen={onOpen}
-        now={now}
       />
     )
   return (
@@ -319,13 +317,11 @@ function KindPage({
   list,
   onTab,
   onOpen,
-  now,
 }: {
   kind: StorageKind
   list?: Listed
   onTab: (tab: string) => void
   onOpen: (cardId: string) => void
-  now: Date
 }) {
   const info = infoOf(kind.id)
   return (
@@ -360,9 +356,9 @@ function KindPage({
         )}
       </div>
       {kind.id === "log" ? (
-        <LogPage onOpen={onOpen} now={now} />
+        <LogPage onOpen={onOpen} />
       ) : kind.id === "capture" ? null : (
-        <ItemsList kind={kind.id} list={list} onOpen={onOpen} now={now} />
+        <ItemsList kind={kind.id} list={list} onOpen={onOpen} />
       )}
     </div>
   )
@@ -373,12 +369,10 @@ function ItemsList({
   kind,
   list,
   onOpen,
-  now,
 }: {
   kind: string
   list?: Listed
   onOpen: (cardId: string) => void
-  now: Date
 }) {
   const own = useStorageItems(list ? "" : kind)
   const { items, loading, error } = list ?? own
@@ -491,7 +485,6 @@ function ItemsList({
                 picked={picked.has(i.id)}
                 onPick={(on) => toggle(i.id, on)}
                 onOpen={onOpen}
-                now={now}
               />
             ))}
           </ul>
@@ -526,16 +519,25 @@ function ItemRow({
   picked,
   onPick,
   onOpen,
-  now,
 }: {
   i: StorageItem
   pickable: boolean
   picked: boolean
   onPick: (on: boolean) => void
   onOpen: (cardId: string) => void
-  now: Date
 }) {
   const at = i.at && !i.at.startsWith("0001") ? new Date(i.at) : null
+  const [busy, setBusy] = useState(false)
+  const [fail, setFail] = useState("")
+  // End it and Delete anyway: the list refreshes through storage's change
+  // feed, so a failure is all this row has to say.
+  const run = (f: () => Promise<void>) => {
+    setBusy(true)
+    setFail("")
+    f()
+      .catch((err: unknown) => setFail(errorText(err)))
+      .finally(() => setBusy(false))
+  }
   return (
     <li className="flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0">
       {pickable && (
@@ -549,15 +551,57 @@ function ItemRow({
       <span className="grid min-w-0 flex-1 gap-0.5">
         <span className="truncate text-[13px] text-ink">{i.name}</span>
         <span className="truncate text-[12px] text-muted-foreground">
-          {[
-            i.detail,
-            at ? relativeTime(at, now) : "",
-            i.keep ? `Stays: ${i.keep}` : "",
-          ]
-            .filter(Boolean)
-            .join(" · ")}
+          <Tick
+            of={(now) =>
+              [
+                i.detail,
+                at ? relativeTime(at, now) : "",
+                i.keep ? `Stays: ${i.keep}` : "",
+                i.pinned ? `Kept: ${i.pinned}` : "",
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            }
+          />
         </span>
+        {fail && (
+          <span className="text-[12px] text-destructive" role="alert">
+            {fail}
+          </span>
+        )}
       </span>
+      {i.holders.map((h) => (
+        <Button
+          key={h.pid}
+          size="xs"
+          variant="ghost"
+          disabled={busy}
+          onClick={() =>
+            run(() => storage.endHolder(i.id, h.pid).then(() => undefined))
+          }
+          aria-label={`End ${h.name} (pid ${h.pid}), which holds ${i.name}`}
+        >
+          End it ({h.name})
+        </Button>
+      ))}
+      {i.deleteAnyway && (
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => {
+            if (
+              window.confirm(
+                `Delete ${i.name} (${i.pinned}) and everything in it? The branch stays; unpushed work in the folder is lost.`
+              )
+            )
+              run(() => storage.deleteTree(i.id))
+          }}
+          aria-label={`Delete ${i.name} anyway`}
+        >
+          Delete anyway
+        </Button>
+      )}
       {i.cards.length > 0 && (
         <Button
           size="xs"
@@ -579,13 +623,7 @@ function ItemRow({
 // LogPage is Irori's log's page: what its rows are, the clears that tidy
 // the lists (Maintenance's, #138, and resolved threads), and the cleared
 // cards and threads, with Put back.
-function LogPage({
-  onOpen,
-  now,
-}: {
-  onOpen: (cardId: string) => void
-  now: Date
-}) {
+function LogPage({ onOpen }: { onOpen: (cardId: string) => void }) {
   const loadParts = useCallback(() => storage.log(), [])
   const parts = useLatest<LogPart[]>(loadParts, [], "the log")
   useStorageFresh(parts.reload, false, "log-size")
@@ -657,7 +695,7 @@ function LogPage({
         <ClearThreads />
       </section>
 
-      <ClearedList onOpen={onOpen} now={now} />
+      <ClearedList onOpen={onOpen} />
     </div>
   )
 }
@@ -743,13 +781,7 @@ function ClearThreads() {
 }
 
 // ClearedList is what the person cleared, to look through and put back.
-function ClearedList({
-  onOpen,
-  now,
-}: {
-  onOpen: (cardId: string) => void
-  now: Date
-}) {
+function ClearedList({ onOpen }: { onOpen: (cardId: string) => void }) {
   const load = useCallback(() => storage.cleared(), [])
   const { value, loading, error, reload } = useLatest<ClearedCard[]>(
     load,
@@ -822,13 +854,17 @@ function ClearedList({
                     {c.title}
                   </span>
                   <span className="text-[12px] text-muted-foreground">
-                    {[
-                      c.thread ? "Thread" : "Card",
-                      c.board || "",
-                      relativeTime(new Date(c.updatedAt), now),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
+                    <Tick
+                      of={(now) =>
+                        [
+                          c.thread ? "Thread" : "Card",
+                          c.board || "",
+                          relativeTime(new Date(c.updatedAt), now),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")
+                      }
+                    />
                   </span>
                 </button>
               </li>

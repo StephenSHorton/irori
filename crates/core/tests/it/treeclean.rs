@@ -14,9 +14,9 @@ use common::*;
 use irori_core::buildclean::settled_worktrees;
 use irori_core::spawn::{ClaudeAgent, SpawnStarted, Spawner};
 use irori_core::treeclean::{
-    Book, Check, KEPT_EVERY, Verdict, any_under, aside_path, begun_path, key, lsof_cwds,
-    names_tree, only_temp, ours, pick_root, regenerable, remove, reopen, restore_all, temp_root,
-    tree_of, under,
+    Book, Check, KEPT_EVERY, Verdict, any_under, aside_path, begun_path, end_holder, held_by,
+    holders, key, lsof_cwds, names_tree, only_temp, ours, pick_root, regenerable, remove, reopen,
+    restore_all, temp_root, tree_of, under,
 };
 use irori_core::trees::{BUSY_SAY, KEPT_TREE, busy_plan, say_kept};
 
@@ -1015,8 +1015,40 @@ fn a_process_sitting_in_the_tree_keeps_it_on_unix() {
     let v = judge(&w);
     child.kill().unwrap();
     child.wait().unwrap();
-    assert_eq!(v, Verdict::Busy("in use".into()));
+    assert!(
+        matches!(&v, Verdict::Busy(why) if why.starts_with("held by sleep (pid ")),
+        "{v:?}"
+    );
     assert!(w.join("src.txt").is_file());
+    assert_eq!(judge(&w), Verdict::Removed);
+}
+
+/// Card #1118: the holder is named, found by `holders`, and `end_holder`
+/// ends it (a fake holder: `sleep` with its folder in the tree), after
+/// which the tree goes. A pid outside the tree is refused.
+#[cfg(unix)]
+#[test]
+fn a_holder_is_named_and_can_be_ended_on_unix() {
+    let (_d, _main, w) = setup("holder-unix");
+    let mut child = std::process::Command::new("sleep")
+        .arg("30")
+        .current_dir(&w)
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    let tree = w.to_string_lossy().into_owned();
+    let h = holders(&tree).unwrap();
+    assert_eq!(h.len(), 1, "{h:?}");
+    assert_eq!(h[0].pid, child.id());
+    assert_eq!(h[0].name, "sleep");
+    assert_eq!(held_by(&h), format!("held by sleep (pid {})", child.id()));
+    assert!(end_holder(&tree, std::process::id()).is_err());
+    let other = tempfile::tempdir().unwrap();
+    assert!(end_holder(&other.path().to_string_lossy(), child.id()).is_err());
+    let ended = end_holder(&tree, child.id()).unwrap();
+    assert_eq!(ended.pid, child.id());
+    child.wait().unwrap();
+    assert!(holders(&tree).unwrap().is_empty());
     assert_eq!(judge(&w), Verdict::Removed);
 }
 
@@ -1423,10 +1455,52 @@ fn a_git_bash_shell_sitting_in_the_tree_keeps_it() {
         .unwrap();
     std::thread::sleep(Duration::from_millis(1500));
     let v = judge(&w);
+    let h = holders(&w.to_string_lossy()).unwrap();
     child.kill().unwrap();
     child.wait().unwrap();
-    assert_eq!(v, Verdict::Busy("in use".into()));
+    assert!(
+        matches!(&v, Verdict::Busy(why) if why.starts_with("held by sleep (pid ")),
+        "{v:?}"
+    );
+    assert!(h.iter().any(|h| h.name == "sleep"), "{h:?}");
     assert!(w.join("src.txt").is_file());
+}
+
+/// Card #1118, the PC: the Git Bash `sleep` is named, with the Windows
+/// pid, and `end_holder` ends it so the tree goes.
+#[cfg(windows)]
+#[test]
+fn a_git_bash_holder_is_named_and_can_be_ended() {
+    let exec = git(Path::new("."), &["--exec-path"]);
+    let sh = Path::new(&exec)
+        .ancestors()
+        .nth(3)
+        .unwrap()
+        .join("usr/bin/sh.exe");
+    if !sh.is_file() {
+        eprintln!("no Git sh here: skipped");
+        return;
+    }
+    let (_d, _main, w) = setup("bash-holder");
+    let mut child = std::process::Command::new(&sh)
+        .args(["-c", "exec sleep 30"])
+        .current_dir(&w)
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(1500));
+    let tree = w.to_string_lossy().into_owned();
+    let h = holders(&tree).unwrap();
+    // `exec` in MSYS starts the program as a process of its own, so its
+    // Windows pid isn't the shell's.
+    let one = h
+        .iter()
+        .find(|h| h.name == "sleep")
+        .expect("sleep is named");
+    assert!(end_holder(&tree, std::process::id()).is_err());
+    assert_eq!(end_holder(&tree, one.pid).unwrap().pid, one.pid);
+    child.wait().unwrap();
+    assert!(holders(&tree).unwrap().is_empty());
+    assert_eq!(judge(&w), Verdict::Removed);
 }
 
 /// Card #565, last check: a clone an agent made inside `target/` is work,
@@ -1517,4 +1591,167 @@ fn a_separate_git_dir_checkout_is_a_main_checkout() {
     let w = git_tree(&main, "linked");
     assert!(!irori_core::treeclean::is_main_checkout(&w));
     assert!(!irori_core::treeclean::is_main_checkout(d.path()));
+}
+
+/// Card #1118: a canceled card's tree, kept for work in it, is listed as
+/// canceled and the person may delete it whole; a card still open's tree is
+/// not, and is refused.
+#[test]
+fn a_canceled_cards_tree_can_be_deleted_anyway_and_an_open_ones_cannot() {
+    let d = tempfile::tempdir().unwrap();
+    let main = git_repo(&d.path().join("repo"));
+    let (gone, open) = (git_tree(&main, "canceled"), git_tree(&main, "open"));
+    fs::write(gone.join("notes.txt"), "mine\n").unwrap();
+    fs::write(open.join("notes.txt"), "mine\n").unwrap();
+    let r = Rig::new();
+    r.core.set_spawner(Some(lister()));
+    settled_card(&r, "Canceled", Some(&gone));
+    // An open card: claimed, never settled.
+    let co = r.core.coord();
+    let t = co
+        .create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: "Open".into(),
+                objective: "why".into(),
+                ..coord::NewTask::default()
+            },
+        )
+        .unwrap();
+    co.claim_task(&r.key_a, &t.id).unwrap();
+    let p: String = open.to_string_lossy().into();
+    co.set_where(
+        &t.id,
+        coord::Where {
+            who: r.key_a.clone(),
+            cwd: p.clone(),
+            worktree: p,
+            branch: "b".into(),
+            head: "1a2b3c4d5e".into(),
+            ..coord::Where::default()
+        },
+    )
+    .unwrap();
+    let trees = r.core.build_trees();
+    let of = |w: &Path| {
+        trees
+            .iter()
+            .find(|t| t.tree == key(&w.to_string_lossy()))
+            .unwrap()
+            .clone()
+    };
+    assert!(of(&gone).canceled && of(&gone).settled);
+    assert!(!of(&open).canceled && !of(&open).settled);
+    let why = r
+        .core
+        .delete_canceled_tree(&open.to_string_lossy())
+        .unwrap_err();
+    assert!(why.contains("isn't canceled"), "{why}");
+    assert!(open.join("notes.txt").is_file());
+    r.core
+        .delete_canceled_tree(&gone.to_string_lossy())
+        .unwrap();
+    assert!(!gone.exists());
+    // The branch stays: only the folder went.
+    assert!(!git(&main, &["branch", "--list", "canceled"]).is_empty());
+}
+
+/// A fake holder: a `sleep` with its folder in `w`. On Windows Git's
+/// own, started by Git's `sh` (the MSYS processes are the ones named).
+fn fake_holder(w: &Path) -> Option<std::process::Child> {
+    #[cfg(windows)]
+    {
+        let exec = git(Path::new("."), &["--exec-path"]);
+        let sh = Path::new(&exec)
+            .ancestors()
+            .nth(3)
+            .unwrap()
+            .join("usr/bin/sh.exe");
+        if !sh.is_file() {
+            eprintln!("no Git sh here: skipped");
+            return None;
+        }
+        let child = std::process::Command::new(&sh)
+            .args(["-c", "exec sleep 30"])
+            .current_dir(w)
+            .spawn()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(1500));
+        Some(child)
+    }
+    #[cfg(unix)]
+    {
+        let child = std::process::Command::new("sleep")
+            .arg("30")
+            .current_dir(w)
+            .spawn()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        Some(child)
+    }
+}
+
+/// Card #1118: a fake holder shows in the Core's tree list with its name,
+/// `end_tree_holder` ends it, and a pid that isn't in the tree, Irori
+/// itself, or a tree with an agent in it is refused.
+#[test]
+fn the_tree_list_names_a_holder_and_ends_it() {
+    let d = tempfile::tempdir().unwrap();
+    let main = git_repo(&d.path().join("repo"));
+    let w = git_tree(&main, "held");
+    let r = Rig::new();
+    r.core.set_spawner(Some(lister()));
+    settled_card(&r, "Held", Some(&w));
+    let Some(mut child) = fake_holder(&w) else {
+        return;
+    };
+    let tree = w.to_string_lossy().into_owned();
+    let t = r
+        .core
+        .build_trees()
+        .into_iter()
+        .find(|t| t.tree == key(&tree))
+        .unwrap();
+    let sleep = t.holders.iter().find(|h| h.name == "sleep");
+    let pid = sleep.unwrap_or_else(|| panic!("{t:?}")).pid;
+    assert!(r.core.end_tree_holder(&tree, std::process::id()).is_err());
+    // An agent listed in the tree: its shell is a holder too, so End it
+    // is refused.
+    let dir = tree.clone();
+    r.core.set_spawner(Some(lister_with(move || {
+        vec![ClaudeAgent {
+            live: true,
+            cwd: dir.clone(),
+            ..ClaudeAgent::default()
+        }]
+    })));
+    let why = r.core.end_tree_holder(&tree, pid).unwrap_err();
+    assert!(why.contains("working in it"), "{why}");
+    r.core.set_spawner(Some(lister()));
+    r.core.end_tree_holder(&tree, pid).unwrap();
+    child.wait().unwrap();
+    assert!(
+        r.core
+            .build_trees()
+            .into_iter()
+            .all(|t| t.holders.is_empty())
+    );
+}
+
+/// Card #1118: only a closed card with the person's Done still open is
+/// "waiting for Done"; an open card isn't, and neither is a closed one the
+/// person already confirmed.
+#[test]
+fn only_a_closed_card_with_an_open_done_check_waits_for_done() {
+    let mut awaiting = coord::Task {
+        state: coord::COMPLETED.into(),
+        ..coord::Task::default()
+    };
+    assert!(!irori_core::waiting_for_done(&awaiting));
+    let mut check = coord::Blocker::default();
+    check.done_check = true;
+    awaiting.blockers.push(check);
+    assert!(irori_core::waiting_for_done(&awaiting));
+    awaiting.state = coord::WORKING.into();
+    assert!(!irori_core::waiting_for_done(&awaiting));
 }

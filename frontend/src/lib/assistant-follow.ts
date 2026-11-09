@@ -338,7 +338,7 @@ export async function readWork(
   ids: string[],
   known: ReadonlyMap<string, readonly string[]> = new Map()
 ): Promise<Map<string, WorkThread | null>> {
-  const rows = await threads.listAll()
+  const rows = await threads.byId(ids)
   const byId = new Map(rows.map((r) => [r.id, r]))
   const madeIds = ids.flatMap((id) => [
     ...(byId.get(id)?.cards.map((c) => c.id) ?? []),
@@ -442,6 +442,10 @@ export type FollowDeps = {
   // How long a card change waits while every followed thread is quiet
   // (answered or resolved, its cards over, nothing on the person).
   quietMs?: number
+  // The least time between one read's start and the next (card #1136): a
+  // busy board changes many times a minute, and each change used to read
+  // the threads and their cards again. Default 0: no gap.
+  minGapMs?: number
 }
 
 export type Follower = {
@@ -460,6 +464,9 @@ export function createFollower(d: FollowDeps): Follower {
   let stopped = false
   const delay = d.delayMs ?? 400
   const quietDelay = d.quietMs ?? 60_000
+  const minGap = d.minGapMs ?? 0
+  // When the last read started.
+  let lastStart = -Infinity
   // Every thread read last round was quiet: card changes wait longer.
   let allQuiet = false
   let timerQuiet = false
@@ -488,6 +495,7 @@ export function createFollower(d: FollowDeps): Follower {
       return
     }
     running = true
+    lastStart = Date.now()
     try {
       do {
         again = false
@@ -527,10 +535,13 @@ export function createFollower(d: FollowDeps): Follower {
         allQuiet = calm
         forget()
         d.save(store)
+        // Asked again meanwhile: after the gap, not at once.
+        if (again && minGap > 0) break
       } while (again && !stopped)
     } finally {
       running = false
     }
+    if (again && !stopped && minGap > 0) schedule(true)
   }
 
   const schedule = (soon: boolean) => {
@@ -542,13 +553,14 @@ export function createFollower(d: FollowDeps): Follower {
       clearTimeout(timer)
     }
     timerQuiet = slow
-    timer = setTimeout(
-      () => {
-        timer = undefined
-        void run()
-      },
-      slow ? quietDelay : delay
+    const wait = Math.max(
+      slow ? quietDelay : delay,
+      lastStart + minGap - Date.now()
     )
+    timer = setTimeout(() => {
+      timer = undefined
+      void run()
+    }, wait)
   }
 
   const off = d.listen(() => schedule(false))

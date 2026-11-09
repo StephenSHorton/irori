@@ -104,7 +104,7 @@ pub use crate::service::spawn_remote::SpawnHost;
 pub use crate::service::spawn_stop;
 pub use crate::service::spawn_waiting;
 pub use crate::service::spawn_why;
-pub use crate::service::storage::{BuildTree, LIVE_TREE};
+pub use crate::service::storage::{BuildTree, LIVE_TREE, waiting_for_done};
 pub use crate::service::sync_out::{SyncOutLog, SyncOutReport};
 pub use crate::service::talk_replying::{REPLYING_CAP, Replier, TalkReplying};
 pub use crate::service::thread_names;
