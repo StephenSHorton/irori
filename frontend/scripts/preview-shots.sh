@@ -98,3 +98,7 @@ shot 40-storage "?storage"                                   # Storage: what Iro
 shot 41-storage-builds "?storage=builds"                     # one kind's page: build output with Delete
 shot 42-storage-log "?storage=log"                           # the log's page: Clear done cards and threads, Put back
 shot 43-storage-closed "?storage=closed"                     # closed boards, to browse and open (with #690)
+shot 44-runs-home ""                                         # chips on tiles and rows, Busy now (card #1249)
+shot 45-runs-card "?term&open=board:task:sample-card-job" 1440 1400 # Running, the run tab beside the shell, not shown
+shot 46-runs-exited "?term&runs=exited&open=board:task:sample-card-job" 1440 1400 # the build exited with code 101
+shot 47-runs-stopped "?term&runs=stopped&open=board:task:sample-card-job" 1440 1400 # the build Stopped by the person

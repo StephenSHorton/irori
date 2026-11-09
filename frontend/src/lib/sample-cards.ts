@@ -26,6 +26,7 @@ import {
   Holding,
 } from "./models"
 import { LinkKind, Step, TaskState } from "./models"
+import { sampleRun, sampleRunsMode, withRuns, type CardRun } from "./runs"
 
 const dev = "sample-device"
 
@@ -157,6 +158,86 @@ function eventsOf(
       blockerGist: b?.question,
     })
   })
+}
+
+// sampleCardRuns is the runs a sample card carries (card #1249, PREVIEW.md
+// ?runs=): sample-card-job's agent is between turns with a heavy build
+// going, an agent run, an earlier run and a foreground call; sample-card-4
+// has a heavy test run; sample-card-9's is on sample-wren's device.
+// ?runs=exited or stopped ends the build that way; ?runs=none has none.
+export function sampleCardRuns(id: string, now: Date): CardRun[] {
+  const mode = sampleRunsMode()
+  if (mode === "none") return []
+  const ago = (min: number) => now.getTime() - min * 60_000
+  const GB = 1024 ** 3
+  const { mink, otter, wren } = sampleAgents
+  const r = (x: Partial<CardRun> & Pick<CardRun, "who" | "run" | "cmd">) =>
+    sampleRun(id, {
+      kind: "bash",
+      started: ago(4),
+      exit: null,
+      stopped: false,
+      device: x.who.where,
+      ...x,
+    })
+  if (id === "sample-card-job")
+    return [
+      r({
+        who: mink,
+        run: "bq7k2m4xa",
+        cmd: "cargo build --release",
+        started: ago(12),
+        cpuCores: 11.6,
+        memBytes: 5.8 * GB,
+        ...(mode === "exited" ? { ended: ago(1), exit: 101 } : {}),
+        ...(mode === "stopped" ? { ended: ago(1), stopped: true } : {}),
+      }),
+      r({
+        who: mink,
+        run: "a3f9c1d07e5b2",
+        kind: "agent",
+        cmd: "Check which caches are safe to delete",
+        started: ago(6),
+        cpuCores: null,
+      }),
+      r({
+        who: mink,
+        run: "bz1p8n6wd",
+        cmd: "du -sh target",
+        started: ago(25),
+        ended: ago(24),
+        exit: 0,
+      }),
+      r({
+        who: mink,
+        run: "toolu_sample_fg1",
+        kind: "fg",
+        cmd: "git worktree list",
+        started: ago(31),
+        ended: ago(31) + 3000,
+        cpuCores: 0.2,
+      }),
+    ]
+  if (id === "sample-card-4")
+    return [
+      r({
+        who: otter,
+        run: "b5r0t2yqe",
+        cmd: "cargo test --workspace",
+        cpuCores: 6.2,
+        memBytes: 2.4 * GB,
+      }),
+    ]
+  if (id === "sample-card-9")
+    return [
+      r({
+        who: wren,
+        run: "bw4n7c3ks",
+        cmd: "cargo build",
+        started: ago(20),
+      }),
+    ]
+  return []
 }
 
 export function sampleCards(now: Date): CardDetail[] {
@@ -2535,21 +2616,23 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
       ],
     }),
-  ].map(
-    (c) =>
-      ({
-        ...c,
-        // As BoardService.Card: every link, PRs too.
-        links: [
-          ...c.links,
-          ...c.prs.map((p) => ({
-            kind: LinkKind.LinkURL,
-            ref: p.url,
-            label: p.label,
-          })),
-        ],
-      }) as CardDetail
-  )
+  ]
+    .map(
+      (c) =>
+        ({
+          ...c,
+          // As BoardService.Card: every link, PRs too.
+          links: [
+            ...c.links,
+            ...c.prs.map((p) => ({
+              kind: LinkKind.LinkURL,
+              ref: p.url,
+              label: p.label,
+            })),
+          ],
+        }) as CardDetail
+    )
+    .map((c) => withRuns(c, sampleCardRuns(c.id, now)))
 }
 
 // laterSample is ?later=1's cards (card #570).

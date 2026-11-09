@@ -119,6 +119,8 @@ import { Face, LiveDot } from "./faces"
 import { Thread } from "./thread"
 import { TerminalSection } from "@/components/term/terminal-section"
 import { termsHere } from "@/lib/term"
+import { runsOf, type CardRun } from "@/lib/runs"
+import { RunsList } from "@/components/cards/runs-section"
 import {
   TerminalShortcut,
   setTermPanelOpen,
@@ -587,7 +589,7 @@ export function CardPage({
                 {about}
               </aside>
               <div className={cn("grid gap-4", L.thread)}>
-                <TerminalCard cardId={detail.id} />
+                <TerminalCard cardId={detail.id} runs={runsOf(detail)} />
                 <Card className="gap-0 py-0!">
                   <Section title="Thread" last>
                     {threadSection}
@@ -645,6 +647,7 @@ function AboutCard({
   spinning: boolean
   onOpen?: (id: string) => void
 }) {
+  const runs = runsOf(detail)
   return (
     <Card className="gap-0 py-0!">
       <Section title="Progress">
@@ -691,6 +694,7 @@ function AboutCard({
       <Section
         title="Who's on it"
         last={
+          !runs.length &&
           !detail.reviews.length &&
           !detail.prs.length &&
           !links.length &&
@@ -700,6 +704,22 @@ function AboutCard({
       >
         <People detail={live} gone={gone} />
       </Section>
+
+      {/* Its agents' runs (card #1249): background, ended and in-turn. */}
+      {runs.length > 0 && (
+        <Section
+          title="Running"
+          last={
+            !detail.reviews.length &&
+            !detail.prs.length &&
+            !links.length &&
+            !tasks.length &&
+            !files.length
+          }
+        >
+          <RunsList runs={runs} cardId={detail.id} />
+        </Section>
+      )}
 
       {detail.reviews.length > 0 && (
         <Section
@@ -1684,7 +1704,7 @@ function WhereLines({ detail }: { detail: CardDetail }) {
 // the window only: none in a plain browser or on a phone. While the
 // bottom terminal panel is open it shows these shells instead (card #734):
 // a shell has one view, so the section only points there.
-function TerminalCard({ cardId }: { cardId: string }) {
+function TerminalCard({ cardId, runs }: { cardId: string; runs: CardRun[] }) {
   const panel = useTermPanel()
   if (!termsHere()) return null
   return (
@@ -1703,7 +1723,7 @@ function TerminalCard({ cardId }: { cardId: string }) {
             </button>
           </p>
         ) : (
-          <TerminalSection cardId={cardId} />
+          <TerminalSection cardId={cardId} runs={runs} />
         )}
       </Section>
     </Card>

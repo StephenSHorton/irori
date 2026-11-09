@@ -9,13 +9,14 @@
 // device scope), the first opened as the panel opens, in the folder the
 // last one was in.
 
-import { type ReactNode, useEffect, useState } from "react"
-import { PlusIcon, SquareTerminalIcon, XIcon } from "lucide-react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
+import { ActivityIcon, PlusIcon, SquareTerminalIcon, XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { cn } from "cn"
+import { plainLine } from "@/lib/irori"
 import {
   type Folder,
   type TermInfo,
@@ -23,11 +24,19 @@ import {
   cardTerms,
   closeTerm,
   firstDeviceTerm,
+  isTail,
+  mergeTails,
+  newestShell,
+  onCardChanged,
   openCardTerm,
   openDeviceTerm,
   pickFolder,
   rememberFolder,
+  ShowRunTab,
+  tailEnded,
+  type ShowRunTabDetail,
 } from "@/lib/term"
+import type { CardRun } from "@/lib/runs"
 import { lastFolder, rememberLastFolder } from "@/lib/term-panel"
 
 import { TermOpened, type TermOpenedDetail } from "@/lib/agents"
@@ -39,17 +48,29 @@ const StartCols = 100
 const StartRows = 24
 
 // fill: the section takes its container's height (the bottom panel).
+// runs: the card's runs (its page passes them), so a run tab can offer
+// Stop (card #1249).
 export function TerminalSection({
   cardId,
   fill = false,
+  runs,
 }: {
   cardId: string
   fill?: boolean
+  runs?: readonly CardRun[]
 }) {
-  return <CardTerminals key={cardId} cardId={cardId} fill={fill} />
+  return <CardTerminals key={cardId} cardId={cardId} fill={fill} runs={runs} />
 }
 
-function CardTerminals({ cardId, fill }: { cardId: string; fill: boolean }) {
+function CardTerminals({
+  cardId,
+  fill,
+  runs,
+}: {
+  cardId: string
+  fill: boolean
+  runs?: readonly CardRun[]
+}) {
   const [terms, setTerms] = useState<TermInfo[] | null>(null)
   const [shown, setShown] = useState<number | null>(null)
   // The New terminal row: the folders offered, and the one chosen.
@@ -58,6 +79,13 @@ function CardTerminals({ cardId, fill }: { cardId: string; fill: boolean }) {
   const [picking, setPicking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // The latest list and shown tab, for the run-tab handlers below.
+  const termsNow = useRef(terms)
+  const shownNow = useRef(shown)
+  useEffect(() => {
+    termsNow.current = terms
+    shownNow.current = shown
+  })
 
   // The shells already running for this card (none are started here).
   useEffect(() => {
@@ -66,7 +94,8 @@ function CardTerminals({ cardId, fill }: { cardId: string; fill: boolean }) {
       .then(([ts, fs]) => {
         if (!live) return
         setTerms(ts)
-        setShown(ts.length ? ts[ts.length - 1].id : null)
+        // A run tab never opens itself in front (card #1249).
+        setShown(newestShell(ts))
         setFolders(fs)
         setChoice(pickFolder(cardId, fs) ?? fs[0]?.path ?? "")
       })
@@ -76,11 +105,61 @@ function CardTerminals({ cardId, fill }: { cardId: string; fill: boolean }) {
     }
   }, [cardId])
 
+  // A run started or ended on the card (card #1249): its tab comes or
+  // takes its end, without changing the shown tab.
+  useEffect(
+    () =>
+      onCardChanged(cardId, () => {
+        cardTerms(cardId)
+          .then((fresh) => {
+            const ts = termsNow.current
+            if (!ts) return
+            const next = mergeTails(ts, fresh)
+            setTerms(next)
+            // The shown run tab was closed by the Core (the card went
+            // Done): back to the newest shell, never another run tab.
+            const s = shownNow.current
+            if (s !== null && !next.some((t) => t.id === s))
+              setShown(newestShell(next))
+          })
+          .catch(() => {})
+      }),
+    [cardId]
+  )
+
+  // Show tab in the Running section: the person asked for that run's tab.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<ShowRunTabDetail>).detail
+      if (d?.cardId !== cardId) return
+      const find = (ts: readonly TermInfo[] | null) =>
+        ts?.find((x) => x.tail?.run === d.run)
+      const had = find(termsNow.current)
+      if (had) {
+        setShown(had.id)
+        return
+      }
+      // A run that started since the last list: list again, then show it.
+      cardTerms(cardId)
+        .then((fresh) => {
+          const ts = termsNow.current
+          if (!ts) return
+          const next = mergeTails(ts, fresh)
+          setTerms(next)
+          const t = find(next)
+          if (t) setShown(t.id)
+        })
+        .catch(() => {})
+    }
+    window.addEventListener(ShowRunTab, on)
+    return () => window.removeEventListener(ShowRunTab, on)
+  }, [cardId])
+
   // Attach on an agent Irori started (card #456) opened a tab here.
   useEffect(() => {
     const on = (e: Event) => {
       const d = (e as CustomEvent<TermOpenedDetail>).detail
-      if (d?.cardId !== cardId) return
+      if (d?.cardId !== cardId || isTail(d.term)) return
       setTerms((ts) =>
         ts?.some((t) => t.id === d.term.id) ? ts : [...(ts ?? []), d.term]
       )
@@ -117,8 +196,8 @@ function CardTerminals({ cardId, fill }: { cardId: string; fill: boolean }) {
       .finally(() => {
         setTerms((ts) => {
           const left = (ts ?? []).filter((t) => t.id !== id)
-          if (shown === id)
-            setShown(left.length ? left[left.length - 1].id : null)
+          // Never a run tab in front by itself (card #1249).
+          if (shown === id) setShown(newestShell(left))
           return left
         })
       })
@@ -137,6 +216,10 @@ function CardTerminals({ cardId, fill }: { cardId: string; fill: boolean }) {
         start(t.cwd)
       }}
       fill={fill}
+      runs={runs}
+      onEnded={(id, code) =>
+        setTerms((ts) => (ts ? tailEnded(ts, id, code) : ts))
+      }
       empty={!picking}
       error={error}
       emptyText="No shell for this card on this device."
@@ -265,7 +348,9 @@ function Shells({
   newDisabled,
   onRestart,
   onCwd,
+  onEnded,
   fill,
+  runs,
   empty,
   error,
   emptyText,
@@ -279,7 +364,10 @@ function Shells({
   newDisabled: boolean
   onRestart: (t: TermInfo) => void
   onCwd?: (cwd: string) => void
+  // onEnded: a run tab's run ended while shown, with its code.
+  onEnded?: (id: number, code: number | null) => void
   fill: boolean
+  runs?: readonly CardRun[]
   // empty: say so when there are no shells (not while picking a folder).
   empty: boolean
   error: string | null
@@ -304,22 +392,40 @@ function Shells({
           >
             <button
               type="button"
-              className="flex max-w-56 items-center gap-1.5 truncate px-2 py-1"
+              className={cn(
+                "flex max-w-56 items-center gap-1.5 truncate px-2 py-1",
+                // A running run tab has no X: pad its right side instead.
+                t.tail && t.running && "pr-2.5"
+              )}
               onClick={() => onShow(t.id)}
-              title={t.title ? `${t.title}\n${t.cwd}` : t.cwd}
+              title={
+                t.tail
+                  ? `${plainLine(t.tail.label)}\nAn agent's run, read only`
+                  : t.title
+                    ? `${t.title}\n${t.cwd}`
+                    : t.cwd
+              }
             >
-              <SquareTerminalIcon className="size-3.5 shrink-0" aria-hidden />
+              {t.tail ? (
+                <ActivityIcon className="size-3.5 shrink-0" aria-hidden />
+              ) : (
+                <SquareTerminalIcon className="size-3.5 shrink-0" aria-hidden />
+              )}
               <span className="truncate">{tabName(t, i)}</span>
             </button>
-            <button
-              type="button"
-              className="px-1 py-1 text-muted-foreground hover:text-foreground"
-              onClick={() => onClose(t.id)}
-              title="End this shell"
-              aria-label="End this shell"
-            >
-              <XIcon className="size-3" aria-hidden />
-            </button>
+            {/* A run tab closes only once its run has ended (card #1249);
+                closing it never touches the run. */}
+            {!(t.tail && t.running) && (
+              <button
+                type="button"
+                className="px-1 py-1 text-muted-foreground hover:text-foreground"
+                onClick={() => onClose(t.id)}
+                title={t.tail ? "Close tab" : "End this shell"}
+                aria-label={t.tail ? "Close tab" : "End this shell"}
+              >
+                <XIcon className="size-3" aria-hidden />
+              </button>
+            )}
           </div>
         ))}
         <Button
@@ -344,6 +450,14 @@ function Shells({
           fill={fill}
           onCwd={onCwd}
           onRestart={() => onRestart(current)}
+          tail={current.tail ?? undefined}
+          tailRunning={current.running}
+          onEnded={(code) => onEnded?.(current.id, code)}
+          run={
+            current.tail
+              ? runs?.find((r) => r.run === current.tail?.run)
+              : undefined
+          }
         />
       )}
       {terms !== null && terms.length === 0 && empty && (
@@ -355,6 +469,7 @@ function Shells({
 }
 
 function tabName(t: TermInfo, i: number): string {
+  if (t.tail) return plainLine(t.tail.label) || "run"
   const base = t.cwd.split(/[\\/]/).filter(Boolean).pop() ?? "shell"
   return i === 0 ? base : `${base} ${i + 1}`
 }

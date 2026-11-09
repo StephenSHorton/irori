@@ -45,6 +45,7 @@ import {
   rememberedFilter,
   savedHomeFilter,
 } from "@/components/cards/board-view"
+import { BusyNow } from "@/components/cards/busy-now"
 import {
   cardFromHash,
   cardHash,
@@ -1312,6 +1313,7 @@ export function App() {
                   }
                   rows
                   listed={needCards}
+                  busyNow={<BusyNow cards={spaceCards} onOpen={openCard} />}
                   notice={
                     <BoardsNeedYou
                       cards={boardDecide.filter((c) => !c.ours)}

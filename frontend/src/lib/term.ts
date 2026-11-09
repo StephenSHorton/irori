@@ -3,13 +3,25 @@
 // package (suzuri's ui/view) knows nothing of Tauri; it calls a TermHost,
 // and termHost wires that to the commands here.
 
+import { onChange, names } from "./changes"
 import { TermService } from "./host"
 import { inHost } from "./irori"
 import { previewFlag } from "./preview"
+import {
+  onSampleExit,
+  sampleRunsOn,
+  sampleTail,
+  type TailInfo,
+  type TermWithTail,
+} from "./runs"
 import type * as B from "../gen/bindings"
 import type { TermHost } from "suzuri-view"
 
-export type TermInfo = B.TermInfo
+// TermInfo is a terminal; tail is set on one that follows a run's output
+// (card #1249, live-tasks.md §5.1). Hand-written until the bindings have
+// it (slices L5, L7).
+export type TermInfo = TermWithTail
+export type { TailInfo }
 export type TermMsg = B.TermMsg
 export type Folder = B.Folder
 
@@ -25,11 +37,48 @@ const nothing = () => Promise.resolve()
 // Each stand-in shell New terminal opens gets its own id.
 let nextSampleId = 2
 
-const SampleTermService: typeof TermService = {
+// sampleTailTerms is a card's stand-in run tabs (card #1249): one per
+// sample shell run on this device, from sample-cards.ts.
+const sampleTailIds = new Map<string, number>()
+const sampleAttached = new Map<number, (msg: TermMsg) => void>()
+let nextTailId = 100
+
+function sampleTailTerms(card: string): TermInfo[] {
+  return (
+    sampleRunsOn(card)
+      .filter((r) => r.kind === "bash" && r.who.here !== false)
+      // An older run's tab the sample takes as closed.
+      .filter((r) => r.started > Date.now() - 20 * 60_000)
+      .map((r) => {
+        let id = sampleTailIds.get(r.run)
+        if (id === undefined) {
+          id = nextTailId++
+          sampleTailIds.set(r.run, id)
+        }
+        const tail = sampleTail(r)
+        return {
+          id,
+          scope: { kind: "card", id: card },
+          cwd: sampleFolder,
+          title: "",
+          running: tail.exit === undefined,
+          tail,
+        }
+      })
+  )
+}
+
+// A sample run's Stop ends its stand-in tab as the Core's tail would.
+onSampleExit((run) => {
+  const id = sampleTailIds.get(run)
+  if (id !== undefined) sampleAttached.get(id)?.({ t: "exit", code: null })
+})
+
+const SampleTermService = {
   Folders: () => Promise.resolve([{ path: sampleFolder, why: "repo" }]),
   DeviceList: () => Promise.resolve([]),
-  List: (card) =>
-    Promise.resolve([
+  List: (card: string) =>
+    Promise.resolve<TermInfo[]>([
       {
         id: 1,
         scope: { kind: "card", id: card },
@@ -37,8 +86,9 @@ const SampleTermService: typeof TermService = {
         title: "",
         running: true,
       },
+      ...sampleTailTerms(card),
     ]),
-  Open: (scope, _cols, _rows, cwd) =>
+  Open: (scope: B.Scope, _cols: number, _rows: number, cwd: string | null) =>
     Promise.resolve({
       id: nextSampleId++,
       scope,
@@ -46,8 +96,18 @@ const SampleTermService: typeof TermService = {
       title: "",
       running: true,
     }),
-  Attach: nothing,
-  Detach: nothing,
+  Attach: (
+    id: number,
+    _onFrame: (frame: ArrayBuffer) => void,
+    onMsg: (msg: TermMsg) => void
+  ) => {
+    sampleAttached.set(id, onMsg)
+    return nothing()
+  },
+  Detach: (id: number) => {
+    sampleAttached.delete(id)
+    return nothing()
+  },
   Write: nothing,
   Paste: nothing,
   Resize: nothing,
@@ -59,7 +119,13 @@ const SampleTermService: typeof TermService = {
   Close: nothing,
 }
 
-function svc(): typeof TermService {
+// The stand-in keeps the real service's shape; a list may carry tails.
+type Svc = Omit<typeof TermService, "List"> & {
+  List: (card: string) => Promise<TermInfo[]>
+}
+SampleTermService satisfies Svc
+
+function svc(): Svc {
   return sampleTerms() ? SampleTermService : TermService
 }
 
@@ -74,7 +140,8 @@ export function cardFolders(card: string): Promise<Folder[]> {
   return svc().Folders(card)
 }
 
-// cardTerms lists a card's shells on this device. It never starts one.
+// cardTerms lists a card's shells on this device, its run tabs among
+// them. It never starts one.
 export function cardTerms(card: string): Promise<TermInfo[]> {
   return svc().List(card)
 }
@@ -250,4 +317,71 @@ export function firstDeviceTerm(
       starting = null
     })
   return starting
+}
+
+// Run tabs (card #1249, live-tasks.md §5.2) ------------------------------------
+
+// ShowRunTab is the event the Running section's Show tab raises: the
+// card's Terminal shows that run's tab. The person asked, so it may
+// change the shown tab; it never focuses the terminal.
+export const ShowRunTab = "irori:show-run-tab"
+export type ShowRunTabDetail = { cardId: string; run: string }
+
+export function showRunTab(cardId: string, run: string): void {
+  window.dispatchEvent(
+    new CustomEvent<ShowRunTabDetail>(ShowRunTab, { detail: { cardId, run } })
+  )
+}
+
+// isTail says a terminal follows a run's output (read only).
+export function isTail(t: TermInfo): t is TermInfo & { tail: TailInfo } {
+  return !!t.tail
+}
+
+// newestShell is the tab a card's Terminal shows on mount: the newest
+// shell that isn't a run tab, else none (a run tab never opens itself in
+// front of the person).
+export function newestShell(ts: readonly TermInfo[]): number | null {
+  const shells = ts.filter((t) => !isTail(t))
+  return shells.length ? shells[shells.length - 1].id : null
+}
+
+// mergeTails adds the run tabs a fresh list has to the ones shown, takes
+// their newer end, and drops the ones the Core closed (the card went Done,
+// §5.2); shells and the order stay as they are.
+export function mergeTails(
+  shown: readonly TermInfo[],
+  fresh: readonly TermInfo[]
+): TermInfo[] {
+  const byId = new Map(fresh.map((t) => [t.id, t]))
+  const kept = shown.flatMap((t) => (isTail(t) ? (byId.get(t.id) ?? []) : [t]))
+  const have = new Set(shown.map((t) => t.id))
+  return [...kept, ...fresh.filter((t) => isTail(t) && !have.has(t.id))]
+}
+
+// tailEnded is a run tab with its run's end, as its Terminal heard it, so
+// a remount shows "Exited with code N" before the next list.
+export function tailEnded(
+  ts: readonly TermInfo[],
+  id: number,
+  code: number | null
+): TermInfo[] {
+  return ts.map((t) =>
+    t.id !== id
+      ? t
+      : {
+          ...t,
+          running: false,
+          tail: t.tail && { ...t.tail, exit: code ?? t.tail.exit ?? null },
+        }
+  )
+}
+
+// onCardChanged runs fn when the card changes (a run started or ended on
+// it); nothing in a plain browser, where the sample tabs are listed once.
+export function onCardChanged(card: string, fn: () => void): () => void {
+  if (!inHost()) return () => {}
+  return onChange("board:changed", (n) => names(n, "cards", card) && fn(), {
+    follow: ["cards"],
+  })
 }

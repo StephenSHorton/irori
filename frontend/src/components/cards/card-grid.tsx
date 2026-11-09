@@ -57,6 +57,7 @@ import {
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { ClearDone } from "./clear-done"
 import { WeightTag } from "./weight"
+import { RunChips } from "./run-chip"
 import { FACES_MAX, Faces, TalkBubble } from "./faces"
 
 // Filter is a chip: All, Needs a decision, In review (card #191), My
@@ -626,6 +627,8 @@ function CardTile({
           Left off: {plainLine(card.leftOff.text)}
         </span>
       )}
+      {/* Its agent's heavy runs (card #1249), one line each. */}
+      {!closed && <RunChips card={card} />}
       {parked && (
         <span className="text-xs text-muted-foreground">
           Back {plainLine(parked.line)}

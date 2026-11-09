@@ -55,6 +55,8 @@ const PAGES: Array<[name: string, query: string]> = [
   ["card-1", "?open=board:task:sample-card-1"],
   ["card-2", "?open=board:task:sample-card-2"],
   ["card-4", "?open=board:task:sample-card-4"],
+  // Card #1249: a held card's runs (Running) and its build's chip.
+  ["card-job", "?open=board:task:sample-card-job"],
   ["card-7", "?open=board:task:sample-card-7"],
   ["card-12", "?open=board:task:sample-card-12"],
   ["card-shared", "?open=board:task:sample-board-1"],

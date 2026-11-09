@@ -99,6 +99,7 @@ import { sampleAgents as sampleAgentSettings } from "./agents"
 import { nameOr, unknownAgent } from "./names"
 import type { CardCandidate } from "./mentions"
 import { pending, type Pending } from "./pending"
+import { runsOf, sampleSummaryRuns, withRuns } from "./runs"
 import { spawnLine, type SpawnLine, type SpawnState } from "./spawn-line"
 
 export type {
@@ -1212,6 +1213,11 @@ function sampleCard(id: string): CardDetail {
 }
 
 function summary(c: CardDetail): CardSummary {
+  // Card #1249: heavy and running runs only, as crates/window's.
+  return withRuns(summaryFields(c), sampleSummaryRuns(runsOf(c)))
+}
+
+function summaryFields(c: CardDetail): CardSummary {
   return CardSummary({
     id: c.id,
     short: c.short,
