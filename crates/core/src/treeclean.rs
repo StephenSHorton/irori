@@ -72,6 +72,13 @@
 //! worktree remove` (submodules, a file in use) is a kept tree and the
 //! next sweep looks again.
 //!
+//! **Who holds it (card #1118).** Gate 3 names the processes it finds
+//! ([`holders`]: "held by cat.exe (pid 4242)"), on Windows through Git's `sh`,
+//! so the kept line, the card and Storage's End it ([`end_holder`]) say what
+//! to end. A native Windows process is still only "in use". A canceled
+//! card's tree that gates 4 to 6 keep can be deleted whole at the person's
+//! word ([`remove_anyway`]).
+//!
 //! **Attribution.** A card whose agent never wrote Where (a thread, a shared
 //! board's card, `mentions`, `454-talk`) still has to reach its tree, so each
 //! tree is written in the [`Book`] when it is spawned, made or first seen

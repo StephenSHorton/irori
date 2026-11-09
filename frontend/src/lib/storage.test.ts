@@ -92,3 +92,28 @@ describe("Storage's sample changes as the person cleans", () => {
     expect(r.kinds.find((k) => k.id === "files")?.measured).toBe(true)
   })
 })
+
+describe("What pins a worktree (card #1118)", () => {
+  test("a pinned tree says why: a holder, waiting for Done, or canceled", async () => {
+    const trees = await storage.items("builds")
+    const held = trees.find((t) => t.holders.length > 0)
+    expect(held?.keep).toContain("held by cat.exe")
+    expect(trees.some((t) => t.pinned === "waiting for Done")).toBe(true)
+    const canceled = trees.find((t) => t.deleteAnyway)
+    expect(canceled?.pinned).toMatch(/^canceled, \d+ unpushed commits$/)
+  })
+  test("End it frees the tree and Delete anyway removes a canceled one", async () => {
+    const before = await storage.items("builds")
+    const held = before.find((t) => t.holders.length > 0)!
+    await storage.endHolder(held.id, held.holders[0].pid)
+    const after = await storage.items("builds")
+    const same = after.find((t) => t.id === held.id)!
+    expect(same.holders).toEqual([])
+    expect(same.cleanable).toBe(true)
+    const canceled = after.find((t) => t.deleteAnyway)!
+    await storage.deleteTree(canceled.id)
+    expect(
+      (await storage.items("builds")).some((t) => t.id === canceled.id)
+    ).toBe(false)
+  })
+})

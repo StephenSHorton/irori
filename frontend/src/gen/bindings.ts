@@ -232,6 +232,13 @@ export const commands = {
 	storageLog: () => __TAURI_INVOKE<LogPart[]>("storage_log"),
 	storageItems: (kind: string) => __TAURI_INVOKE<StorageItem[]>("storage_items", { kind }),
 	storageClean: (kind: string, ids: string[]) => __TAURI_INVOKE<StorageCleaned>("storage_clean", { kind, ids }),
+	/**  Ends a process that holds a worktree (card #1118): Storage's End it. */
+	storageEndHolder: (tree: string, pid: number) => __TAURI_INVOKE<string>("storage_end_holder", { tree, pid }),
+	/**
+	 *  Deletes a canceled card's worktree whole (card #1118): Storage's
+	 *  "delete anyway".
+	 */
+	storageDeleteTree: (tree: string) => __TAURI_INVOKE<null>("storage_delete_tree", { tree }),
 	storageCleared: () => __TAURI_INVOKE<ClearedCard[]>("storage_cleared"),
 	storageUnclear: (ids: string[]) => __TAURI_INVOKE<number>("storage_unclear", { ids }),
 	threadsClearCount: (olderThanSecs: number) => __TAURI_INVOKE<number>("threads_clear_count", { olderThanSecs }),
@@ -3127,6 +3134,12 @@ export type StorageCleaned = {
 	kept: StorageKept[],
 };
 
+/**  A process that holds a worktree (card #1118). */
+export type StorageHolder = {
+	pid: number,
+	name: string,
+};
+
 /**  One item of a kind: a file, a folder, a space, a tree. */
 export type StorageItem = {
 	/**
@@ -3152,6 +3165,19 @@ export type StorageItem = {
 	 *  no copy, so deleting it here may lose it.
 	 */
 	onlyHere: boolean,
+	/**
+	 *  Why the sweep keeps a worktree (card #1118), when it does: "waiting
+	 *  for Done", or "canceled, 3 unpushed commits". A process holding it
+	 *  is `holders`.
+	 */
+	pinned: string,
+	/**  Processes with their folder in this worktree: End it ends one. */
+	holders: StorageHolder[],
+	/**
+	 *  A canceled card's worktree, which the person may delete whole,
+	 *  unpushed work and all.
+	 */
+	deleteAnyway: boolean,
 };
 
 /**  One item a clean left. */

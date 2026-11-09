@@ -1592,3 +1592,101 @@ fn a_separate_git_dir_checkout_is_a_main_checkout() {
     assert!(!irori_core::treeclean::is_main_checkout(&w));
     assert!(!irori_core::treeclean::is_main_checkout(d.path()));
 }
+
+/// Card #1118: a canceled card's tree, kept for work in it, is listed as
+/// canceled and the person may delete it whole; a card still open's tree is
+/// not, and is refused.
+#[test]
+fn a_canceled_cards_tree_can_be_deleted_anyway_and_an_open_ones_cannot() {
+    let d = tempfile::tempdir().unwrap();
+    let main = git_repo(&d.path().join("repo"));
+    let (gone, open) = (git_tree(&main, "canceled"), git_tree(&main, "open"));
+    fs::write(gone.join("notes.txt"), "mine\n").unwrap();
+    fs::write(open.join("notes.txt"), "mine\n").unwrap();
+    let r = Rig::new();
+    r.core.set_spawner(Some(lister()));
+    settled_card(&r, "Canceled", Some(&gone));
+    // An open card: claimed, never settled.
+    let co = r.core.coord();
+    let t = co
+        .create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: "Open".into(),
+                objective: "why".into(),
+                ..coord::NewTask::default()
+            },
+        )
+        .unwrap();
+    co.claim_task(&r.key_a, &t.id).unwrap();
+    let p: String = open.to_string_lossy().into();
+    co.set_where(
+        &t.id,
+        coord::Where {
+            who: r.key_a.clone(),
+            cwd: p.clone(),
+            worktree: p,
+            branch: "b".into(),
+            head: "1a2b3c4d5e".into(),
+            ..coord::Where::default()
+        },
+    )
+    .unwrap();
+    let trees = r.core.build_trees();
+    let of = |w: &Path| {
+        trees
+            .iter()
+            .find(|t| t.tree == key(&w.to_string_lossy()))
+            .unwrap()
+            .clone()
+    };
+    assert!(of(&gone).canceled && of(&gone).settled);
+    assert!(!of(&open).canceled && !of(&open).settled);
+    let why = r
+        .core
+        .delete_canceled_tree(&open.to_string_lossy())
+        .unwrap_err();
+    assert!(why.contains("isn't canceled"), "{why}");
+    assert!(open.join("notes.txt").is_file());
+    r.core
+        .delete_canceled_tree(&gone.to_string_lossy())
+        .unwrap();
+    assert!(!gone.exists());
+    // The branch stays: only the folder went.
+    assert!(!git(&main, &["branch", "--list", "canceled"]).is_empty());
+}
+
+/// Card #1118: a fake holder shows in the Core's tree list with its name,
+/// and `end_tree_holder` ends it; a pid that isn't in the tree is refused.
+#[cfg(unix)]
+#[test]
+fn the_tree_list_names_a_holder_and_ends_it() {
+    let d = tempfile::tempdir().unwrap();
+    let main = git_repo(&d.path().join("repo"));
+    let w = git_tree(&main, "held");
+    let r = Rig::new();
+    settled_card(&r, "Held", Some(&w));
+    let mut child = std::process::Command::new("sleep")
+        .arg("30")
+        .current_dir(&w)
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    let t = r
+        .core
+        .build_trees()
+        .into_iter()
+        .find(|t| t.tree == key(&w.to_string_lossy()))
+        .unwrap();
+    assert_eq!(t.holders.len(), 1, "{t:?}");
+    assert_eq!(t.holders[0].name, "sleep");
+    assert!(
+        r.core
+            .end_tree_holder(&w.to_string_lossy(), std::process::id())
+            .is_err()
+    );
+    r.core
+        .end_tree_holder(&w.to_string_lossy(), child.id())
+        .unwrap();
+    child.wait().unwrap();
+}
