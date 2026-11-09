@@ -790,6 +790,7 @@ impl Fold {
                         by: SWEEPER.into(),
                         at: now,
                         note: String::new(),
+                        ..TaskAssignedRow::default()
                     },
                 )?;
             }
@@ -1112,6 +1113,17 @@ impl Fold {
             && self.person_of(by) != self.person_of(to)
     }
 
+    /// Whether card t has an agent on it (any holder that isn't a person)
+    /// or one starting (a spawn request still pending).
+    pub(crate) fn agent_on_or_starting(&self, t: &Task) -> bool {
+        let now = self.stamp();
+        t.holders
+            .iter()
+            .any(|h| !h.starts_with(kinds::PERSON_ACTOR_PREFIX))
+            || t.spawn_request()
+                .is_some_and(|s| s.pending() && !s.stale(&now))
+    }
+
     /// A card with an agent on it, or one starting, can't be given: its
     /// agent would be orphaned on its person's device. A parent card's
     /// agents are its parts' (card #573).
@@ -1140,15 +1152,7 @@ impl Fold {
                 t.short_ref()
             )));
         }
-        let agent = t
-            .holders
-            .iter()
-            .any(|h| !h.starts_with(kinds::PERSON_ACTOR_PREFIX));
-        let now = self.stamp();
-        if agent
-            || t.spawn_request()
-                .is_some_and(|s| s.pending() && !s.stale(&now))
-        {
+        if self.agent_on_or_starting(t) {
             return Err(bad_state(format!(
                 "{} has an agent on it: end it before giving the card to someone",
                 t.short_ref()
@@ -1534,8 +1538,30 @@ impl Fold {
         if t.review_of.is_empty() || t.given.is_none() || !standing {
             return self.ask_given(by, id, context);
         }
+        self.raise_and_start(
+            by,
+            id,
+            context,
+            "A read-only reviewer starts on this computer.",
+        )
+        .map(|_| ())
+    }
+
+    /// Raises "OK to start an agent on this?" on given card `id` and
+    /// answers it Start an agent in the person's name in the same breath:
+    /// the two rows a click would write, so the asker, the generation and
+    /// the one-yes-one-agent rules stand. False when the question did not
+    /// end up this device's (decision 69).
+    pub(crate) fn raise_and_start(
+        &mut self,
+        by: &str,
+        id: &str,
+        context: &str,
+        start_why: &str,
+    ) -> Result<bool> {
+        let t = self.open_task(id)?.clone();
         let Some(p) = t.given.as_ref().map(|g| g.person.clone()) else {
-            return Ok(());
+            return Ok(false);
         };
         let now = self.stamp();
         let opt = |answer: &str, why: &str| BlockerOption {
@@ -1553,7 +1579,7 @@ impl Fold {
             GIVEN_QUESTION,
             context,
             vec![
-                opt(GIVEN_START, "A read-only reviewer starts on this computer."),
+                opt(GIVEN_START, start_why),
                 opt(GIVEN_NOT_NOW, "The card stays yours, with no agent."),
             ],
             Some(BlockedBy {
@@ -1569,7 +1595,7 @@ impl Fold {
         )?;
         // The question stands only if it is theirs on this device.
         if nt.given.as_ref().is_none_or(|g| g.question != b.id) {
-            return Ok(());
+            return Ok(false);
         }
         let restored = if super::cards::count_open(&nt) == 1 {
             self.restore_for(&nt).to_string()
@@ -1590,7 +1616,7 @@ impl Fold {
                 ..BlockerResolvedRow::default()
             },
         )?;
-        Ok(())
+        Ok(true)
     }
 
     /// Whether card t's last request lets a new one go now: none is
