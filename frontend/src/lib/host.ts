@@ -799,6 +799,15 @@ export const AssistantService = {
     on.onmessage = onEvent
     return done(commands.assistantChatWatch(turn, on))
   },
+  // Assistants talk (card #1062): the spaces where the person has an
+  // assistant (its card and #office-assistants channel), Let it answer from
+  // any device (a request the assistant's computer serves; returns its id),
+  // and the one toast for a line that waits on the person.
+  TalkCards: () => call(commands.assistantTalkCards()),
+  AnswerRequest: (post: string, space: string, how: "let" | "draft") =>
+    call(commands.assistantAnswerRequest(post, space, how)),
+  TalkToast: (conv: string, title: string, body: string) =>
+    call(commands.assistantTalkToast(conv, title, body)),
   // Rewrite in the Start a thread box (card #981): the checked wording.
   Rewrite: (text: string, mentions: string[]) =>
     call(commands.assistantRewrite(text, mentions)),
