@@ -24,16 +24,26 @@ pub const CARD4: &str = "agent:c4";
 /// The people who own the board now.
 pub type Owners = Arc<Mutex<Vec<String>>>;
 
-/// Each person's GitHub login as their profile says it, shared by every
-/// side of one test: p1 alice, p2 bob, p3 carol (card #1155).
-pub type Logins = Arc<Mutex<Vec<(String, String)>>>;
+/// Each person's GitHub login as their profile says it, and who has left,
+/// shared by every side of one test: p1 alice, p2 bob, p3 carol (card
+/// #1155).
+pub type Logins = Arc<Mutex<People>>;
+
+#[derive(Default)]
+pub struct People {
+    logins: Vec<(String, String)>,
+    gone: Vec<String>,
+}
 
 fn logins() -> Logins {
-    Arc::new(Mutex::new(vec![
-        ("p1".into(), "alice".into()),
-        ("p2".into(), "bob".into()),
-        ("p3".into(), "carol".into()),
-    ]))
+    Arc::new(Mutex::new(People {
+        logins: vec![
+            ("p1".into(), "alice".into()),
+            ("p2".into(), "bob".into()),
+            ("p3".into(), "carol".into()),
+        ],
+        gone: Vec::new(),
+    }))
 }
 
 pub struct Side {
@@ -64,8 +74,13 @@ impl Side {
     /// every side of the test ("" for none).
     pub fn set_login(&self, person: &str, login: &str) {
         let mut l = self.logins.lock().unwrap();
-        l.retain(|(p, _)| p != person);
-        l.push((person.into(), login.into()));
+        l.logins.retain(|(p, _)| p != person);
+        l.logins.push((person.into(), login.into()));
+    }
+
+    /// `person` is no longer an active member, on every side of the test.
+    pub fn set_gone(&self, person: &str) {
+        self.logins.lock().unwrap().gone.push(person.into());
     }
 
     /// A new coord over the same store that sees `agents` as the board's
@@ -159,6 +174,7 @@ fn coord_for(
     let me = person.to_string();
     let who = owners.clone();
     let ls = logins.clone();
+    let ls2 = logins.clone();
     let o = Options {
         now: Some(clk.func()),
         board: true,
@@ -168,12 +184,17 @@ fn coord_for(
         device_person: Some(Arc::new(device_person)),
         // Everyone whose profile claims the login.
         login_people: Some(Arc::new(move |login: &str| {
-            ls.lock()
-                .unwrap()
+            let l = ls.lock().unwrap();
+            l.logins
                 .iter()
-                .filter(|(_, x)| !login.is_empty() && x.eq_ignore_ascii_case(login))
+                .filter(|(p, x)| {
+                    !login.is_empty() && x.eq_ignore_ascii_case(login) && !l.gone.contains(p)
+                })
                 .map(|(p, _)| p.clone())
                 .collect()
+        })),
+        member_active: Some(Arc::new(move |p: &str| {
+            !p.is_empty() && !ls2.lock().unwrap().gone.iter().any(|g| g == p)
         })),
         tag: Some(Arc::new(|| "mlg".to_string())),
         board_owner: Some(Arc::new(move |p: &str, _: Option<&RowPos>| {

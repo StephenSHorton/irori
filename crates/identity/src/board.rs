@@ -86,9 +86,6 @@ struct MemberFold {
     /// a device that can't learn it (a phone, an older build) writes a
     /// profile without one, which never blanks it.
     github_login: String,
-    /// Every GitHub login a counted profile has named, lower case (card
-    /// #1155): a person with two accounts, or who renamed theirs, is each.
-    github_logins: BTreeSet<String>,
     /// The latest counted profile's assistant name (card #1045).
     assistant_name: String,
     /// The newest non-empty assistant card id on a counted profile; folds like
@@ -386,7 +383,6 @@ fn fold_member(
         color: String::new(),
         avatar: String::new(),
         github_login: String::new(),
-        github_logins: BTreeSet::new(),
         assistant_name: String::new(),
         assistant_card: String::new(),
         profile: false,
@@ -410,8 +406,6 @@ fn fold_member(
             m.assistant_name = p.prof.assistant_name.clone();
             if !p.prof.github_login.trim().is_empty() {
                 m.github_login = p.prof.github_login.trim().to_string();
-                m.github_logins
-                    .insert(p.prof.github_login.trim().to_ascii_lowercase());
             }
             if !p.prof.assistant_card.trim().is_empty() {
                 m.assistant_card = p.prof.assistant_card.trim().to_string();
@@ -1041,34 +1035,30 @@ impl BoardVerifier {
             .unwrap_or_default()
     }
 
-    /// Whether a counted member.profile of the member ever named GitHub
-    /// `login` (any case), the newest or an older one (card #1155).
-    pub fn names_github_login(&self, person_id: &str, login: &str) -> bool {
-        let want = login.trim().to_ascii_lowercase();
-        !want.is_empty()
-            && self
-                .lock()
-                .members
-                .get(person_id)
-                .is_some_and(|m| m.profile && m.github_logins.contains(&want))
-    }
-
-    /// The active members whose counted member.profiles ever named GitHub
+    /// The active members whose counted member.profile names GitHub
     /// `login` (any case), by person id (card #1155). A profile's login is
     /// its member's own claim: a PR card stands for a login only when one
     /// member claims it, so a member who claims another's login can stop
     /// it naming anyone, never take it.
     pub fn github_login_people(&self, login: &str) -> Vec<String> {
-        let want = login.trim().to_ascii_lowercase();
+        let want = login.trim();
         if want.is_empty() {
             return Vec::new();
         }
         let st = self.lock();
         st.members
             .iter()
-            .filter(|(id, m)| m.profile && m.github_logins.contains(&want) && st.ms.active(id))
+            .filter(|(id, m)| {
+                m.profile && m.github_login.eq_ignore_ascii_case(want) && st.ms.active(id)
+            })
             .map(|(id, _)| id.clone())
             .collect()
+    }
+
+    /// Whether a person is an active member, without copying the
+    /// membership (card #1155).
+    pub fn member_active(&self, person_id: &str) -> bool {
+        self.lock().ms.active(person_id)
     }
 
     /// The assistant card id on a member's counted member.profile, "" when

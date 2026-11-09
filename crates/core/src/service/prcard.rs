@@ -170,38 +170,38 @@ impl Services {
         standing
     }
 
-    /// Whether the person's profile on `b` names GitHub `own` (heard),
-    /// and whether another active member's names it too (taken).
-    fn login_facts(&self, b: &BoardLog, own: &str) -> (bool, bool) {
+    /// The login the person's profile on `b` names ("" none yet), and
+    /// whether another active member's profile names `own` too.
+    fn login_facts(&self, b: &BoardLog, own: &str) -> (String, bool) {
         let me = self.person_id();
-        let heard = b.verifier.names_github_login(&me, own);
+        let profile = b.verifier.profile_github_login(&me);
         let taken = b.verifier.github_login_people(own).iter().any(|p| *p != me);
-        (heard, taken)
+        (profile, taken)
     }
 
     /// Why the person's PR card for a PR by GitHub `own` doesn't stand on
     /// `b` (card #1155), for the desk.
     fn standing_note(&self, b: &BoardLog, own: &str) -> String {
-        let (heard, taken) = self.login_facts(b, own);
-        prcard::standing_line(&b.verifier.membership().name, own, heard, taken)
+        let (profile, taken) = self.login_facts(b, own);
+        prcard::standing_line(&b.verifier.membership().name, own, &profile, taken)
     }
 
     /// Why no PR card for a PR by GitHub `own` should be made on `b` yet
     /// (card #1155), or None: the person's profile there must name the
     /// login, so a member who later claims it can only stop the card
-    /// standing, and no other member's may. A profile still without it is
+    /// standing, and no other member's may. A profile still without one is
     /// written now: the desk poll can learn the login before the identity
     /// sweep has written it.
     fn login_gate(&self, b: &BoardLog, own: &str) -> Option<String> {
-        let (mut heard, mut taken) = self.login_facts(b, own);
-        if !heard {
+        let (mut profile, mut taken) = self.login_facts(b, own);
+        if profile.trim().is_empty() {
             if let Err(e) = self.keep_current(b) {
                 logf(format_args!("board {}: github login: {e}", b.id));
             }
-            (heard, taken) = self.login_facts(b, own);
+            (profile, taken) = self.login_facts(b, own);
         }
-        (!heard || taken)
-            .then(|| prcard::standing_line(&b.verifier.membership().name, own, heard, taken))
+        (!profile.trim().eq_ignore_ascii_case(own) || taken)
+            .then(|| prcard::standing_line(&b.verifier.membership().name, own, &profile, taken))
     }
 
     /// Every PR card on the boards this device shows, open or not.

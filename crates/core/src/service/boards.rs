@@ -1396,8 +1396,9 @@ impl Services {
         laps.lap("identity+secret");
         let me = self.person_actor();
         let co = {
-            let (ch, v1, v2, v3, v4, v5, v6) = (
+            let (ch, v1, v2, v3, v4, v5, v6, v7) = (
                 self.chain.clone(),
+                v.clone(),
                 v.clone(),
                 v.clone(),
                 v.clone(),
@@ -1429,6 +1430,7 @@ impl Services {
                     key_person: Some(Arc::new(move |k: &str| v2.key_person(k))),
                     // Whose PR a PR card may stand for (card #1155).
                     login_people: Some(Arc::new(move |l: &str| v6.github_login_people(l))),
+                    member_active: Some(Arc::new(move |p: &str| v7.member_active(p))),
                     device_person: Some(Arc::new(move |dev: &str| {
                         v3.person_of(dev).unwrap_or_else(|| {
                             if dev == self_dev {
@@ -2343,10 +2345,7 @@ impl Services {
         // newest of each. The GitHub login (card #625) once this device's gh
         // has said it: members' merge desks show this person's PRs by it.
         // A profile that has one keeps it, so two devices signed in to
-        // different accounts don't take turns rewriting it; a login no
-        // counted profile of the person has named yet is written once
-        // (card #1155), since a PR card stands by the login its profiles
-        // name.
+        // different accounts don't take turns rewriting it.
         let color = self.person_color.chosen();
         let avatar = self.person_avatar.chosen();
         let assistant = self.assistant_name.chosen();
@@ -2358,17 +2357,13 @@ impl Services {
             || v.profile_color(&me.id) != color
             || v.profile_avatar(&me.id) != avatar
             || v.profile_assistant_name(&me.id) != assistant
-            || (!login.is_empty() && !v.names_github_login(&me.id, &login))
+            || (had.is_empty() && !login.is_empty())
         {
             let mut prof = self.ident.member_profile_row(epoch)?;
             prof.color = color;
             prof.avatar = avatar;
             prof.assistant_name = assistant;
-            prof.github_login = if !login.is_empty() && !v.names_github_login(&me.id, &login) {
-                login
-            } else {
-                had
-            };
+            prof.github_login = if had.is_empty() { login } else { had };
             // The assistant pointer rides every rewrite (card 2).
             prof.assistant_card = had_assistant;
             b.store.append("irori", kinds::MEMBER_PROFILE, &prof)?;

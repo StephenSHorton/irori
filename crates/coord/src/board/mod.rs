@@ -346,6 +346,10 @@ pub struct Options {
     /// login, by person id (card #1155): which PR card stands turns on it.
     /// `None` on a board: no PR card stands.
     pub login_people: Option<PeopleFn>,
+    /// On a board, whether a person is an active member (card #1155): a
+    /// PR card whose maker left or was removed is no longer weighed. `None`:
+    /// everyone counts.
+    pub member_active: Option<KeyFn>,
     /// A board's short handle, read as rows fold.
     pub tag: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     /// On a space (card #392): the tag of another board in it, by id;

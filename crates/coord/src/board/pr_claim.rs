@@ -53,6 +53,7 @@ impl Fold {
     /// no GitHub logins, so the card that stands is the one whose maker the
     /// login names, never just the lowest id:
     ///
+    /// - Only cards whose maker is still an active member count.
     /// - The cards for the PR name one author login, `L`; cards naming
     ///   different logins stand for none (coord can't tell GitHub's).
     /// - The people `L` names are the active members whose profiles claim
@@ -77,6 +78,9 @@ impl Fold {
         if !self.on_board {
             return lowest_open(cards);
         }
+        let maker = |t: &Task| self.person_of(&t.created_by);
+        let active = |p: &str| self.member_active.as_ref().is_none_or(|f| f(p));
+        let cards: Vec<&Task> = cards.into_iter().filter(|t| active(&maker(t))).collect();
         let login = |t: &Task| {
             t.pr_card
                 .as_ref()
@@ -87,7 +91,6 @@ impl Fold {
         if l.is_empty() || cards.iter().any(|t| login(t) != l) {
             return None;
         }
-        let maker = |t: &Task| self.person_of(&t.created_by);
         let mut named = self.login_people.as_ref()?(&l);
         if named.is_empty() {
             named = cards.iter().map(|t| maker(t)).collect();

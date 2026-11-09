@@ -252,3 +252,57 @@ fn an_ask_from_a_forged_card_never_steers_the_authors_pick() {
         assert_eq!(s.c.review_phase(&id), ReviewPhase::Waiting);
     }
 }
+
+#[test]
+fn a_forged_cards_block_ends_when_its_maker_leaves() {
+    let (a, b, c, _) = three_people();
+    forge_card_as(&b, "bob");
+    let id = alices_card(&a);
+    sync_all(&[&a, &b, &c]);
+    for s in [&a, &b, &c] {
+        assert_eq!(standing(s), None);
+    }
+    // Bob is removed: his card no longer counts, and alice's stands.
+    a.set_gone("p2");
+    for s in [&a, &b, &c] {
+        assert_eq!(standing(s).as_deref(), Some(id.as_str()));
+    }
+}
+
+#[test]
+fn an_ask_on_the_authors_own_duplicate_card_still_counts() {
+    // Two of alice's devices made a card each before their rows met; the
+    // one on the device that asked doesn't stand once they do.
+    let (a, b, c, _) = three_people();
+    let a2 = device("dev-a2", P1, &a);
+    let late = alices_card(&a2);
+    a2.c.pick_ask(P1, &late, CARD4, false, None)
+        .unwrap()
+        .unwrap();
+    let low = {
+        // A lower id than the clock makes: the other device's earlier card.
+        let row = TaskCreatedRow {
+            task_id: FORGED.into(),
+            title: "PR #7: ship it".into(),
+            objective: "Irori made this card for the pull request.".into(),
+            repo_key: common::REPO_A.into(),
+            links: vec![parse_link(PR).unwrap()],
+            pr: PR.into(),
+            pr_author: "alice".into(),
+            by: P1.into(),
+            at: common::fixed_now(),
+            ..TaskCreatedRow::default()
+        };
+        let ev = a.st.append(P1, kinds::TASK_CREATED, &row).unwrap();
+        a.c.fold_live(&[ev]);
+        FORGED.to_string()
+    };
+    sync_all(&[&a, &a2, &b, &c]);
+    for s in [&a, &a2, &b, &c] {
+        assert_eq!(standing(s).as_deref(), Some(low.as_str()));
+        match s.c.review_phase(&low) {
+            ReviewPhase::Asked { ask } => assert_eq!(ask.to, CARD4),
+            p => panic!("{p:?}"),
+        }
+    }
+}

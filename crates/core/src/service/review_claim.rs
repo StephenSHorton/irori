@@ -31,6 +31,9 @@ impl Services {
     }
 
     /// The board and PR card for `pr` in a space the person belongs to.
+    /// A space where a member's profile names the PR's author login comes
+    /// first (card #1155): in a space the author isn't in, the card stands
+    /// only by who made it, which any member can be.
     fn pr_card_here(&self, pr: &str) -> Option<(Arc<BoardLog>, Task)> {
         let me = self.person_id();
         let mut boards: Vec<Arc<BoardLog>> = self
@@ -39,9 +42,17 @@ impl Services {
             .filter(|b| b.verifier.membership().active(&me))
             .collect();
         boards.sort_by(|a, b| a.id.cmp(&b.id));
-        boards
+        let found: Vec<(Arc<BoardLog>, Task)> = boards
             .into_iter()
-            .find_map(|b| b.coord().pr_card_for(pr).map(|t| (b, t)))
+            .filter_map(|b| b.coord().pr_card_for(pr).map(|t| (b, t)))
+            .collect();
+        let named = |(b, t): &(Arc<BoardLog>, Task)| {
+            t.pr_card
+                .as_ref()
+                .is_some_and(|c| !b.verifier.github_login_people(&c.author).is_empty())
+        };
+        let i = found.iter().position(named).unwrap_or(0);
+        found.into_iter().nth(i)
     }
 
     /// Whether the person already works in the PR's repo in this space
