@@ -18,7 +18,7 @@ import {
   whoCanRead,
   type TalkTranscript,
 } from "@/lib/call"
-import { onChange } from "@/lib/changes"
+import { names, onChange } from "@/lib/changes"
 import { inWails } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { onSampleHuddle } from "@/lib/sample-huddle"
@@ -195,7 +195,11 @@ export function useTranscript(
       }
     }
     const off = inWails()
-      ? onChange("talk:changed", () => void read(), { held: false })
+      ? // Only its own call's change reads it again (card #1150).
+        onChange("talk:changed", (n) => names(n, "calls", callId) && read(), {
+          held: false,
+          follow: ["calls"],
+        })
       : () => {}
     const timer = inWails() ? 0 : window.setInterval(() => void read(), 3_000)
     // The preview's canvas writes show at once (card #1052).

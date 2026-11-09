@@ -62,6 +62,18 @@ export type Ids = Record<string, string[]>
 export type Notice =
   { signal: Signal; all: true } | { signal: Signal; all: false; ids: Ids }
 
+// Names says whether a notice is for a list that follows `bucket`: it said
+// `all`, or it names an id there (and, with `id`, that one). Used by a
+// subscriber that reads on its own rather than through patched.ts (card
+// #1150). A call id matches with or without its `call:` prefix.
+export function names(n: Notice, bucket: string, id?: string): boolean {
+  if (n.all) return true
+  const ids = n.ids[bucket] ?? []
+  if (id === undefined) return ids.length > 0
+  const bare = (x: string) => x.replace(/^call:/, "")
+  return ids.some((x) => bare(x) === bare(id))
+}
+
 export type Options = {
   // follow is the buckets to keep ids for; none keeps none (the list reads
   // everything on every notice).

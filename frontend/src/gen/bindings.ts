@@ -60,6 +60,8 @@ export const commands = {
 	boardIdleReport: () => __TAURI_INVOKE<IdleReport>("board_idle_report"),
 	/**  The person's notifications, newest first (card #377). */
 	notificationsList: () => __TAURI_INVOKE<Notification[]>("notifications_list"),
+	/**  Just these keys' notifications (card #1151). */
+	notificationsByKey: (keys: string[]) => __TAURI_INVOKE<Notification[]>("notifications_by_key", { keys }),
 	/**  How many notifications the person hasn't read (card #377). */
 	notificationsUnread: () => __TAURI_INVOKE<number>("notifications_unread"),
 	/**  Marks notifications read; no keys reads them all (card #377). */
@@ -443,8 +445,16 @@ export const commands = {
 	shareKeyframe: () => __TAURI_INVOKE<null>("share_keyframe"),
 	/**  The person saw the share note. */
 	shareNoteSeen: () => __TAURI_INVOKE<null>("share_note_seen"),
-	/**  Talk's list: channels, DMs and open threads, with unread counts. */
-	talkConversations: () => __TAURI_INVOKE<TalkConversation[]>("talk_conversations"),
+	/**
+	 *  Talk's list: channels and DMs, with unread counts, and the open threads
+	 *  when `threads` (Talk's own list leaves them out, card #1150).
+	 */
+	talkConversations: (threads: boolean) => __TAURI_INVOKE<TalkConversation[]>("talk_conversations", { threads }),
+	/**
+	 *  The rows of just `convs` (channel and DM ids, bare thread ids): what a
+	 *  `talk:changed` named. One with no row is left out, so it is gone.
+	 */
+	talkConversationsById: (convs: string[], threads: boolean) => __TAURI_INVOKE<TalkConversation[]>("talk_conversations_by_id", { convs, threads }),
 	/**  Up to `limit` posts before `before` (none: the newest), oldest first. */
 	talkPosts: (convId: string, before: string | null, limit: number) => __TAURI_INVOKE<TalkPost[]>("talk_posts", { convId, before, limit }),
 	/**  Posts as the person; returns the post's id (a thread's: the comment's). */
@@ -3089,6 +3099,8 @@ export type Notification = {
  *  its time runs out.
  */
 export type NotificationAsk = {
+	/**  The ask's id, which `notifications:changed.asks` names. */
+	id: string,
 	open: boolean,
 	actions: string[],
 	/**

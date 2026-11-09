@@ -106,15 +106,13 @@ export function useRoster(): Roster {
     })
 
     // A rename changes what the header calls this device.
-    const offDevices = onChange(
-      EventDevicesChanged,
-      () => {
-        RosterService.Device()
-          .then((device) => live && setState((s) => ({ ...s, device })))
-          .catch(() => {})
-      },
-      { held: false }
-    )
+    // A full read through changes.ts, held while the window is hidden and
+    // read once when it shows (card #1152).
+    const offDevices = onChange(EventDevicesChanged, () => {
+      RosterService.Device()
+        .then((device) => live && setState((s) => ({ ...s, device })))
+        .catch(() => {})
+    })
 
     Promise.all([
       RosterService.Device(),

@@ -208,6 +208,12 @@ impl Core {
         self.s.notifications.list()
     }
 
+    /// Just these keys' notifications, in the order asked; a key nothing
+    /// is kept under is left out.
+    pub fn notifications_of(&self, keys: &[String]) -> Vec<Item> {
+        self.s.notifications.items_of(keys)
+    }
+
     /// How many notifications the person hasn't read.
     pub fn unread_notifications(&self) -> usize {
         self.s.notifications.unread()

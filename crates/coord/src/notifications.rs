@@ -216,6 +216,15 @@ impl History {
         out
     }
 
+    /// Of keys, the items kept, in the order asked (none for a key
+    /// nothing is kept under).
+    pub fn items_of(&self, keys: &[String]) -> Vec<Item> {
+        let st = self.lock();
+        keys.iter()
+            .filter_map(|k| st.items.get(k).cloned())
+            .collect()
+    }
+
     /// How many items are unread.
     pub fn unread(&self) -> usize {
         self.lock().items.values().filter(|i| !i.read).count()
