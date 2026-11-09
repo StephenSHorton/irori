@@ -667,3 +667,71 @@ fn pick_facts_gather_the_cards_on_the_same_work() {
     assert_eq!(f.phase, ReviewPhase::Waiting);
     assert!(b.c.pick_facts(&linking).is_none(), "not a PR card");
 }
+
+#[test]
+fn a_re_pick_in_waiting_names_the_newest_ask_from_the_facts() {
+    let (a, b, _) = three_people_two_cards();
+    let id = pr_card(&[&a, &b], 7);
+    a.c.pick_ask(P1, &id, CARD2, false, None).unwrap().unwrap();
+    sync(&a, &b);
+    b.c.decline_review(CARD2, &pr(7), "not mine").unwrap();
+    sync(&a, &b);
+    // An ask naming nobody, newer than the one declined: it is no ask the
+    // phase or pick_ask goes by, so the facts leave it out too.
+    forge_ask(
+        &[&a, &b],
+        "dev-b2",
+        1,
+        CARD3,
+        ask_row(&id, &pr(7), CARD3, "", false),
+    );
+    let f = a.c.pick_facts(&id).unwrap();
+    assert_eq!(f.phase, ReviewPhase::Waiting);
+    assert!(f.asks.iter().all(|r| !r.to.is_empty()), "{:?}", f.asks);
+    // Waiting has no Asked ask to hand over: None writes nothing, the
+    // newest ask in the facts does.
+    assert_eq!(a.c.pick_ask(P1, &id, CARD3, false, None).unwrap(), None);
+    let after = f.asks.last().map(|r| r.pos.clone());
+    let r = a.c.pick_ask(P1, &id, CARD3, false, after).unwrap();
+    assert!(r.is_some());
+    assert_eq!(asked_to(&a.c.review_phase(&id)), CARD3);
+}
+
+#[test]
+fn a_refold_keeps_asks_pings_claims_and_declines_once() {
+    let (a, b, _) = three_people_two_cards();
+    let id = pr_card(&[&a, &b], 7);
+    let id8 = pr_card(&[&a, &b], 8);
+    a.c.pick_ask(P1, &id, CARD2, false, None).unwrap().unwrap();
+    a.c.pick_ask(P1, &id, CARD3, true, None).unwrap().unwrap();
+    a.c.pick_ask(P1, &id8, CARD3, false, None).unwrap().unwrap();
+    sync(&a, &b);
+    b.c.claim_pr(CARD2, &pr(7)).unwrap();
+    b.c.decline_review(CARD3, &pr(8), "").unwrap();
+    sync(&a, &b);
+    for s in [&a, &b] {
+        let was = (
+            s.c.reviews(&id),
+            s.c.reviews(&id8),
+            s.c.review_phase(&id),
+            s.c.review_phase(&id8),
+            s.c.claim_counts(),
+            s.c.declined(&id8),
+            s.c.created_pos(&id),
+        );
+        assert_eq!(was.0.len(), 2);
+        assert!(was.6.is_some());
+        s.c.refold().unwrap();
+        let now = (
+            s.c.reviews(&id),
+            s.c.reviews(&id8),
+            s.c.review_phase(&id),
+            s.c.review_phase(&id8),
+            s.c.claim_counts(),
+            s.c.declined(&id8),
+            s.c.created_pos(&id),
+        );
+        assert_eq!(now, was);
+        assert_eq!(s.c.pick_facts(&id).unwrap().claims.len(), 1);
+    }
+}

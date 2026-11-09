@@ -115,7 +115,9 @@ pub struct PickFacts {
     pub created_pos: Option<RowPos>,
     pub pr_state: PrState,
     pub phase: ReviewPhase,
-    /// The asks for this PR, by row place; pings left out.
+    /// The asks for this PR naming an agent, by row place; pings left
+    /// out. The last one's `pos` is the `after` a re-pick passes to
+    /// [`super::Coord::pick_ask`], in Waiting as in Asked.
     pub asks: Vec<ReviewRequest>,
     /// The agents pinged on this card.
     pub pinged: BTreeSet<String>,
@@ -432,7 +434,9 @@ impl Fold {
         let now = self.stamp();
         let mut asks: Vec<ReviewRequest> = self
             .review_asks(card)
-            .filter(|r| pr_claim_resource(&r.pr).as_deref() == Some(res.as_str()))
+            .filter(|r| {
+                !r.to.is_empty() && pr_claim_resource(&r.pr).as_deref() == Some(res.as_str())
+            })
             .cloned()
             .collect();
         asks.sort_by(|a, b| a.pos.cmp(&b.pos));
