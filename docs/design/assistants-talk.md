@@ -455,6 +455,10 @@ Done when:
 Files: `crates/window/src/assistant.rs` (prompt, marker), `assistant.ts`, `assistant-chat.tsx`, `crates/window/src/commands.rs` (host command).
 Done when: nothing posts before the tap; the posted text is exactly the normalised text shown; a draft with tag characters posts without them, and an emoji survives; the scrub runs; an answer raises the toast; the `ASSISTANT_TOOLS` and `ASSISTANT_WRITE_TOOLS` tests are untouched, and the draft grants nothing.
 
+> **As built** (card #1063, `crates/core/src/service/assistant_ask.rs`, `frontend/src/lib/assistant-ask.ts`, `frontend/src/components/assistant/ask-draft.tsx`):
+> - The marker is `<<ask Name | Space>>`, the question, `<</ask>>`. Core's `chat_prompt` teaches it on every question (an `asks` section naming who can be asked: the other active members with an assistant, in spaces where the person has one), not `render_prompt` and not `SYSTEM`. No one to ask, nothing taught.
+> - Host commands: `assistant_ask_prepare` (resolves the names, returns the normalised text and why it is held; posts nothing) and `assistant_ask_send` (the tap; normalises again, runs `scrub::board_reasons` and the email check, posts as `agent:<my card>` mentioning the target's card, `agentsNow: true`, hop 1). Any device may tap; a reload finds a sent ask as a post of the card with the same text.
+> - `splitReply` takes the ask block first, so a `<<thread>>` or go line inside the question is the question's words; `posts_by_itself` refuses a reply with an ask before its thread. The answer's toast was already card 6's (`toastsFor`, a question posted by my card).
 **8. The owner's OK.**
 Files: `crates/window/src/assistant.rs` (the separate turn, prompt and renderer), `crates/window/src/commands.rs` (Send), `assistant.ts`, `assistant-chat.tsx`.
 Done when: Send appears only on a turn the tap started; that turn parses no markers, never auto-goes, has no write tools and leaves a chat run's grants alone; what's posted is exactly the normalised text shown; Send is refused once an answer exists; one OK sends one answer; a phone shows **Answer this** and Send, which run on the assistant's computer.

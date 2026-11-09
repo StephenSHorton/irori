@@ -4,7 +4,7 @@
 // plain browser it runs on a small sample so the dialog can be tried: a
 // pairing there moves on by itself, and the sample's words are "sample".
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 
 import { DevicesService, Events } from "./host"
 import { onChange } from "./changes"
@@ -15,7 +15,8 @@ import {
   PairStatus,
 } from "./models"
 import { EventDevicesChanged, EventRosterChanged, inWails } from "./irori"
-import { useLatest } from "./talk"
+import { createStore, rosterWatch } from "./small-lists"
+import { appPage } from "./visibility"
 
 export { DeviceView, HomeServerView, PairStatus }
 
@@ -515,43 +516,86 @@ export type DevicesState = {
   reload: () => Promise<void>
 }
 
-// useDevices reads the person's devices while active (the dialog is open):
-// at once, on every pairing or roster change, and every few seconds, since
-// a device going quiet sends no event.
-export function useDevices(active: boolean): DevicesState {
-  const load = useCallback(
-    async (): Promise<DeviceView[]> =>
-      inWails()
-        ? ((await DevicesService.Devices()) ?? [])
-        : sampleList().map((d) => DeviceView(d)),
-    []
-  )
-  const { value, error, loading, reload } = useLatest<DeviceView[]>(
-    load,
-    [],
-    "devices"
-  )
+// The devices are one list for the whole window (card #1152): Settings,
+// the agent strip, the desks pane and the profile page share one read, made
+// when the first of them mounts and again on a pairing change, a
+// devices:changed, and a roster:changed that moved a device's state. A
+// reader that mounts later reads nothing.
+//
+// A device going quiet sends no event, nor does a revoke. The 5 s poll
+// covers both, but only while the devices panel is open (`poll`).
+function watchRoster(reload: () => void): () => void {
+  const changed = rosterWatch()
+  let owed = false
+  const page = appPage()
+  const onVisible = () => {
+    if (page?.hidden || !owed) return
+    owed = false
+    reload()
+  }
+  page?.addEventListener("visibilitychange", onVisible)
+  const off = Events.On(EventRosterChanged, (ev) => {
+    if (!changed(ev.data)) return
+    if (appPage()?.hidden) owed = true
+    else reload()
+  })
+  return () => {
+    off()
+    page?.removeEventListener("visibilitychange", onVisible)
+  }
+}
 
-  useEffect(() => {
-    if (!active) return
-    void reload()
-    const id = window.setInterval(() => void reload(), RefreshMs)
-    const offPair = onPairing(() => void reload())
-    const offRoster = inWails()
-      ? Events.OnShown(EventRosterChanged, () => void reload())
-      : () => {}
+const deviceStore = createStore<DeviceView[]>({
+  name: "devices",
+  initial: [],
+  read: async () =>
+    inWails()
+      ? ((await DevicesService.Devices()) ?? [])
+      : sampleList().map((d) => DeviceView(d)),
+  start(reload) {
+    const offPair = onPairing(() => reload())
+    const offRoster = inWails() ? watchRoster(reload) : () => {}
     const offDevices = inWails()
-      ? onChange(EventDevicesChanged, () => void reload())
+      ? onChange(EventDevicesChanged, () => reload())
       : () => {}
     return () => {
-      window.clearInterval(id)
       offPair()
       offRoster()
       offDevices()
     }
-  }, [active, reload])
+  },
+})
 
-  return { devices: value, error, loading, reload }
+// Polling readers: one timer for all of them.
+let pollers = 0
+let pollTimer: number | undefined
+function pollDevices(): () => void {
+  if (pollers++ === 0)
+    pollTimer = window.setInterval(() => void deviceStore.reload(), RefreshMs)
+  return () => {
+    if (--pollers === 0) {
+      window.clearInterval(pollTimer)
+      pollTimer = undefined
+    }
+  }
+}
+
+const noSubscribe = () => () => {}
+
+// useDevices reads the person's devices while active (the dialog is open).
+// With `poll` (the devices panel itself) it also re-reads every few seconds.
+export function useDevices(active: boolean, poll = false): DevicesState {
+  const { value, error, loading } = useSyncExternalStore(
+    active ? deviceStore.subscribe : noSubscribe,
+    deviceStore.snapshot
+  )
+  useEffect(() => {
+    if (!active || !poll) return
+    // The panel opens on a fresh list, whatever else shares the store.
+    void deviceStore.reload()
+    return pollDevices()
+  }, [active, poll])
+  return { devices: value, error, loading, reload: deviceStore.reload }
 }
 
 // usePairing follows the open (or last) pairing while active. A pairing

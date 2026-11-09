@@ -47,6 +47,7 @@ import {
   startTalkFollow,
   type From,
 } from "./assistant-talk-follow"
+import { splitAsk, type AskDraft } from "./assistant-ask"
 import { AssistantService, Events } from "./host"
 import { onChange } from "./changes"
 import { EventDevicesChanged, inWails } from "./irori"
@@ -1385,11 +1386,22 @@ export function splitReply(
   go: GoTarget | null
   cards: CardDraft[]
   settle: SettleDraft | null
+  ask: AskDraft | null
 } {
-  const k = takeDrafts(raw)
+  // The ask block first (card #1063): a thread or go line inside the
+  // question is the question's words, never acted on.
+  const a = splitAsk(raw)
+  const k = takeDrafts(a.text)
   const d = splitDraft(k.text, !writing && !cutOff)
   const g = splitGo(d.text, writing)
-  return { ...d, text: g.text, go: g.go, cards: k.cards, settle: k.settle }
+  return {
+    ...d,
+    text: g.text,
+    go: g.go,
+    cards: k.cards,
+    settle: k.settle,
+    ask: a.ask,
+  }
 }
 
 // postDraft posts the draft of the reply at `turn` as a thread, as the
