@@ -599,7 +599,7 @@ Each slice is one card, and the order follows the dependencies.
 
 ## 10. For the person to agree
 
-1. **P2: Start an agent is the accept.** A batch shows Start / Not now / Give back per card, with no separate Accept step. "Accept all 4" means 4 agents start now, one yes each. The alternative: Accept takes the cards, and each card then asks "OK to start an agent?". That is two steps per card, the tedium #1204 started from.
+1. **P2: Start an agent is the accept.** *Agreed (b1, 2026-11-09).* A batch shows Start / Not now / Give back per card, with no separate Accept step. "Accept all 4" means 4 agents start now, one yes each. The alternative: Accept takes the cards, and each card then asks "OK to start an agent?". That is two steps per card, the tedium #1204 started from.
 2. **§5.3: your typed words to your assistant count as your yes,** one per card, read by Irori into grants and never by the model. This amends decision 50 for that case only.
 3. **P1: tasks someone sends you sit on the shared space's board as soon as they are sent.** That space's members can see them, marked "waiting on you", and can see a give-back's reason. The alternative, a separate proposal that becomes cards only on accept, loses the sender's attribution or waits for the sender's computer to come online (§4).
 4. **§5.2.1: when the assistant sends tasks, are the words its own?** "Send Spencer these four" means the assistant writes the four titles and objectives, and Spencer reads them as yours.
