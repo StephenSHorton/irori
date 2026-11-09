@@ -46,6 +46,7 @@ pub mod agents;
 pub mod agents_trust;
 pub mod assistant;
 pub mod assistant_chat;
+pub mod assistant_held;
 pub mod assistant_home;
 pub mod assistant_turn;
 pub mod attachments;
@@ -210,6 +211,9 @@ pub struct Window {
     /// The open watches of the chat turns this computer runs
     /// (one-assistant card 3).
     chat_watch: assistant_turn::ChatWatch,
+    /// The chat's held session on the assistant's computer (one-assistant
+    /// card 8).
+    held_chat: assistant_held::HeldChat,
 }
 
 impl Window {
@@ -241,6 +245,7 @@ impl Window {
             answers: assistant::Runner::new(),
             huddles,
             chat_watch: assistant_turn::ChatWatch::default(),
+            held_chat: assistant_held::HeldChat::new(),
         }
     }
 

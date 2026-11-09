@@ -99,7 +99,7 @@
   },
   {
     "name": "agents",
-    "description": "List the agents on the person's devices, and other people's agents in shared spaces: name, key, status, whether its device is online, recent (seen 3m ago) or offline (since when), what each is doing now, working directory, repoKey, permission mode and last activity. Use it to find who to message, which repo each works in, and whether it is there to answer.",
+    "description": "List the agents on the person's devices, and other people's agents in shared spaces: name, key, status, whether its device is online, recent (seen 3m ago) or offline (since when), what each is doing now, working directory, repoKey, permission mode and last activity. Use it to find who to message, which repo each works in, and whether it is there to answer. It also lists each of the person's devices: online or not, whether Stop here is on there, and how many agents it runs.",
     "inputSchema": {
       "type": "object",
       "properties": {

@@ -903,6 +903,26 @@ fn an_agent_pauses_and_unpauses_agent_starts() {
     assert!(!s.r.core.agents_pause().on);
 }
 
+/// The agents tool lists the person's devices with Stop here, so a device
+/// with no agents doesn't read as offline.
+#[test]
+fn the_agents_tool_lists_devices_with_stop_here() {
+    let s = bound();
+    let said = tool_as_a(&s, "agents", serde_json::json!({}));
+    assert!(said.contains("The person's devices"), "{said}");
+    assert!(
+        said.contains(": online, this device, Stop here off, "),
+        "{said}"
+    );
+    s.r.core.set_agents_paused(true).unwrap();
+    // A filter that matches no agent still lists the devices.
+    let said = tool_as_a(&s, "agents", serde_json::json!({ "status": "nobody" }));
+    assert!(
+        said.contains(": online, this device, Stop here on (by the person"),
+        "{said}"
+    );
+}
+
 /// The person's wind-down to the agent bound in `s` (card #787).
 fn wind_down_first(s: &Setup) -> inbox::Delivery {
     s.r.core

@@ -568,6 +568,38 @@ impl tools::Backend for ToolsView {
             by: self.0.pause_by_name(&p.by),
         })
     }
+    fn own_devices(&self) -> Vec<tools::OwnDevice> {
+        let s = &self.0;
+        let names = s.device_labels();
+        s.mesh
+            .node
+            .devices(false)
+            .into_iter()
+            .filter(|d| !d.revoked)
+            .map(|d| {
+                let p = s.device_presence(&d.device_id);
+                let own = s.agents_pause_on(&d.device_id);
+                let hold = s.pause_holding(&d.device_id);
+                let name = names
+                    .get(&d.device_id)
+                    .filter(|n| !n.is_empty())
+                    .cloned()
+                    .unwrap_or(d.name);
+                tools::OwnDevice {
+                    this: d.this,
+                    name,
+                    state: p.state,
+                    seen: p.seen,
+                    via: p.via,
+                    stopped: hold.on,
+                    everywhere: hold.on && !own.on,
+                    since: hold.since,
+                    by: s.pause_by_name(&hold.by),
+                    id: d.device_id,
+                }
+            })
+            .collect()
+    }
     fn agent_limit(&self) -> Option<tools::AgentLimit> {
         let u = self.0.agent_starts_use();
         Some(tools::AgentLimit {
