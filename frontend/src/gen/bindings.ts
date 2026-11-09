@@ -1105,6 +1105,20 @@ export type AssistantChatDraft = {
 };
 
 /**
+ *  Another person's words in a follow-up line: shown as a quote, never as
+ *  the assistant's own.
+ */
+export type AssistantChatFrom = {
+	name: string,
+	words: string,
+};
+
+export type AssistantChatFromIn = {
+	name: string,
+	words: string,
+};
+
+/**
  *  One entry of the conversation: exactly one of `turn`, `update` and
  *  `draft`, as `kind` says.
  */
@@ -1178,6 +1192,8 @@ export type AssistantChatUpdate = {
 	act?: AssistantChatAct | null,
 	at: number,
 	imported: boolean,
+	/**  Another person's words the line quotes (a give-back's reason). */
+	from?: AssistantChatFrom | null,
 };
 
 /**  A follow-up line to write (see [`Window::assistant_chat_update`]). */
@@ -1186,6 +1202,8 @@ export type AssistantChatUpdateIn = {
 	thread: string,
 	text: string,
 	act: AssistantChatActIn | null,
+	/**  Another person's words the line quotes. */
+	from?: AssistantChatFromIn | null,
 };
 
 /**

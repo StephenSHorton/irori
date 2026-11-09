@@ -1439,6 +1439,15 @@ function Update({ entry }: { entry: ChatEntry }) {
       data-assistant-update=""
     >
       <RichText bold text={replyText(entry.text)} />
+      {entry.quote && (
+        // Another person's words: plain text in guillemets, never parsed.
+        <p
+          className="whitespace-pre-wrap text-muted-foreground"
+          data-assistant-quote=""
+        >
+          {`«${entry.quote.words}»`}
+        </p>
+      )}
       {entry.act && (
         <AnswerAsk
           card={entry.act.card}
