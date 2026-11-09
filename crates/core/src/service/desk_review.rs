@@ -12,7 +12,8 @@ use super::boards::BoardLog;
 use super::review_pick::tiers;
 use crate::deskmap::{ClaimCount, DeskClaimer, DeskRelated, DeskReview, NoPick, why_none};
 
-/// Why an agent is related, from its tier signals (§12.5).
+/// Why an agent is related, from its tier signals (§12.5); "told to look"
+/// when none holds now (a lease lapsed since the ping).
 pub(crate) fn why_related(t: [bool; 4]) -> &'static str {
     if t[0] {
         "same card"
@@ -23,7 +24,7 @@ pub(crate) fn why_related(t: [bool; 4]) -> &'static str {
     } else if t[3] {
         "dedicated reviewer"
     } else {
-        "named by the assistant"
+        "told to look"
     }
 }
 
@@ -188,13 +189,15 @@ impl Services {
         let Some(snap) = desk.prs.as_ref() else {
             return Vec::new();
         };
-        let ours: std::collections::HashSet<i64> =
-            self.desk_verdicts(&key).into_iter().map(|a| a.pr).collect();
+        let reviews: std::collections::HashMap<i64, DeskReview> = self
+            .desk_verdicts(&key)
+            .into_iter()
+            .map(|a| (a.pr, a.review))
+            .collect();
         snap.prs
             .iter()
-            .filter(|p| ours.contains(&p.number))
-            .map(|p| {
-                let r = self.pr_review(&key, p);
+            .filter_map(|p| reviews.get(&p.number).map(|r| (p, r.clone())))
+            .map(|(p, r)| {
                 let who = |a: &str, p: &str| match (a.is_empty(), p.is_empty()) {
                     (_, true) => a.to_string(),
                     (true, false) => format!("an agent ({p})"),

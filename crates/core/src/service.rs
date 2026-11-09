@@ -4658,13 +4658,13 @@ impl Services {
                     pr: p.number,
                     agent: author.clone(),
                     review_note: self.desk_watch.note(repo_key, p.number),
-                    review: self.pr_review(repo_key, p),
                     ..DeskAuthor::default()
                 };
                 match judge(&PrRef::of(&repo, p), &tasks, &author, &trust) {
                     Verdict::NotOurs => return None,
-                    Verdict::NewCard(_) => {}
+                    Verdict::NewCard(_) => a.review = self.pr_review(repo_key, p),
                     Verdict::Card(m) => {
+                        a.review = self.pr_review(repo_key, p);
                         if let Some(t) = tasks.iter().find(|t| t.id == m.task_id) {
                             if a.agent.is_empty() {
                                 a.agent = t.holders.first().cloned().unwrap_or_default();
