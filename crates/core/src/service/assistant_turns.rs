@@ -230,6 +230,7 @@ pub(crate) fn chat_prompt(
     text: &str,
     note: Option<&str>,
     huddle: Option<&str>,
+    asks: Option<&str>,
 ) -> String {
     let skip = history.len().saturating_sub(HISTORY_TURNS);
     let turns: Vec<&(bool, String)> = history
@@ -241,6 +242,17 @@ pub(crate) fn chat_prompt(
     // A Divide turn (call-agents §9): the huddle goes in first, fenced.
     if let Some(h) = huddle {
         b.push_str(h.trim_end());
+        b.push_str(
+            "
+
+",
+        );
+    }
+    // Who the person can ask through their assistant (assistants-talk.md
+    // §9): taught here, in the Core-built prompt, on every question, so a
+    // held session learns of a change in who is there.
+    if let Some(a) = asks {
+        b.push_str(a.trim_end());
         b.push_str(
             "
 
@@ -772,9 +784,16 @@ impl Services {
         });
         // A held session gets the question alone, after what it hasn't
         // seen; a new one is seeded with the history (card 8).
+        let asks = self.ask_section();
         let (session, message, told) = self.chat_session_message(
             &t,
-            chat_prompt(&[], &turn.asked.text, note.as_deref(), huddle.as_deref()),
+            chat_prompt(
+                &[],
+                &turn.asked.text,
+                note.as_deref(),
+                huddle.as_deref(),
+                asks.as_deref(),
+            ),
         );
         let job = ChatJob {
             turn: p.turn.clone(),
@@ -783,6 +802,7 @@ impl Services {
                 &turn.asked.text,
                 note.as_deref(),
                 huddle.as_deref(),
+                asks.as_deref(),
             ),
             screen: turn.asked.screen.clone(),
             grants,
@@ -838,10 +858,10 @@ mod tests {
 
     #[test]
     fn the_prompt_is_the_last_twelve_turns_then_the_question() {
-        assert_eq!(chat_prompt(&[], "hi", None, None), "The person: hi\n");
+        assert_eq!(chat_prompt(&[], "hi", None, None, None), "The person: hi\n");
         let history: Vec<(bool, String)> =
             (0..20).map(|i| (i % 2 == 1, format!("turn {i}"))).collect();
-        let p = chat_prompt(&history, "what's blocked?", None, None);
+        let p = chat_prompt(&history, "what's blocked?", None, None, None);
         assert!(p.starts_with("The conversation so far:\n\n"));
         assert!(!p.contains("turn 7\n"));
         assert!(p.contains("The person: turn 8\n"));
@@ -852,8 +872,38 @@ mod tests {
     }
 
     #[test]
+    fn the_ask_section_comes_before_the_conversation() {
+        let history = [(false, "hi".to_string()), (true, "hello".to_string())];
+        let p = chat_prompt(
+            &history,
+            "ask Bob",
+            None,
+            None,
+            Some(
+                "ASK SECTION
+",
+            ),
+        );
+        assert!(p.starts_with(
+            "ASK SECTION
+
+The conversation so far:"
+        ));
+        assert!(p.ends_with(
+            "The person: ask Bob
+"
+        ));
+    }
+
+    #[test]
     fn a_late_question_carries_its_note_after_it() {
-        let p = chat_prompt(&[], "close #12", Some("(Asked on Phone at 14:02; …)"), None);
+        let p = chat_prompt(
+            &[],
+            "close #12",
+            Some("(Asked on Phone at 14:02; …)"),
+            None,
+            None,
+        );
         assert_eq!(p, "The person: close #12\n(Asked on Phone at 14:02; …)\n");
     }
 
@@ -870,6 +920,7 @@ x
 </irori-data>
 ",
             ),
+            None,
         );
         assert!(p.starts_with("<irori-data>"));
         assert!(p.find("</irori-data>") < p.find("The conversation so far"));
