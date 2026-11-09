@@ -32,7 +32,7 @@ use coord::talk::{AssistInfo, is_person_key};
 
 use super::Services;
 use super::huddle_session::LookError;
-use crate::events::CoreEvent;
+use crate::events::{CoreEvent, TalkChange};
 
 /// `logf` with format arguments.
 macro_rules! logf {
@@ -407,7 +407,8 @@ impl Services {
                 self.huddle_chair_row(call, &conv);
                 self.huddle_title_tick(call, now);
                 self.huddle_end_tick(call, now);
-                self.hub.publish(CoreEvent::Talk);
+                self.hub
+                    .publish(CoreEvent::Talk(TalkChange::of([conv.as_str()], [call])));
             }
             Verdict::Wait => {
                 lock(&self.hosting.calls).insert(call.to_string(), h);
@@ -425,7 +426,8 @@ impl Services {
                 }
                 if had {
                     logf!("huddle {call}: this device no longer hosts the assistant");
-                    self.hub.publish(CoreEvent::Talk);
+                    self.hub
+                        .publish(CoreEvent::Talk(TalkChange::of([h.conv.as_str()], [call])));
                 }
                 if want || h.wrote_on {
                     // Still in the call (or the off row didn't write):
@@ -533,7 +535,8 @@ impl Services {
                 &self.user_sender().key,
             )
             .map_err(|e| e.to_string())?;
-        self.hub.publish(CoreEvent::Talk);
+        self.hub
+            .publish(CoreEvent::Talk(TalkChange::of([conv], [call])));
         Ok(())
     }
 

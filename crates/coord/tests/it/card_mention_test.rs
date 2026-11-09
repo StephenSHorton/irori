@@ -141,3 +141,29 @@ fn a_deleted_default_card_keeps_its_mentions_off_another_board() {
     c.add_comment(ALICE, &from.id, "see #1", false).unwrap();
     assert!(mentioned(&c, &h.id).is_empty());
 }
+
+/// Card #1144 (list-signals.md §3.2): a mention changes the named card's
+/// activity, so it notes that card to subscribers as well as the comment
+/// on its own card; an unnamed card is not noted.
+#[test]
+fn a_mention_notes_the_named_card() {
+    let e = Env::new();
+    let a = e.c.create_task(BOB, nt("Invite join fails")).unwrap();
+    let b = e.c.create_task(BOB, nt("Subtask layout")).unwrap();
+    let c = e.c.create_task(BOB, nt("Unrelated")).unwrap();
+    let q = e.c.subscribe();
+    e.c.add_comment(ALICE, &a.id, &format!("see {}", b.short_ref()), false)
+        .unwrap();
+    let got = drain_changes(&q);
+    let has = |kind: &str, id: &str| got.iter().any(|x| x.kind == kind && x.task_id == id);
+    assert!(has(TASK_CHANGED, &b.id), "{got:?}");
+    assert!(has(COMMENT_ADDED, &a.id), "{got:?}");
+    assert!(!got.iter().any(|x| x.task_id == c.id), "{got:?}");
+
+    // A comment naming only its own card notes no other card.
+    e.c.add_comment(ALICE, &a.id, &format!("own {}", a.short_ref()), false)
+        .unwrap();
+    let got = drain_changes(&q);
+    assert!(!got.is_empty());
+    assert!(got.iter().all(|x| x.task_id == a.id), "{got:?}");
+}
