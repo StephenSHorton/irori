@@ -33,7 +33,8 @@ pub(crate) mod sampler;
 pub(crate) mod scan;
 
 pub use registry::{
-    ENDED_KEEP_MS, FG_KEEP, FILE, MAX_CMD, MAX_OUTPUT, MAX_PER_KEY, MAX_TASK_ID, Runs,
+    ENDED_KEEP_MS, FG_KEEP, FG_STALE_MS, FILE, MAX_CMD, MAX_OUTPUT, MAX_PER_KEY, MAX_RUNNING,
+    MAX_TASK_ID, Runs,
 };
 
 /// One run: an agent's key and the task id Claude gave it (`toolUseId`
@@ -98,6 +99,10 @@ pub struct LiveRun {
     /// never a kill target); `None` when no report named one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_path: Option<PathBuf>,
+    /// The tool call that started a background run, when the report named
+    /// it: that call's foreground reports are then not a separate row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_use_id: Option<String>,
     /// When it ended, Unix ms; `None` while it runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended_ms: Option<i64>,
@@ -142,6 +147,7 @@ impl LiveRun {
             cmd: String::new(),
             started_ms,
             output_path: None,
+            tool_use_id: None,
             ended_ms: None,
             exit: None,
             stopped_by_person: false,

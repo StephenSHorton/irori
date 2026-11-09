@@ -11,11 +11,16 @@
 //! - a second `end` keeps the first end's time and only fills a missing
 //!   exit code;
 //! - a background `start` naming a `toolUseId` drops that call's
-//!   foreground row: the call was backgrounded.
+//!   foreground row: the call was backgrounded. The run keeps the id, so
+//!   a late `fg-start` or `fg` for that call is ignored;
+//! - a late `start` sets the kind (an `end` alone may not know it) and an
+//!   earlier start time.
 //!
-//! Kept: every running row; a key's last [`FG_KEEP`] ended foreground
+//! Kept: every running row, at most [`MAX_RUNNING`] per key (a report
+//! starting another is refused); a key's last [`FG_KEEP`] ended foreground
 //! rows; ended background rows for [`ENDED_KEEP_MS`] (the mesh fold's
-//! window), at most [`MAX_PER_KEY`] of them per key.
+//! window), at most [`MAX_PER_KEY`] of them per key. A foreground call
+//! still running [`FG_STALE_MS`] after its start lost its end and goes.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -37,6 +42,12 @@ pub const FG_KEEP: usize = 20;
 pub const ENDED_KEEP_MS: i64 = 24 * 3600 * 1000;
 /// Ended background rows kept per key at most (the oldest go first).
 pub const MAX_PER_KEY: usize = 100;
+/// Running rows a key may have at once; a report starting another is
+/// refused, so a runaway caller can't grow `runs.json` without bound.
+pub const MAX_RUNNING: usize = 100;
+/// A foreground call with no end this long after its start lost its end:
+/// Claude Code's shell calls time out (or go to the background) long before.
+pub const FG_STALE_MS: i64 = 3600 * 1000;
 
 /// The registry and its file.
 pub struct Runs {
@@ -122,17 +133,21 @@ impl Runs {
                 if fg { "toolUseId" } else { "taskId" }
             ));
         }
-        let exit = match rep.exit_code {
+        let exit = rep.exit_code.and_then(exit_code);
+        // Verbatim: the path is never rebuilt or tidied (design §2.1).
+        let output = match rep.output_file.as_deref() {
             None => None,
-            Some(c) => Some(i32::try_from(c).map_err(|_| format!("exitCode {c} is not an i32"))?),
-        };
-        let output = match rep.output_file.as_deref().map(str::trim) {
-            None | Some("") => None,
+            Some(p) if p.trim().is_empty() => None,
             Some(p) if p.len() > MAX_OUTPUT || p.contains('\0') => {
                 return Err(format!("outputFile is not 1-{MAX_OUTPUT} bytes"));
             }
             Some(p) => Some(PathBuf::from(p)),
         };
+        let tool_use = rep
+            .tool_use_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| good_id(t));
         let cmd = cap(
             &scrub(
                 [&rep.command, &rep.workflow_name, &rep.description]
@@ -148,11 +163,24 @@ impl Runs {
         let id = RunId::new(key, task_id);
 
         let mut m = self.lock();
+        // A backgrounded call's foreground reports are that run's, not a row.
+        if fg
+            && m.values().any(|r| {
+                r.key == key && r.kind != RunKind::Fg && r.tool_use_id.as_deref() == Some(task_id)
+            })
+        {
+            return Ok(false);
+        }
+        if matches!(ev, Event::Start | Event::FgStart)
+            && !m.contains_key(&id)
+            && m.values().filter(|r| r.key == key && r.running()).count() >= MAX_RUNNING
+        {
+            return Err(format!("already {MAX_RUNNING} runs running"));
+        }
         let mut changed = false;
         if ev == Event::Start
-            && let Some(tu) = rep.tool_use_id.as_deref().map(str::trim)
+            && let Some(tu) = tool_use
             && tu != task_id
-            && !tu.is_empty()
         {
             let fg_id = RunId::new(key, tu);
             if m.get(&fg_id).is_some_and(|r| r.kind == RunKind::Fg) {
@@ -165,10 +193,26 @@ impl Runs {
                 let mut r = LiveRun::new(key, task_id, kind, at(rep.started_at));
                 r.cmd = cmd;
                 r.output_path = output;
+                if !fg {
+                    r.tool_use_id = tool_use.map(str::to_string);
+                }
                 m.insert(id, r);
                 changed = true;
             }
             (Event::Start | Event::FgStart, Some(r)) => {
+                // A start knows the kind; an end that came first may not.
+                if ev == Event::Start && r.kind != RunKind::Fg && r.kind != kind {
+                    r.kind = kind;
+                    changed = true;
+                }
+                if rep.started_at > 0 && at(rep.started_at) < r.started_ms {
+                    r.started_ms = at(rep.started_at);
+                    changed = true;
+                }
+                if !fg && r.tool_use_id.is_none() && tool_use.is_some() {
+                    r.tool_use_id = tool_use.map(str::to_string);
+                    changed = true;
+                }
                 if r.cmd.is_empty() && !cmd.is_empty() {
                     r.cmd = cmd;
                     changed = true;
@@ -190,6 +234,9 @@ impl Runs {
                 r.output_path = output;
                 r.ended_ms = Some(ended);
                 r.exit = exit;
+                if !fg {
+                    r.tool_use_id = tool_use.map(str::to_string);
+                }
                 m.insert(id, r);
                 changed = true;
             }
@@ -286,6 +333,15 @@ impl Runs {
     }
 }
 
+/// An exit code as an `i32`. Windows can report a crash's NTSTATUS as an
+/// unsigned number (`3221225477` for 0xC0000005): that is its `i32` bits.
+/// Anything else out of range is no code, and the end still counts.
+fn exit_code(c: i64) -> Option<i32> {
+    i32::try_from(c)
+        .ok()
+        .or_else(|| u32::try_from(c).ok().map(|u| u as i32))
+}
+
 fn good_id(s: &str) -> bool {
     !s.is_empty() && s.len() <= MAX_TASK_ID && s.bytes().all(|b| b.is_ascii_graphic())
 }
@@ -300,8 +356,10 @@ fn cap(s: &str, max: usize) -> String {
 
 /// Drops the rows past keeping (the module's rules).
 fn prune(m: &mut BTreeMap<RunId, LiveRun>, now_ms: i64) {
-    m.retain(|_, r| {
-        r.kind == RunKind::Fg || r.ended_ms.is_none_or(|e| now_ms - e <= ENDED_KEEP_MS)
+    m.retain(|_, r| match (r.kind, r.ended_ms) {
+        (RunKind::Fg, None) => now_ms - r.started_ms <= FG_STALE_MS,
+        (RunKind::Fg, Some(_)) | (_, None) => true,
+        (_, Some(e)) => now_ms - e <= ENDED_KEEP_MS,
     });
     let mut ended: BTreeMap<(&str, bool), Vec<(i64, RunId)>> = BTreeMap::new();
     for r in m.values() {
@@ -451,7 +509,6 @@ mod tests {
             serde_json::json!({"event":"start","kind":"bash","taskId":"x".repeat(MAX_TASK_ID + 1)}),
             serde_json::json!({"event":"fg-start","kind":"bash","toolUseId":"t"}),
             serde_json::json!({"event":"fg","kind":"fg"}),
-            serde_json::json!({"event":"end","taskId":"b1","exitCode":5_000_000_000_i64}),
             serde_json::json!({"event":"start","kind":"bash","taskId":"b1","outputFile":"x".repeat(MAX_OUTPUT + 1)}),
         ] {
             assert!(rec(&r, bad.clone(), NOW).is_err(), "{bad}");
@@ -522,5 +579,153 @@ mod tests {
         let later = Runs::new(d.path(), NOW + ENDED_KEEP_MS + 1000);
         assert!(later.get(&RunId::new(K, "old")).is_none());
         assert!(later.get(&RunId::new(K, "running")).is_some());
+    }
+
+    #[test]
+    fn a_backgrounded_call_s_late_foreground_reports_make_no_row() {
+        let (_d, r) = fresh();
+        // The start lands before its fg-start (a flush after a failed post).
+        rec(&r, serde_json::json!({"event":"start","kind":"bash","taskId":"bq","toolUseId":"toolu_5","command":"sleep 99"}), NOW).unwrap();
+        assert_eq!(
+            rec(
+                &r,
+                serde_json::json!({"event":"fg-start","kind":"fg","toolUseId":"toolu_5","command":"sleep 99"}),
+                NOW
+            ),
+            Ok(false)
+        );
+        assert_eq!(
+            rec(
+                &r,
+                serde_json::json!({"event":"fg","kind":"fg","toolUseId":"toolu_5","endedAt":NOW}),
+                NOW
+            ),
+            Ok(false)
+        );
+        let rows = r.by_key(K);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(
+            (rows[0].kind, rows[0].tool_use_id.as_deref()),
+            (RunKind::Bash, Some("toolu_5"))
+        );
+        assert!(rows[0].running());
+        // Another key's call with the same id is its own.
+        let other = r.record(
+            "dev/sess-b",
+            &rep(serde_json::json!({"event":"fg-start","toolUseId":"toolu_5"})),
+            |s| s.into(),
+            NOW,
+        );
+        assert_eq!(other, Ok(true));
+    }
+
+    #[test]
+    fn a_late_start_sets_the_kind_and_the_start_time() {
+        let (_d, r) = fresh();
+        // TaskStop's end for an id with no known prefix names no kind.
+        rec(
+            &r,
+            serde_json::json!({"event":"end","taskId":"x7","status":"killed","endedAt":NOW}),
+            NOW,
+        )
+        .unwrap();
+        assert_eq!(r.by_key(K)[0].kind, RunKind::Bash);
+        rec(&r, serde_json::json!({"event":"start","kind":"agent","taskId":"x7","startedAt":NOW - 900,"description":"review"}), NOW).unwrap();
+        let x = r.get(&RunId::new(K, "x7")).unwrap();
+        assert_eq!(
+            (x.kind, x.started_ms, x.ended_ms, x.cmd.as_str()),
+            (RunKind::Agent, NOW - 900, Some(NOW), "review")
+        );
+    }
+
+    #[test]
+    fn windows_crash_codes_are_kept_and_others_never_lose_the_end() {
+        let (_d, r) = fresh();
+        rec(&r, serde_json::json!({"event":"end","kind":"bash","taskId":"b1","exitCode":3_221_225_477_i64}), NOW).unwrap();
+        assert_eq!(
+            r.get(&RunId::new(K, "b1")).unwrap().exit,
+            Some(0xC000_0005_u32 as i32)
+        );
+        rec(
+            &r,
+            serde_json::json!({"event":"end","kind":"bash","taskId":"b2","exitCode":-1}),
+            NOW,
+        )
+        .unwrap();
+        assert_eq!(r.get(&RunId::new(K, "b2")).unwrap().exit, Some(-1));
+        rec(&r, serde_json::json!({"event":"end","kind":"bash","taskId":"b3","exitCode":5_000_000_000_i64}), NOW).unwrap();
+        let b3 = r.get(&RunId::new(K, "b3")).unwrap();
+        assert_eq!((b3.running(), b3.exit), (false, None));
+    }
+
+    #[test]
+    fn the_output_path_is_kept_verbatim() {
+        let (_d, r) = fresh();
+        let p = "/private/tmp/claude-501/x/s/tasks/b1.output ";
+        rec(
+            &r,
+            serde_json::json!({"event":"start","kind":"bash","taskId":"b1","outputFile":p}),
+            NOW,
+        )
+        .unwrap();
+        assert_eq!(r.by_key(K)[0].output_path.as_deref(), Some(Path::new(p)));
+        rec(
+            &r,
+            serde_json::json!({"event":"start","kind":"bash","taskId":"b2","outputFile":"  "}),
+            NOW,
+        )
+        .unwrap();
+        assert_eq!(r.get(&RunId::new(K, "b2")).unwrap().output_path, None);
+    }
+
+    #[test]
+    fn running_rows_are_capped_and_lost_foreground_calls_expire() {
+        let (d, r) = fresh();
+        for i in 0..MAX_RUNNING {
+            rec(
+                &r,
+                serde_json::json!({"event":"start","kind":"bash","taskId":format!("b{i}")}),
+                NOW,
+            )
+            .unwrap();
+        }
+        assert!(
+            rec(
+                &r,
+                serde_json::json!({"event":"start","kind":"bash","taskId":"one-more"}),
+                NOW
+            )
+            .is_err()
+        );
+        assert!(
+            rec(
+                &r,
+                serde_json::json!({"event":"fg-start","toolUseId":"toolu_x"}),
+                NOW
+            )
+            .is_err()
+        );
+        // A known run still takes reports, and an end frees a place.
+        assert_eq!(
+            rec(
+                &r,
+                serde_json::json!({"event":"end","taskId":"b0","exitCode":0}),
+                NOW
+            ),
+            Ok(true)
+        );
+        assert_eq!(
+            rec(
+                &r,
+                serde_json::json!({"event":"fg-start","toolUseId":"toolu_x"}),
+                NOW
+            ),
+            Ok(true)
+        );
+        assert!(r.get(&RunId::new(K, "one-more")).is_none());
+        // The call's end never came: past FG_STALE_MS it goes; background runs stay.
+        let later = Runs::new(d.path(), NOW + FG_STALE_MS + 1);
+        assert!(later.get(&RunId::new(K, "toolu_x")).is_none());
+        assert!(later.get(&RunId::new(K, "b1")).is_some_and(|b| b.running()));
     }
 }
