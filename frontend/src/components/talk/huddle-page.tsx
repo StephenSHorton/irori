@@ -23,12 +23,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loading } from "@/components/ui/loading"
-import {
-  agentsReady,
-  clockText,
-  joinHuddle,
-  personWord,
-} from "@/lib/call"
+import { agentsReady, clockText, joinHuddle, personWord } from "@/lib/call"
 import {
   Kinds,
   askAvailable,
@@ -50,6 +45,7 @@ import {
   type TalkHuddle,
 } from "@/lib/huddles"
 import { useNarrow } from "@/lib/media"
+import { previewFlag } from "@/lib/preview"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import { dayLabel } from "./conversation"
@@ -411,7 +407,11 @@ export function HuddlePage({
   const mineHere = useCallPart((s) => s.mine?.callId === callId)
   const [asking, setAsking] = useState(false)
   const [joinError, setJoinError] = useState("")
-  const [tab, setTab] = useState<Tab>("canvas")
+  // ?huddletab=people (the browser preview) opens a phone's other tabs.
+  const [tab, setTab] = useState<Tab>(() => {
+    const f = previewFlag("huddletab")
+    return f === "people" || f === "transcript" ? f : "canvas"
+  })
   const live = !!h && isLive(h)
   // One read of the transcript feeds the canvas, the roster and the
   // transcript pane, and follows Talk's changes (the canvas changes too
@@ -493,7 +493,7 @@ export function HuddlePage({
           </p>
         )}
         {empty && !agentsOff && (
-          <p className="pointer-events-none absolute inset-x-4 bottom-6 rounded-lg border border-dashed border-border bg-background/80 px-3 py-3 text-center text-[12.5px] text-muted-foreground">
+          <p className="pointer-events-none absolute inset-x-4 top-3 rounded-lg border border-dashed border-border bg-background/80 px-3 py-3 text-center text-[12.5px] text-muted-foreground">
             {emptyWords({
               live,
               agentsOff,
@@ -505,7 +505,7 @@ export function HuddlePage({
         )}
       </div>
       {t && (
-        <div className="grid gap-2 border-t border-border px-4 py-3">
+        <div className="grid gap-2 border-t border-border px-4 py-3 max-md:pr-16">
           {writeError && (
             <p role="alert" className="text-[11.5px] text-destructive">
               {writeError}
@@ -654,16 +654,17 @@ export function HuddlePage({
         </>
       ) : (
         <div className="flex min-h-0 flex-1">
-          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
-            <section aria-label="People" className="grid gap-2 p-4 pb-2">
+          <div className="flex min-w-0 flex-1 flex-col">{canvas}</div>
+          <div className="flex w-[380px] shrink-0 flex-col border-l border-border">
+            <section
+              aria-label="People"
+              className="grid max-h-[40%] shrink-0 gap-2 overflow-y-auto border-b border-border p-4"
+            >
               <h2 className="text-[12px] font-medium text-muted-foreground">
                 People
               </h2>
               {roster}
             </section>
-            {canvas}
-          </div>
-          <div className="flex w-[380px] shrink-0 flex-col border-l border-border">
             {transcript}
           </div>
         </div>

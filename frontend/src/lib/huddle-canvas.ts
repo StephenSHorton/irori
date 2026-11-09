@@ -115,7 +115,7 @@ export function canSettle(i: Pick<TalkCanvasItem, "kind" | "status">) {
 
 export function settleWord(kind: string): string {
   return kind === "question"
-    ? "Answered"
+    ? "Mark answered"
     : kind === "decision"
       ? "Agree"
       : "Done"
@@ -228,7 +228,7 @@ export function rosterHeads(
     if (seen.has(name)) return
     seen.add(name)
     const own = t.canvas.find(
-      (i) => i.assistant && i.label && groupOf(i) === name
+      (i) => i.assistant && i.label && personWord(i.byName) === name
     )
     out.push({
       name,

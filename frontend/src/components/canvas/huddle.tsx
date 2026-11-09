@@ -32,6 +32,7 @@ import {
   Position,
   ReactFlow,
   applyNodeChanges,
+  useNodesInitialized,
   useReactFlow,
   type Edge,
   type Node,
@@ -351,8 +352,12 @@ function Fit({
   touched: { current: boolean }
 }) {
   const { fitView } = useReactFlow()
+  // Nodes have no size until they are measured: fitting before that fits
+  // nothing.
+  const measured = useNodesInitialized()
   const fitted = useRef(0)
   useEffect(() => {
+    if (!measured) return
     if (
       !shouldRefit({
         touched: touched.current,
@@ -367,7 +372,7 @@ function Fit({
       50
     )
     return () => window.clearTimeout(t)
-  }, [columns, fitView, touched])
+  }, [columns, fitView, touched, measured])
   return null
 }
 
