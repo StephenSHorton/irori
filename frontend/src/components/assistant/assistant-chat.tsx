@@ -62,6 +62,7 @@ import {
   postDraft,
   replyText,
   setAssistantOpen,
+  setHome,
   splitReply,
   startFollowing,
   stopTurn,
@@ -90,6 +91,8 @@ import { GIVEN_QUESTION } from "@/lib/needs"
 import { byRecommendation } from "@/components/cards/card-detail"
 import { composing } from "@/lib/mentions"
 import { errorText } from "@/lib/talk"
+import { stateDot } from "@/lib/devices"
+import { homeView, type HomeView } from "@/lib/assistant-home"
 import { cn } from "@/lib/utils"
 
 // Ask Irori (card #783): a round button in the bottom-right corner of every
@@ -218,6 +221,7 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
             narrow={narrow}
             onAsk={(t, files) => void ask(t, files)}
             onAskAgain={(t, turn) => void ask(t, [], turn)}
+            onUsePc={setHome}
             onStop={stopTurn}
             onNew={() => {
               clearOldHistory()
@@ -454,6 +458,7 @@ export function AssistantPanel({
   narrow,
   onAsk,
   onAskAgain,
+  onUsePc,
   onStop,
   onNew,
   onOlder,
@@ -479,6 +484,8 @@ export function AssistantPanel({
   onAsk: (text: string, files?: AssistantFile[]) => void
   // Ask again: the same words, as a new question that repeats this turn.
   onAskAgain?: (text: string, turn: string) => void
+  // Use <computer> instead: the person's pick, "" or why it failed.
+  onUsePc?: (device: string) => Promise<string>
   // Stop one question.
   onStop: (turn: string) => void
   onNew: () => void
@@ -497,6 +504,8 @@ export function AssistantPanel({
   const [going, setGoing] = useState(uploading)
   const sending = going !== null
   const [sendError, setSendError] = useState(uploadFailed)
+  const view = homeView(home)
+  // Now, for "seen 2h ago": the status is read again every 5 s.
   const input = useRef<HTMLTextAreaElement>(null)
   // Where dictation left the caret, applied once the new text is in.
   const pendingCaret = useRef<number | null>(null)
@@ -602,7 +611,7 @@ export function AssistantPanel({
     setGoing(uploading)
   }
   const send = (t: string, files: File[] = []) => {
-    if (uploading || attach.reading) return
+    if (uploading || attach.reading || !view.composer) return
     if (!t.trim() && !files.length) return
     uploadFailed = ""
     setSendError("")
@@ -640,6 +649,22 @@ export function AssistantPanel({
           <p className="text-[12px] leading-snug text-muted-foreground">
             Ask about your cards, threads and agents, or for work
           </p>
+          {view.where && (
+            <p
+              className="flex items-center gap-1.5 text-[12px] leading-snug text-muted-foreground"
+              data-assistant-where=""
+            >
+              <span
+                className={cn(
+                  "size-2 shrink-0 rounded-full",
+                  stateDot(view.dot)
+                )}
+                data-dot={view.dot}
+                aria-hidden
+              />
+              <span className="truncate">{view.where}</span>
+            </p>
+          )}
         </div>
         <IconTip label="New chat">
           <Button
@@ -732,6 +757,8 @@ export function AssistantPanel({
         <div ref={end} />
       </div>
 
+      <HomeLine view={view} onUsePc={onUsePc} />
+
       <form
         className="grid shrink-0 gap-1.5 border-t border-border p-2.5"
         onSubmit={(e) => {
@@ -746,7 +773,7 @@ export function AssistantPanel({
             autoSize
             rows={1}
             value={text}
-            readOnly={sending}
+            readOnly={sending || !view.composer}
             onChange={(e) => {
               draft = e.target.value
               setText(e.target.value)
@@ -760,7 +787,7 @@ export function AssistantPanel({
                 send(text, pending)
               }
             }}
-            placeholder="Ask anything…"
+            placeholder={view.composer ? "Ask anything…" : view.placeholder}
             aria-label="Ask the Office Assistant"
             className="max-h-28 min-h-8 flex-1 border-transparent bg-transparent px-2 py-1.5 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
           />
@@ -792,7 +819,10 @@ export function AssistantPanel({
                     : "Send"
               }
               disabled={
-                sending || attach.reading || (!text.trim() && !pending.length)
+                sending ||
+                attach.reading ||
+                !view.composer ||
+                (!text.trim() && !pending.length)
               }
             >
               {sending || attach.reading ? (
@@ -1170,6 +1200,55 @@ function DraftThread({
           The draft was cut short. Ask again for the whole thread.
         </p>
       ) : null}
+    </div>
+  )
+}
+
+// HomeLine is what the chat says above the box when the assistant's
+// computer is away or can't answer yet (design §6), with Use <computer>
+// instead when another one can take over.
+function HomeLine({
+  view,
+  onUsePc,
+}: {
+  view: HomeView
+  onUsePc?: (device: string) => Promise<string>
+}) {
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState("")
+  if (!view.line) return null
+  const pc = view.usePc
+  return (
+    <div
+      className="shrink-0 border-t border-border bg-muted/40 px-4 py-2 text-[12.5px] leading-snug text-muted-foreground"
+      data-assistant-away=""
+      role="status"
+    >
+      {view.line}
+      {pc && onUsePc && (
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="ml-1 h-auto p-0 text-[12.5px]"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true)
+            setFailed("")
+            void onUsePc(pc.device).then((why) => {
+              setBusy(false)
+              setFailed(why)
+            })
+          }}
+        >
+          Use {pc.name} instead
+        </Button>
+      )}
+      {failed && (
+        <span className="ml-1 text-destructive" role="alert">
+          {failed}
+        </span>
+      )}
     </div>
   )
 }

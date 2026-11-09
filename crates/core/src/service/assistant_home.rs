@@ -99,6 +99,21 @@ pub struct HomeStatus {
     pub chat: bool,
     /// With no computer: `setting_up`, `needs_update` or `no_claude`.
     pub none: String,
+    /// The person's computers that say `assistantTurn` and `assistantChat`
+    /// (not removed), this one first, then by name: what Settings lists
+    /// and **Use PC instead** picks from.
+    pub candidates: Vec<HomeCandidate>,
+}
+
+/// One computer that can run the assistant.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HomeCandidate {
+    pub device: String,
+    pub name: String,
+    pub here: bool,
+    /// `connected`, `recent` or `offline`; this device is `connected`.
+    pub state: String,
+    pub last_seen: GoTime,
 }
 
 /// Called with the new answer when it changes.
@@ -395,6 +410,22 @@ impl Services {
                 .cloned()
                 .unwrap_or_else(|| "a computer".to_string())
         };
+        let mut candidates: Vec<HomeCandidate> = self
+            .hosts()
+            .into_iter()
+            .filter(|(id, h)| self.chain.cut(id).is_none() && h.assistant_turn && h.assistant_chat)
+            .map(|(id, _)| {
+                let p = self.device_presence(&id);
+                HomeCandidate {
+                    name: name(&id),
+                    here: id == self.device.id,
+                    state: p.state,
+                    last_seen: p.seen,
+                    device: id,
+                }
+            })
+            .collect();
+        candidates.sort_by(|a, b| b.here.cmp(&a.here).then(a.name.cmp(&b.name)));
         let Some(dev) = self.assistant_home() else {
             // What the newest `spawn.host` of each computer says. A
             // computer that says `assistantTurn` and `assistantChat` will
@@ -417,6 +448,7 @@ impl Services {
             };
             return HomeStatus {
                 none: none.into(),
+                candidates,
                 ..HomeStatus::default()
             };
         };
@@ -431,6 +463,7 @@ impl Services {
             chat: host.as_ref().is_some_and(|h| h.assistant_chat),
             device: dev,
             none: String::new(),
+            candidates,
         }
     }
 }

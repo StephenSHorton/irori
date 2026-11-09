@@ -31,6 +31,30 @@ pub struct AssistantHomeStatus {
     /// With none recorded: `setting_up`, `needs_update` or `no_claude`.
     /// "" otherwise.
     pub none: String,
+    /// The computers that can run the assistant (they say `assistantTurn`
+    /// and `assistantChat`), this one first.
+    pub candidates: Vec<HomeCandidate>,
+}
+
+/// One computer the assistant can run on.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeCandidate {
+    pub device: String,
+    pub name: String,
+    pub here: bool,
+    /// `connected`, `recent` or `offline`.
+    pub state: String,
+    /// Unix ms; 0 for never.
+    pub last_seen_ms: i64,
+}
+
+fn ms(t: gocompat::time::GoTime) -> i64 {
+    if t.is_zero() {
+        0
+    } else {
+        t.unix_nano() / 1_000_000
+    }
 }
 
 impl From<irori_core::assistant_home::HomeStatus> for AssistantHomeStatus {
@@ -40,14 +64,21 @@ impl From<irori_core::assistant_home::HomeStatus> for AssistantHomeStatus {
             name: s.name,
             here: s.here,
             state: s.state,
-            last_seen_ms: if s.last_seen.is_zero() {
-                0
-            } else {
-                s.last_seen.unix_nano() / 1_000_000
-            },
+            last_seen_ms: ms(s.last_seen),
             claude: s.claude,
             chat: s.chat,
             none: s.none,
+            candidates: s
+                .candidates
+                .into_iter()
+                .map(|c| HomeCandidate {
+                    device: c.device,
+                    name: c.name,
+                    here: c.here,
+                    state: c.state,
+                    last_seen_ms: ms(c.last_seen),
+                })
+                .collect(),
         }
     }
 }
