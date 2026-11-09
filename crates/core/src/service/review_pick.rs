@@ -946,6 +946,81 @@ mod tests {
         assert!(r.related.is_empty(), "the one left out isn't pinged");
     }
 
+    /// The chain pick_one runs, from a roster: an OFFLINE agent is never a
+    /// candidate, nor pinged, however it ranks; the asked agent's device
+    /// going OFFLINE turns Asked into Waiting and the other is asked.
+    #[test]
+    fn an_offline_agent_is_never_asked_and_an_asked_one_going_offline_re_picks() {
+        let person = |k: &str| if k.starts_with("agent:b") { "pb" } else { "pc" }.to_string();
+        let mut f = facts();
+        f.related = vec![RelatedCard {
+            id: "card".into(),
+            why: coord::RELATED_PR_CARD,
+            state: "open".into(),
+            watchers: vec!["agent:b1".into(), "agent:c1".into()],
+            ..RelatedCard::default()
+        }];
+        let pass = |f: &PickFacts, roster: &[AgentCard]| {
+            let now = match &f.phase {
+                ReviewPhase::Asked { ask } => AskedNow {
+                    gone: !asked_live(roster, &ask.to),
+                    ..AskedNow::default()
+                },
+                _ => AskedNow::default(),
+            };
+            let (phase, left_out) = device_phase(&f.phase, &now);
+            if phase != ReviewPhase::Waiting {
+                return None;
+            }
+            let mut live = live_cands(roster, &person, "pme", &f.author_person);
+            for c in &mut live {
+                c.tiers = tiers(&c.key, &c.person, "", f);
+            }
+            Some(decide(
+                f,
+                &live,
+                left_out.as_deref(),
+                &login_of,
+                &Tier5::Skip,
+            ))
+        };
+        // b1 ranks first (idle, fewer claims), but its device is OFFLINE.
+        f.counts = counts(&[("pc", 3, 9)]);
+        let roster = [
+            card("agent:b1", "idle", OFFLINE),
+            card("agent:c1", "active", "connected"),
+        ];
+        let r = pass(&f, &roster).unwrap();
+        assert_eq!(r.pick.as_deref(), Some("agent:c1"));
+        assert!(r.related.is_empty(), "the OFFLINE agent pinged");
+        // Alone and OFFLINE: nobody.
+        let r = pass(&f, &roster[..1]).unwrap();
+        assert_eq!((r.pick, r.tier), (None, NOBODY));
+
+        // c1 is asked; while its device answers, nothing changes.
+        f.asks = vec![ask("agent:c1", 10)];
+        f.phase = asked("agent:c1");
+        let roster = [
+            card("agent:b1", "idle", "connected"),
+            card("agent:c1", "active", "connected"),
+        ];
+        assert_eq!(pass(&f, &roster), None);
+        // Its device goes OFFLINE: b1 is asked, and c1 isn't pinged.
+        let roster = [
+            card("agent:b1", "idle", "connected"),
+            card("agent:c1", "active", OFFLINE),
+        ];
+        let r = pass(&f, &roster).unwrap();
+        assert_eq!(r.pick.as_deref(), Some("agent:b1"));
+        assert!(r.related.is_empty(), "{:?}", r.related);
+        // Once that ask is written, c1 stays out though its device is back.
+        f.asks.push(ask("agent:b1", 20));
+        f.phase = ReviewPhase::Waiting;
+        let roster = [card("agent:c1", "idle", "connected")];
+        let r = pass(&f, &roster).unwrap();
+        assert_eq!(r.pick, None);
+    }
+
     #[test]
     fn answers_on_github_count_after_the_ask_only() {
         let c = PrComment {

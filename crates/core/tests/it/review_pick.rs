@@ -8,7 +8,7 @@
 
 use crate::bridge2::{Two, bridged, settle_bridged, two_people_opts, wait_cards};
 use crate::common::{Rig, wait_for};
-use crate::pr_cards::{ALICE, FakeGh, REPO, pr, url};
+use crate::pr_cards::{ALICE, BOB, FakeGh, REPO, pr, url};
 
 use std::sync::Arc;
 
@@ -126,16 +126,69 @@ pub(crate) fn review_rows(st: &Store) -> Vec<serde_json::Value> {
 /// Bob's session `file` (900001.json is `rb.key_a`) reads busy, and his
 /// presence has seen it.
 pub(crate) fn make_busy(t: &Two, file: &str, key: &str) {
+    set_status(t, file, key, "busy");
+}
+
+/// Bob's session `file` reads `status` ("busy" or "idle"), and his
+/// presence has seen it.
+pub(crate) fn set_status(t: &Two, file: &str, key: &str, status: &str) {
     let path = t.rb.claude.join("sessions").join(file);
     let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    v["status"] = "busy".into();
+    v["status"] = status.into();
     std::fs::write(&path, serde_json::to_vec(&v).unwrap()).unwrap();
-    wait_for(10, "bob's session reads busy", || {
+    wait_for(10, "bob's session reads its status", || {
         t.b()
             .local_agents()
             .iter()
-            .any(|a| a.key == key && a.status == "busy")
+            .any(|a| a.key == key && a.status == status)
     });
+}
+
+/// Bob's session file for his local key `key`.
+fn session_file(t: &Two, key: &str) -> &'static str {
+    if key == t.rb.key_a {
+        "900001.json"
+    } else {
+        assert_eq!(key, t.rb.key_b);
+        "900002.json"
+    }
+}
+
+/// The statuses of the `agent.card` rows for board key `actor` in `st`,
+/// in log order.
+fn card_statuses(st: &Store, actor: &str) -> Vec<String> {
+    st.list(&Filter {
+        kinds: vec![store::kinds::AGENT_CARD.into()],
+        limit: 10_000,
+        ..Default::default()
+    })
+    .unwrap()
+    .iter()
+    .filter(|e| e.actor == actor)
+    .map(|e| {
+        let v: serde_json::Value = serde_json::from_slice(&e.payload).unwrap();
+        v["status"].as_str().unwrap_or_default().to_string()
+    })
+    .collect()
+}
+
+/// Whether `s` goes `active` and later `idle`.
+fn active_then_idle(s: &[String]) -> bool {
+    s.iter()
+        .position(|x| x == "active")
+        .is_some_and(|i| s[i..].iter().any(|x| x == "idle"))
+}
+
+/// `review_claim {pr: PR #1, action}` as Bob's local agent `key`.
+fn review_claim(c: &Core, key: &str, action: &str) -> String {
+    let caller = tools::Caller {
+        sender: inbox::Sender::new(key, "agent", "claude"),
+        path: inbox::path::MOD.into(),
+    };
+    let args = serde_json::json!({"pr": url(1), "action": action, "reason": "not my area"});
+    c.tools()
+        .call(&caller, "review_claim", &serde_json::to_vec(&args).unwrap())
+        .unwrap()
 }
 
 /// Alice's PR card is made with Bob's idle agent already on the board, and
@@ -235,6 +288,8 @@ fn a_busy_agent_with_no_signal_is_not_asked_and_tier_7_waits() {
             .map(|v| v.review_note)
             .unwrap_or_default()
     };
+    assert!(review_rows(&t.sa()).is_empty(), "the making poll asked");
+    assert_eq!(note(), "", "tier 7 at the poll that made the card");
     for n in 1..=2 {
         poll(t.a());
         assert!(review_rows(&t.sa()).is_empty(), "poll {n} asked");
@@ -492,8 +547,9 @@ fn a_ping_never_wakes_and_goes_once_per_agent() {
     bco.decline_review(&first, &url(1), "not my area").unwrap();
     t.sync();
     let aco = t.a().board_coord(&t.board).unwrap();
+    // Not the phase: her background poll may re-pick at once.
     wait_for(10, "alice folds the decline", || {
-        aco.review_phase(&card.id) == ReviewPhase::Waiting
+        aco.declined(&card.id).contains_key(&first)
     });
     poll(t.a());
     let (asks, pings) = asks_and_pings(&t.sa());
@@ -740,4 +796,185 @@ fn a_card_minted_for_another_devices_agent_names_its_host() {
         !b.core.board_card_host(&board, &key).is_empty()
     });
     assert_eq!(b.core.board_card_host(&board, &key), b.core.device_id());
+}
+
+// ---- Re-picks: a turn that ended untouched, a decline, changes asked ----
+
+/// The asked agent on Alice's view, waiting for her fold.
+fn wait_asked(c: &Core, board: &str, card: &str, to: &str) {
+    let co = c.board_coord(board).unwrap();
+    wait_for(
+        10,
+        "the card reads asked",
+        || matches!(co.review_phase(card), ReviewPhase::Asked { ask } if ask.to == to),
+    );
+}
+
+/// Bob's asked agent takes a turn and is idle again between two of
+/// Alice's polls, saying nothing: her roster reads it idle as before, but
+/// its card rows show the turn ended untouched, so her next poll asks his
+/// other agent; later polls never ask the first again.
+#[test]
+fn a_turn_that_ended_untouched_between_two_polls_re_picks() {
+    let gh = alices_gh();
+    let t = pick_world(&gh, |_| {});
+    let keys = bobs_on(&t, &[&t.rb.key_a, &t.rb.key_b]);
+    let card = make_pr_card(&t);
+    poll(t.a());
+    let (asks, _) = asks_and_pings(&t.sa());
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    let first = asks[0]["to"].as_str().unwrap().to_string();
+    let other = keys.iter().find(|k| **k != first).unwrap().clone();
+    // Bob has the ask before the turn, so his card rows come after it.
+    t.sync();
+    wait_asked(t.b(), &t.board, &card.id, &first);
+    poll(t.a());
+    assert_eq!(asks_and_pings(&t.sa()).0.len(), 1, "re-picked with no turn");
+
+    let local = t.b().private_key(&first);
+    let file = session_file(&t, &local);
+    set_status(&t, file, &local, "busy");
+    wait_for(10, "bob's card row reads active", || {
+        card_statuses(&t.sb(), &first).iter().any(|s| s == "active")
+    });
+    set_status(&t, file, &local, "idle");
+    wait_for(10, "bob's card row reads idle again", || {
+        active_then_idle(&card_statuses(&t.sb(), &first))
+    });
+    t.sync();
+    wait_for(10, "alice has the turn's rows", || {
+        active_then_idle(&card_statuses(&t.sa(), &first))
+    });
+    wait_cards(t.a(), &t.board, &[&first]);
+
+    poll(t.a());
+    let (asks, _) = asks_and_pings(&t.sa());
+    assert_eq!(asks.len(), 2, "{asks:?}");
+    assert_eq!(asks[1]["to"], other.as_str());
+    wait_asked(t.a(), &t.board, &card.id, &other);
+    for _ in 0..3 {
+        poll(t.a());
+    }
+    let (asks, _) = asks_and_pings(&t.sa());
+    assert_eq!(asks.len(), 2, "{asks:?}");
+}
+
+/// Bob's agent that works on the PR is asked first, and declines through
+/// review_claim. Alice's next poll asks his other agent, though the one
+/// that declined still ranks first and isn't pinged either. Once the
+/// other declines too, no poll asks anyone again.
+#[test]
+fn a_declined_agent_is_never_asked_again_for_the_pr() {
+    let gh = alices_gh();
+    let t = pick_world(&gh, |_| {});
+    let keys = bobs_on(&t, &[&t.rb.key_a, &t.rb.key_b]);
+    let card = make_pr_card(&t);
+    t.sync();
+    comment_on(&t, &card, &keys[..1]);
+    poll(t.a());
+    let (asks, _) = asks_and_pings(&t.sa());
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert_eq!(asks[0]["to"], keys[0].as_str(), "tier 1 first");
+
+    let aco = t.a().board_coord(&t.board).unwrap();
+    for (n, k) in keys.iter().enumerate() {
+        let out = review_claim(t.b(), &t.b().private_key(k), "decline");
+        assert!(out.contains("won't ask you again"), "{out}");
+        t.sync();
+        // Not the phase: her background poll may re-pick at once.
+        wait_for(10, "alice folds the decline", || {
+            aco.declined(&card.id).contains_key(k)
+        });
+        for _ in 0..3 {
+            poll(t.a());
+        }
+        let (asks, pings) = asks_and_pings(&t.sa());
+        assert!(pings.is_empty(), "a decliner was pinged: {pings:?}");
+        assert_eq!(asks.len(), 2, "after decline {n}: {asks:?}");
+        assert_eq!(asks[1]["to"], keys[1].as_str());
+    }
+    assert_eq!(aco.review_phase(&card.id), ReviewPhase::Waiting);
+}
+
+/// Bob's agent claims Alice's PR and his login asks for changes at the
+/// head: no poll asks anyone while the PR sits at that head, though his
+/// other agent now works on it. A push: the next poll asks the same agent
+/// again, and pings the other.
+#[test]
+fn after_changes_requested_no_ask_until_a_new_head_then_the_same_agent() {
+    let gh = alices_gh();
+    let gb = FakeGh::new(BOB, vec![]);
+    let g = gb.clone();
+    let t = pick_world(&gh, move |o| o.desk_lister = Some(g));
+    // Alice knows Bob's login: his verdicts map to his agents' claims.
+    // His desk check learns it from gh; an identity change (here, his
+    // colour) writes his profile, which this harness's join never did.
+    t.b().check_desks();
+    t.b().set_person_color("pink").unwrap();
+    let bob = t.b().person().id;
+    let av = t.a().board_verifier(&t.board).unwrap();
+    wait_for(10, "alice reads bob's login", || {
+        t.sync();
+        av.profile_github_login(&bob).eq_ignore_ascii_case(BOB)
+    });
+    let keys = bobs_on(&t, &[&t.rb.key_a, &t.rb.key_b]);
+    let card = make_pr_card(&t);
+    poll(t.a());
+    let (asks, _) = asks_and_pings(&t.sa());
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    let first = asks[0]["to"].as_str().unwrap().to_string();
+    let other = keys.iter().find(|k| **k != first).unwrap().clone();
+    t.sync();
+    // The other agent works on the PR: on rank alone it comes first now.
+    comment_on(&t, &card, std::slice::from_ref(&other));
+
+    let bco = t.b().board_coord(&t.board).unwrap();
+    bco.claim_pr(&first, &url(1)).unwrap();
+    t.sync();
+    let aco = t.a().board_coord(&t.board).unwrap();
+    wait_for(10, "alice reads the claim", || {
+        matches!(aco.review_phase(&card.id), ReviewPhase::Claimed { .. })
+    });
+    let since = aco.claim_of(&url(1)).unwrap().acquired_at;
+    let changes = coord::PrReview {
+        login: BOB.into(),
+        state: coord::PR_CHANGES_REQUESTED.into(),
+        sha: "feedbeefcafe".into(),
+        at: gocompat::time::GoTime::unix_milli(since.unix_milli_value() + 60_000),
+    };
+    let push = |head: &str| {
+        gh.act.lock().unwrap().head = head.into();
+        let mut prs = gh.prs.lock().unwrap();
+        prs[0].head_ref_oid = head.into();
+        prs[0].review_decision = coord::PR_CHANGES_REQUESTED.into();
+        prs[0].updated_at =
+            gocompat::time::GoTime::unix_milli(prs[0].updated_at.unix_milli_value() + 1_000);
+    };
+    gh.act.lock().unwrap().reviews = vec![changes];
+    push("feedbeefcafe");
+    poll(t.a());
+    assert!(matches!(
+        aco.review_phase(&card.id),
+        ReviewPhase::Claimed { .. }
+    ));
+    bco.release_claim(&first, &url(1)).unwrap();
+    t.sync();
+    wait_for(10, "alice reads the PR reviewed", || {
+        aco.review_phase(&card.id) == ReviewPhase::Reviewed
+    });
+    for _ in 0..3 {
+        poll(t.a());
+    }
+    let (asks, pings) = asks_and_pings(&t.sa());
+    assert_eq!(asks.len(), 1, "asked at the reviewed head: {asks:?}");
+    assert!(pings.is_empty(), "{pings:?}");
+
+    push("0ddba11c0ffee");
+    poll(t.a());
+    let (asks, pings) = asks_and_pings(&t.sa());
+    assert_eq!(asks.len(), 2, "{asks:?}");
+    assert_eq!(asks[1]["to"], first.as_str(), "the same agent");
+    assert_eq!(pings.len(), 1, "{pings:?}");
+    assert_eq!(pings[0]["to"], other.as_str());
+    wait_asked(t.a(), &t.board, &card.id, &first);
 }
