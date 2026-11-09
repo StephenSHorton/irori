@@ -59,7 +59,8 @@ import {
 } from "@/lib/cards"
 import { useBoards, usePersonalBoards } from "@/lib/boards"
 import { FocusComment, LiveRoster } from "@/lib/thread"
-import { useNow, useRoster } from "@/lib/irori"
+import { useRoster } from "@/lib/irori"
+import { useClockValue } from "@/lib/clock"
 import { previewFlag } from "@/lib/preview"
 import { onOpen } from "@/lib/settings"
 import { nameLookup, SystemKey, useGone, useHeld, useInbox } from "@/lib/talk"
@@ -227,7 +228,6 @@ export function App() {
   // Home's own scope: your cards, and every space's that your agents hold.
   const homeScope = ScopeOwn
   const me = useMe()
-  const now = useNow()
   // ?filter=done in the browser preview starts on that filter; otherwise
   // Home starts on its remembered board pick (card #199).
   const [filter, setFilter] = useState<Filter>(() => {
@@ -575,12 +575,43 @@ export function App() {
     () => new Set(homeCards.map((c) => c.id)),
     [homeCards]
   )
+  // Cards nobody took (§6) depend on the time, but must not re-render App to
+  // know it: the key is read off the shared clock and changes only when the
+  // set does, so App renders when a card turns up unclaimed, not once a
+  // second (card #1137). Computed at most every 15 s per input.
+  const untakenCache = useRef<{
+    cards: typeof homeCards
+    roster: typeof liveRoster
+    bucket: number
+    key: string
+  } | null>(null)
+  const untakenKey = useClockValue(() => {
+    const bucket = Math.floor(Date.now() / 15_000)
+    const c = untakenCache.current
+    if (
+      c &&
+      c.cards === homeCards &&
+      c.roster === liveRoster &&
+      c.bucket === bucket
+    )
+      return c.key
+    const now = Date.now()
+    const key = homeCards
+      .filter((card) => nobodyTook(withLive(card, liveRoster), now))
+      .map((card) => `${card.id}\u0000${cardRef(card)}`)
+      .join("\n")
+    untakenCache.current = { cards: homeCards, roster: liveRoster, bucket, key }
+    return key
+  })
   const untaken = useMemo(
     () =>
-      homeCards
-        .filter((c) => nobodyTook(withLive(c, liveRoster), now.getTime()))
-        .map((c) => ({ id: c.id, short: cardRef(c) })),
-    [homeCards, liveRoster, now]
+      untakenKey
+        ? untakenKey.split("\n").map((l) => {
+            const [id, short] = l.split("\u0000")
+            return { id, short }
+          })
+        : [],
+    [untakenKey]
   )
   // cardLabel names the card a held message is about: "#28", else "a card"
   // (one not on this board, or not loaded).
@@ -1084,7 +1115,6 @@ export function App() {
                       detail={detail}
                       error={detailError}
                       gone={gone}
-                      now={now}
                       onBack={back}
                       onOpen={openCard}
                       // A thread opened from the Board has its bar too
@@ -1099,7 +1129,6 @@ export function App() {
                 <HuddlePage
                   key={section.id}
                   callId={section.id}
-                  now={now}
                   onBack={() => go({ kind: "talk", id: "" })}
                   onOpenConv={(id) => go({ kind: "talk", id })}
                 />
@@ -1117,7 +1146,6 @@ export function App() {
                   open={section.id}
                   onOpen={(id) => go({ kind: "talk", id })}
                   onOpenHuddle={(id) => go({ kind: "huddle", id })}
-                  now={now}
                   why={whyWaiting(
                     roster.agents.filter((a) => !spawned.has(a.key))
                   )}
@@ -1130,7 +1158,6 @@ export function App() {
                     boards={boards}
                     roster={roster}
                     onOpen={openCard}
-                    now={now}
                   />
                 </Scroll>
               ) : section.kind === "profile" ? (
@@ -1151,7 +1178,6 @@ export function App() {
                   onOpenCard={openCard}
                   onSettings={() => go({ kind: "settings", tab: "desks" })}
                   nameOf={name}
-                  now={now}
                 />
               ) : section.kind === "boards" ? null : section.kind ===
                 "storage" ? (
@@ -1160,14 +1186,12 @@ export function App() {
                     tab={section.tab}
                     onTab={(tab) => go({ kind: "storage", tab })}
                     onOpen={openCard}
-                    now={now}
                   />
                 </Scroll>
               ) : section.kind === "notifications" ? (
                 <Scroll>
                   <NotificationsLive
                     unreadTotal={unreadNotifications}
-                    now={now}
                     onOpenCard={openCard}
                     onOpenMessage={setMessage}
                   />
@@ -1178,7 +1202,7 @@ export function App() {
                 // Personal's page (card #689; the Spaces page had it): its
                 // boards, private to you, and Add board.
                 <Scroll>
-                  <PersonalBoards cards={cards} now={now} />
+                  <PersonalBoards cards={cards} />
                 </Scroll>
               ) : section.kind === "board" && section.id === Personal ? (
                 <PersonalList
@@ -1194,7 +1218,6 @@ export function App() {
                   onQuery={setQuery}
                   selected={last}
                   onOpen={openCard}
-                  now={now}
                 />
               ) : section.kind === "board" ? (
                 <BoardPage
@@ -1212,7 +1235,6 @@ export function App() {
                   onQuery={setQuery}
                   selected={last}
                   onOpen={openCard}
-                  now={now}
                 />
               ) : cardsFirst ? (
                 // Only the skeleton sits in Loading: around BoardView it
@@ -1238,7 +1260,6 @@ export function App() {
                   onQuery={setQuery}
                   selected={last}
                   onOpen={openCard}
-                  now={now}
                   header={
                     <>
                       <SpawnNotice />
@@ -1275,7 +1296,6 @@ export function App() {
                     ) : (
                       <NeedsYou
                         needs={needs}
-                        now={now}
                         name={name}
                         onOpenCard={openCard}
                         onHeld={() => openHeld("")}
@@ -1353,7 +1373,6 @@ export function App() {
                 setHeldOpen(false)
                 openCard(id)
               }}
-              now={now}
               onClose={() => setHeldOpen(false)}
             />
           )}
@@ -1375,7 +1394,6 @@ export function App() {
               key={message}
               id={message}
               name={name}
-              now={now}
               onClose={() => setMessage("")}
             />
           )}

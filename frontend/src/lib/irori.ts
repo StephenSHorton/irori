@@ -12,7 +12,6 @@ import type {
   RosterChange,
 } from "./models"
 import { sampleRoster } from "./sample"
-import { appPage } from "./visibility"
 
 export type { AgentCard, Identity, LogEvent }
 
@@ -145,30 +144,9 @@ export function useRoster(): Roster {
   return state
 }
 
-// useNow returns the current time, re-rendering every intervalMs so relative
-// times tick.
-export function useNow(intervalMs = 1000): Date {
-  const [now, setNow] = useState(() => new Date())
-  useEffect(() => {
-    // Hidden, it holds still: the App's 1 s clock re-renders the whole
-    // window (card #765). Shown again, it catches up at once. Hidden is
-    // appPage's, so a minimised or tray-hidden window counts (card #1134).
-    const page = appPage() ?? document
-    const tick = () => setNow(new Date())
-    const id = window.setInterval(() => {
-      if (!page.hidden) tick()
-    }, intervalMs)
-    const onShow = () => {
-      if (!page.hidden) tick()
-    }
-    page.addEventListener("visibilitychange", onShow)
-    return () => {
-      window.clearInterval(id)
-      page.removeEventListener("visibilitychange", onShow)
-    }
-  }, [intervalMs])
-  return now
-}
+// useNow lives in ./clock (card #1137): one shared tick, and a component
+// re-renders only when its own interval turns over.
+export { useNow } from "./clock"
 
 // parseTime reads a Go time.Time from JSON. Go's zero time and anything
 // unparseable come back as null.

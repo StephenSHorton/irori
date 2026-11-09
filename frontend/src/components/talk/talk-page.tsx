@@ -5,6 +5,7 @@
 // (#389) stores them. Resolved threads leave the list but stay one click
 // away, folded at the bottom of Threads (card #687).
 
+import { Ago } from "@/components/common/ago"
 import { cardRef } from "@/components/cards/bits"
 import { useContext, useEffect, useState, type ReactNode } from "react"
 import {
@@ -119,7 +120,6 @@ export function TalkPage({
   open,
   onOpen,
   onOpenHuddle,
-  now,
   why = "",
   board = "",
   space = AllSpaces,
@@ -141,7 +141,6 @@ export function TalkPage({
   onOpen: (id: string) => void
   // Opens a huddle's page (card #1044).
   onOpenHuddle?: (callId: string) => void
-  now: Date
   // Why nobody is free to take a waiting thread (card #172).
   why?: string
   // The shared space the sidebar picked (card #393): new threads start
@@ -239,7 +238,7 @@ export function TalkPage({
               <ConvItem
                 key={c.convId}
                 c={c}
-                now={now}
+
                 current={c.convId === open}
                 onClick={() => onOpen(c.convId)}
               />
@@ -285,7 +284,7 @@ export function TalkPage({
             <ConvItem
               key={r.c.convId}
               c={r.c}
-              now={now}
+
               current={r.c.convId === open}
               onClick={() => onOpen(r.c.convId)}
             />
@@ -293,7 +292,7 @@ export function TalkPage({
             <BroadcastItem
               key={r.b.id}
               b={r.b}
-              now={now}
+
               open={open}
               unfolded={isUnfolded(r.b)}
               onToggle={() =>
@@ -352,7 +351,7 @@ export function TalkPage({
               <HuddleRow
                 key={h.callId}
                 h={h}
-                now={now}
+
                 onOpen={() => onOpenHuddle?.(h.callId)}
               />
             ))}
@@ -477,7 +476,7 @@ export function TalkPage({
     <ThreadPane
       key={current.id}
       t={current}
-      now={now}
+
       narrow={narrow}
       why={why}
       onBack={() => onOpen("")}
@@ -487,7 +486,7 @@ export function TalkPage({
     <ConversationView
       key={conv.convId}
       conv={conv}
-      now={now}
+
       narrow={narrow}
       onBack={() => onOpen("")}
     />
@@ -678,12 +677,10 @@ export function ConvItem({
   c,
   current,
   onClick,
-  now = new Date(),
 }: {
   c: Conv
   current: boolean
   onClick: () => void
-  now?: Date
 }) {
   const live = useContext(LiveRoster)
   const other = c.kind === "dm" ? dmWith(c) : []
@@ -719,7 +716,10 @@ export function ConvItem({
     (c.readOnly ||
       (!!person && !waiting) ||
       (!!other[0] && statusOf(other[0], live) === "gone"))
-  const { line, when } = last ? lastLine(c, now) : { line: "", when: "" }
+  // The age beside the row is an <Ago>, which keeps itself current; lastLine
+  // only supplies the text here (card #1137).
+  const line = last ? lastLine(c, new Date()).line : ""
+  const whenAt = last ? parseTime(c.lastAt) : null
   // A huddle on here (#654): who's in it.
   const huddle = useCallPart((s) => huddleNames(s, c.convId).join(", "))
   const sub =
@@ -756,7 +756,7 @@ export function ConvItem({
           >
             {label}
           </span>
-          {when && <When text={when} />}
+          {whenAt && <When text={<Ago at={whenAt} />} />}
         </span>
         {huddle ? (
           <HuddleLine names={huddle} />
@@ -801,7 +801,7 @@ export function lastLine(c: Conv, now: Date): { line: string; when: string } {
 }
 
 // When is a row's time beside its name; it never truncates.
-function When({ text }: { text: string }) {
+function When({ text }: { text: ReactNode }) {
   return (
     <span className="shrink-0 text-[10.5px] whitespace-nowrap text-muted-foreground tabular-nums">
       {text}
@@ -813,14 +813,12 @@ function When({ text }: { text: string }) {
 // "owl → 16 agents", its text and when. It unfolds to the DMs it went to.
 function BroadcastItem({
   b,
-  now,
   open,
   unfolded,
   onToggle,
   onOpen,
 }: {
   b: Broadcast
-  now: Date
   open: string
   unfolded: boolean
   onToggle: () => void
@@ -844,7 +842,7 @@ function BroadcastItem({
             <span className="min-w-0 flex-1 truncate">
               {from ? memberName(from) : "an agent"} → {to.length} agents
             </span>
-            {when && <When text={relativeTime(when, now)} />}
+            {when && <When text={<Ago at={when} />} />}
           </span>
           <span className="truncate text-[11px]">{plainLine(b.text)}</span>
         </span>
@@ -1148,14 +1146,12 @@ function ThreadItem({
 // bar (Resolve, Agents answer now, its cards). The list stays beside it.
 function ThreadPane({
   t,
-  now,
   narrow,
   why,
   onBack,
   onResolved,
 }: {
   t: ThreadSummary
-  now: Date
   narrow: boolean
   why: string
   onBack: () => void
@@ -1176,7 +1172,7 @@ function ThreadPane({
         detail={detail}
         error={error}
         gone={gone}
-        now={now}
+
         onBack={onBack}
         onOpen={ctx?.onOpen}
         thread={t}

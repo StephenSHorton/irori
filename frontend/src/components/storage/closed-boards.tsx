@@ -4,6 +4,7 @@
 // it has no size of its own; its done cards clear with Clear done cards on
 // the log's page, and it reopens from its own page.
 
+import { Tick } from "@/components/common/ago"
 import { ChevronRightIcon } from "lucide-react"
 
 import { useBoards, usePersonalBoards } from "@/lib/boards"
@@ -60,11 +61,9 @@ export function useClosedBoards(): {
 export function ClosedBoards({
   list,
   error,
-  now,
 }: {
   list: ClosedBoard[]
   error: string | null
-  now: Date
 }) {
   return (
     <section aria-label="Closed boards" className="grid gap-2">
@@ -96,15 +95,19 @@ export function ClosedBoards({
                     {plainLine(b.name)}
                   </span>
                   <span className="truncate text-[12px] text-muted-foreground">
-                    {[
-                      plainLine(b.spaceName),
-                      b.closedAt
-                        ? `closed ${relativeTime(new Date(b.closedAt), now)}`
-                        : "closed",
-                      plainLine(b.description),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
+                    <Tick
+                      of={(now) =>
+                        [
+                          plainLine(b.spaceName),
+                          b.closedAt
+                            ? `closed ${relativeTime(new Date(b.closedAt), now)}`
+                            : "closed",
+                          plainLine(b.description),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")
+                      }
+                    />
                   </span>
                 </span>
                 <ChevronRightIcon

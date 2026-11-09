@@ -142,7 +142,6 @@ export function SpaceBoards({
 }: {
   space: BoardSummary
   cards: CardSummary[]
-  now: Date
 }) {
   const list = boardsOf(b)
   const tile = (x: SpaceBoard, i: number) => (
@@ -179,7 +178,7 @@ export function SpaceBoards({
 // PersonalBoards is Personal's page ("#board/personal", card #689): its
 // boards, private to you. Nobody can be invited, so it has no people or
 // settings of its own.
-export function PersonalBoards({ cards }: { cards: CardSummary[]; now: Date }) {
+export function PersonalBoards({ cards }: { cards: CardSummary[] }) {
   const { boards: list, error, reload } = usePersonalBoards()
   const tile = (x: SpaceBoard, i: number) => (
     <BoardTile
@@ -228,7 +227,6 @@ export function PersonalList({
   onQuery,
   selected,
   onOpen,
-  now,
 }: {
   list: string
   cards: CardSummary[]
@@ -241,7 +239,6 @@ export function PersonalList({
   onQuery: (q: string) => void
   selected: string
   onOpen: (id: string) => void
-  now: Date
 }) {
   const { boards: all } = usePersonalBoards()
   const x = all.find((b) => b.boardId === list)
@@ -257,7 +254,7 @@ export function PersonalList({
             board={x}
             boards={openBoards(all)}
             open={shown}
-            now={now}
+
             onOpen={onOpen}
           />
         )
@@ -271,7 +268,7 @@ export function PersonalList({
       onQuery={onQuery}
       selected={selected}
       onOpen={onOpen}
-      now={now}
+
       empty={
         <p className="px-1 text-[12.5px] text-muted-foreground">
           {x?.closed
