@@ -85,8 +85,14 @@ pub(crate) fn agents(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             others.len()
         );
     }
+    // Each of the person's devices, whatever the filter: a device with no
+    // agents is not offline, and Stop here shows only here.
+    let devs = devices_section(&s.b.own_devices(), &cards, &now);
     if shown + oshown == 0 {
-        return head;
+        if devs.is_empty() {
+            return head;
+        }
+        return format!("{head}\n{devs}");
     }
     if oshown > 0 {
         let _ = write!(
@@ -95,9 +101,69 @@ pub(crate) fn agents(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         );
     }
     format!(
-        "{head} Message one with send (to = its name or key). {}\n{b}",
+        "{head} Message one with send (to = its name or key). {}\n{b}{devs}",
         untrusted()
     )
+}
+
+/// The person's devices, one line each: how it reads from here, whether
+/// Stop here holds it and how many agents it runs. Empty with none.
+fn devices_section(
+    devs: &[crate::OwnDevice],
+    cards: &[presence::AgentCard],
+    now: &GoTime,
+) -> String {
+    if devs.is_empty() {
+        return String::new();
+    }
+    let mut b = String::from(
+        "\nThe person's devices (one with no agents may still be online; while Stop here is on, Irori starts no agents there):\n",
+    );
+    for d in devs {
+        let mut name = one_line(&d.name, MAX_FIELD_RUNES);
+        if name.is_empty() {
+            name = "unnamed device".into();
+        }
+        let state = if d.this { "" } else { d.state.as_str() };
+        let phrase = one_line(
+            &coord::roster::device_phrase(state, &d.seen, &d.via, now),
+            120,
+        );
+        let stop = if !d.stopped {
+            "Stop here off".to_string()
+        } else {
+            let what = if d.everywhere {
+                "Stop everywhere on"
+            } else {
+                "Stop here on"
+            };
+            let mut why = vec![];
+            let by = one_line(&d.by, 80);
+            if !by.is_empty() {
+                why.push(format!("by {by}"));
+            }
+            if !d.since.is_zero() {
+                why.push(ago(now, &d.since));
+            }
+            if why.is_empty() {
+                what.to_string()
+            } else {
+                format!("{what} ({})", why.join(", "))
+            }
+        };
+        let n = cards
+            .iter()
+            .filter(|c| c.status != "gone")
+            .filter(|c| c.device_id == d.id || (d.this && c.device_id.is_empty()))
+            .count();
+        let agents = if n == 1 {
+            "1 agent".to_string()
+        } else {
+            format!("{n} agents")
+        };
+        let _ = writeln!(b, "- {name}: {phrase}, {stop}, {agents}");
+    }
+    b
 }
 
 /// A live Claude session on this device with no attach stream (GitHub #57):

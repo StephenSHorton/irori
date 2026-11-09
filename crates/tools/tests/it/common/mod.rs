@@ -150,6 +150,8 @@ pub struct TestBackend {
     /// Set: this device's id, in place of [`DEVICE_ID`] (the store's own
     /// device is `dev1`, so run holders of it need this).
     pub device: Mutex<String>,
+    /// The person's devices the agents tool lists; empty: none.
+    pub own_devices: Mutex<Vec<tools::OwnDevice>>,
 }
 
 impl TestBackend {
@@ -222,6 +224,9 @@ impl Backend for TestBackend {
     }
     fn board_agents(&self) -> Vec<tools::BoardAgent> {
         self.board_agents.lock().unwrap().clone()
+    }
+    fn own_devices(&self) -> Vec<tools::OwnDevice> {
+        self.own_devices.lock().unwrap().clone()
     }
     fn known_names(&self) -> BTreeMap<String, String> {
         self.known.lock().unwrap().clone()
@@ -437,6 +442,7 @@ pub fn new_harness_setup(
         free: Mutex::default(),
         free_asked: Mutex::default(),
         device: Mutex::default(),
+        own_devices: Mutex::default(),
     });
     setup(&b, &clk);
     let set = Set::new(b.clone(), Some(now));
