@@ -142,3 +142,36 @@ corners:
   card's priority.
 - If ELK ever proves too rigid, WebCola (constraint layout) is the
   alternative to compare; ask before switching.
+
+## 8. Huddle canvas
+
+A huddle's page (card #1052, `docs/design/call-agents.md` §3 and §13 card 9)
+has its own canvas, `components/canvas/huddle.tsx`, beside the Board's. It
+shares only `flow.css` and `KeepCenter`; the Board's `data.ts`, `elk.ts` and
+`weights.ts` don't know it. Its data and rules are in
+`frontend/src/lib/huddle-canvas.ts`, tested in `huddle-canvas.test.ts`.
+
+- **Heads.** Each person across the top, with their assistant under them:
+  its label ("Juno · Addam's assistant", else "Addam's assistant") and a dot
+  for connected, reconnecting or not connected.
+- **Columns.** An item sits under whoever asked (`askerName`), else whoever
+  signed it. An assistant's item therefore sits under the person it answered.
+  New items go to the end of their column, in time order. A person's drop
+  saves `x` and `y` on the item (`call.item.set`) and that beats the layout.
+- **Lines.** An answer is joined to its question; a summary dotted to the
+  items it judges.
+- **Text** is clamped to three lines; More opens it, and an open item rises
+  over the ones below it. A placeholder ("Juno is looking: …") pulses until
+  its answer replaces it.
+
+Three traps in the Board's canvas, and what this one does instead:
+
+| Trap on the Board's canvas | Here |
+| --- | --- |
+| `FitWhileUntouched` refits whenever its area count changes, and a drag doesn't count as touching | `Fit` refits only while untouched, only when a **column** comes or goes (`shouldRefit`), and a drag start counts as touching |
+| `LaidOut` resets all node state at render time when the graph object changes | The graph is rebuilt only when the items' content changes (`canvasKey`), never for a transcript line, and nodes are reconciled in an effect: a node being dragged, or just dropped and not yet saved, keeps its spot (`reconcile`) |
+| A new node id changes the layout key and lays out again at once | There is no layout pass: `Placer` remembers each column and item's first spot, so nothing that is there moves when something is added |
+
+The test "a drag while items arrive" appends items and a changed text during
+a simulated drag and checks the dragged node's position and that the view
+isn't refitted.
