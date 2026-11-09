@@ -221,3 +221,176 @@ mod win {
         );
     }
 }
+
+#[cfg(target_os = "macos")]
+mod mac {
+    use std::fs::File;
+    use std::os::unix::process::CommandExt;
+    use std::path::PathBuf;
+    use std::process::{Child, Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    use sys::proc;
+    use sys::runmeter::{self, RunKey, TreeSampler};
+
+    /// `pid` is running and is the process that started at `start`.
+    fn same(pid: u32, start: u64) -> bool {
+        proc::alive(i64::from(pid))
+            && proc::start_time(i64::from(pid)).map(proc::filetime_ticks) == Some(start)
+    }
+
+    /// Ends whatever the test started even when an assert fails.
+    struct Run {
+        child: Child,
+        path: PathBuf,
+        _dir: tempfile::TempDir,
+    }
+
+    impl Drop for Run {
+        fn drop(&mut self) {
+            let _ = runmeter::end_tree(&runmeter::holders(&self.path));
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    /// `zsh -c` leading its own process group and writing to a `.output`
+    /// file, as Claude Code's Bash tool runs a background command: a
+    /// backgrounded `sleep` and a busy loop in the shell itself.
+    fn start(script: &str) -> Run {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("btest1249.output");
+        let f = File::create(&path).unwrap();
+        let child = Command::new("/bin/zsh")
+            .args(["-c", script])
+            .stdin(Stdio::null())
+            .stdout(f.try_clone().unwrap())
+            .stderr(f)
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        Run {
+            child,
+            path,
+            _dir: dir,
+        }
+    }
+
+    #[test]
+    fn zsh_tree_is_held_sampled_and_ended() {
+        let run = start("sleep 60 & i=0; while true; do i=$((i+1)); done");
+
+        // The holders include the shell and its sleep, found from the file.
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let held = loop {
+            let h = runmeter::holders(&run.path);
+            if h.len() >= 2 {
+                break h;
+            }
+            assert!(Instant::now() < deadline, "holders {h:?}");
+            std::thread::sleep(Duration::from_millis(100));
+        };
+        assert!(held.iter().any(|&(p, _)| p == run.child.id()), "{held:?}");
+        assert!(held.iter().all(|&(pid, s)| same(pid, s)), "{held:?}");
+
+        // Our own handle on the file never makes us a holder.
+        let _mine = File::open(&run.path).unwrap();
+        let me = std::process::id();
+        assert!(runmeter::holders(&run.path).iter().all(|&(p, _)| p != me));
+
+        // Samples: the first primes CPU, the second reads the busy loop.
+        let mut s = TreeSampler::new();
+        let key = RunKey {
+            output: run.path.clone(),
+            session_pid: me,
+        };
+        let first = s.sample(std::slice::from_ref(&key));
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].1.cores, None);
+        std::thread::sleep(Duration::from_millis(1500));
+        let second = s.sample(std::slice::from_ref(&key)).remove(0).1;
+        eprintln!("sample: {second:?}");
+        for h in &held {
+            assert!(second.members.contains(h), "{h:?} not in {second:?}");
+        }
+        assert_eq!(second.procs as usize, second.members.len());
+        assert!(second.mem_bytes > 0, "{second:?}");
+        let cores = second.cores.expect("cores on the second sample");
+        assert!(cores > 0.5 && cores < 1.6, "cores {cores}");
+        assert!(!second.members.iter().any(|&(p, _)| p == me));
+
+        // Forgotten when no longer passed.
+        assert!(s.sample(&[]).is_empty());
+
+        // Stop: nothing of the tree is left.
+        let members = second.members.clone();
+        runmeter::end_tree(&members).expect("end_tree");
+        for &(pid, start) in &members {
+            assert!(!same(pid, start), "{pid} still running");
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !runmeter::holders(&run.path).is_empty() {
+            assert!(Instant::now() < deadline, "file still held");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    /// A child that left the shell's process group (`setsid`) is still a
+    /// member by ppid, and still ended.
+    #[test]
+    fn child_in_another_group_is_found_and_ended() {
+        let run = start("perl -e 'use POSIX; POSIX::setsid(); sleep 60' & wait");
+        let me = std::process::id();
+        let key = RunKey {
+            output: run.path.clone(),
+            session_pid: me,
+        };
+        let mut s = TreeSampler::new();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let members = loop {
+            let m = s.sample(std::slice::from_ref(&key)).remove(0).1.members;
+            if m.len() >= 2 {
+                break m;
+            }
+            assert!(Instant::now() < deadline, "members {m:?}");
+            std::thread::sleep(Duration::from_millis(200));
+        };
+        runmeter::end_tree(&members).expect("end_tree");
+        for &(pid, start) in &members {
+            assert!(!same(pid, start), "{pid} still running");
+        }
+    }
+
+    /// A stale `(pid, start)` is never ended: here the pid is our own with
+    /// a wrong start, and our own process is never ended anyway.
+    #[test]
+    fn end_tree_skips_stale_and_self() {
+        let me = std::process::id();
+        let st = proc::filetime_ticks(proc::start_time(i64::from(me)).unwrap());
+        assert!(runmeter::end_tree(&[(me, st), (me, st + 1)]).is_ok());
+        assert!(proc::alive(i64::from(me)));
+    }
+
+    /// A member whose pid now belongs to another process is not ended, nor
+    /// are that process's children.
+    #[test]
+    fn end_tree_leaves_children_of_a_reused_pid() {
+        let mut sh = Command::new("/bin/sh")
+            .args(["-c", "sleep 30; true"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        // A start earlier than sh's real one: the pid was "reused".
+        assert!(runmeter::end_tree(&[(sh.id(), 1)]).is_ok());
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(sh.try_wait().unwrap().is_none(), "sh exited");
+        let _ = Command::new("pkill")
+            .args(["-P", &sh.id().to_string()])
+            .status();
+        let _ = sh.kill();
+        let _ = sh.wait();
+    }
+}

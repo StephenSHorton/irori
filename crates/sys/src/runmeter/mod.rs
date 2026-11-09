@@ -9,10 +9,10 @@
 //!
 //! | | Windows | macOS | other |
 //! |---|---|---|---|
-//! | [`holders`] | Restart Manager on the file | fd 1 of the session's children (L4) | empty |
-//! | members | holders + native descendants by ppid (ToolHelp) | process group + ppid walk (L4) | empty |
-//! | CPU, memory | `GetProcessTimes`, `PROCESS_MEMORY_COUNTERS_EX.PrivateUsage` | `proc_pid_rusage` (L4) | none |
-//! | [`end_tree`] | `TerminateProcess` per member | `kill(-pgid)` (L4) | refuses |
+//! | [`holders`] | Restart Manager on the file | fd 1 of every process | empty |
+//! | members | holders + native descendants by ppid (ToolHelp) | process group + ppid walk | empty |
+//! | CPU, memory | `GetProcessTimes`, `PROCESS_MEMORY_COUNTERS_EX.PrivateUsage` | `proc_pid_rusage` | none |
+//! | [`end_tree`] | `TerminateProcess` per member | `kill(-pgid)` | refuses |
 //!
 //! A member is `(pid, start)`: `start` is when the process started, as
 //! Windows FILETIME ticks (100 ns since 1601, [`crate::proc::filetime_ticks`])
@@ -30,22 +30,14 @@ mod windows;
 #[cfg(windows)]
 use self::windows as imp;
 
-// ---- macOS (card #1249 L4, branch card-1249-L4) -------------------------
-// L4 adds macos.rs with the same `imp` items as windows.rs and the no-op
-// below, then makes three edits here:
-//   1. uncomment these two lines:
-// #[cfg(target_os = "macos")]
-// mod macos;
-// #[cfg(target_os = "macos")]
-// use self::macos as imp;
-//   2. narrow the no-op's cfg to `not(any(windows, target_os = "macos"))`;
-//   3. widen SUPPORTED to `cfg!(any(windows, target_os = "macos"))`.
-// Until then macOS gets the no-op, so the crate builds on every target.
-// -------------------------------------------------------------------------
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+use self::macos as imp;
 
-/// Linux, Android, iOS (and macOS until L4): nothing to meter, nothing to
+/// Linux, Android, iOS: nothing to meter, nothing to
 /// end, so core's calls compile everywhere.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 mod imp {
     use std::path::Path;
 
@@ -74,7 +66,7 @@ mod imp {
 }
 
 /// Whether this OS meters runs at all.
-pub const SUPPORTED: bool = cfg!(windows);
+pub const SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
 
 /// One run to sample: its output file and the claude process that started
 /// it (never counted as a member).
