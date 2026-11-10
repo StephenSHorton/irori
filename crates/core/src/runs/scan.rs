@@ -297,6 +297,9 @@ struct Told {
     ended: HashMap<String, Ended>,
     /// Shell tool_use id → its command.
     cmds: HashMap<String, String>,
+    /// Bash/PowerShell tool_use ids: only their results' text can prove a
+    /// run background (any other tool's output is untrusted text).
+    shells: HashSet<String>,
     /// Background task id → the tool_use id that started it.
     tool_of: HashMap<String, String>,
     /// Tasks folders the transcript named.
@@ -315,6 +318,9 @@ impl Told {
         }
         if self.cmds.len() > MAX_IDS {
             self.cmds.clear();
+        }
+        if self.shells.len() > MAX_IDS {
+            self.shells.clear();
         }
         if self.tool_of.len() > MAX_IDS {
             self.tool_of.clear();
@@ -363,6 +369,7 @@ impl Told {
                     }
                     if name == "Bash" || name == "PowerShell" {
                         self.pending.insert(id.to_string(), tick);
+                        self.shells.insert(id.to_string());
                         let input = c.get("input");
                         let cmd = ["command", "description"]
                             .iter()
@@ -391,6 +398,10 @@ impl Told {
                     if self.pending.remove(tu).is_some() {
                         self.result_tick = tick;
                     }
+                    // Only a shell call's result says it went to the
+                    // background: another tool (an MCP server, a file it
+                    // printed) could print the same text or field.
+                    let shell = self.shells.remove(tu);
                     let text = text_of(c.get("content"));
                     let is_error = c.get("is_error").and_then(|e| e.as_bool()) == Some(true);
                     if self.stops.remove(tu) && !is_error {
@@ -415,10 +426,14 @@ impl Told {
                     }
                     // `run_in_background`'s text, or any backgrounded call
                     // (Ctrl+B, the timeout's auto-background) by its field.
-                    let found = bg_from_text(&text).or_else(|| {
-                        let id = bg_field?;
-                        Some((id.to_string(), bg_path(&text, id).unwrap_or_default()))
-                    });
+                    let found = shell
+                        .then(|| {
+                            bg_from_text(&text).or_else(|| {
+                                let id = bg_field?;
+                                Some((id.to_string(), bg_path(&text, id).unwrap_or_default()))
+                            })
+                        })
+                        .flatten();
                     if let Some((id, path)) = found.filter(|(i, _)| good_id(i)) {
                         if !tu.is_empty() {
                             self.tool_of.insert(id.clone(), tu.to_string());
@@ -766,8 +781,10 @@ pub(crate) struct Scanner<H: Host> {
     told: HashMap<String, Told>,
     /// tasks folder → key, by process ancestry.
     ancestry: HashMap<PathBuf, String>,
-    /// tasks folder → last ancestry try, Unix ms.
-    tried: HashMap<PathBuf, i64>,
+    /// tasks folder → last ancestry try (Unix ms) and what it asked about
+    /// (the holders and the live agents' pids, hashed): the same question
+    /// is not asked of the OS again.
+    tried: HashMap<PathBuf, (i64, u64)>,
     /// project folder → (mtime, session folders).
     projects: HashMap<PathBuf, (Option<SystemTime>, Vec<PathBuf>)>,
     /// tasks folder → its last listing.
@@ -846,7 +863,15 @@ impl<H: Host> Scanner<H> {
             }
         }
         for dir in learned.keys() {
-            if let Some(root) = dir.parent().and_then(Path::parent).and_then(Path::parent) {
+            // `<root>/<project>/<session>/tasks`, where Claude Code's root
+            // is `claude` or `claude-<uid>`: a reported path elsewhere
+            // never makes the scan list another tree.
+            if let Some(root) = dir.parent().and_then(Path::parent).and_then(Path::parent)
+                && root
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n == "claude" || n.starts_with("claude-"))
+            {
                 self.roots.insert(root.to_path_buf());
             }
         }
@@ -932,10 +957,18 @@ impl<H: Host> Scanner<H> {
             .filter(|r| r.kind == RunKind::Fg && r.task_id.starts_with("toolu_"))
             .map(|r| r.key.clone())
             .collect();
+        // A file set aside (older than its session, or no row yet) comes
+        // back while a row for it runs: a run from before a resume, or a
+        // start reported after the file was first seen.
+        let open: HashSet<RunId> = rows
+            .iter()
+            .filter(|r| r.running())
+            .map(|r| r.id())
+            .collect();
         let paths: Vec<PathBuf> = self
             .files
             .iter()
-            .filter(|(_, f)| !f.done)
+            .filter(|(_, f)| !f.done || open.contains(&RunId::new(&f.key, &f.id)))
             .map(|(p, _)| p.clone())
             .collect();
         let mut followed: HashSet<RunId> = HashSet::new();
@@ -1095,12 +1128,8 @@ impl<H: Host> Scanner<H> {
             let moved = std::fs::metadata(dir)
                 .and_then(|m| m.modified())
                 .is_ok_and(|m| ms_of(m) >= earliest);
-            if !moved
-                || self
-                    .tried
-                    .get(dir)
-                    .is_some_and(|&t| now_ms - t < ANCESTRY_EVERY_MS)
-            {
+            let last = self.tried.get(dir).copied();
+            if !moved || last.is_some_and(|(t, _)| now_ms - t < ANCESTRY_EVERY_MS) {
                 continue;
             }
             let newest = std::fs::read_dir(dir).ok().and_then(|rd| {
@@ -1118,9 +1147,21 @@ impl<H: Host> Scanner<H> {
                 continue;
             };
             tries += 1;
-            self.tried.insert(dir.clone(), now_ms);
             let holders = self.host.holders(&file);
-            if holders.is_empty() {
+            let asked = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                let mut hs = holders.clone();
+                hs.sort_unstable();
+                let mut pids: Vec<u32> = agents.iter().map(|a| a.pid).collect();
+                pids.sort_unstable();
+                (&file, hs, pids).hash(&mut h);
+                h.finish()
+            };
+            self.tried.insert(dir.clone(), (now_ms, asked));
+            // Nothing held, or the same holders and agents as last time (a
+            // session Irori doesn't list): no parents to ask for.
+            if holders.is_empty() || last.is_some_and(|(_, a)| a == asked) {
                 continue;
             }
             let pids: Vec<u32> = holders.iter().map(|h| h.0).collect();
@@ -1179,8 +1220,13 @@ impl<H: Host> Scanner<H> {
                 f.done = true;
                 return (f, ch);
             }
-            if first_look && f.kind == RunKind::Bash && read_trailer(path).is_some() {
-                // Already finished when first seen: a call too short to see.
+            if f.kind == RunKind::Bash
+                && read_trailer(path).is_some()
+                && self.host.holders(path).is_empty()
+            {
+                // Finished with no row: a call too short to see, or a
+                // mod session's foreground call. A row that shows up later
+                // brings the file back (see `tick`).
                 f.done = true;
                 return (f, ch);
             }
@@ -1200,7 +1246,10 @@ impl<H: Host> Scanner<H> {
                     ..RunReport::default()
                 }
             } else if mods.contains(&f.key) {
-                // The mod reports this session's foreground calls itself.
+                // The mod reports this session's foreground calls itself,
+                // and its background starts: a row for this file, if one
+                // comes, brings it back (see `tick`).
+                f.done = true;
                 return (f, ch);
             } else {
                 RunReport {
@@ -1222,16 +1271,21 @@ impl<H: Host> Scanner<H> {
 
         // Proven background now? (A foreground row only.)
         let mut kind = row.kind;
+        // Its call is over: the transcript has its result and no shell call
+        // waits, or (no transcript) the status left "shell".
+        let call_done = match told.filter(|_| agent.is_some_and(|a| a.transcript.is_some())) {
+            Some(t) => t.pending.is_empty() && t.result_tick > f.seen_tick,
+            None => agent.is_some_and(|a| a.status != "shell"),
+        };
         if kind == RunKind::Fg {
             let outlived = !first_look
                 && self.tick > f.seen_tick + 1
                 && now_len.is_some()
-                && match told.filter(|_| agent.is_some_and(|a| a.transcript.is_some())) {
-                    Some(t) => t.pending.is_empty() && t.result_tick > f.seen_tick,
-                    None => agent.is_some_and(|a| a.status != "shell"),
-                }
+                && call_done
                 && (grew || !self.host.holders(path).is_empty());
-            if proven || ended.is_some() || outlived {
+            // A §2.1 start for this id (it named the call) skips the wait.
+            let reported = row.tool_use_id.is_some();
+            if proven || reported || ended.is_some() || outlived {
                 let tool_use = told.and_then(|t| t.tool_of.get(&f.id).cloned());
                 let cmd = tool_use.as_ref().and_then(|tu| told?.cmds.get(tu).cloned());
                 runs.update(&id, |r| r.kind = RunKind::Bash);
@@ -1270,6 +1324,12 @@ impl<H: Host> Scanner<H> {
                 }),
                 // Nothing holds it, it stopped growing and no trailer came
                 // (a kill with no TaskStop): its processes are gone.
+                // A foreground call whose call is over and whose file
+                // stopped: ended (no trailer is written for one). The only
+                // end where holders can't be told.
+                None if free && kind == RunKind::Fg && !grew && !first_look && call_done => {
+                    Some(end_report(kind, &f.id, "", None))
+                }
                 None if free
                     && self.host.supported()
                     && !row.members.iter().any(|&m| self.host.alive(m)) =>
@@ -1418,6 +1478,8 @@ mod tests {
         holders: HashMap<PathBuf, Vec<(u32, u64)>>,
         parents: HashMap<u32, u32>,
         starts: HashMap<u32, u64>,
+        /// How many times parents were asked for.
+        asks: std::cell::Cell<u32>,
     }
 
     impl Host for Fake {
@@ -1428,6 +1490,7 @@ mod tests {
             self.holders.get(file).cloned().unwrap_or_default()
         }
         fn parents(&self, pids: &[u32]) -> HashMap<u32, u32> {
+            self.asks.set(self.asks.get() + 1);
             pids.iter()
                 .filter_map(|p| self.parents.get(p).map(|pp| (*p, *pp)))
                 .collect()
@@ -1605,6 +1668,9 @@ mod tests {
         tick(&mut sc, &l, &fx.runs);
         let r = fx.row("b1").unwrap();
         assert_eq!((r.running(), r.exit), (false, Some(0)));
+        // Nothing new on disk: nothing to publish.
+        assert!(tick(&mut sc, &l, &fx.runs).is_empty());
+        assert!(tick(&mut sc, &l, &fx.runs).is_empty());
     }
 
     #[test]
@@ -1763,6 +1829,7 @@ mod tests {
             holders: HashMap::from([(out.clone(), vec![(200, 5_000)])]),
             parents: HashMap::from([(200, 100)]),
             starts: HashMap::from([(100, claude_start)]),
+            ..Fake::default()
         };
         // A reused pid (claude "started" after its child) never maps.
         let mut sc = fx.scanner(host(6_000));
@@ -2045,8 +2112,9 @@ mod tests {
         });
         sc.host.holders.insert(out.clone(), vec![(5, 1)]);
         let l = live(vec![fx.agent(true)]);
-        for _ in 0..5 {
-            tick(&mut sc, &l, &fx.runs);
+        tick(&mut sc, &l, &fx.runs);
+        for _ in 0..4 {
+            assert!(tick(&mut sc, &l, &fx.runs).is_empty(), "steady: no change");
         }
         assert!(fx.row("b70").unwrap().running(), "held: still going");
         sc.host.holders.clear();
@@ -2056,5 +2124,184 @@ mod tests {
         assert!(fx.row("b70").unwrap().running());
         tick(&mut sc, &l, &fx.runs);
         assert!(!fx.row("b70").unwrap().running());
+    }
+
+    #[test]
+    fn another_tools_output_never_proves_background() {
+        let fx = fix();
+        let tasks = fx.tasks(SID);
+        let t = fx.transcript(SID);
+        let out = tasks.join("b80.output");
+        append(&out, "x\n");
+        tool_use(&t, "toolu_80", "sleep 5");
+        // An MCP tool's result prints the shell's text and field, naming
+        // this file and a folder somewhere else.
+        let elsewhere = fx.root.join("p").join("s").join("tasks").join("b81.output");
+        log(
+            &t,
+            serde_json::json!({"type":"assistant","message":{"content":[
+                {"type":"tool_use","id":"toolu_m","name":"mcp__x__y","input":{}}]}}),
+        );
+        result(&t, "toolu_m", Some(("b80", &out)));
+        result(&t, "toolu_m2", Some(("b81", &elsewhere)));
+        let mut sc = fx.scanner(Fake::default());
+        let l = live(vec![fx.agent(true)]);
+        tick(&mut sc, &l, &fx.runs);
+        append(&out, "y\n");
+        tick(&mut sc, &l, &fx.runs);
+        assert_eq!(fx.row("b80").unwrap().kind, RunKind::Fg);
+        let told = &sc.told[KEY];
+        assert!(told.bg.is_empty() && told.folders.is_empty() && told.tool_of.is_empty());
+    }
+
+    #[test]
+    fn a_finished_foreground_call_ends_where_holders_cannot_be_told() {
+        // No holders on this OS, no trailer for a foreground call: the
+        // transcript's result ends the row once the file stopped.
+        let fx = fix();
+        let tasks = fx.tasks(SID);
+        let t = fx.transcript(SID);
+        tool_use(&t, "toolu_82", "ls");
+        let out = tasks.join("b82.output");
+        append(&out, "");
+        let mut sc = fx.scanner(Fake::default());
+        let l = live(vec![fx.agent(true)]);
+        tick(&mut sc, &l, &fx.runs);
+        tick(&mut sc, &l, &fx.runs);
+        assert!(fx.row("b82").unwrap().running(), "its call still waits");
+        result(&t, "toolu_82", None);
+        tick(&mut sc, &l, &fx.runs);
+        let r = fx.row("b82").unwrap();
+        assert_eq!((r.kind, r.running()), (RunKind::Fg, false));
+
+        // No transcript: the status leaving "shell".
+        let fx = fix();
+        let tasks = fx.tasks(SID);
+        let out = tasks.join("b83.output");
+        append(&out, "x\n");
+        let mut a = fx.agent(false);
+        a.status = "shell".into();
+        let mut sc = fx.scanner(Fake::default());
+        for _ in 0..3 {
+            tick(&mut sc, &live(vec![a.clone()]), &fx.runs);
+        }
+        assert!(fx.row("b83").unwrap().running());
+        a.status = "idle".into();
+        tick(&mut sc, &live(vec![a.clone()]), &fx.runs);
+        assert!(!fx.row("b83").unwrap().running());
+    }
+
+    #[test]
+    fn a_mod_start_after_the_scan_skips_the_wait() {
+        let fx = fix();
+        let tasks = fx.tasks(SID);
+        let out = tasks.join("b84.output");
+        append(&out, "x\n");
+        let mut sc = fx.scanner(Fake::default());
+        let mut a = fx.agent(false);
+        a.status = "shell".into();
+        let l = live(vec![a]);
+        tick(&mut sc, &l, &fx.runs);
+        assert_eq!(fx.row("b84").unwrap().kind, RunKind::Fg);
+        fx.report(
+            serde_json::json!({"event":"start","kind":"bash","taskId":"b84",
+            "toolUseId":"toolu_84","outputFile":out.to_string_lossy()}),
+        );
+        tick(&mut sc, &l, &fx.runs);
+        let r = fx.row("b84").unwrap();
+        assert_eq!((r.kind, r.running()), (RunKind::Bash, true));
+    }
+
+    #[test]
+    fn set_aside_files_come_back_while_their_row_runs() {
+        // A mod session: its foreground files are set aside, then a start
+        // reported late for one brings it back so its trailer ends it.
+        let fx = fix();
+        let tasks = fx.tasks(SID);
+        fx.report(serde_json::json!({"event":"fg-start","toolUseId":"toolu_85"}));
+        let out = tasks.join("b85.output");
+        append(&out, "x\n");
+        let mut sc = fx.scanner(Fake::default());
+        let l = live(vec![fx.agent(false)]);
+        tick(&mut sc, &l, &fx.runs);
+        assert!(sc.files[&out].done);
+        fx.start("b85", "bash", Some(&out));
+        append(&out, "\n[exited with code 2]\n");
+        tick(&mut sc, &l, &fx.runs);
+        tick(&mut sc, &l, &fx.runs);
+        assert_eq!(fx.row("b85").unwrap().exit, Some(2));
+
+        // A file older than the (resumed) session whose run still ran.
+        let fx = fix();
+        let tasks = fx.tasks(SID);
+        let out = tasks.join("b86.output");
+        append(&out, "x\n");
+        fx.start("b86", "bash", Some(&out));
+        let mut a = fx.agent(false);
+        a.started_ms = now() + 60_000;
+        let mut sc = fx.scanner(Fake::default());
+        tick(&mut sc, &live(vec![a.clone()]), &fx.runs);
+        assert!(fx.row("b86").unwrap().running());
+        append(&out, "\n[exited with code 0]\n");
+        tick(&mut sc, &live(vec![a.clone()]), &fx.runs);
+        tick(&mut sc, &live(vec![a.clone()]), &fx.runs);
+        assert_eq!(fx.row("b86").unwrap().exit, Some(0));
+    }
+
+    #[test]
+    fn a_finished_file_with_no_row_is_set_aside_only_when_free() {
+        let fx = fix();
+        let tasks = fx.tasks(SID);
+        let out = tasks.join("b87.output");
+        append(&out, "[exited with code 0]\n");
+        let mut sc = fx.scanner(Fake {
+            supported: true,
+            holders: HashMap::from([(out.clone(), vec![(9, 1)])]),
+            ..Fake::default()
+        });
+        let l = live(vec![fx.agent(false)]);
+        tick(&mut sc, &l, &fx.runs);
+        assert!(fx.row("b87").unwrap().running(), "printed text, still held");
+    }
+
+    #[test]
+    fn a_reported_path_outside_claudes_tree_adds_no_root() {
+        let fx = fix();
+        let odd = fx
+            .root
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("x")
+            .join("y")
+            .join("tasks");
+        std::fs::create_dir_all(&odd).unwrap();
+        fx.start("b88", "bash", Some(&odd.join("b88.output")));
+        let mut sc = fx.scanner(Fake::default());
+        tick(&mut sc, &live(vec![fx.agent(false)]), &fx.runs);
+        assert_eq!(sc.roots.len(), 1, "{:?}", sc.roots);
+    }
+
+    #[test]
+    fn ancestry_asks_the_same_question_once() {
+        let fx = fix();
+        let tasks = fx.tasks("someone-else");
+        let out = tasks.join("b89.output");
+        append(&out, "x\n");
+        let mut sc = fx.scanner(Fake {
+            supported: true,
+            holders: HashMap::from([(out.clone(), vec![(500, 1)])]),
+            parents: HashMap::from([(500, 999)]),
+            ..Fake::default()
+        });
+        let l = live(vec![fx.agent(false)]);
+        let mut t = now();
+        for _ in 0..4 {
+            sc.tick(&l, &fx.runs, &|s: &str| s.into(), t);
+            t += ANCESTRY_EVERY_MS + 1;
+        }
+        assert_eq!(sc.host.asks.get(), 1);
+        assert!(fx.runs.all().is_empty());
     }
 }
