@@ -135,7 +135,12 @@ fn test_device_free_path_default_and_relative() {
     h.okj(&call_a(), "device_free", json!({"path": "rel"}));
     let asked = h.b.free_asked.lock().unwrap().clone();
     assert_eq!(asked[0], "C:\\src\\alpha");
-    assert_eq!(asked[1], "/abs/dir");
+    // On Windows "/abs/dir" is root-relative: it lands on the caller's drive.
+    if cfg!(windows) {
+        assert_eq!(asked[1], "C:/abs/dir");
+    } else {
+        assert_eq!(asked[1], "/abs/dir");
+    }
     assert!(
         asked[2].starts_with("C:\\src\\alpha") && asked[2].ends_with("rel"),
         "{asked:?}"
