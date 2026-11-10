@@ -187,6 +187,11 @@ pub struct PairStatus {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub error: String,
+    /// (join, waiting) Why nothing was found yet and what to try, once
+    /// the joining device has looked for a while (card #1262).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub hint: String,
 }
 
 impl Window {
@@ -506,6 +511,7 @@ pub fn pair_status(s: irori_pair::Status) -> PairStatus {
         key_ok: s.key_ok,
         misses: s.misses,
         error: s.error,
+        hint: s.hint,
     }
 }
 

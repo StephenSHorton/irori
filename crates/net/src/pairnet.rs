@@ -334,7 +334,33 @@ fn relay_url_for(a: SocketAddr) -> RelayUrl {
     crate::relay::relay_url(a.ip(), a.port())
 }
 
+/// Where a candidate was heard, for the log: its addresses and relay.
+fn cand_where(c: &Cand) -> String {
+    let mut v: Vec<String> = c.direct.iter().map(|a| a.to_string()).collect();
+    if let Some(r) = &c.relay {
+        v.push(format!("relay {r}"));
+    }
+    if v.is_empty() {
+        "no address".into()
+    } else {
+        v.join(", ")
+    }
+}
+
+/// A device id as the log names it (the Pairer's prefix).
+fn short_id(id: &str) -> &str {
+    id.get(..8).unwrap_or(id)
+}
+
 impl Inner {
+    /// A pairing line in the log (`NetConfig::logf`). Never the code, the
+    /// room secret or its topic: device ids, addresses and errors only.
+    pub(crate) fn plog(&self, line: impl AsRef<str>) {
+        if let Some(f) = &self.cfg.logf {
+            f(line.as_ref());
+        }
+    }
+
     /// `Transport::join` of an epoch-0 room.
     pub(crate) async fn join_pair(
         self: &Arc<Self>,
@@ -371,6 +397,21 @@ impl Inner {
                 net.heard_in_pair(&room, id, h);
             }),
         );
+        let servers_known = lock(&self.relays)
+            .iter()
+            .filter(|sv| sv.server_pub != self.cfg.key.public())
+            .count();
+        self.plog(format!(
+            "pair: room open (LAN announce{}{})",
+            match ttl {
+                Some(_) => format!(", guest windows on {servers_known} home server(s)"),
+                None => String::new(),
+            },
+            match hub.as_deref() {
+                Some(h) if !h.is_empty() => format!(", via {h}"),
+                _ => String::new(),
+            }
+        ));
         if let Some(ttl) = ttl {
             // This device's own relay, and every home server it knows.
             *lock(&room.window) =
@@ -390,9 +431,17 @@ impl Inner {
         if let Some(hub) = hub.filter(|h| !h.is_empty()) {
             let (net, room) = (self.clone(), room.clone());
             tokio::spawn(async move {
-                if let Err(e) = net.via_hub(&room, &hub).await {
-                    let mut errs = lock(&net.dial_errors);
-                    errs.insert(hub, e);
+                net.plog(format!("pair: asking the home server at {hub}"));
+                match net.via_hub(&room, &hub).await {
+                    Ok(id) => net.plog(format!(
+                        "pair: home server at {hub} answered ({})",
+                        id.fmt_short()
+                    )),
+                    Err(e) => {
+                        net.plog(format!("pair: home server at {hub}: {e}"));
+                        let mut errs = lock(&net.dial_errors);
+                        errs.insert(hub, e);
+                    }
                 }
             });
         }
@@ -415,6 +464,10 @@ impl Inner {
                 self.pair_open.store(false, Ordering::SeqCst);
             }
         }
+        self.plog(format!(
+            "pair: room closed ({} candidate(s) heard)",
+            lock(&room.cands).len()
+        ));
         self.cfg.pair_lan.close(&room.state.secret.topic);
         if let Some(w) = lock(&room.window).take() {
             self.cfg.guests.close_window(w);
@@ -485,6 +538,16 @@ impl Inner {
         };
         self.lookup.set_endpoint_info(c.addr());
         if room.add_cand(c.clone()) {
+            self.plog(format!(
+                "pair: heard {} on the LAN{} at {}",
+                id.fmt_short(),
+                if h.relay_key.is_some() {
+                    " (through a home server)"
+                } else {
+                    ""
+                },
+                cand_where(&c)
+            ));
             let hello = lock(&room.hello).clone();
             if let Some((typ, body)) = hello {
                 self.dial_pair(room, c, typ, body);
@@ -503,7 +566,11 @@ impl Inner {
     /// B away from home with a server's `host:port`: its key from the relay
     /// certificate, the relay joined as a guest, and the server itself the
     /// first candidate (it answers for the member whose window it holds).
-    async fn via_hub(self: &Arc<Self>, room: &Arc<PairRoom>, hub: &str) -> Result<(), String> {
+    async fn via_hub(
+        self: &Arc<Self>,
+        room: &Arc<PairRoom>,
+        hub: &str,
+    ) -> Result<EndpointId, String> {
         let addr = resolve(hub).await?;
         let key = crate::tls::probe_server_key(addr).await?;
         self.pins.add(key);
@@ -523,7 +590,7 @@ impl Inner {
                 self.dial_pair(room, c, typ, body);
             }
         }
-        Ok(())
+        Ok(id)
     }
 
     /// A member opens its window on a home server.
@@ -534,9 +601,16 @@ impl Inner {
         s: &Secret,
         ttl: Duration,
     ) {
+        let url = sv.url.clone();
         let Some((conn, streams)) = self.open_guest_on(sv, s, ttl, "").await else {
+            self.plog(format!(
+                "pair: guest window on the home server at {url}: not opened"
+            ));
             return;
         };
+        self.plog(format!(
+            "pair: guest window on the home server at {url}: open"
+        ));
         if room.closed.load(Ordering::SeqCst) {
             close(&conn, reason::LEAVING);
             return;
@@ -615,10 +689,19 @@ impl Inner {
         }
         let (me, room) = (self.clone(), room.clone());
         tokio::spawn(async move {
+            me.plog(format!(
+                "pair: dialing {} at {}",
+                c.id.fmt_short(),
+                cand_where(&c)
+            ));
             let res = me.dial_pair_once(&room, &c, &typ, &body, 0).await;
             lock(&room.dialing).remove(&c.id);
-            if let Err(e) = res {
-                lock(&me.dial_errors).insert(c.id.to_string(), e.to_string());
+            match res {
+                Ok(()) => me.plog(format!("pair: dial {}: answered", c.id.fmt_short())),
+                Err(e) => {
+                    me.plog(format!("pair: dial {}: {e}", c.id.fmt_short()));
+                    lock(&me.dial_errors).insert(c.id.to_string(), e.to_string());
+                }
             }
         });
     }
@@ -706,6 +789,11 @@ impl Inner {
                     .id
                     .parse()
                     .map_err(|_| ConnError::Local(reason::PROTOCOL.into()))?;
+                self.plog(format!(
+                    "pair: {} holds the window of {}: dialing it",
+                    c.id.fmt_short(),
+                    id.fmt_short()
+                ));
                 let next = Cand {
                     id,
                     relay: c.relay.clone(),
@@ -768,6 +856,11 @@ impl Inner {
                 if let Some(room) = room
                     && proof_ok(room.key(), &k, ROLE_DIAL, &m.proof)
                 {
+                    self.plog(format!(
+                        "pair: hello from {} ({})",
+                        short_id(&m.device_id),
+                        conn.remote_id().fmt_short()
+                    ));
                     return self.hold(&room, conn, send, recv, m);
                 }
                 if let Some(w) = self.cfg.guests.by_tag(&m.tag)
@@ -779,12 +872,21 @@ impl Inner {
                         id: w.owner.to_string(),
                         ..Default::default()
                     };
+                    self.plog(format!(
+                        "pair: hello from {} for {}'s window: pointed it there",
+                        short_id(&m.device_id),
+                        w.owner.fmt_short()
+                    ));
                     if write_msg(&mut send, &at).await.is_ok() {
                         let _ = send.finish();
                         let _ = tokio::time::timeout(Duration::from_secs(5), conn.closed()).await;
                     }
                     return;
                 }
+                self.plog(format!(
+                    "pair: hello from {} for a code not open here",
+                    short_id(&m.device_id)
+                ));
                 close(&conn, reason::EPOCH)
             }
             _ => close(&conn, reason::PROTOCOL),
@@ -926,8 +1028,19 @@ impl Inner {
             _ => (None, Duration::ZERO),
         };
         let Some(id) = id else {
+            self.plog(format!(
+                "guest window refused for {} (kind {:?})",
+                owner.fmt_short(),
+                m.kind
+            ));
             return close(&conn, reason::REFUSED);
         };
+        let what = if m.kind.is_empty() { "pair" } else { "invite" };
+        self.plog(format!(
+            "{what}: guest window open here for {} ({}s)",
+            owner.fmt_short(),
+            ttl.as_secs()
+        ));
         self.cfg.pair_lan.kick();
         let ok = OpenMsg {
             v: 1,
@@ -942,6 +1055,10 @@ impl Inner {
         }
         self.cfg.guests.close_window(id);
         self.cfg.pair_lan.kick();
+        self.plog(format!(
+            "{what}: guest window here for {} closed",
+            owner.fmt_short()
+        ));
     }
 }
 

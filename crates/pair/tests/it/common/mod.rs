@@ -8,7 +8,7 @@
 #![allow(dead_code)]
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use irori_identity::{Chain, DeviceJson, FileKeystore, Identity};
@@ -39,6 +39,8 @@ pub struct Dev {
     pub st: Arc<Store>,
     pub node: Arc<Node>,
     pub pair: Pairer,
+    /// Every line the Pairer logged, oldest first.
+    pub logs: Arc<Mutex<Vec<String>>>,
     /// The node is built but not run: no sync.
     pub no_net: bool,
     window: Duration,
@@ -56,7 +58,8 @@ impl Dev {
     pub fn with(net: &FakeNet, name: &str, window: Duration, no_net: bool) -> Dev {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().to_path_buf();
-        let (ident, chain, st, node, pair) = open(&dir, name, net, window);
+        let logs = Arc::new(Mutex::new(Vec::new()));
+        let (ident, chain, st, node, pair) = open(&dir, name, net, window, &logs);
         let mut d = Dev {
             name: name.into(),
             _tmp: tmp,
@@ -67,6 +70,7 @@ impl Dev {
             st,
             node,
             pair,
+            logs,
             no_net,
             window,
             stop: None,
@@ -98,7 +102,8 @@ impl Dev {
     }
 
     pub fn open(&mut self, window: Duration) {
-        let (ident, chain, st, node, pair) = open(&self.dir, &self.name, &self.net, window);
+        let (ident, chain, st, node, pair) =
+            open(&self.dir, &self.name, &self.net, window, &self.logs);
         self.ident = ident;
         self.chain = chain;
         self.st = st;
@@ -114,6 +119,16 @@ impl Dev {
 
     pub fn state(&self) -> String {
         self.pair.status().state
+    }
+
+    /// The Pairer's log so far.
+    pub fn log(&self) -> Vec<String> {
+        self.logs.lock().unwrap().clone()
+    }
+
+    /// Whether some logged line contains `part`.
+    pub fn logged(&self, part: &str) -> bool {
+        self.log().iter().any(|l| l.contains(part))
     }
 
     pub fn held(&self, ev: &Event) -> bool {
@@ -149,6 +164,7 @@ fn open(
     name: &str,
     net: &FakeNet,
     window: Duration,
+    logs: &Arc<Mutex<Vec<String>>>,
 ) -> (Arc<Identity>, Arc<Chain>, Arc<Store>, Arc<Node>, Pairer) {
     let mut dv = DeviceJson::load_or_create(dir).unwrap();
     dv.name = name.into();
@@ -201,8 +217,11 @@ fn open(
     o.kick = Some(Arc::new(move || n2.kick()));
     o.window = window;
     o.hello_every = HELLO;
-    let n = name.to_string();
-    o.logf = Some(Arc::new(move |m: &str| eprintln!("{n}: {m}")));
+    let (n, logs) = (name.to_string(), logs.clone());
+    o.logf = Some(Arc::new(move |m: &str| {
+        eprintln!("{n}: {m}");
+        logs.lock().unwrap().push(m.to_string());
+    }));
     (ident, chain, st, node, Pairer::new(o))
 }
 

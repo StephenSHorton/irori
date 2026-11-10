@@ -71,6 +71,8 @@ struct Dev {
     lan: Option<irori_lan::LanLookup>,
     relay: Option<home::relay::Relay>,
     conns: Arc<Mutex<Vec<Arc<dyn Conn>>>>,
+    /// Every line the net layer and the Pairer logged (card #1262).
+    logs: Arc<Mutex<Vec<String>>>,
     // Last: fields drop in order, and Windows can't delete an open file.
     _tmp: tempfile::TempDir,
 }
@@ -177,7 +179,16 @@ impl Dev {
             chain: chain.clone(),
             self_id: ident.device_id(),
         });
+        let logs: Arc<Mutex<Vec<String>>> = Arc::default();
+        let logf: irori_pair::LogFn = {
+            let (n, logs) = (name.to_string(), logs.clone());
+            Arc::new(move |m: &str| {
+                eprintln!("{n}: {m}");
+                logs.lock().unwrap().push(m.to_string());
+            })
+        };
         let mut nc = NetConfig::new(ident.device_id(), key, admit);
+        nc.logf = Some(logf.clone());
         nc.ip = how.ip;
         nc.dial_grace = Duration::from_millis(300);
         nc.connect_timeout = Duration::from_secs(10);
@@ -193,8 +204,7 @@ impl Dev {
         );
         o.data_dir = Some(dir.clone());
         o.hello_every = Duration::from_millis(200);
-        let n = name.to_string();
-        o.logf = Some(Arc::new(move |m: &str| eprintln!("{n}: {m}")));
+        o.logf = Some(logf);
         let pair = Pairer::new(o);
         Dev {
             name: name.into(),
@@ -209,6 +219,34 @@ impl Dev {
             lan,
             relay: None,
             conns: Arc::default(),
+            logs,
+        }
+    }
+
+    fn logged(&self, part: &str) -> bool {
+        self.logs.lock().unwrap().iter().any(|l| l.contains(part))
+    }
+
+    /// Waits for a line containing `part`, then checks no line names the
+    /// code or its room secret.
+    async fn assert_logged(&self, part: &str, code: &str) {
+        eventually(
+            &format!("{}: {part:?} logged", self.name),
+            PAIR_WAIT,
+            || self.logged(part),
+        )
+        .await;
+        let s = room_secret(code).unwrap();
+        let key = hex::encode(s.key);
+        let bare = code.replace('-', "");
+        for l in self.logs.lock().unwrap().iter() {
+            for bad in [code, bare.as_str(), &key, &s.topic] {
+                assert!(
+                    !l.to_uppercase().contains(&bad.to_uppercase()),
+                    "{}: the log names the code or its secret: {l:?}",
+                    self.name
+                );
+            }
         }
     }
 
@@ -379,7 +417,25 @@ async fn pair_on_the_lan() {
             member_of: None,
         },
     );
-    pair_up(&a, &b, "").await;
+    let st = pair_up(&a, &b, "").await;
+    // What each side logs while pairing (card #1262).
+    let (sa, sb) = (a.eid().fmt_short().to_string(), b.id()[..8].to_string());
+    b.assert_logged("pair: room open (LAN announce)", &st.code)
+        .await;
+    b.assert_logged(
+        &format!("pair: heard {sa} on the LAN at 127.0.0.1:"),
+        &st.code,
+    )
+    .await;
+    b.assert_logged(&format!("pair: dialing {sa} at 127.0.0.1:"), &st.code)
+        .await;
+    b.assert_logged(&format!("pair: dial {sa}: answered"), &st.code)
+        .await;
+    a.assert_logged(&format!("pair: hello from {sb}"), &st.code)
+        .await;
+    a.assert_logged("pair: room closed", &st.code).await;
+    b.assert_logged("pair: room closed (1 candidate(s) heard)", &st.code)
+        .await;
     assert_loopback(&a);
     assert_loopback(&b);
     assert!(
@@ -424,6 +480,24 @@ async fn pair_as_a_guest_of_the_hub() {
     let spec = a.serve().await;
     a.net.bind().await.unwrap();
     let st = pair_up(&a, &b, &a.hub_addr()).await;
+    let hub = a.hub_addr();
+    b.assert_logged(
+        &format!("pair: room open (LAN announce, via {hub})"),
+        &st.code,
+    )
+    .await;
+    b.assert_logged(&format!("pair: asking the home server at {hub}"), &st.code)
+        .await;
+    b.assert_logged(
+        &format!(
+            "pair: home server at {hub} answered ({})",
+            a.eid().fmt_short()
+        ),
+        &st.code,
+    )
+    .await;
+    a.assert_logged("pair: room open (LAN announce, guest windows on", &st.code)
+        .await;
     // The window is closed to guests again: the code's token opens nothing.
     let token = irori_net::guest::guest_token(&room_secret(&st.code).unwrap().key);
     assert!(
@@ -486,7 +560,28 @@ async fn pair_through_the_servers_bridge() {
     // The bridge names the server's relay at the address the LAN reaches.
     let pl = test_pair_lan(&s);
     pl.set_relay(Some((spec.url.clone(), s.eid())));
-    pair_up(&a, &b, "").await;
+    let st = pair_up(&a, &b, "").await;
+    a.assert_logged(
+        &format!(
+            "pair: guest window on the home server at {}: open",
+            spec.url
+        ),
+        &st.code,
+    )
+    .await;
+    s.assert_logged(
+        &format!("pair: guest window open here for {}", a.eid().fmt_short()),
+        &st.code,
+    )
+    .await;
+    b.assert_logged(
+        &format!(
+            "pair: heard {} on the LAN (through a home server)",
+            a.eid().fmt_short()
+        ),
+        &st.code,
+    )
+    .await;
     assert_eq!(
         b.ident.current().root_device_id,
         s.id(),

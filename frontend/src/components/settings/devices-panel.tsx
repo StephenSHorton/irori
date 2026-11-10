@@ -715,11 +715,14 @@ function Pairing({
   if (s.state === PairState.Words)
     return <ReadWords status={s} cancel={cancel} />
   return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-[13px] text-muted-foreground">
-        Looking for the other device…
-      </span>
-      {cancel}
+    <div className="grid gap-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[13px] text-muted-foreground">
+          Looking for the other device…
+        </span>
+        {cancel}
+      </div>
+      {s.hint && <p className="text-xs text-muted-foreground">{s.hint}</p>}
     </div>
   )
 }

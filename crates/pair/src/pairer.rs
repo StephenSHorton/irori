@@ -31,6 +31,8 @@ use crate::wire::{
 pub const WINDOW: Duration = Duration::from_secs(10 * 60);
 /// How often B repeats `pair.hello` until A connects.
 pub const HELLO_EVERY: Duration = Duration::from_secs(2);
+/// How long B looks before Status carries [`Status::hint`] (card #1262).
+pub const HINT_AFTER: Duration = Duration::from_secs(30);
 /// How many wrong typings close the window.
 pub const MAX_MISSES: i64 = 2;
 
@@ -152,6 +154,33 @@ pub struct Status {
     pub misses: i64,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub error: String,
+    /// (join, waiting) Why nothing was found yet and what to try, once B
+    /// has looked for [`HINT_AFTER`] without reaching the other device.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub hint: String,
+}
+
+/// What B's searching state says once nothing answered for a while: the
+/// home-network case (no LAN announce heard, often Wi-Fi and wired kept
+/// apart by the router), or the typed address not answering. On macOS the
+/// Local Network permission blocks the LAN announce too.
+pub fn search_hint(via: &str, macos: bool) -> String {
+    let mut s = if via.is_empty() {
+        "Nothing found on this network yet. Some routers block this between Wi-Fi and wired devices: enter the address shown on the other device.".to_string()
+    } else {
+        format!(
+            "Nothing answered at {via} yet. Check it against the address shown on the other device, and that the other device still shows its code."
+        )
+    };
+    if macos {
+        s.push_str(" Also check System Settings → Privacy & Security → Local Network → Irori.");
+    }
+    s
+}
+
+/// A device id as the log names it: enough to tell devices apart.
+fn short(id: &str) -> &str {
+    id.get(..8).unwrap_or(id)
 }
 
 fn is_zero(n: &i64) -> bool {
@@ -195,6 +224,8 @@ pub struct Options {
     /// Zero: [`WINDOW`] / [`HELLO_EVERY`].
     pub window: Duration,
     pub hello_every: Duration,
+    /// Zero: [`HINT_AFTER`].
+    pub hint_after: Duration,
     pub now: Option<NowFn>,
     pub logf: Option<LogFn>,
     /// Told whenever Status changes (the GUI refreshes).
@@ -223,6 +254,7 @@ impl Options {
             kick: None,
             window: Duration::ZERO,
             hello_every: Duration::ZERO,
+            hint_after: Duration::ZERO,
             now: None,
             logf: None,
             on_change: None,
@@ -354,6 +386,9 @@ impl Pairer {
         if o.hello_every.is_zero() {
             o.hello_every = HELLO_EVERY;
         }
+        if o.hint_after.is_zero() {
+            o.hint_after = HINT_AFTER;
+        }
         Pairer {
             inner: Arc::new(Inner {
                 m: Mutex::new(Shared {
@@ -387,6 +422,11 @@ impl Pairer {
         let mut g = lock(&self.inner.m);
         g.o.kick = kick;
         g.o.servers = servers;
+    }
+
+    /// Shortens or restores how long B looks before the hint (tests).
+    pub fn set_hint_after(&self, d: Duration) {
+        lock(&self.inner.m).o.hint_after = if d.is_zero() { HINT_AFTER } else { d };
     }
 
     /// Shortens or restores the window (tests).
@@ -425,6 +465,8 @@ impl Pairer {
         let s = self.reserve(true, secret, role, "")?;
         if let Err(e) = self.open_room(&s).await {
             self.unreserve(&s);
+            self.inner
+                .logf(&format!("pair: add window failed to open: {e}"));
             return Err(Error::Room(e));
         }
         let window = {
@@ -445,6 +487,10 @@ impl Pairer {
             self.inner.changed(&g);
             g.o.window
         };
+        self.inner.logf(&format!(
+            "pair: add window opened (role {role}, open {}s)",
+            window.as_secs()
+        ));
         s.arm_timer(window, "Nobody used the code in time. Make a new one.");
         Ok(self.status())
     }
@@ -466,9 +512,11 @@ impl Pairer {
         let s = self.reserve(false, secret, "", server)?;
         if let Err(e) = self.open_room(&s).await {
             self.unreserve(&s);
+            self.inner
+                .logf(&format!("pair: join window failed to open: {e}"));
             return Err(Error::Room(e));
         }
-        let (window, every) = {
+        let (window, every, hint_after) = {
             let mut g = lock(&self.inner.m);
             let now = (g.o.now.clone()).map_or_else(SystemTime::now, |f| f());
             g.st = Status {
@@ -479,9 +527,19 @@ impl Pairer {
                 ..Default::default()
             };
             self.inner.changed(&g);
-            (g.o.window, g.o.hello_every)
+            (g.o.window, g.o.hello_every, g.o.hint_after)
         };
+        self.inner.logf(&format!(
+            "pair: join window opened (open {}s, {})",
+            window.as_secs(),
+            if server.is_empty() {
+                "looking on this network".to_string()
+            } else {
+                format!("via {server}")
+            }
+        ));
         s.arm_timer(window, "The other device didn't answer in time.");
+        s.arm_hint(hint_after);
         let s2 = s.clone();
         self.inner.spawn(async move { s2.hello_loop(every).await });
         Ok(self.status())
@@ -540,6 +598,9 @@ impl Pairer {
             }
         };
         if let Some(miss) = miss {
+            self.inner.logf(&format!(
+                "pair: add: the words typed don't match ({miss} of {MAX_MISSES})"
+            ));
             if miss >= MAX_MISSES {
                 s.fail(STATE_FAILED, ERR_TEXT_SOMEONE_ELSE, FRAME_FAIL)
                     .await;
@@ -581,6 +642,9 @@ impl Pairer {
             }
         };
         if let Some(miss) = miss {
+            self.inner.logf(&format!(
+                "pair: join: the key typed doesn't match ({miss} of {MAX_MISSES})"
+            ));
             if miss >= MAX_MISSES {
                 s.fail(STATE_FAILED, ERR_TEXT_NOT_THAT_KEY, FRAME_FAIL)
                     .await;
@@ -720,6 +784,50 @@ impl Session {
         });
     }
 
+    /// B: once it has looked for `after` without a connection, Status says
+    /// why nothing was found and what to try (card #1262).
+    fn arm_hint(self: &Arc<Self>, after: Duration) {
+        let s = self.clone();
+        let Some(p) = self.pairer() else { return };
+        p.spawn(async move {
+            tokio::select! {
+                _ = tokio::time::sleep(after) => s.hint(after),
+                _ = s.token.cancelled() => {}
+            }
+        });
+    }
+
+    fn hint(&self, after: Duration) {
+        let Some(p) = self.pairer() else { return };
+        {
+            let mut g = lock(&p.m);
+            let f = lock(&self.f);
+            let mine = g
+                .cur
+                .as_ref()
+                .is_some_and(|c| std::ptr::eq(Arc::as_ptr(c), self));
+            if f.closed || f.conn.is_some() || !mine || g.st.state != STATE_WAITING {
+                return;
+            }
+            drop(f);
+            g.st.hint = search_hint(&self.via, cfg!(target_os = "macos"));
+            p.changed(&g);
+        }
+        p.logf(&format!(
+            "pair: join: nothing reached after {}s ({})",
+            after.as_secs(),
+            if self.via.is_empty() {
+                "no device answered on this network"
+            } else {
+                "the typed address didn't lead to the other device"
+            }
+        ));
+    }
+
+    fn mode(&self) -> &'static str {
+        if self.add { MODE_ADD } else { MODE_JOIN }
+    }
+
     /// Lets up only the one device this side is pairing with: on A the
     /// first hello's sender, on B the first device that offers.
     fn allow(&self, peer: &str) -> bool {
@@ -789,10 +897,25 @@ impl Session {
                 if f.joiner.is_empty() {
                     f.joiner = h.device_id.clone();
                     f.hello = h.clone();
+                    drop(f);
+                    if let Some(p) = self.pairer() {
+                        p.logf(&format!(
+                            "pair: add: hello from {} ({}, {})",
+                            short(&h.device_id),
+                            h.name,
+                            h.os
+                        ));
+                    }
                 } else if f.joiner != h.device_id {
                     // A second device has the code: it gets pair.busy, and
                     // the window closes.
                     drop(f);
+                    if let Some(p) = self.pairer() {
+                        p.logf(&format!(
+                            "pair: add: a second device ({}) has the code",
+                            short(&h.device_id)
+                        ));
+                    }
                     if let Some(r) = self.room.get() {
                         let _ = r.send(&h.device_id, MSG_BUSY, serde_json::json!({}));
                     }
@@ -800,8 +923,9 @@ impl Session {
                     return;
                 } else if f.conn.is_some() {
                     return; // already connected; a repeated hello
+                } else {
+                    drop(f);
                 }
-                drop(f);
                 if let Some(r) = self.room.get() {
                     r.connect(&h.device_id);
                 }
@@ -869,6 +993,11 @@ impl Session {
         }
         let s = self.clone();
         if let Some(p) = self.pairer() {
+            p.logf(&format!(
+                "pair: {}: connected to {}",
+                self.mode(),
+                short(c.id())
+            ));
             p.spawn(async move { s.run(c).await });
         }
     }
@@ -947,6 +1076,13 @@ impl Session {
                 .as_deref()
                 .is_some_and(|p| check_proof(&self.secret.key, their_side, &inf, p));
         if !ok {
+            if let Some(p) = self.pairer() {
+                p.logf(&format!(
+                    "pair: {}: {} didn't prove the code",
+                    self.mode(),
+                    short(c.id())
+                ));
+            }
             if self.add {
                 self.fail(STATE_FAILED, ERR_TEXT_SOMEONE_ELSE, FRAME_FAIL)
                     .await;
@@ -989,9 +1125,15 @@ impl Session {
                 g.st.state = STATE_WORDS.into();
                 g.st.words = words;
                 g.st.peer = f.name.clone();
+                g.st.hint.clear();
             }
             drop(sf);
             p.changed(&g);
+            drop(g);
+            p.logf(&format!(
+                "pair: {}: both proved the code; words shown",
+                self.mode()
+            ));
         }
 
         // After the words, A waits for Confirm (and for B's done once it
@@ -1248,6 +1390,7 @@ impl Session {
             drop(f);
             g.st.state = STATE_DONE.into();
             g.st.error.clear();
+            g.st.hint.clear();
             g.st.code.clear();
             g.st.words.clear();
             if g.cur
@@ -1258,6 +1401,7 @@ impl Session {
             }
             p.changed(&g);
         }
+        p.logf(&format!("pair: {} window closed: done", self.mode()));
         self.close();
     }
 
@@ -1312,6 +1456,7 @@ impl Session {
         drop(f);
         g.st.state = state.into();
         g.st.error = why.into();
+        g.st.hint.clear();
         g.st.code.clear();
         g.st.words.clear();
         if g.cur
@@ -1321,6 +1466,11 @@ impl Session {
             g.cur = None;
         }
         p.changed(&g);
+        drop(g);
+        p.logf(&format!(
+            "pair: {} window closed: {state}: {why}",
+            self.mode()
+        ));
         Some(conn)
     }
 

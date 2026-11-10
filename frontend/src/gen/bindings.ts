@@ -3285,6 +3285,11 @@ export type PairStatus = {
 	keyOk?: boolean,
 	misses?: number,
 	error?: string,
+	/**
+	 *  (join, waiting) Why nothing was found yet and what to try, once
+	 *  the joining device has looked for a while (card #1262).
+	 */
+	hint?: string,
 };
 
 /**  inbox.Policy. */
