@@ -58,8 +58,14 @@ const SampleCode = "K7QM-2XWD-9RTF-HB4P"
 const SampleKey = "3f9a 0c21 77de 41b0"
 
 // joinCode is the code of the join this window started, kept in memory
-// only (never stored) for retryJoin.
+// only (never stored) for retryJoin. joinExpires is that join's expiry,
+// which tells it from a join started elsewhere (the loopback API) or one
+// that ended while the dialog was closed.
 let joinCode = ""
+let joinExpires: string | null | undefined
+// cancels counts the person's Cancels, so one pressed while a retry is on
+// its way isn't undone by the retry's join landing after it.
+let cancels = 0
 
 // retryUntil is when a retryJoin's own "canceled" stops being skipped.
 let retryUntil = 0
@@ -159,12 +165,15 @@ function sampleStuck(): boolean {
 // samplePreview opens the preview's join on its first read: the Looking
 // view, its code kept as if typed here.
 let samplePreviewed = false
+function keep(code: string, s: PairStatus) {
+  joinCode = code
+  joinExpires = s.expires
+}
 function samplePreview() {
   if (samplePreviewed) return
   samplePreviewed = true
   if (sampleStuck() && !isOpen(samplePair)) {
-    sample.join("")
-    joinCode = "SAMP-LECO-DE12-3456"
+    keep("SAMP-LECO-DE12-3456", sample.join(""))
   }
 }
 
@@ -342,13 +351,13 @@ export const devices = {
     const s = inWails()
       ? await DevicesService.JoinWithCode(code, server)
       : sample.join(server)
-    joinCode = code
+    keep(code, s)
     return s
   },
-  // keptJoinCode is the open join's code while this window holds it ("" after
-  // a reload, or for a join started elsewhere).
-  keptJoinCode(): string {
-    return joinCode
+  // keptJoinCode is the code of the open join s while this window holds it
+  // ("" after a reload, or for a join started elsewhere).
+  keptJoinCode(s: PairStatus): string {
+    return s.mode === "join" && s.expires === joinExpires ? joinCode : ""
   },
   // retryJoin closes the open join and joins again with the same code and
   // the address typed in the Looking view. usePairing skips the canceled
@@ -357,16 +366,24 @@ export const devices = {
   async retryJoin(server: string): Promise<PairStatus> {
     const code = joinCode
     if (!code) throw new Error("Type the code again to join.")
+    const before = cancels
     retryUntil = Date.now() + RetryQuietMs
+    let s: PairStatus
     try {
       if (inWails()) await DevicesService.CancelPairing()
       else sample.cancel()
-      return await devices.join(code, server)
+      s = await devices.join(code, server)
     } finally {
       // The host sends each change on its own task, so the canceled one
       // can land just after the new join's answer.
       retryUntil = Date.now() + RetryQuietMs
     }
+    if (cancels !== before) {
+      // The person pressed Cancel while this join was on its way.
+      await devices.cancel()
+      return PairStatus({ mode: "join", state: PairState.Canceled })
+    }
+    return s
   },
   // confirm takes the words the new device shows, typed here.
   async confirm(words: string): Promise<void> {
@@ -380,6 +397,7 @@ export const devices = {
     sample.confirmKey(key)
   },
   async cancel(): Promise<void> {
+    cancels++
     joinCode = ""
     retryUntil = 0
     if (inWails()) return DevicesService.CancelPairing()
@@ -713,7 +731,12 @@ export function usePairing(active: boolean): {
       ? DevicesService.PairingStatus()
       : Promise.resolve(samplePair)
     void first
-      .then((s) => live && setStatus(isOpen(s) ? s : null))
+      .then((s) => {
+        if (!live) return
+        // A join that ended while the dialog was closed keeps no code.
+        if (!isOpen(s)) joinCode = ""
+        setStatus(isOpen(s) ? s : null)
+      })
       .catch(() => live && setStatus(null))
     const off = onPairing((s) => {
       if (!live || skipPairing(s)) return

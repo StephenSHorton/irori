@@ -574,11 +574,13 @@ export type Rejoin = { code: string; server: string; error: string }
 
 // AddressLink opens the Join form's address box. It once read "Joining from
 // outside your home?", which kept it from someone at home whose devices
-// can't see each other (card #1261).
-export const AddressLink = "Can't find it? Enter the other device's address"
+// can't see each other (card #1261). The address is always a home
+// server's (the join goes through it), which is the other device only
+// when that device is the server, so the copy names the server.
+export const AddressLink = "Can't find it? Enter your home server's address"
 
 // AddressPlaceholder is the address box's example: a home network's.
-const AddressPlaceholder = "Server address, like 192.168.1.20:25817"
+const AddressPlaceholder = "Home server address, like 192.168.1.20:25817"
 
 // LookingAskMs is how long the joining device looks by itself before the
 // Looking view offers the address box.
@@ -652,7 +654,7 @@ export function Start({
           </div>
           {withAddr ? (
             <Input
-              aria-label="Server address"
+              aria-label="Home server address"
               placeholder={AddressPlaceholder}
               value={server}
               spellCheck={false}
@@ -766,7 +768,7 @@ function Pairing({
   }
   if (s.state === PairState.Words)
     return <ReadWords status={s} cancel={cancel} />
-  const code = actions.keptJoinCode()
+  const code = actions.keptJoinCode(s)
   return (
     <Looking
       status={s}
@@ -783,6 +785,11 @@ function Pairing({
     />
   )
 }
+
+// looksForA says whether s is a join still finding the other device: the
+// only state where trying an address helps (Try again cancels the join).
+const looksForA = (s: PairStatus) =>
+  s.mode === "join" && s.state === PairState.Waiting
 
 // Looking is the joining device finding the other one. When that takes a
 // while (devices on a network that keeps them from seeing each other, or
@@ -806,11 +813,12 @@ export function Looking({
   const [server, setServer] = useState(s.via ?? "")
   const [busy, setBusy] = useState(false)
 
+  const waiting = looksForA(s)
   useEffect(() => {
-    if (asking || s.mode !== "join") return
+    if (asking || !waiting) return
     const t = window.setTimeout(() => setAsking(true), askAfterMs)
     return () => window.clearTimeout(t)
-  }, [asking, askAfterMs, s.mode])
+  }, [asking, askAfterMs, waiting])
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -838,14 +846,14 @@ export function Looking({
       {cancel}
     </div>
   )
-  if (!asking || s.mode !== "join") return looking
+  if (!asking || !waiting) return looking
   if (!canRetry)
     return (
       <div className="grid gap-2">
         {looking}
         <p className="text-xs text-muted-foreground">
-          Can&apos;t find it? Cancel, then join again with the code and the
-          other device&apos;s address.
+          Can&apos;t find it? Cancel, then join again with the code and your
+          home server&apos;s address.
         </p>
       </div>
     )
@@ -859,7 +867,7 @@ export function Looking({
       <div className="flex gap-2">
         <Input
           autoFocus
-          aria-label="Server address"
+          aria-label="Home server address"
           placeholder={AddressPlaceholder}
           value={server}
           disabled={busy}

@@ -33,15 +33,15 @@ const renderLooking = (
 
 describe("the Join form's address link", () => {
   test("reads plainly, not as away from home", () => {
-    expect(AddressLink).toBe("Can't find it? Enter the other device's address")
+    expect(AddressLink).toBe("Can't find it? Enter your home server's address")
     const html = renderToStaticMarkup(
       createElement(Start, { onStarted: () => {}, join: true })
     )
     expect(html).toContain(
-      "Can&#x27;t find it? Enter the other device&#x27;s address"
+      "Can&#x27;t find it? Enter your home server&#x27;s address"
     )
     expect(html).not.toContain("outside your home")
-    expect(html).not.toContain('aria-label="Server address"')
+    expect(html).not.toContain('aria-label="Home server address"')
   })
   test("a failed retry opens the form again with the code, address and why", () => {
     const html = renderToStaticMarkup(
@@ -65,13 +65,13 @@ describe("the Looking view (card #1261)", () => {
     expect(LookingAskMs).toBe(15_000)
     const html = renderLooking()
     expect(html).toContain("Looking for the other device…")
-    expect(html).not.toContain("Server address")
+    expect(html).not.toContain("Home server address")
     expect(html).not.toContain("Try again")
   })
   test("then offers the address box and Try again", () => {
     const html = renderLooking({ askAfterMs: 0 })
     expect(html).toContain("Looking for the other device…")
-    expect(html).toContain('aria-label="Server address"')
+    expect(html).toContain('aria-label="Home server address"')
     expect(html).toContain("Try again")
     expect(html).toContain("Your code is kept.")
   })
@@ -88,12 +88,20 @@ describe("the Looking view (card #1261)", () => {
     expect(html).not.toContain("Try again")
     expect(html).toContain("join again with the code")
   })
+  test("a join past finding the other device never shows it", () => {
+    const html = renderLooking({
+      askAfterMs: 0,
+      status: looking({ state: PairState.Words }),
+    })
+    expect(html).not.toContain("Try again")
+    expect(html).not.toContain("Can&#x27;t find it")
+  })
   test("the adding device never shows it", () => {
     const html = renderLooking({
       askAfterMs: 0,
       status: PairStatus({ mode: "add", state: PairState.Waiting }),
     })
-    expect(html).not.toContain("Server address")
+    expect(html).not.toContain("Home server address")
   })
 })
 
@@ -102,18 +110,40 @@ describe("retryJoin keeps the code (card #1261)", () => {
     await devices.cancel()
     const first = await devices.join("ABCD-EFGH-JKLM-NPQR")
     expect(first.state).toBe(PairState.Waiting)
-    expect(devices.keptJoinCode()).toBe("ABCD-EFGH-JKLM-NPQR")
+    expect(devices.keptJoinCode(first)).toBe("ABCD-EFGH-JKLM-NPQR")
     const again = await devices.retryJoin("10.0.0.227:25817")
     expect(again.mode).toBe("join")
     expect(again.state).toBe(PairState.Waiting)
     expect(again.via).toBe("10.0.0.227:25817")
-    expect(devices.keptJoinCode()).toBe("ABCD-EFGH-JKLM-NPQR")
+    expect(devices.keptJoinCode(again)).toBe("ABCD-EFGH-JKLM-NPQR")
     // The canceled status on the way is skipped; the person's own isn't.
     expect(skipPairing(PairStatus({ state: PairState.Canceled }))).toBe(true)
     expect(skipPairing(PairStatus({ state: PairState.Waiting }))).toBe(false)
     await devices.cancel()
-    expect(devices.keptJoinCode()).toBe("")
+    expect(devices.keptJoinCode(again)).toBe("")
     expect(skipPairing(PairStatus({ state: PairState.Canceled }))).toBe(false)
+  })
+  test("a join started elsewhere, or a different one, gets no kept code", async () => {
+    await devices.cancel()
+    const mine = await devices.join("ABCD-EFGH-JKLM-NPQR")
+    expect(devices.keptJoinCode(mine)).toBe("ABCD-EFGH-JKLM-NPQR")
+    const other = PairStatus({
+      mode: "join",
+      state: PairState.Waiting,
+      expires: "2026-11-09T12:00:00Z",
+    })
+    expect(devices.keptJoinCode(other)).toBe("")
+    expect(devices.keptJoinCode(PairStatus({ ...mine, mode: "add" }))).toBe("")
+    await devices.cancel()
+  })
+  test("Cancel pressed while a retry is on its way wins", async () => {
+    await devices.cancel()
+    await devices.join("ABCD-EFGH-JKLM-NPQR")
+    const retry = devices.retryJoin("10.0.0.227:25817")
+    await devices.cancel()
+    const s = await retry
+    expect(s.state).toBe(PairState.Canceled)
+    expect(devices.keptJoinCode(s)).toBe("")
   })
   test("with no code kept it asks for the code again", async () => {
     await devices.cancel()
