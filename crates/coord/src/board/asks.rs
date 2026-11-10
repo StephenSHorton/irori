@@ -1415,10 +1415,18 @@ impl Fold {
             return Ok(());
         }
         let now = self.stamp();
+        // An ask whose owner was removed moves whatever it waits on (card
+        // #1265): a taker's claim, the person's reply to a resting thread
+        // and every take.state need a live owner, and a removed device
+        // never writes again.
+        let revoked = self.revoked_fn();
         let mut waiting: Vec<&Task> = self
             .tasks
             .values()
-            .filter(|t| self.waits_for_agent(t))
+            .filter(|t| {
+                self.waits_for_agent(t)
+                    || (t.open_ask().is_some_and(|a| revoked(&a.owner)) && !is_terminal(&t.state))
+            })
             .collect();
         waiting.sort_by(|x, y| {
             (x.created_at.unix_nano(), &x.id).cmp(&(y.created_at.unix_nano(), &y.id))
@@ -1431,10 +1439,14 @@ impl Fold {
             let Some(a) = t.open_ask() else {
                 continue;
             };
+            // A removed owner acts on nothing again, so whether its Irori
+            // reads moves doesn't matter; the Core never lists it as one
+            // that does.
+            let removed = revoked(&a.owner);
             if a.owner == self.dev
                 || !self.same_person_dev(&a.owner, &self.dev)
                 // On a board every member's hello says so instead.
-                || !(self.on_board || self.reads_moves(&a.owner))
+                || !(removed || self.on_board || self.reads_moves(&a.owner))
             {
                 continue;
             }
@@ -2113,39 +2125,9 @@ impl Fold {
             }
             return (out, Err(e));
         }
-        // An ask whose posting device was removed: the person's close.
-        let revoked: Vec<String> = self
-            .tasks
-            .values()
-            .filter(|t| {
-                t.open_ask()
-                    .is_some_and(|a| self.revoked.as_ref().is_some_and(|r| r(&a.owner)))
-                    && !is_terminal(&t.state)
-            })
-            .map(|t| t.id.clone())
-            .collect();
-        for id in revoked {
-            let me = self.self_key();
-            if self.is_owner(&me) {
-                let _ = self.write(
-                    &me,
-                    kinds::TASK_STATUS,
-                    &TaskStateRow {
-                        task_id: id,
-                        state: CANCELED.into(),
-                        note: "posting device removed".into(),
-                        outcome: Some(Outcome {
-                            kind: OUTCOME_NONE.into(),
-                            note: "posting device removed".into(),
-                            ..Outcome::default()
-                        }),
-                        by: me.clone(),
-                        at: now,
-                        ..TaskStateRow::default()
-                    },
-                );
-            }
-        }
+        // An ask whose owner was removed is never closed for it (card
+        // #1265): owners are where an ask lives now, not who posted it, so
+        // [`Self::pull_asks`] moves it to a live computer instead.
         (out, Ok(()))
     }
 

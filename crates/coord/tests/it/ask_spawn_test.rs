@@ -839,6 +839,180 @@ fn a_removed_owner_cant_run_agents_whatever_the_list_says() {
     assert_eq!(ask_of(&mac, &t.id).owner, "dev-b");
 }
 
+/// Card #1265: the person's phone (dev-a) and two computers (dev-b,
+/// dev-c), every device reading every `user:` key as the person's. The
+/// computers read `revoked` for removed devices and `devs` for which can
+/// run agents; spawning is `spawning` on both. Returns the computers with
+/// the phone's thread folded on each.
+struct Removal {
+    phone: Env,
+    b: Env,
+    c: Env,
+    revoked: Arc<RwLock<HashSet<String>>>,
+    t: Task,
+}
+
+fn removal_rig(devs: Arc<RwLock<AgentDevices>>, spawning: bool) -> Removal {
+    let owner: KeyFn = Arc::new(|k: &str| k.starts_with("user:"));
+    let phone = Env::with("dev-a", Some(owner.clone()));
+    let revoked: Arc<RwLock<HashSet<String>>> = Arc::default();
+    let computer = |dev: &str| {
+        let mut e = Env::with(dev, Some(owner.clone()));
+        let (d, r) = (devs.clone(), revoked.clone());
+        e.c = e.reopen_with(Options {
+            spawning: Some(Arc::new(move || spawning)),
+            agent_devices: Some(Arc::new(move || d.read().unwrap().clone())),
+            revoked: Some(Arc::new(move |k: &str| r.read().unwrap().contains(k))),
+            ..e.opts()
+        });
+        e
+    };
+    let (b, c) = (computer("dev-b"), computer("dev-c"));
+    let t = post(&phone, "Why is the sync stuck?", true, &[]);
+    sync_rows(&phone, &b);
+    sync_rows(&phone, &c);
+    assert_eq!(ask_of(&b, &t.id).owner, "dev-a");
+    Removal {
+        phone,
+        b,
+        c,
+        revoked,
+        t,
+    }
+}
+
+/// Every row `from` has that `to` lacks, inserted and folded on `to`.
+fn sync_rows(from: &Env, to: &Env) {
+    let rows = from.st.missing(&to.st.vector().unwrap(), 1000).unwrap();
+    let (_, r) = to.st.insert_batch(&rows);
+    r.unwrap();
+    for ev in &rows {
+        to.c.handle(ev).unwrap();
+    }
+}
+
+/// The rows of `kind` device `dev` wrote into e's log.
+fn rows_by(e: &Env, kind: &str, dev: &str) -> Vec<store::Event> {
+    e.rows(kind)
+        .into_iter()
+        .filter(|ev| ev.device_id == dev)
+        .collect()
+}
+
+/// Both computers sweep their asks with nobody in the roster.
+fn sweep_both(r: &Removal) {
+    r.c.c.sweep_asks(&[]).unwrap();
+    r.b.c.sweep_asks(&[]).unwrap();
+}
+
+/// Card #1265: removing the posting device of the person's own thread
+/// never closes it, even one that waits on no agent (spawning off): it
+/// moves to a live computer, the Core leaving the removed device out of
+/// `homes` and `moves` as it does.
+#[test]
+fn removing_the_posting_device_keeps_the_persons_thread_open_and_moves_it() {
+    let devs = Arc::new(RwLock::new(AgentDevices {
+        homes: vec!["dev-b".into(), "dev-c".into()],
+        cant: HashSet::from(["dev-a".to_string()]),
+        moves: HashSet::from([
+            "dev-a".to_string(),
+            "dev-b".to_string(),
+            "dev-c".to_string(),
+        ]),
+        ..AgentDevices::default()
+    }));
+    let r = removal_rig(devs.clone(), false);
+    r.c.c.pull_asks().unwrap();
+    r.b.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&r.b, &r.t.id).owner, "dev-a", "waits on nothing yet");
+    r.revoked.write().unwrap().insert("dev-a".into());
+    devs.write().unwrap().moves.remove("dev-a");
+    sweep_both(&r);
+    for e in [&r.b, &r.c] {
+        assert!(e.rows(store::kinds::TASK_STATUS).is_empty(), "never closed");
+    }
+    r.c.c.pull_asks().unwrap();
+    r.b.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&r.b, &r.t.id).owner, "dev-b");
+    let t = r.b.c.get_task(&r.t.id).unwrap();
+    assert!(t.open_ask().is_some() && t.state != CANCELED, "{t:?}");
+    let _ = &r.phone;
+}
+
+/// Card #1265: an ask that moved to a computer which is then removed
+/// moves on to a live one; it isn't closed for the computer it lived on.
+#[test]
+fn removing_the_device_an_ask_moved_to_keeps_it_open_and_moves_it() {
+    let devs = Arc::new(RwLock::new(AgentDevices {
+        homes: vec!["dev-c".into(), "dev-b".into()],
+        cant: HashSet::from(["dev-a".to_string()]),
+        moves: HashSet::from([
+            "dev-a".to_string(),
+            "dev-b".to_string(),
+            "dev-c".to_string(),
+        ]),
+        ..AgentDevices::default()
+    }));
+    let r = removal_rig(devs.clone(), true);
+    // dev-c, the ask home, takes the phone's thread.
+    r.c.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&r.c, &r.t.id).owner, "dev-c");
+    sync_rows(&r.c, &r.b);
+    assert_eq!(ask_of(&r.b, &r.t.id).owner, "dev-c");
+    // dev-c is removed: the Core drops it from every list.
+    r.revoked.write().unwrap().insert("dev-c".into());
+    {
+        let mut d = devs.write().unwrap();
+        d.homes = vec!["dev-b".into()];
+        d.moves.remove("dev-c");
+    }
+    r.b.c.sweep_asks(&[]).unwrap();
+    assert!(
+        rows_by(&r.b, store::kinds::TASK_STATUS, "dev-b").is_empty(),
+        "never closed"
+    );
+    r.b.c.pull_asks().unwrap();
+    let a = ask_of(&r.b, &r.t.id);
+    assert_eq!(a.owner, "dev-b");
+    let t = r.b.c.get_task(&r.t.id).unwrap();
+    assert_ne!(t.state, CANCELED);
+}
+
+/// Card #1265: two live computers see one removal; only the ask home
+/// writes the move, whichever sweeps first, and neither writes a close.
+#[test]
+fn a_removed_owners_ask_moves_once_whichever_computer_sweeps_first() {
+    let devs = Arc::new(RwLock::new(AgentDevices {
+        homes: vec!["dev-b".into(), "dev-c".into()],
+        cant: HashSet::from(["dev-a".to_string()]),
+        moves: HashSet::from(["dev-b".to_string(), "dev-c".to_string()]),
+        ..AgentDevices::default()
+    }));
+    // Spawning off: only the removal moves it.
+    let r = removal_rig(devs, false);
+    r.revoked.write().unwrap().insert("dev-a".into());
+    // The device that isn't the home goes first, and writes nothing.
+    r.c.c.pull_asks().unwrap();
+    r.c.c.sweep_asks(&[]).unwrap();
+    assert!(rows_by(&r.c, store::kinds::ASK_MOVED, "dev-c").is_empty());
+    assert!(rows_by(&r.c, store::kinds::TASK_STATUS, "dev-c").is_empty());
+    r.b.c.pull_asks().unwrap();
+    r.b.c.sweep_asks(&[]).unwrap();
+    // A second sweep writes no second move.
+    r.b.c.pull_asks().unwrap();
+    sync_rows(&r.b, &r.c);
+    sync_rows(&r.c, &r.b);
+    r.c.c.pull_asks().unwrap();
+    sweep_both(&r);
+    for e in [&r.b, &r.c] {
+        let moved = e.rows(store::kinds::ASK_MOVED);
+        assert_eq!(moved.len(), 1, "{moved:?}");
+        assert_eq!(moved[0].device_id, "dev-b");
+        assert!(e.rows(store::kinds::TASK_STATUS).is_empty(), "never closed");
+        assert_eq!(ask_of(e, &r.t.id).owner, "dev-b");
+    }
+}
+
 /// Card #686: dev-a and dev-b are computers, `full` the ones with no free
 /// slot; dev-a comes first, so it is the ask home the old rule pulls to.
 fn computers(full: &[&str]) -> Arc<RwLock<AgentDevices>> {

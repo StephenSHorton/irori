@@ -2562,14 +2562,6 @@ impl Fold {
         ev.actor == "user"
     }
 
-    /// The person at this device as a caller.
-    pub(crate) fn self_key(&self) -> String {
-        if self.on_board {
-            return self.person.clone();
-        }
-        format!("user:{}", self.dev)
-    }
-
     /// Whether ev can't fold yet; `earlier` are the rows already waiting
     /// that came before it.
     fn unresolved(&self, ev: &Event, earlier: &[Event]) -> bool {

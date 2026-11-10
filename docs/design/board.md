@@ -203,7 +203,7 @@ An ask has exactly one taker. The take lock follows v0.4 §6.0 (owners and reque
 **The cost, stated plainly:** a claim needs the owner reachable. The owner is the device Stephen just typed on, so it almost always is. If it goes offline before granting, the ask **freezes**, like a delivery on an offline device (§6.2):
 - Every other window shows "Waiting for <device> to hand it out".
 - Stephen's way out is Close (a person's `task.status` from any device) and posting it again from where he is.
-- If the owner is revoked, the fold closes the ask: "posting device removed".
+- If the owner is removed, the ask moves to a live computer of the person's with `ask.moved`, as from an away owner (card #541), whatever it waits on; it is never closed for it (card #1265: the owner is where the ask lives now, not who posted it, and closing the person's own threads because a device went away lost 42 of them).
 
 **What the lock refuses.** On an ask that has no outcome yet, the fold ignores `task.claimed`, `task.joined` and `task.assigned`, so an older device's `board_join` can't take it around the lock. Holders are derived from the owner's `take.state`: `[taker]` or none. `board_join`, `board_assign` and `board_status` on such an ask are refused, and the error points to `ask_claim` and `ask_close`. The person can still Close it.
 
