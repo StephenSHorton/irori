@@ -1719,6 +1719,9 @@ impl Services {
             b.spawn("changes", move || {
                 let _reg = reg;
                 while let Some(ch) = q.recv() {
+                    if let Some(s) = s.upgrade() {
+                        s.catch_up.changed();
+                    }
                     match s.upgrade() {
                         // A card in a hidden DM space reaches no window or
                         // feed (card #538).

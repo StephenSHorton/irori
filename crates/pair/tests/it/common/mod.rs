@@ -187,6 +187,7 @@ fn open(
         ignored: None,
         assistant_turns: None,
         on_settled: None,
+        on_hello: None,
         logf: Some(Arc::new(move |m: &str| eprintln!("{n}: {m}"))),
         now: None,
     });

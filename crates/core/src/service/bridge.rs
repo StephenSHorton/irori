@@ -617,7 +617,8 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
     /// are; a resync never replays it (bridge_row runs on live rows only).
     fn mention_note(&self, b: &BoardLog, t: &Task, who: &str, person: &str, f: &RowFields) {
         let n = &self.notifier.0;
-        if n.is_headless() {
+        // Nor while this device loads the person's history (card #1094).
+        if n.is_headless() || self.catch_up.loading() {
             return;
         }
         let short = if t.short.is_empty() {
@@ -662,7 +663,7 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
     /// they pick Keep it or Cancel it (`notifications.rs`).
     fn blocker_note(&self, b: &BoardLog, t: &Task, who: &str, person: &str, f: &RowFields) {
         let n = &self.notifier.0;
-        if n.is_headless() {
+        if n.is_headless() || self.catch_up.loading() {
             return;
         }
         let Some(id) = f

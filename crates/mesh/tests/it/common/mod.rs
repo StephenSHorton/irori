@@ -139,6 +139,7 @@ impl Dev {
             ignored: None,
             assistant_turns: None,
             on_settled: None,
+            on_hello: None,
             logf: Some(Arc::new(move |m: &str| eprintln!("{name}: {m}"))),
             now: Some({
                 let c = self.clk.clone();

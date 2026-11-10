@@ -221,6 +221,12 @@ impl Core {
         self.s.notifications.items_of(keys)
     }
 
+    /// Whether this device is loading the person's history now, from
+    /// another of their devices, without notifications (card #1094).
+    pub fn loading_history(&self) -> bool {
+        self.s.catch_up.loading()
+    }
+
     /// How many notifications the person hasn't read.
     pub fn unread_notifications(&self) -> usize {
         self.s.notifications.unread()

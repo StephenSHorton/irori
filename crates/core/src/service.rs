@@ -70,6 +70,7 @@ mod boards_own;
 pub mod boards_presence;
 pub mod boards_status;
 mod bridge;
+mod catch_up;
 pub mod call_settings;
 pub(crate) mod calls;
 mod calls_over;
@@ -342,6 +343,8 @@ struct Services {
     talk: Arc<coord::talk::Talk>,
     /// The person's notification history (card #377).
     notifications: Arc<coord::notifications::History>,
+    /// Whether the person's history is loading here, quietly (card #1094).
+    catch_up: Arc<catch_up::CatchUp>,
     /// The Office Assistant's one conversation (card #1102).
     assistant_chat: Arc<assistant_chat::Fold>,
     files: blob::Files,
@@ -1633,6 +1636,9 @@ impl Core {
         // The home server comes after the Pairer (it asks whether a window
         // is open); the Pairer reads it back through this cell.
         let home_cell: Arc<OnceLock<home::Server>> = Arc::new(OnceLock::new());
+        // A load of the person's history starts at a session's hello,
+        // before its rows (card #1094).
+        let catch_up = Arc::new(catch_up::CatchUp::new(st.clone(), Default::default()));
         let pairing = {
             let own_rt = match &opts.runtime {
                 Some(_) => None,
@@ -1687,6 +1693,14 @@ impl Core {
                             cell.get()
                                 .and_then(|w| w.upgrade())
                                 .and_then(|s| s.chat.stream_open(turn))
+                        }))
+                    },
+                    on_hello: {
+                        let c = catch_up.clone();
+                        Some(Arc::new(move |peer: &str, target: &store::Vector| {
+                            if let Some(l) = c.hello(peer, target) {
+                                crate::log(&l);
+                            }
                         }))
                     },
                     // A settled removal drops the device's row: the
@@ -1807,6 +1821,7 @@ impl Core {
             device_names,
             talk,
             notifications,
+            catch_up,
             assistant_chat,
             files,
             scrubber,
@@ -1981,6 +1996,12 @@ impl Core {
                     Arc::new(move |id: &str| f.has(id).then(|| f.path(id)))
                 }),
                 seen: Some(Arc::new(notify::SeenFile::new(&s.data_dir))),
+                // What comes while the person's history loads is no news
+                // (card #1094).
+                quiet: Some({
+                    let c = s.catch_up.clone();
+                    Arc::new(move || c.loading())
+                }),
             },
         );
         laps.lap("watch");
@@ -2046,6 +2067,26 @@ impl Core {
 
     fn start_loops(&self, opts: &Options, changes: Arc<presence::Subscription>, subs: Subs) {
         let s = &self.s;
+
+        // The steps of a quiet load of the person's history (card #1094).
+        {
+            let (s, ct) = (s.clone(), self.stop_async.clone());
+            let every = s.catch_up.times().tick;
+            self.spawn_async("catch-up", opts.runtime.as_ref(), async move {
+                let mut t = tokio::time::interval(every);
+                t.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    tokio::select! {
+                        _ = ct.cancelled() => return,
+                        _ = t.tick() => {}
+                    }
+                    let node = &s.mesh.node;
+                    if let Some(l) = s.catch_up.tick(|p| node.reaches(p)) {
+                        crate::log(&l);
+                    }
+                }
+            });
+        }
 
         // Presence.
         {
@@ -2576,6 +2617,7 @@ impl Core {
             self.spawn("feed-inbox", move || {
                 let _reg = reg;
                 while let Some(ch) = sub.recv() {
+                    s.catch_up.changed();
                     // An agent's message shows as a DM from its delivery's
                     // first row (list-signals.md §3.2).
                     // Only a first row or a move can show one: no lookup
@@ -2607,6 +2649,7 @@ impl Core {
                 // #482).
                 s2.settle_notifications();
                 while let Some(ch) = q.recv() {
+                    s2.catch_up.changed();
                     if s2
                         .coord
                         .get_task(&ch.task_id)
@@ -2734,6 +2777,7 @@ impl Core {
             self.spawn("feed-asks", move || {
                 let _reg = reg;
                 while let Some(id) = q.recv() {
+                    s.catch_up.changed();
                     s.hub.publish(CoreEvent::Asks(id));
                     s.settle_notifications();
                 }
@@ -4518,9 +4562,10 @@ impl Services {
         else {
             return;
         };
-        // A device catching up on old posts doesn't ring for each.
+        // A device catching up on old posts doesn't ring for each, nor
+        // for the newest while it loads the person's history (card #1094).
         let age = (self.now)().unix_milli_value() - p.at.unix_milli_value();
-        if age >= FRESH.as_millis() as i64 {
+        if age >= FRESH.as_millis() as i64 || self.catch_up.loading() {
             return;
         }
         let who = if coord::talk::is_person_key(&p.by) {

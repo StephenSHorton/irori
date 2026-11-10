@@ -60,6 +60,10 @@ pub const BOARD_EVERY: Duration = Duration::from_millis(250);
 /// room has gone.
 const HOLD_RECHECK: Duration = Duration::from_secs(1);
 
+/// How often Watch looks whether a quiet spell ([`Sources::quiet`]) has
+/// ended, when nothing else comes.
+const QUIET_TICK: Duration = Duration::from_millis(250);
+
 /// The inbox Watch follows and acts through.
 pub trait InboxFeed: InboxSource + Send + Sync {
     /// The change queue (Go `Subscribe`); dropping or closing it ends it.
@@ -188,7 +192,17 @@ pub struct Sources {
     /// Which message cards earlier runs showed, so a restart doesn't toast
     /// them again (#364); `None` remembers only within this run.
     pub seen: Option<Arc<dyn inbox::watch::SeenStore>>,
+    /// While it says true, what comes is no news (card #1094: the person's
+    /// history loading on a freshly Reset or newly paired device): Board
+    /// and inbox cards are seeded without showing, as at start. When it
+    /// turns false, what came in the meantime is seeded too, and only what
+    /// happens after gets a card. Asks keep their cards: an open one is
+    /// live. `None` is never quiet.
+    pub quiet: Option<QuietFn>,
 }
+
+/// Whether notifications hold off now ([`Sources::quiet`]).
+pub type QuietFn = Arc<dyn Fn() -> bool + Send + Sync>;
 
 /// Resolves an attachment's sha256 to its file on this device.
 pub type FileFn = Arc<dyn Fn(&str) -> Option<std::path::PathBuf> + Send + Sync>;
@@ -274,6 +288,7 @@ async fn run(
         unclaimed: HashMap::new(),
         returned: HashMap::new(),
         recheck: None,
+        quiet: false,
         s,
     };
 
@@ -284,10 +299,17 @@ async fn run(
             w.ask(&x.id); // waiting asks get their card: it is the only way to them
         }
     }
+    w.quiet = w.s.quiet.as_ref().is_some_and(|f| f());
     let mut ich = None;
     if let Some(ib) = w.s.inbox.clone() {
         ich = Some(ib.subscribe());
-        w.inbox.start(ib.as_ref(), &mut sink(&w.n, &w.presses)); // what waits gets its card
+        if w.quiet {
+            // The person's history is loading: what it brought is no news.
+            w.inbox
+                .reconcile(ib.as_ref(), &mut sink(&w.n, &w.presses), false);
+        } else {
+            w.inbox.start(ib.as_ref(), &mut sink(&w.n, &w.presses)); // what waits gets its card
+        }
     }
     let mut cch = None;
     if let Some(b) = w.s.board.clone() {
@@ -308,6 +330,7 @@ async fn run(
             BoardDue,
             Ask(Option<String>),
             Press(CardAct),
+            QuietTick,
             Stop,
         }
         let ev = {
@@ -324,15 +347,20 @@ async fn run(
                 _ = tokio::time::sleep_until(w.recheck.unwrap_or(last)), if w.recheck.is_some() => Ev::BoardDue,
                 c = recv(aq.as_deref()), if aq.is_some() => Ev::Ask(c),
                 Some(p) = prx.recv() => Ev::Press(p),
+                _ = tokio::time::sleep(QUIET_TICK), if w.quiet => Ev::QuietTick,
             }
         };
         match ev {
             Ev::Stop => {
                 // The next start seeds quietly: what waits gets its card now.
                 if due.is_some() || cch.as_ref().is_some_and(|q| !q.is_empty()) {
-                    w.board(true);
+                    let post = w.loud();
+                    w.board(post);
                 }
                 return;
+            }
+            Ev::QuietTick => {
+                w.loud();
             }
             Ev::Ask(None) => ach = None,
             // An empty id is every ask: a re-fold, or ids this reader lost.
@@ -341,15 +369,22 @@ async fn run(
             Ev::Inbox(None) => ich = None,
             Ev::Inbox(Some(c)) => {
                 let drained = ich.as_ref().is_some_and(|q| q.is_empty());
+                let post = w.loud();
                 if let Some(ib) = w.s.inbox.clone() {
-                    w.inbox
-                        .on_change(&c, drained, ib.as_ref(), &mut sink(&w.n, &w.presses));
+                    w.inbox.on_change_post(
+                        &c,
+                        drained,
+                        post,
+                        ib.as_ref(),
+                        &mut sink(&w.n, &w.presses),
+                    );
                 }
             }
             Ev::Board(None) => {
                 cch = None;
                 if due.take().is_some() {
-                    w.board(true); // the changes that were waiting for it
+                    let post = w.loud();
+                    w.board(post); // the changes that were waiting for it
                 }
             }
             Ev::Board(Some(c)) if due.is_some() && !w.in_lane(&c.task_id) => {} // it reads this too
@@ -363,7 +398,8 @@ async fn run(
                 if let Some(q) = &cch {
                     while let TryRecv::Item(_) = q.try_recv() {}
                 }
-                w.board(true);
+                let post = w.loud();
+                w.board(post);
                 last = Instant::now();
             }
             Ev::Press(act) => {
@@ -477,6 +513,8 @@ struct State {
     /// When to read the Board again for a notice on hold (card #995). Its
     /// own timer: `due` being set makes the loop ignore board changes.
     recheck: Option<Instant>,
+    /// [`Sources::quiet`] as last read: cards are held off.
+    quiet: bool,
 }
 
 /// The Board half of the watcher, also usable without the loop (tests).
@@ -586,6 +624,23 @@ impl State {
     /// Whether card `id` was in the Needs you lane at the last reconcile.
     fn in_lane(&self, id: &str) -> bool {
         self.needs.iter().any(|k| k.split('#').next() == Some(id))
+    }
+
+    /// Whether cards may show now ([`Sources::quiet`], card #1094). The
+    /// look that sees a quiet spell end first seeds, without cards, what
+    /// came during it: a change still queued or due when it ended is part
+    /// of it.
+    fn loud(&mut self) -> bool {
+        let q = self.s.quiet.as_ref().is_some_and(|f| f());
+        if self.quiet && !q {
+            self.board(false);
+            if let Some(ib) = self.s.inbox.clone() {
+                self.inbox
+                    .reconcile(ib.as_ref(), &mut sink(&self.n, &self.presses), false);
+            }
+        }
+        self.quiet = q;
+        !q
     }
 
     fn board(&mut self, post: bool) {

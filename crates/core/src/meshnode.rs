@@ -105,6 +105,8 @@ pub(crate) struct Parts {
     pub assistant_turns: Option<mesh::AssistantTurnsFn>,
     /// Hears each removal that settles (card #1240).
     pub on_settled: Option<mesh::node::SettledFn>,
+    /// Hears each session with an own device come up (card #1094).
+    pub on_hello: Option<mesh::node::HelloFn>,
 }
 
 impl Mesh {
@@ -129,6 +131,7 @@ impl Mesh {
             ignored: p.ignored,
             assistant_turns: p.assistant_turns,
             on_settled: p.on_settled,
+            on_hello: p.on_hello,
             logf: Some(Arc::new(|l: &str| crate::log(l))),
             now: p.now,
         });

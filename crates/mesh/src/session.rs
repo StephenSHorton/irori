@@ -632,6 +632,12 @@ impl Session {
             g.peer_vec = f.vector.clone();
         }
         n.note_vector(&peer, &f.vector);
+        // Before any of its rows: they come on this same read loop.
+        if let Some(hook) = &n.o.on_hello
+            && let Some(target) = n.catch_up_target(&peer, &f.vector)
+        {
+            hook(&peer, &target);
+        }
         n.log(&format!(
             "mesh: {peer}: session up (epoch {}, {})",
             self.epoch,

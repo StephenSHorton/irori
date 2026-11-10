@@ -106,6 +106,10 @@ pub type IgnoredFn = Arc<dyn Fn() -> BTreeMap<String, i64> + Send + Sync>;
 /// Hears that a removed device's removal settled here (card #1240): the
 /// Devices list no longer has its row.
 pub type SettledFn = Arc<dyn Fn(&str) + Send + Sync>;
+/// Hears a session come up with one of the person's own devices (card
+/// #1094), before any of its rows: the device and the rows this one must
+/// hold to have caught up with it ([`Node::catch_up_target`]).
+pub type HelloFn = Arc<dyn Fn(&str, &Vector) + Send + Sync>;
 /// Opens a running (or waiting) turn's frames for an `assistant/<turn>`
 /// stream (card #1107): `None` when this device runs no such turn.
 pub type AssistantTurnsFn =
@@ -135,6 +139,8 @@ pub struct Options {
     pub assistant_turns: Option<AssistantTurnsFn>,
     /// Hears each removal that settles here (card #1240).
     pub on_settled: Option<SettledFn>,
+    /// Hears each session with an own device come up (card #1094).
+    pub on_hello: Option<HelloFn>,
     pub logf: Option<LogFn>,
     pub now: Option<NowFn>,
 }
@@ -993,11 +999,7 @@ impl Node {
     /// stuck writer can't hold the assistant forever. With no own device
     /// connected it is true.
     pub fn caught_up(&self) -> bool {
-        let devices = self.o.chain.devices();
-        let own: BTreeMap<String, Option<i64>> = devices
-            .iter()
-            .map(|d| (d.cert.device_id.clone(), d.revoked.then_some(d.cut)))
-            .collect();
+        let own = self.own_cuts();
         let connected: Vec<String> = self
             .session_list()
             .iter()
@@ -1027,6 +1029,42 @@ impl Node {
                 ours.get(writer).copied().unwrap_or(0) >= want
             })
         })
+    }
+
+    /// The person's devices, each with its cut when revoked.
+    fn own_cuts(&self) -> BTreeMap<String, Option<i64>> {
+        self.o
+            .chain
+            .devices()
+            .iter()
+            .map(|d| (d.cert.device_id.clone(), d.revoked.then_some(d.cut)))
+            .collect()
+    }
+
+    /// The rows this device must hold to have caught up with `peer`, from
+    /// the vector its hello named (card #1094), as [`Node::caught_up`]
+    /// counts them: a stopped writer is left out and a revoked one's rows
+    /// end at its cut. This device's own rows are left out too. `None`
+    /// when `peer` is not one of the person's devices, or is revoked.
+    pub fn catch_up_target(&self, peer: &str, v: &Vector) -> Option<Vector> {
+        let own = self.own_cuts();
+        if peer == self.self_id || !own.get(peer).is_some_and(|cut| cut.is_none()) {
+            return None;
+        }
+        let g = self.lock();
+        Some(
+            v.iter()
+                .filter(|(w, _)| **w != self.self_id && !g.stopped.contains_key(*w))
+                .map(|(w, seq)| {
+                    let want = match own.get(w) {
+                        Some(Some(cut)) => (*seq).min(*cut),
+                        _ => *seq,
+                    };
+                    (w.clone(), want)
+                })
+                .filter(|(_, seq)| *seq > 0)
+                .collect(),
+        )
     }
 
     /// Rows of `dev` were applied from the connection to `peer` (card

@@ -363,14 +363,27 @@ impl Watcher {
         src: &dyn InboxSource,
         sink: &mut dyn Sink,
     ) {
+        self.on_change_post(c, drained, true, src, sink);
+    }
+
+    /// [`Watcher::on_change`]; post false seeds without cards (card
+    /// #1094: the person's history loading here is no news).
+    pub fn on_change_post(
+        &mut self,
+        c: &Change,
+        drained: bool,
+        post: bool,
+        src: &dyn InboxSource,
+        sink: &mut dyn Sink,
+    ) {
         if !c.delivery_id.is_empty()
             && let Some(d) = src.get(&c.delivery_id)
         {
-            self.delivery(&d, c.kind == ChangeKind::HeldNew, true, sink);
+            self.delivery(&d, c.kind == ChangeKind::HeldNew, post, sink);
             self.flush(sink);
         }
         if drained {
-            self.reconcile(src, sink, true);
+            self.reconcile(src, sink, post);
         }
     }
 
@@ -549,8 +562,12 @@ impl Watcher {
                 if !self.seen.contains(&id) {
                     fresh.push(d.clone());
                 }
-            } else if post && !self.seen.contains(&id) {
-                sink.post(self.message_note(d));
+            } else if !self.seen.contains(&id) {
+                // Seeded without a card, it counts as had too: a restart
+                // doesn't show it as one that waited.
+                if post {
+                    sink.post(self.message_note(d));
+                }
                 self.seen.insert(id.clone());
                 self.save_seen();
             }
@@ -564,7 +581,8 @@ impl Watcher {
     }
 
     /// Re-reads the open deliveries so a dropped change can't leave a card
-    /// wrong. post false seeds without cards.
+    /// wrong. post false seeds without cards, and its messages count as
+    /// seen.
     pub fn reconcile(&mut self, src: &dyn InboxSource, sink: &mut dyn Sink, post: bool) {
         let mut open = HashSet::new();
         for d in src.open() {
