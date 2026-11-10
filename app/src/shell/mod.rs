@@ -352,8 +352,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     sync_out::on_quit(&core);
                 }
                 // Go OnShutdown(InstallOnExit): a ready update installs
-                // silently and leaves Irori closed (/NORELAUNCH).
-                updater.install_on_exit();
+                // silently and leaves Irori closed (/NORELAUNCH). Not when
+                // a Reset started a copy to open Irori again (#1095): that
+                // would swap the app under it.
+                #[cfg(desktop)]
+                let reopening = relaunch::started();
+                #[cfg(mobile)]
+                let reopening = false;
+                if !reopening {
+                    updater.install_on_exit();
+                }
                 pumps_stop.cancel();
                 let closed = match hosted.lock().unwrap_or_else(|e| e.into_inner()).take() {
                     Some((h, window)) => {
@@ -864,12 +872,12 @@ fn wire_window(app: &AppHandle, window: &Arc<Window>, updater: &Arc<::update::Up
 }
 
 /// Reset's way back (card #1095): the next start finishes the Reset, so
-/// something must start Irori again. With an update ready, quitting would
-/// install it (`install_on_exit`) and swap the app under a copy started
-/// here, so the updater's own restart installs it and opens the new
-/// version instead. Otherwise a copy of this exe waits for this one to exit
-/// ([`relaunch`]). Either failing leaves the old behaviour: Irori quits and
-/// the Reset finishes when it is opened by hand.
+/// something must start Irori again. With an update ready, the updater's
+/// own restart installs it and opens the new version; one already
+/// installing opens it by itself. Otherwise a copy of this exe waits for
+/// this one to exit ([`relaunch`]), and the quit installs nothing under it
+/// (the copy offers the update again). If the copy can't start, Irori just
+/// quits and the Reset finishes when it is opened by hand.
 #[cfg(desktop)]
 fn reopen_after_reset(updater: &::update::Updater) {
     match updater.restart_to_update() {
@@ -877,14 +885,12 @@ fn reopen_after_reset(updater: &::update::Updater) {
             irori_core::log("irori: Reset: installing the ready update, which opens Irori again");
             return;
         }
-        // Ready but its launch failed: quitting tries the install again,
-        // so no copy of this version may start.
-        Err(e) if updater.status().phase == ::update::PHASE_READY => {
-            irori_core::log(&format!(
-                "irori: Reset: {e}; open Irori again by hand to finish the Reset"
-            ));
+        Err(_) if updater.status().phase == ::update::PHASE_INSTALLING => {
+            irori_core::log("irori: Reset: an update is installing and opens Irori again");
             return;
         }
+        // Not ready, or its installer didn't start: a copy of this
+        // version comes back instead.
         Err(_) => {}
     }
     match relaunch::spawn_after_exit() {

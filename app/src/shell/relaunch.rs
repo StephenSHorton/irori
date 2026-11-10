@@ -9,6 +9,7 @@
 //! environment and come back on the live `~/.irori`. It gets no arguments,
 //! so it shows its window even when this one started at login.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// Set on the new copy: the pid it waits for before it starts.
@@ -17,6 +18,16 @@ pub const AFTER_ENV: &str = "IRORI_RELAUNCH_AFTER";
 /// The longest the new copy waits, as the updater's swap helper does; then
 /// it starts anyway (and hands off if the old one still runs).
 const WAIT: Duration = Duration::from_secs(120);
+
+/// Set once a copy is started: the quit then installs no update
+/// (`install_on_exit`), which would swap the app under the copy. The copy
+/// checks for the update again and offers it.
+static STARTED: AtomicBool = AtomicBool::new(false);
+
+/// Whether a copy was started to open Irori again.
+pub fn started() -> bool {
+    STARTED.load(Ordering::SeqCst)
+}
 
 /// Starts the new copy and returns its pid. Its stdio goes nowhere and it
 /// has its own process group: it must outlive this process, which may own
@@ -41,7 +52,12 @@ pub fn spawn_after_exit() -> std::io::Result<u32> {
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         c.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
-    c.spawn().map(|child| child.id())
+    // Set before the spawn, so a quit already on its way can't install
+    // under a copy that is starting.
+    STARTED.store(true, Ordering::SeqCst);
+    c.spawn().map(|child| child.id()).inspect_err(|_| {
+        STARTED.store(false, Ordering::SeqCst);
+    })
 }
 
 /// In the new copy: waits for the old one to exit, so its lockfile and
