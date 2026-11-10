@@ -5,7 +5,8 @@
 //   ?settings[=<s>] opens Settings at a section: notifications, appearance,
 //                   devices, people, agents, desks or app
 //   ?storage[=<kind>] opens Storage (card #728), or one kind's page
-//   ?devices        opens Settings at Devices and connections
+//   ?devices        opens Settings at Devices and connections; ?devices=removed
+//                   shows this device removed, with its Reset (card #1095)
 //   ?boards         opens New or join a space (card #689)
 //   ?share=<card>   opens Share to board on that card's page
 //   ?transfer=<card> opens Transfer ownership (or Ask to own it) there

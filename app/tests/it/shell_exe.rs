@@ -207,15 +207,26 @@ fn reset_quits_and_opens_again_as_a_new_device() {
     // The old one quits by itself.
     let st = wait_exit(&mut first.0, Duration::from_secs(60));
     assert!(st.success(), "the Reset's quit: {st}");
-    // And a new one comes up on the same home, as a new device.
+    // And a new one comes up on the same home, as a new device. Its pid
+    // is noted as soon as it holds the home, so a failure below ends it.
+    let mut lf = None;
     wait_for(
         "Irori to open again after the Reset",
         Duration::from_secs(120),
+        || {
+            lf = irori_core::lockfile::read(&home)
+                .ok()
+                .filter(|l| l.pid != old_pid);
+            lf.is_some()
+        },
+    );
+    let lf = lf.unwrap();
+    copy.0 = Some(lf.pid);
+    wait_for(
+        "the reopened Irori to be ready",
+        Duration::from_secs(120),
         || readies(&log) == 2,
     );
-    let lf = irori_core::lockfile::read(&home).expect("the reopened Irori's lockfile");
-    copy.0 = Some(lf.pid);
-    assert_ne!(lf.pid, old_pid, "the lockfile still names the old pid");
     assert!(!lf.headless);
     assert!(sys::proc::alive(lf.pid), "the reopened Irori is not running");
     assert!(

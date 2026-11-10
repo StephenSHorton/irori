@@ -79,6 +79,13 @@ function sampleList(): DeviceView[] {
       state: "this",
       color: "teal",
       sides: ["Personal"],
+      // ?devices=removed: removed by another device, so Reset shows (#1095).
+      ...(new URLSearchParams(window.location.search).get("devices") === "removed"
+        ? {
+            warning: "Removed from your devices by MacBook. Reset this device to pair it again.",
+            action: "reset",
+          }
+        : {}),
     }),
     DeviceView({
       deviceId: "sample-mac",

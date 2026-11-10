@@ -303,12 +303,12 @@ function DeviceRow({
             <ConfirmButton
               label="Reset"
               variant="destructive"
-              confirmLabel={isAndroid() ? "Reset and quit" : "Reset and restart"}
+              confirmLabel={onPhone() ? "Reset and quit" : "Reset and restart"}
               question={
                 <>
                   Reset this device? Its event log, device id and keys move
                   aside (nothing is deleted) and only the settings stay.{" "}
-                  {isAndroid()
+                  {onPhone()
                     ? "Irori quits; open it again to pair this device as a new one."
                     : "Irori restarts as a new device, ready to pair."}
                 </>
@@ -320,6 +320,12 @@ function DeviceRow({
       )}
     </li>
   )
+}
+
+// onPhone: a phone can't start Irori again after a Reset, so there it only
+// quits (card #1095); a desktop restarts as the new device.
+function onPhone(): boolean {
+  return isAndroid() || /\b(iPhone|iPad)\b/.test(globalThis.navigator?.userAgent ?? "")
 }
 
 // HomeServer is the Home server section (§7.1, §9). On this device: the
