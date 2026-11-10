@@ -3275,6 +3275,7 @@ export type PairStatus = {
 	state: string,
 	code?: string,
 	serverAddr?: string,
+	lanAddr?: string,
 	via?: string,
 	expires?: string | null,
 	role?: string,

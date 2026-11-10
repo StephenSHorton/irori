@@ -173,6 +173,14 @@ async fn status_home_only() {
         st.reach == REACH_HOME && st.line.is_empty(),
         "status {st:?}"
     );
+    // Home only: no address from outside, but devices in the home still
+    // have one to type when pairing can't find this one (card #1260).
+    assert_eq!(st.address, "", "an outside address with outside off");
+    let port = n.srv.relay_port().unwrap();
+    assert_eq!(n.srv.lan_addr(), format!("127.0.0.1:{port}"));
+    n.srv.set(false, false, "").unwrap();
+    eventually("stopped", || n.srv.relay_port().is_none()).await;
+    assert_eq!(n.srv.lan_addr(), "", "a LAN address with no server");
     n.shutdown().await;
 }
 

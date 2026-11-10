@@ -758,12 +758,7 @@ function ShowCode({
           <span className="font-mono text-ink">{s.fingerprint}</span>
         </p>
       )}
-      {s.serverAddr && (
-        <p className="text-xs text-muted-foreground">
-          Joining from outside your home? Server address{" "}
-          <span className="font-mono text-ink select-all">{s.serverAddr}</span>
-        </p>
-      )}
+      <PairAddrs status={s} />
       {copied && (
         <p className="text-xs text-warning">
           Copied. Any agent on this machine can read the clipboard.
@@ -779,11 +774,73 @@ function ShowCode({
               .then(() => setCopied(true))
           }
         >
-          Copy
+          Copy code
         </Button>
         {cancel}
       </div>
     </div>
+  )
+}
+
+// pairAddrLines are the lines under the code with an address the joiner
+// can type (card #1260): the home server's inside the home, for when the
+// other device can't find this one on the network, and the one from
+// outside. An address shows once even when both are the same.
+export function pairAddrLines(
+  s: Pick<PairStatus, "lanAddr" | "serverAddr">
+): { lead: string; addr: string }[] {
+  const out: { lead: string; addr: string }[] = []
+  if (s.lanAddr)
+    out.push({
+      lead: "If the other device can't find this one, enter",
+      addr: s.lanAddr,
+    })
+  if (s.serverAddr && s.serverAddr !== s.lanAddr)
+    out.push({
+      lead: "If it's outside your home, enter",
+      addr: s.serverAddr,
+    })
+  return out
+}
+
+// PairAddrs shows pairAddrLines, each with its own Copy. An address isn't
+// a secret, so copying one carries no clipboard warning.
+export function PairAddrs({ status: s }: { status: PairStatus }) {
+  const lines = pairAddrLines(s)
+  if (lines.length === 0) return null
+  return (
+    <div className="grid gap-1">
+      {lines.map((l) => (
+        <PairAddr key={l.addr} lead={l.lead} addr={l.addr} />
+      ))}
+    </div>
+  )
+}
+
+function PairAddr({ lead, addr }: { lead: string; addr: string }) {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const t = window.setTimeout(() => setCopied(false), 2000)
+    return () => window.clearTimeout(t)
+  }, [copied])
+  return (
+    <p className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+      <span>
+        {lead} <span className="font-mono text-ink select-all">{addr}</span>{" "}
+        there.
+      </span>
+      <Button
+        size="xs"
+        variant="ghost"
+        aria-label={"Copy " + addr}
+        onClick={() =>
+          void navigator.clipboard?.writeText(addr).then(() => setCopied(true))
+        }
+      >
+        {copied ? "Copied" : "Copy"}
+      </Button>
+    </p>
   )
 }
 

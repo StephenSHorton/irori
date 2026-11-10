@@ -6,6 +6,8 @@
 //                   devices, people, agents, desks or app
 //   ?storage[=<kind>] opens Storage (card #728), or one kind's page
 //   ?devices        opens Settings at Devices and connections
+//   ?devices=pair   ... on a Pair a device window at its code, with the home
+//                   server's address under it (lib/devices.ts, card #1260)
 //   ?boards         opens New or join a space (card #689)
 //   ?share=<card>   opens Share to board on that card's page
 //   ?transfer=<card> opens Transfer ownership (or Ask to own it) there

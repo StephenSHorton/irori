@@ -8,7 +8,7 @@
 //! on its own binds nothing. Rows are written only on change, compared
 //! with the newest row in the log, not with memory.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -450,6 +450,22 @@ impl Server {
     /// The relay's port N while it serves.
     pub fn relay_port(&self) -> Option<u16> {
         self.inner.lock().run.as_ref().map(|r| r.port)
+    }
+
+    /// Where a device in the home dials it while it serves (host:port, the
+    /// one a joiner types when pairing can't find this device), or "" with
+    /// no LAN: the address [`Config::on_relay`] is told.
+    pub fn lan_addr(&self) -> String {
+        let i = &self.inner;
+        let Some((port, lan_ip)) = i.lock().run.as_ref().map(|r| (r.port, r.lan_ip)) else {
+            return String::new();
+        };
+        let at = match i.cfg.bind_ip {
+            Some(ip) if !ip.is_unspecified() => Some(ip),
+            _ => lan_ip.map(IpAddr::V4),
+        };
+        at.map(|ip| SocketAddr::new(ip, port).to_string())
+            .unwrap_or_default()
     }
 
     /// Endpoints with a live connection to the relay.

@@ -1713,6 +1713,10 @@ impl Core {
                 let (h, servers) = (home_cell.clone(), mesh.servers.clone());
                 Arc::new(move || server_addr(h.get(), &servers))
             });
+            po.lan_addr = Some({
+                let (h, servers) = (home_cell.clone(), mesh.servers.clone());
+                Arc::new(move || lan_addr(h.get(), &servers))
+            });
             po.window = crate::devices::window_or_default(opts.pair_window);
             po.logf = Some(Arc::new(|l: &str| crate::log(l)));
             (
@@ -5819,6 +5823,25 @@ fn server_addr(home: Option<&home::Server>, servers: &mesh::Servers) -> String {
         .filter_map(|s| servers.row(&s.id))
         .map(|row| row.outside())
         .find(|a| !a.is_empty())
+        .unwrap_or_default()
+}
+
+/// The address a device in the home dials to join when the LAN announce
+/// doesn't reach it (card #1260), shown under the pairing code: this
+/// device's own server's LAN address while it runs, else the first other
+/// server's.
+fn lan_addr(home: Option<&home::Server>, servers: &mesh::Servers) -> String {
+    if let Some(a) = home.map(home::Server::lan_addr)
+        && !a.is_empty()
+    {
+        return a;
+    }
+    servers
+        .list()
+        .iter()
+        .filter_map(|s| servers.row(&s.id))
+        .filter(|row| !row.lan.is_empty())
+        .find_map(|row| row.dial().into_iter().next())
         .unwrap_or_default()
 }
 

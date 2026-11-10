@@ -15,6 +15,7 @@ import {
   PairStatus,
 } from "./models"
 import { EventDevicesChanged, EventRosterChanged, inWails } from "./irori"
+import { previewFlag } from "./preview"
 import { createStore, rosterWatch } from "./small-lists"
 import { appPage } from "./visibility"
 
@@ -55,6 +56,8 @@ export function isOpen(s: PairStatus | null): boolean {
 const SampleWords = ["sample", "words", "for", "this", "browser"]
 const SampleCode = "K7QM-2XWD-9RTF-HB4P"
 const SampleKey = "3f9a 0c21 77de 41b0"
+// SampleLan is the sample home server's address inside the home.
+const SampleLan = "192.168.1.20:24817"
 
 let sampleDevices: DeviceView[] | null = null
 let samplePair = PairStatus({ mode: "", state: "" })
@@ -148,6 +151,31 @@ function sampleJoined(name: string) {
   setSamplePair({ state: PairState.Done })
 }
 
+// samplePreviewPair is the sample's pairing; ?devices=pair opens on an Add
+// window that stays at its code, with the home server running inside the
+// home only (card #1260: the address line under the code).
+function samplePreviewPair(): PairStatus {
+  if (previewFlag("devices") !== "pair" || samplePair.state) return samplePair
+  sampleHome = HomeServerView({
+    ...sampleHome,
+    on: true,
+    outside: false,
+    running: true,
+    port: 24817,
+    reach: "home",
+  })
+  samplePair = PairStatus({
+    mode: "add",
+    state: PairState.Waiting,
+    code: SampleCode,
+    fingerprint: SampleKey,
+    lanAddr: SampleLan,
+    role: "desktop",
+    expires: new Date(Date.now() + 10 * 60_000).toISOString(),
+  })
+  return samplePair
+}
+
 function sampleLater(fn: () => void) {
   window.clearTimeout(sampleTimer)
   sampleTimer = window.setTimeout(fn, 1500)
@@ -162,6 +190,7 @@ const sample = {
       code: SampleCode,
       fingerprint: SampleKey,
       serverAddr: sampleHome.address,
+      lanAddr: sampleHome.running ? SampleLan : undefined,
       role,
       expires: new Date(Date.now() + 10 * 60_000).toISOString(),
     })
@@ -638,7 +667,7 @@ export function usePairing(active: boolean): {
     let live = true
     const first = inWails()
       ? DevicesService.PairingStatus()
-      : Promise.resolve(samplePair)
+      : Promise.resolve(samplePreviewPair())
     void first
       .then((s) => live && setStatus(isOpen(s) ? s : null))
       .catch(() => live && setStatus(null))

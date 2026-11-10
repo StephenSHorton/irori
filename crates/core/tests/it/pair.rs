@@ -309,7 +309,27 @@ fn add_shows_the_home_server_address() {
         .unwrap();
     assert_eq!(st.state, irori_pair::STATE_WAITING);
     assert_eq!(st.server_addr, "", "an address with no server running");
+    assert_eq!(st.lan_addr, "", "a LAN address with no server running");
     core.pairing().cancel();
+
+    // Home only (card #1260): no address from outside, but the LAN one is
+    // under the code for a joiner the LAN announce doesn't reach.
+    core.set_home_server(true, false, "").unwrap();
+    rt.block_on(devices::add_device(&core, irori_identity::ROLE_DESKTOP))
+        .unwrap();
+    wait("the home server runs", || {
+        core.home().is_some_and(|h| h.status().running)
+    });
+    let port = core.home().unwrap().relay_port().unwrap();
+    let want = format!("127.0.0.1:{port}");
+    wait("Add's status carries the LAN address", || {
+        core.pairing().status().lan_addr == want
+    });
+    assert_eq!(core.pairing().status().server_addr, "", "home only");
+    core.pairing().cancel();
+    wait("the home server stops", || {
+        core.home().and_then(|h| h.relay_port()).is_none()
+    });
 
     // A typed public address: the open window starts the server, and the
     // address follows it once it runs.
@@ -325,6 +345,7 @@ fn add_shows_the_home_server_address() {
     wait("Add's status carries the address", || {
         core.pairing().status().server_addr == want
     });
+    assert!(!core.pairing().status().lan_addr.is_empty(), "both addresses");
     core.pairing().cancel();
     core.close().unwrap();
 }

@@ -125,6 +125,10 @@ pub struct Status {
     /// the code for a device joining from away.
     #[serde(rename = "serverAddr", skip_serializing_if = "String::is_empty")]
     pub server_addr: String,
+    /// (add) A home server's address inside the home (host:port), shown
+    /// under the code for a joiner that can't find this device on the LAN.
+    #[serde(rename = "lanAddr", skip_serializing_if = "String::is_empty")]
+    pub lan_addr: String,
     /// (join) The home server address typed, if any.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub via: String,
@@ -205,6 +209,9 @@ pub struct Options {
     pub servers: Option<Arc<dyn ServerHints>>,
     /// The address a device away from home dials to join (`serverAddr`).
     pub server_addr: Option<AddrFn>,
+    /// The address a device in the home dials to join when the LAN
+    /// announce doesn't reach it (`lanAddr`).
+    pub lan_addr: Option<AddrFn>,
 }
 
 impl Options {
@@ -229,6 +236,7 @@ impl Options {
             notify: None,
             servers: None,
             server_addr: None,
+            lan_addr: None,
         }
     }
 }
@@ -323,15 +331,22 @@ impl Inner {
     /// The status as callers see it; `g` is held.
     fn copy_status(g: &Shared) -> Status {
         let mut st = g.st.clone();
-        if st.mode == MODE_ADD
-            && st.open()
-            && let Some(f) = &g.o.server_addr
-        {
+        if st.mode == MODE_ADD && st.open() {
             // The home server may come up (or map its port) after the
-            // window opened: the address under the code follows it.
-            st.server_addr = f();
+            // window opened: the addresses under the code follow it.
+            Self::fill_addrs(&g.o, &mut st);
         }
         st
+    }
+
+    /// The home server addresses Add shows under the code.
+    fn fill_addrs(o: &Options, st: &mut Status) {
+        if let Some(f) = &o.server_addr {
+            st.server_addr = f();
+        }
+        if let Some(f) = &o.lan_addr {
+            st.lan_addr = f();
+        }
     }
 
     /// Publishes Status; `g` is held.
@@ -439,9 +454,9 @@ impl Pairer {
                 fingerprint: fingerprint(&g.o.ident.device_pub()),
                 ..Default::default()
             };
-            if let Some(f) = &g.o.server_addr {
-                g.st.server_addr = f();
-            }
+            let mut st = std::mem::take(&mut g.st);
+            Inner::fill_addrs(&g.o, &mut st);
+            g.st = st;
             self.inner.changed(&g);
             g.o.window
         };

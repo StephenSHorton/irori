@@ -98,3 +98,4 @@ shot 40-storage "?storage"                                   # Storage: what Iro
 shot 41-storage-builds "?storage=builds"                     # one kind's page: build output with Delete
 shot 42-storage-log "?storage=log"                           # the log's page: Clear done cards and threads, Put back
 shot 43-storage-closed "?storage=closed"                     # closed boards, to browse and open (with #690)
+shot 44-devices-pair "?devices=pair"                       # Pair a device at its code: the address under it (card #1260)

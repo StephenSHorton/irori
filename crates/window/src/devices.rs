@@ -159,6 +159,9 @@ pub struct PairStatus {
     pub server_addr: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
+    pub lan_addr: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
     pub via: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional, type = Option<ts::Time>)]
@@ -491,6 +494,7 @@ pub fn pair_status(s: irori_pair::Status) -> PairStatus {
         state: s.state,
         code: s.code,
         server_addr: s.server_addr,
+        lan_addr: s.lan_addr,
         via: s.via,
         expires: s.expires,
         role: s.role,
