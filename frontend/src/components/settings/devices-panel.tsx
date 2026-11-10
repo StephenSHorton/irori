@@ -853,8 +853,8 @@ export function Looking({
     <form className="grid gap-2" onSubmit={(e) => void submit(e)}>
       {looking}
       <p className="text-xs text-muted-foreground">
-        Can&apos;t find it? Enter the server address shown under the code on the
-        other device. Your code is kept.
+        Can&apos;t find it? Enter your home server&apos;s address: at home, the
+        server PC&apos;s local address and port. Your code is kept.
       </p>
       <div className="flex gap-2">
         <Input

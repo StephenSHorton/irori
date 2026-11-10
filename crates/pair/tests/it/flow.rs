@@ -513,11 +513,7 @@ async fn a_join_canceled_and_retried_with_an_address_still_pairs() {
     b.pair.cancel();
     assert_eq!(b.state(), STATE_CANCELED);
     net.heal(&a.id(), &b.id());
-    let again = b
-        .pair
-        .join_via(&st.code, "10.0.0.227:25817")
-        .await
-        .unwrap();
+    let again = b.pair.join_via(&st.code, "10.0.0.227:25817").await.unwrap();
     assert_eq!(again.state, STATE_WAITING);
     assert_eq!(again.via, "10.0.0.227:25817");
     assert_eq!(a.state(), STATE_WAITING, "b's cancel closed a's window");

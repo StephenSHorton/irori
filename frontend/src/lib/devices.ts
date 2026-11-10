@@ -715,7 +715,12 @@ export function usePairing(active: boolean): {
     void first
       .then((s) => live && setStatus(isOpen(s) ? s : null))
       .catch(() => live && setStatus(null))
-    const off = onPairing((s) => live && !skipPairing(s) && setStatus(s))
+    const off = onPairing((s) => {
+      if (!live || skipPairing(s)) return
+      // An ended pairing's code is no use to a later retry.
+      if (!isOpen(s)) joinCode = ""
+      setStatus(s)
+    })
     return () => {
       live = false
       off()
