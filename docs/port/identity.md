@@ -43,7 +43,7 @@ JSON field names of GUI types: `Person{personId,name,epoch,rootDeviceId,personPu
 `BoardPerson{personId,name(omitempty),role,state,pin,since}`;
 `Conflict{at,kind,personId(omitempty),by(omitempty),reason}`;
 `Membership{created,boardId,name,tag,creator,members,cuts(omitempty),gone(omitempty),conflicts(omitempty)}` (Pins is `json:"-"`);
-`Status{mode,state,code?,serverAddr?,via?,expires(omitzero),role?,fingerprint?,joiner?,words?,peer?,keyOk?,misses?,error?}`
+`Status{mode,state,code?,serverAddr?,lanAddr? (Rust only, card #1260),via?,expires(omitzero),role?,fingerprint?,joiner?,words?,peer?,keyOk?,misses?,error?}`
 (`?` = omitempty); `Joiner{deviceId,name,os,fingerprint?}`.
 
 ---
