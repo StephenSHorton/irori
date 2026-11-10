@@ -13,13 +13,13 @@ use std::time::{Duration, SystemTime};
 use common::*;
 use irori_core::buildclean::settled_worktrees;
 use irori_core::spawn::{ClaudeAgent, SpawnStarted, Spawner};
-use irori_core::treeclean::{
-    Book, Check, KEPT_EVERY, Verdict, any_under, aside_path, begun_path, end_holder,
-    holders, key, lsof_cwds, names_tree, only_temp, ours, pick_root, regenerable, remove, reopen,
-    restore_all, temp_root, tree_of, under,
-};
 #[cfg(unix)]
 use irori_core::treeclean::held_by;
+use irori_core::treeclean::{
+    Book, Check, KEPT_EVERY, Verdict, any_under, aside_path, begun_path, end_holder, holders, key,
+    lsof_cwds, names_tree, only_temp, ours, pick_root, regenerable, remove, reopen, restore_all,
+    temp_root, tree_of, under,
+};
 use irori_core::trees::{BUSY_SAY, KEPT_TREE, busy_plan, say_kept};
 
 const HOUR: Duration = Duration::from_secs(3600);
