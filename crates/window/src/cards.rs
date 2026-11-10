@@ -1553,6 +1553,10 @@ impl People {
             if !self.run_on.get(k).is_some_and(|ids| ids.contains(&t.id)) {
                 continue;
             }
+            // The row shows this key's runs: a Runs event for it re-reads
+            // the row (the grid cache's shown keys), a light run turning
+            // heavy included, on a shared board too.
+            self.note_key(k);
             for r in self.runs.get(k).into_iter().flatten() {
                 let dev = identity_device(&r.key);
                 let here = self.is_here(dev);
@@ -1688,14 +1692,20 @@ impl People {
             .is_some_and(|v| v.iter().any(|i| i == id))
     }
 
-    /// One key as the window shows it, with its face (card #407).
-    pub(crate) fn ref_(&self, key: &str) -> AgentRef {
+    /// Notes `key` as one the row being built shows (see
+    /// [`Self::watch_keys`]).
+    fn note_key(&self, key: &str) {
         if let Some(seen) = self.seen.borrow_mut().as_mut()
             && !key.is_empty()
             && !seen.iter().any(|k| k == key)
         {
             seen.push(key.to_string());
         }
+    }
+
+    /// One key as the window shows it, with its face (card #407).
+    pub(crate) fn ref_(&self, key: &str) -> AgentRef {
+        self.note_key(key);
         let mut r = self.ref_plain(key);
         r.spawned = self.spawned.contains_key(key);
         // Another person's agent wears the face its board card carries;

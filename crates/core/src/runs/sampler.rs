@@ -181,6 +181,7 @@ pub(crate) fn start(core: &Core) {
         sampler: sys::runmeter::TreeSampler::new(),
         sampled: None,
         no_card: HashMap::new(),
+        tried: HashSet::new(),
     };
     let stop = core.stop.clone();
     // The thread needs a Core's read-only card join; it holds the
@@ -213,6 +214,11 @@ struct Sampler {
     sampled: Option<Instant>,
     /// Runs whose agent held no card when last looked, and when.
     no_card: HashMap<RunId, Instant>,
+    /// Runs a tail was opened (or tried) for, while they run: one try
+    /// each, so a tail the person closed after its run's trailer stays
+    /// closed while the end is still on its way, and a failing open logs
+    /// once, not every wake.
+    tried: HashSet<RunId>,
 }
 
 impl Sampler {
@@ -230,7 +236,10 @@ impl Sampler {
             .into_iter()
             .filter(|r| r.running() && here(&r.key, &me_dev))
             .collect();
-        let due = self.sampled.is_none_or(|t| t.elapsed() >= EVERY);
+        // With nothing running a pass is due at once if a verdict is left,
+        // so an ended heavy run's chip goes now, not a minute later.
+        let due = self.sampled.is_none_or(|t| t.elapsed() >= EVERY)
+            || (running.is_empty() && !self.heavy.is_empty());
         if due {
             self.sample(&running);
         }
@@ -269,12 +278,8 @@ impl Sampler {
             }
         }
         let now = (self.s.now)().unix_milli_value();
-        let samples = if keys.is_empty() {
-            // Forgets the trees of runs that ended.
-            self.sampler.sample(&[])
-        } else {
-            self.sampler.sample(&keys)
-        };
+        // Also forgets the trees of runs that ended.
+        let samples = self.sampler.sample(&keys);
         let mut flipped = Vec::new();
         for (path, t) in samples {
             let Some(id) = by_path.get(&path) else {
@@ -325,11 +330,14 @@ impl Sampler {
     /// Opens a tail for every running background shell run of this device
     /// that has none yet, on the cards its agent holds.
     fn open_tails(&mut self, running: &[LiveRun]) {
+        let live: HashSet<RunId> = running.iter().map(LiveRun::id).collect();
         self.no_card
-            .retain(|id, at| at.elapsed() < CARD_RETRY && running.iter().any(|r| &r.id() == id));
+            .retain(|id, at| at.elapsed() < CARD_RETRY && live.contains(id));
+        self.tried.retain(|id| live.contains(id));
         let want: Vec<&LiveRun> = running
             .iter()
-            .filter(|r| r.kind == RunKind::Bash && !self.no_card.contains_key(&r.id()))
+            .filter(|r| r.kind == RunKind::Bash)
+            .filter(|r| !self.no_card.contains_key(&r.id()) && !self.tried.contains(&r.id()))
             .filter(|r| r.output_path.as_deref().is_some_and(tail_path_ok))
             .collect();
         if want.is_empty() || !self.terms.supported() {
@@ -355,6 +363,7 @@ impl Sampler {
             let Some(path) = r.output_path.clone() else {
                 continue;
             };
+            self.tried.insert(r.id());
             let label = if r.cmd.is_empty() {
                 "a run".to_string()
             } else {
@@ -522,8 +531,10 @@ impl Core {
         if !r.running() {
             return Err("that run has already ended".into());
         }
-        if matches!(r.kind, RunKind::Agent | RunKind::Workflow) {
-            return Err("only a shell run can be stopped here".into());
+        // A foreground call has no tree of its own to end (no output file:
+        // it is the claude session's), an agent or workflow is claude.
+        if r.kind != RunKind::Bash {
+            return Err("only a background shell run can be stopped here".into());
         }
         let mut members = r.members.clone();
         if members.is_empty()
@@ -547,6 +558,11 @@ impl Core {
                 .next()
                 .map(|(_, t)| t.members)
                 .unwrap_or_default();
+        }
+        // Nothing found to end: never read "Stopped" over a run nothing
+        // touched (its real end, still on its way, would read Stopped).
+        if members.is_empty() {
+            return Err("none of that run's processes are running".into());
         }
         self.s.runs.update(&id, |r| r.stopped_by_person = true);
         self.s.runs.save_now();

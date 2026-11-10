@@ -45,11 +45,17 @@ impl Window {
     /// Every run of this device still going, with its latest reading.
     pub fn run_loads(&self) -> Vec<RunLoad> {
         let me = self.core.device_id().to_string();
-        let device = self.core.device_labels().remove(&me).unwrap_or_default();
-        self.core
+        let live: Vec<_> = self
+            .core
             .runs()
             .into_iter()
             .filter(|r| r.running() && r.key.split_once('/').is_some_and(|(d, _)| d == me))
+            .collect();
+        if live.is_empty() {
+            return Vec::new();
+        }
+        let device = self.core.device_labels().remove(&me).unwrap_or_default();
+        live.into_iter()
             .map(|r| RunLoad {
                 cores: (r.sampled_ms > 0).then_some(r.cpu_cores),
                 mem_bytes: r.mem_bytes,
