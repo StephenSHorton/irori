@@ -3,8 +3,10 @@
 // everywhere and asks every agent to write its hand-off and leave its card;
 // off lifts the holds it set, at any time, mid-run too. Stop here (one
 // machine, Pause agents in the code) shows its run here too, with scope
-// "device". Home has one
-// line for a whole run, in place of a DM per agent. Words: stop-labels.ts.
+// "device". Either Stop reaches On cards, Yours or both (decision 71,
+// stop-who.ts); a Yours-only run holds nothing and ends with Call off.
+// Home has one line for a whole run, in place of a DM per agent. Words:
+// stop-labels.ts.
 
 import { useCallback, useEffect, useState } from "react"
 
@@ -15,6 +17,7 @@ import { Events, WindDownService } from "./host"
 import { inWails, plainLine } from "./irori"
 import { previewFlag } from "./preview"
 import { stopLabels as L } from "./stop-labels"
+import type { StopWho } from "./stop-who"
 
 // EVENT_WIND_DOWN is windDown:changed: the switch or a run moved (also when
 // another device flips it). Its payload is the status.
@@ -26,6 +29,15 @@ export function windDownLine(st: WindDownStatus): string {
   if (!st.id || st.rows.length === 0) return ""
   const n = st.rows.length
   const done = st.rows.filter((r) => r.state === "done").length
+  // A Yours-only run (decision 71) stopped nothing and held nothing: it
+  // asked, and Call off is its only end besides the answers.
+  if (yoursOnly(st)) {
+    const tail = st.off ? ` · ${L.calledOff}` : ""
+    if (st.rows.every((r) => !r.deliveryId))
+      return L.line.yoursNoneReached(n) + tail
+    if (!st.finished) return L.line.yoursRunning(n, done) + tail
+    return L.line.yoursDone(n, done) + tail
+  }
   // Card #787: the switch's state after the run; an agent already handing
   // off may still answer after off, so "started again" goes on either
   // branch.
@@ -40,6 +52,12 @@ export function windDownLine(st: WindDownStatus): string {
   return L.line.done(n, done) + tail
 }
 
+// yoursOnly is a run that reached only the person's own sessions: no
+// switch, Call off instead of Start (decision 71).
+export function yoursOnly(st: WindDownStatus): boolean {
+  return st.id !== "" && !!st.who && !st.who.cards && st.who.yours
+}
+
 // devicesText names the machines Stop everywhere holds: "this Mac and Stephen's PC".
 export function devicesText(devices: string[]): string {
   return L.machines(devices.map(plainLine))
@@ -50,7 +68,8 @@ export function devicesText(devices: string[]): string {
 // `?winddown=running` is mid-run; `?winddown=off` was started again
 // mid-run (its unreached agents "Called off"); `?winddown=on` is on from
 // another machine, with no run here; `?winddown=device` is this machine's
-// Stop here mid-run (with `&agentspause=on` its switch is on).
+// Stop here mid-run (with `&agentspause=on` its switch is on);
+// `?winddown=yours` is a Yours-only run mid-run (decision 71).
 export function windDownSample(): WindDownStatus | null {
   if (typeof window === "undefined") return null
   const flag = previewFlag("winddown")
@@ -65,11 +84,12 @@ export function windDownSample(): WindDownStatus | null {
   }
   const state = (i: number) => {
     if (i < 23) return "done"
-    if (flag === "running" || flag === "device")
+    if (flag === "running" || flag === "device" || flag === "yours")
       return i < 30 ? "winding" : "waiting"
     if (flag === "off") return i < 30 ? "winding" : "canceled"
     return "no_answer"
   }
+  const yours = flag === "yours"
   const rows: WindDownRow[] = Array.from({ length: 43 }, (_, i) => {
     const done = i < 23
     return {
@@ -83,19 +103,22 @@ export function windDownSample(): WindDownStatus | null {
         ? `Handed off. Left #${440 + i} with a hand-off; no leases held.`
         : "",
       error: "",
+      spawned: yours ? false : i % 4 !== 0,
     }
   })
   const off = flag === "off"
   // This machine's Stop here (card #773): a run here, Stop everywhere off.
   const device = flag === "device"
+  const idle = off || device || yours
   return {
-    on: !off && !device,
-    since: off || device ? 0 : since,
-    devices: off || device ? [] : ["this Mac", "Stephen's PC"],
+    on: !idle,
+    since: idle ? 0 : since,
+    devices: idle ? [] : ["this Mac", "Stephen's PC"],
     id: "wd_sample",
     scope: device ? "device" : "all",
-    finished: flag !== "running" && !off && !device,
+    finished: flag !== "running" && !idle,
     off,
+    who: { cards: !yours, yours: true },
     rows,
   }
 }
@@ -170,20 +193,26 @@ export function useWindDown() {
     },
     []
   )
-  // Stop everywhere is every agent on every machine (card #787): no scope.
-  const on = useCallback(() => {
-    if (!inWails()) {
-      setSt(
-        emptyStatus({
-          on: true,
-          since: Date.now(),
-          devices: ["this Mac", "Stephen's PC"],
-        })
-      )
-      return Promise.resolve(true)
-    }
-    return run("on", () => WindDownService.All())
-  }, [run])
+  // Stop everywhere is every machine (card #787): no scope of machines.
+  // `who` is which kind of agent (decision 71): On cards, Yours or both.
+  const on = useCallback(
+    (who?: StopWho) => {
+      if (!inWails()) {
+        // Yours alone holds nothing: the preview lights no switch.
+        if (who && !who.cards) return Promise.resolve(true)
+        setSt(
+          emptyStatus({
+            on: true,
+            since: Date.now(),
+            devices: ["this Mac", "Stephen's PC"],
+          })
+        )
+        return Promise.resolve(true)
+      }
+      return run("on", () => WindDownService.All(who))
+    },
+    [run]
+  )
   const off = useCallback(() => {
     if (!inWails()) {
       setSt(turnedOff)
@@ -191,11 +220,26 @@ export function useWindDown() {
     }
     return run("off", () => WindDownService.Off())
   }, [run])
+  // Call off ends a Yours-only run (decision 71): its rows not reached
+  // yet close, and nothing else moves.
+  const callOff = useCallback(() => {
+    if (!inWails()) {
+      setSt((s) => ({
+        ...s,
+        off: s.id !== "" && !s.finished,
+        rows: s.rows.map((r) =>
+          r.state === "waiting" ? { ...r, state: "canceled" } : r
+        ),
+      }))
+      return Promise.resolve(true)
+    }
+    return run("callOff", () => WindDownService.CallOff())
+  }, [run])
   const stop = useCallback(
     (key: string) => run(key, () => WindDownService.Stop(key)),
     [run]
   )
-  return { status: st, error, busy, reload, on, off, stop }
+  return { status: st, error, busy, reload, on, off, callOff, stop }
 }
 
 export type WindDown = ReturnType<typeof useWindDown>

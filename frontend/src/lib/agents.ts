@@ -22,6 +22,7 @@ import type {
 import { AgentsService, Events } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
+import type { StopWho } from "./stop-who"
 
 export type {
   AgentsChange,
@@ -920,8 +921,11 @@ export function useAgentsPause() {
       off()
     }
   }, [])
-  const set = useCallback((on: boolean) => {
+  // `who` (decision 71) picks the agents On reaches; Yours alone holds
+  // nothing, so the switch stays off.
+  const set = useCallback((on: boolean, who?: StopWho) => {
     if (!inWails()) {
+      if (on && who && !who.cards) return
       setP(
         on
           ? { on: true, since: Date.now(), by: "the person on MacBook Pro" }
@@ -930,7 +934,7 @@ export function useAgentsPause() {
       return
     }
     setBusy(true)
-    AgentsService.PauseSet(on)
+    AgentsService.PauseSet(on, who)
       .then(
         (v) => (setP(v), setError("")),
         (e: Error) => setError(e.message)

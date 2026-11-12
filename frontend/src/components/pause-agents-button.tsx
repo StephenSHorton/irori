@@ -1,9 +1,17 @@
 import { useEffect, useState } from "react"
-import { PauseIcon, PlayIcon } from "lucide-react"
+import { ChevronDownIcon, PauseIcon, PlayIcon } from "lucide-react"
 
+import { WhoTicks } from "@/components/stop-who-ticks"
 import { Button } from "@/components/ui/button"
+import { ButtonGroup } from "@/components/ui/button-group"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { runningSince, useAgentsPause } from "@/lib/agents"
 import { stopLabels as L } from "@/lib/stop-labels"
+import { stopCounts, stopHereTitle, useStopWho } from "@/lib/stop-who"
 import { cn } from "@/lib/utils"
 
 // PauseAgentsButton is the top nav's Stop here switch (cards #665, #773): one
@@ -12,8 +20,18 @@ import { cn } from "@/lib/utils"
 // the other machines take them, and nothing starts here. While it is on
 // the nav says so and since when, and one click starts it again. Its words are in
 // lib/stop-labels.ts.
-export function PauseAgentsButton() {
+// Off, one click stops whom this computer last chose (decision 71: On
+// cards, Yours or both, both unless chosen); the chevron beside it shows
+// the two ticks. Yours alone lights nothing: its run shows in the dialog
+// and on Home, and Call off ends it.
+export function PauseAgentsButton({
+  agents = [],
+}: {
+  // The roster, for the ticks' counts on this machine.
+  agents?: { spawned: boolean; here?: boolean }[]
+}) {
   const { pause, error, busy, set } = useAgentsPause()
+  const [who, setWho] = useStopWho()
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (!pause?.on) return
@@ -55,20 +73,45 @@ export function PauseAgentsButton() {
       </Button>
     )
   }
+  const nothing = !who.cards && !who.yours
   return (
-    <Button
-      size="sm"
-      variant="ghost"
-      disabled={busy}
-      onClick={() => set(true)}
-      title={L.here.title + (error ? `\n${error}` : "")}
-      aria-label={L.here.name}
-      aria-pressed={false}
-      data-spot="stop-here"
-      className={cn(error && "ring-1 ring-destructive")}
-    >
-      <PauseIcon aria-hidden className="size-3.5" />
-      <span className="hidden sm:inline">{L.here.name}</span>
-    </Button>
+    <ButtonGroup>
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={busy || nothing}
+        onClick={() => set(true, who)}
+        title={stopHereTitle(who) + (error ? `\n${error}` : "")}
+        aria-label={L.here.name}
+        aria-pressed={false}
+        data-spot="stop-here"
+        className={cn(error && "ring-1 ring-destructive")}
+      >
+        <PauseIcon aria-hidden className="size-3.5" />
+        <span className="hidden sm:inline">{L.here.name}</span>
+      </Button>
+      <Popover>
+        <PopoverTrigger
+          render={
+            <Button
+              size="sm"
+              variant="ghost"
+              className="px-1"
+              aria-label={L.here.choose}
+              title={L.here.choose}
+            >
+              <ChevronDownIcon aria-hidden className="size-3.5" />
+            </Button>
+          }
+        />
+        <PopoverContent align="end" className="w-72">
+          <WhoTicks
+            who={who}
+            counts={stopCounts(agents, true)}
+            onChange={setWho}
+          />
+        </PopoverContent>
+      </Popover>
+    </ButtonGroup>
   )
 }
