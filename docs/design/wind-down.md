@@ -30,7 +30,7 @@ A wind-down is a person's message with reason `wind_down` (`inbox::REASON_WIND_D
 
 ## 2. The switch
 
-**On** (`Window::wind_down_all()`, no scope: every device that can run agents, and every device with a live agent):
+**On** (`Window::wind_down_all(who)`, no scope of machines: every device that can run agents, and every device with a live agent). `who` (`StopWho`, decision 71) picks which kind of agent: On cards (Irori started it: `Core::agent_spawned`, the roster's `spawned`), Yours (the person's terminal sessions) or both, the default. Steps 1 and 2 are for On cards (alone or with Yours); Yours alone is §2.1.
 
 1. **Starts stop first.** Stop everywhere's own pause goes on: a pause row for the reserved device `everywhere` (`spawn_pause::EVERYWHERE`, `paused:everywhere`; device ids are hex, so it names none). While it is on, no device starts an agent, whatever its own pause says: a device that joins later, or one whose own pause was lifted (Start here, or an agent's `agents_pause` off, which is refused while it is on). Then Pause agents (#665, `spawn_pause.rs`) turns on for each device, so an older Irori holds its starts too, written by this device for the others (the `spawn.cap` row replicates; each device reads it at its next sweep, every 5 s). Its `by` is `winddown:<this device id>` (`spawn_pause::WIND_DOWN_BY_PREFIX`), not `user:…`, so Off can tell Wind down's pauses from the person's. A device already paused keeps its pause and its `by`. So no fresh agent takes a card the wound-down agents leave, on any device: nothing starts anywhere until Off.
 2. **Then the wind-downs** (§1), one per live agent on every device, as a run.
@@ -43,13 +43,21 @@ A wind-down is a person's message with reason `wind_down` (`inbox::REASON_WIND_D
 2. Every pause with a `winddown:` `by` lifts, on every device, then the `everywhere` pause: one switch for the person. A pause the person (or an agent) set stays. A Stop here run on this machine is left going: only Start here ends it.
 3. Lifting kicks the sweep: the cards the agents left start in queue order.
 
+Step 1 leaves a Yours-only run's wind-downs open (§2.1): they are told apart by their words (`WIND_DOWN_YOURS_TEXT`, `WIND_DOWN_YOURS_STOP_TEXT`), which travel with the message, so Start on another device or after a restart leaves them too. Start here (`pause_here(false)`) follows the same rule.
+
+### 2.1 Yours alone (decision 71)
+
+Irori never starts a terminal session, so there is nothing to hold: a Yours-only Stop (either Stop) writes no pause row, lights no switch and sends the wind-downs, in the Yours words, only to the terminal sessions (this machine's for Stop here), as a run with `who.cards == false`. It is a one-off: Stop here with Yours runs again each time it is clicked, and with nobody to ask it starts no run. Its rows show in the dialog and on Home ("Asking 2 of yours to hand off"). **Call off** (`Window::wind_down_call_off()`) ends it: its wind-downs not reached yet close as with Off, the ones already delivered finish, and nothing is lifted. Call off does nothing to a run that held starts; Start ends those.
+
+Which agents are On cards is read after the hold, from the spawned mark, which is add-only (`spawned_keys`): an agent Irori started stays On cards for good (the set is folded from the log, so a restart keeps it), and a mark that arrives late leaves the agent under Yours (a held Stop then misses it, and a Yours Stop asks it to hand off, which is the side that never stops a terminal session wrongly). The Office Assistant is not on the roster (presence skips its run dir), so no Stop reaches it.
+
 **Pause all after is gone** (it was on by default): Pause agents on every device covers "nothing starts", and the old Pause all switch has left the app (above).
 
 ## 3. A run
 
 Stop here's graceful stop is the same run (`Window::pause_here`, scope `device`): turning it on sends a wind-down to each of this machine's agents; off closes the ones not reached yet. Off of Stop everywhere closes the wind-downs not reached yet only for machines no pause still holds, so a machine stopped on its own keeps its graceful stop. An agent already winding down is not sent a second one; its row follows the first.
 
-`wind_down_all` returns the run: an id, per agent its key, name, device and delivery. It is kept in memory (one at a time; a new On replaces it).
+`wind_down_all` returns the run: an id, its `who`, per agent its key, name, device, delivery and `spawned` (the dialog groups the rows by it). It is kept in memory (one at a time; a new On replaces it).
 
 `Window::wind_down_status()` reads the switch and each delivery and says, per agent:
 
