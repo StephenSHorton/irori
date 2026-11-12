@@ -514,3 +514,82 @@ fn call_off_leaves_an_ask_it_took_over_from_a_held_run() {
     assert_ne!(ib.get(&id).unwrap().state, inbox::st::SKIPPED);
     assert!(r.w.wind_down_status().on, "the hold stays");
 }
+
+/// A later Stop that replaces a Yours run leaves its asks not reached yet
+/// to Call off: the Cards run's Start leaves them (decision 71), and Call
+/// off still closes them though the run in memory is the Cards one.
+#[test]
+fn call_off_reaches_a_yours_ask_a_later_stop_replaced() {
+    let r = Rig::new();
+    let ib = r.w.core.inbox();
+    mark_a_spawned(&r);
+    let st = r.w.wind_down_all(YOURS).unwrap();
+    let id = st.rows[0].delivery_id.clone();
+    assert_eq!(st.yours_waiting, 1, "{st:?}");
+    let st = r.w.wind_down_all(CARDS).unwrap();
+    assert!(st.rows.iter().all(|x| x.delivery_id != id), "{st:?}");
+    assert_eq!(st.yours_waiting, 1, "still offered: {st:?}");
+    // Start everywhere leaves it, as before.
+    r.w.wind_down_off().unwrap();
+    assert_ne!(ib.get(&id).unwrap().state, inbox::st::SKIPPED);
+    let st = r.w.wind_down_call_off().unwrap();
+    assert_eq!(ib.get(&id).unwrap().state, inbox::st::SKIPPED);
+    assert_eq!(st.yours_waiting, 0, "{st:?}");
+}
+
+/// While the replacing Cards run is still on, Call off closes the Yours
+/// ask it left and leaves the Cards run's own rows and its hold.
+#[test]
+fn call_off_during_a_cards_run_leaves_its_rows_and_hold() {
+    let r = Rig::new();
+    let ib = r.w.core.inbox();
+    mark_a_spawned(&r);
+    let b_id = r.w.wind_down_all(YOURS).unwrap().rows[0].delivery_id.clone();
+    let st = r.w.wind_down_all(CARDS).unwrap();
+    let a_id = st.rows[0].delivery_id.clone();
+    let st = r.w.wind_down_call_off().unwrap();
+    assert_eq!(ib.get(&b_id).unwrap().state, inbox::st::SKIPPED);
+    assert_ne!(ib.get(&a_id).unwrap().state, inbox::st::SKIPPED);
+    assert!(st.on && !st.off, "the Cards run goes on: {st:?}");
+}
+
+/// The run is memory and the asks are deliveries: after a restart (a new
+/// Window on the same data) Call off is still offered and still closes
+/// the Yours asks not reached yet.
+#[test]
+fn call_off_reaches_yours_asks_after_a_restart() {
+    let r = Rig::new();
+    let ib = r.w.core.inbox();
+    mark_a_spawned(&r);
+    let id = r.w.wind_down_all(YOURS).unwrap().rows[0].delivery_id.clone();
+    let w2 = irori_window::Window::new(
+        r.core.clone(),
+        irori_window::Window::default_seams(&r.core),
+        irori_window::Config {
+            claude_dir: r._dirs[1].path().to_path_buf(),
+            downloads: Box::new(|| Ok(std::env::temp_dir())),
+        },
+    );
+    let st = w2.wind_down_status();
+    assert!(st.id.is_empty(), "no run in memory: {st:?}");
+    assert_eq!(st.yours_waiting, 1, "{st:?}");
+    // Start everywhere after the restart still leaves it.
+    w2.wind_down_off().unwrap();
+    assert_ne!(ib.get(&id).unwrap().state, inbox::st::SKIPPED);
+    let st = w2.wind_down_call_off().unwrap();
+    assert_eq!(ib.get(&id).unwrap().state, inbox::st::SKIPPED);
+    assert_eq!(st.yours_waiting, 0);
+}
+
+/// A Yours ask a held run took over is that run's: Call off leaves it.
+#[test]
+fn call_off_leaves_a_yours_ask_a_held_run_took_over() {
+    let r = Rig::new();
+    let ib = r.w.core.inbox();
+    mark_a_spawned(&r);
+    let id = r.w.wind_down_all(YOURS).unwrap().rows[0].delivery_id.clone();
+    let st = r.w.wind_down_all(None).unwrap();
+    assert_eq!(st.yours_waiting, 0, "{st:?}");
+    r.w.wind_down_call_off().unwrap();
+    assert_ne!(ib.get(&id).unwrap().state, inbox::st::SKIPPED);
+}

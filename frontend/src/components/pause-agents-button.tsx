@@ -11,7 +11,12 @@ import {
 } from "@/components/ui/popover"
 import { runningSince, useAgentsPause } from "@/lib/agents"
 import { stopLabels as L } from "@/lib/stop-labels"
-import { stopCounts, stopHereTitle, useStopWho } from "@/lib/stop-who"
+import {
+  stopCounts,
+  stopHereBlocked,
+  stopHereTitle,
+  useStopWho,
+} from "@/lib/stop-who"
 import { cn } from "@/lib/utils"
 
 // PauseAgentsButton is the top nav's Stop here switch (cards #665, #773): one
@@ -77,18 +82,21 @@ export function PauseAgentsButton({
       </Button>
     )
   }
-  const nothing = !who.cards && !who.yours
+  const counts = stopCounts(agents, true)
+  // Nothing ticked, or Yours alone with none here: nothing to do, and
+  // the hover says why.
+  const blocked = stopHereBlocked(who, counts)
   return (
     <ButtonGroup>
       <Button
         size="sm"
         variant="ghost"
-        disabled={busy || nothing}
+        disabled={busy || !!blocked}
         onClick={() => {
           set(true, who)
           if (!who.cards) onYours?.()
         }}
-        title={stopHereTitle(who) + (error ? `\n${error}` : "")}
+        title={(blocked || stopHereTitle(who)) + (error ? `\n${error}` : "")}
         aria-label={L.here.name}
         aria-pressed={false}
         data-spot="stop-here"
@@ -112,11 +120,7 @@ export function PauseAgentsButton({
           }
         />
         <PopoverContent align="end" className="w-72">
-          <WhoTicks
-            who={who}
-            counts={stopCounts(agents, true)}
-            onChange={setWho}
-          />
+          <WhoTicks who={who} counts={counts} onChange={setWho} />
         </PopoverContent>
       </Popover>
     </ButtonGroup>

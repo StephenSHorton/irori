@@ -103,19 +103,44 @@ export function stopReach(
 
 // stopButton is the dialog's Stop button: "Stop 3 agents", or for Yours
 // alone "Ask 2 of yours to hand off". Empty when nothing is ticked (the
-// button is then disabled).
+// button is then disabled). `named` says "everywhere" too, for a dialog
+// titled Stop here, where the button still reaches every machine.
 export function stopButton(
   who: StopWho,
-  n: { cards: number; yours: number }
+  n: { cards: number; yours: number },
+  named = false
 ): string {
   if (!who.cards && !who.yours) return ""
-  if (!who.cards) return L.who.stopYours(n.yours)
-  return L.everywhere.stop(stopReach(who, n))
+  if (!who.cards)
+    return named ? L.who.stopYoursNamed(n.yours) : L.who.stopYours(n.yours)
+  const all = stopReach(who, n)
+  return named ? L.everywhere.stopNamed(all) : L.everywhere.stop(all)
+}
+
+// stopExplain is what Stop everywhere does with `who` ticked; nothing
+// ticked reads as both, like the kept choice.
+export function stopExplain(who: StopWho): string {
+  if (who.cards && !who.yours) return L.everywhere.explainCards
+  if (who.yours && !who.cards) return L.everywhere.explainYours
+  return L.everywhere.explain
+}
+
+// stopHereBlocked is why the header's Stop here can't be clicked with
+// `who` and this machine's counts, or "" when it can. On cards always
+// can: with nobody to ask it still holds starts here.
+export function stopHereBlocked(
+  who: StopWho,
+  here: { cards: number; yours: number }
+): string {
+  if (!who.cards && !who.yours) return L.who.none
+  if (!who.cards && here.yours === 0) return L.here.noneYours
+  return ""
 }
 
 // stopHereTitle is the header's Stop here hover: what one click does with
 // the kept choice.
 export function stopHereTitle(who: StopWho): string {
+  if (!who.cards && !who.yours) return L.who.none
   if (!who.cards) return L.here.titleYours
   if (!who.yours) return L.here.titleCards
   return L.here.title

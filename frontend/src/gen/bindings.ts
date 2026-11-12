@@ -4413,5 +4413,13 @@ export type WindDownStatus = {
 	 */
 	who: StopWho,
 	rows: WindDownRow[],
+	/**
+	 *  The person's Yours-only asks not reached yet that Call off closes,
+	 *  every device's, whatever run is in memory: a later Stop that
+	 *  replaced their run, or a restart, leaves them reachable (the run
+	 *  is memory, the asks are inbox deliveries). A held run's own rows
+	 *  are left to its Start.
+	 */
+	yoursWaiting: number,
 };
 

@@ -26,8 +26,10 @@ pub const WIND_DOWN_STOP_TEXT: &str = "Wind down now: commit and push your work,
 /// A Yours-only run's wind-down (Stop's "Yours" tick alone, decision
 /// 71): the same ask in other words, so the delivery itself says it holds
 /// no starts. Start here and Start everywhere never close one (only Call
-/// off does), on any device and after a restart, since the words travel
-/// with the message.
+/// off does), on any device running this build or later and after a
+/// restart, since the words travel with the message. An older Irori's
+/// Start still closes them, as it closed every unreached wind-down; those
+/// sessions are then simply not asked.
 pub const WIND_DOWN_YOURS_TEXT: &str = "Hand off: save your place, hand back your cards, release your leases and reply \"wound down\". Then stop until I resume you.";
 /// The Stop a Yours-only run's straggler row sends.
 pub const WIND_DOWN_YOURS_STOP_TEXT: &str = "Hand off now: commit and push your work, post a hand-off and leave your cards, release your leases and reply \"wound down\".";
@@ -137,6 +139,13 @@ pub struct WindDownStatus {
     /// nothing: no switch, and Call off ends it.
     pub who: StopWho,
     pub rows: Vec<WindDownRow>,
+    /// The person's Yours-only asks not reached yet that Call off closes,
+    /// every device's, whatever run is in memory: a later Stop that
+    /// replaced their run, or a restart, leaves them reachable (the run
+    /// is memory, the asks are inbox deliveries). A held run's own rows
+    /// are left to its Start.
+    #[serde(rename = "yoursWaiting")]
+    pub yours_waiting: u32,
 }
 
 #[derive(Debug, Default)]
@@ -150,6 +159,8 @@ pub(crate) struct Run {
 pub(crate) struct RunSlotInner {
     run: Option<Run>,
     told: Option<bool>,
+    /// `yours_waiting` as last told, so a change from elsewhere is told.
+    told_waiting: Option<u32>,
     listeners: Vec<SwitchFn>,
 }
 
@@ -310,7 +321,8 @@ impl Window {
     /// Closes the wind-downs not reached yet whose agent's device starts
     /// agents again (no pause holds it), every device's (card #787).
     /// A Yours-only run's are left (decision 71): Start lifts holds, and
-    /// that run held none; only its Call off closes them. One a held run
+    /// that run held none; only Call off closes them (an older Irori's
+    /// Start still does, having no text check). One a held run
     /// took over (`held`, the rows of the run being turned off) closes
     /// with it.
     fn cancel_unpaused(&self, held: &[String]) -> Vec<String> {
@@ -364,36 +376,28 @@ impl Window {
         }
     }
 
-    /// Call off (WindDownService.CallOff, decision 71): ends a Yours-only
-    /// run, from either Stop. Its wind-downs not reached yet close; the
-    /// agents already handing off finish. It lifts nothing (the run held
-    /// nothing), and is no-op for any other run: Start ends those.
+    /// Call off (WindDownService.CallOff, decision 71): closes every
+    /// Yours-only ask not reached yet ([`Self::yours_waiting`]), from
+    /// either Stop, and ends a Yours-only run in memory. That includes
+    /// asks whose run a later Stop replaced, or that a restart forgot
+    /// (the run is memory, the asks are deliveries). The agents already
+    /// handing off finish. It lifts nothing, and leaves a held run's own
+    /// rows (asks in the held words, or Yours asks a held run took over):
+    /// Start ends those.
     pub fn wind_down_call_off(&self) -> Result<WindDownStatus, String> {
-        let ids: Vec<String> = {
+        {
             let mut slot = self.wind_down.lock().unwrap_or_else(|e| e.into_inner());
-            match slot.run.as_mut() {
-                Some(run) if run.st.who.yours_only() && !run.st.off => {
-                    run.st.off = true;
-                    run.st
-                        .rows
-                        .iter()
-                        .filter(|r| !r.delivery_id.is_empty())
-                        .map(|r| r.delivery_id.clone())
-                        .collect()
-                }
-                _ => vec![],
+            if let Some(run) = slot.run.as_mut()
+                && run.st.who.yours_only()
+            {
+                run.st.off = true;
             }
-        };
+        }
         let ib = self.core.inbox();
         let by = self.core.user_sender().key;
-        // Only its own asks: a row it took over from a held run stays
-        // with that run's Start.
-        let errs: Vec<String> = ids
+        let errs: Vec<String> = self
+            .yours_waiting()
             .iter()
-            .filter(|id| {
-                ib.get(id)
-                    .is_some_and(|d| is_yours_only_text(&d.message.text))
-            })
             .filter_map(|id| ib.cancel_wind_down(id, &by).err())
             .map(|e| e.to_string())
             .collect();
@@ -519,6 +523,7 @@ impl Window {
             }
         };
         self.wind_down_switch(&mut st);
+        st.yours_waiting = u32::try_from(self.yours_waiting().len()).unwrap_or(u32::MAX);
         st
     }
 
@@ -538,6 +543,32 @@ impl Window {
         }
     }
 
+    /// The Yours-only asks Call off closes (decision 71): the person's
+    /// wind-downs in the Yours words, every device's, not reached yet,
+    /// less the rows of a held run in memory (its Start closes those).
+    fn yours_waiting(&self) -> Vec<String> {
+        let held: Vec<String> = {
+            let slot = self.wind_down.lock().unwrap_or_else(|e| e.into_inner());
+            match slot.run.as_ref() {
+                Some(run) if run.st.who.cards => {
+                    run.st.rows.iter().map(|r| r.delivery_id.clone()).collect()
+                }
+                _ => vec![],
+            }
+        };
+        self.core
+            .inbox()
+            .open_wind_downs()
+            .into_iter()
+            .filter(|d| {
+                (d.state == ::inbox::st::QUEUED || d.state == ::inbox::st::HELD)
+                    && is_yours_only_text(&d.message.text)
+                    && !held.contains(&d.id)
+            })
+            .map(|d| d.id)
+            .collect()
+    }
+
     /// The status, told to the window and the switch's listeners.
     fn wind_down_told(&self) -> WindDownStatus {
         let st = self.wind_down_status();
@@ -545,6 +576,7 @@ impl Window {
         let fns = {
             let mut slot = self.wind_down.lock().unwrap_or_else(|e| e.into_inner());
             slot.told = Some(st.on);
+            slot.told_waiting = Some(st.yours_waiting);
             slot.listeners.clone()
         };
         for f in fns {
@@ -565,15 +597,21 @@ impl Window {
 
     /// Re-reads the switch and the run after a change, or now and then
     /// (another device may turn the switch), and tells the window when a
-    /// run is going or the switch moved.
+    /// run is going, the switch moved or the Yours asks Call off would
+    /// close changed (another device's, or after a restart).
     pub(crate) fn wind_down_tick(&self) {
-        let (running, told) = {
+        let (running, told, told_waiting) = {
             let slot = self.wind_down.lock().unwrap_or_else(|e| e.into_inner());
-            (slot.run.as_ref().is_some_and(|r| !r.st.finished), slot.told)
+            (
+                slot.run.as_ref().is_some_and(|r| !r.st.finished),
+                slot.told,
+                slot.told_waiting,
+            )
         };
         let mut st = WindDownStatus::default();
         self.wind_down_switch(&mut st);
-        if running || told != Some(st.on) {
+        let waiting = u32::try_from(self.yours_waiting().len()).unwrap_or(u32::MAX);
+        if running || told != Some(st.on) || told_waiting != Some(waiting) {
             self.wind_down_told();
         }
     }
@@ -589,15 +627,23 @@ impl Window {
             return Err("stop whom? no agent key".into());
         }
         let to = self.core.private_key(key);
-        // A Yours-only run's straggler keeps that run's words, so Start
-        // still leaves it.
-        let yours = self
+        // A straggler asked in the Yours words keeps them, so Start still
+        // leaves it and Call off still reaches it.
+        let asked = self
             .wind_down
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .run
             .as_ref()
-            .is_some_and(|r| r.st.who.yours_only() && r.st.rows.iter().any(|x| x.key == to));
+            .and_then(|r| r.st.rows.iter().find(|x| x.key == to))
+            .map(|x| x.delivery_id.clone())
+            .unwrap_or_default();
+        let yours = !asked.is_empty()
+            && self
+                .core
+                .inbox()
+                .get(&asked)
+                .is_some_and(|d| is_yours_only_text(&d.message.text));
         let text = if yours {
             WIND_DOWN_YOURS_STOP_TEXT
         } else {

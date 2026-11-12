@@ -29,6 +29,7 @@ const run = (
   off: false,
   who: { cards: true, yours: true },
   rows: states.map(row),
+  yoursWaiting: 0,
   ...more,
 })
 

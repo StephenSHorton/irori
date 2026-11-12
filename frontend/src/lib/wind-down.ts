@@ -120,6 +120,7 @@ export function windDownSample(): WindDownStatus | null {
     off,
     who: { cards: !yours, yours: true },
     rows,
+    yoursWaiting: 0,
   }
 }
 
@@ -220,13 +221,14 @@ export function useWindDown() {
     }
     return run("off", () => WindDownService.Off())
   }, [run])
-  // Call off ends a Yours-only run (decision 71): its rows not reached
-  // yet close, and nothing else moves.
+  // Call off ends a Yours-only run (decision 71): every Yours ask not
+  // reached yet closes, and nothing else moves.
   const callOff = useCallback(() => {
     if (!inWails()) {
       setSt((s) => ({
         ...s,
         off: s.id !== "" && !s.finished,
+        yoursWaiting: 0,
         rows: s.rows.map((r) =>
           r.state === "waiting" ? { ...r, state: "canceled" } : r
         ),

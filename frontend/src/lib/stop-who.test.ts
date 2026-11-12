@@ -7,6 +7,8 @@ import {
   readStopWho,
   stopButton,
   stopCounts,
+  stopExplain,
+  stopHereBlocked,
   stopHereTitle,
   stopWhoKey,
   writeStopWho,
@@ -80,10 +82,47 @@ describe("Stop's who choice (decision 71)", () => {
     expect(stopButton(cards, { cards: 1, yours: 0 })).toBe("Stop 1 agent")
   })
 
+  test("under a Stop here title the button says everywhere", () => {
+    const n = { cards: 3, yours: 2 }
+    expect(stopButton(BOTH, n, true)).toBe("Stop 5 agents everywhere")
+    expect(stopButton(cards, n, true)).toBe("Stop 3 agents everywhere")
+    expect(stopButton(yours, n, true)).toBe(
+      "Ask 2 of yours everywhere to hand off"
+    )
+    expect(stopButton({ cards: false, yours: false }, n, true)).toBe("")
+  })
+
+  test("the dialog's explanation follows the ticks", () => {
+    expect(stopExplain(BOTH)).toBe(stopLabels.everywhere.explain)
+    expect(stopExplain({ cards: false, yours: false })).toBe(
+      stopLabels.everywhere.explain
+    )
+    expect(stopExplain(cards)).toBe(stopLabels.everywhere.explainCards)
+    expect(stopExplain(cards)).toContain("left alone")
+    expect(stopExplain(yours)).toBe(stopLabels.everywhere.explainYours)
+    expect(stopExplain(yours)).toContain("Nothing is held")
+  })
+
   test("Stop here's hover names the group", () => {
     expect(stopHereTitle(BOTH)).toBe(stopLabels.here.title)
     expect(stopHereTitle(cards)).toContain("Irori started")
     expect(stopHereTitle(yours)).toContain("your own sessions")
+    expect(stopHereTitle({ cards: false, yours: false })).toBe(
+      stopLabels.who.none
+    )
+  })
+
+  test("Stop here can't be clicked with nothing to do, and says why", () => {
+    const none = { cards: 0, yours: 0 }
+    const some = { cards: 1, yours: 2 }
+    expect(stopHereBlocked({ cards: false, yours: false }, some)).toBe(
+      stopLabels.who.none
+    )
+    expect(stopHereBlocked(yours, none)).toBe(stopLabels.here.noneYours)
+    expect(stopHereBlocked(yours, some)).toBe("")
+    // On cards still holds starts here with nobody to ask.
+    expect(stopHereBlocked(cards, none)).toBe("")
+    expect(stopHereBlocked(BOTH, none)).toBe("")
   })
 
   test("no word says Pause", () => {

@@ -13,7 +13,7 @@ import { plainBlock, plainLine, useNow } from "@/lib/irori"
 import { nameOr } from "@/lib/names"
 import { stopLabels as L } from "@/lib/stop-labels"
 import { WhoTicks } from "@/components/stop-who-ticks"
-import { stopButton, stopCounts, useStopWho } from "@/lib/stop-who"
+import { stopButton, stopCounts, stopExplain, useStopWho } from "@/lib/stop-who"
 import { devicesText, yoursOnly, type WindDown } from "@/lib/wind-down"
 import type { WindDownRow } from "@/gen/bindings"
 
@@ -47,7 +47,10 @@ const when = (ms: number) =>
 // Off, two ticks pick who it reaches (decision 71): On cards (agents Irori
 // started) and Yours (the person's own sessions), both unless this
 // computer kept another choice. A Yours-only run holds nothing: no switch,
-// and Call off in place of Start.
+// and Call off in place of Start. Call off is offered while any Yours ask
+// is not reached yet (yoursWaiting), also after a later Stop replaced its
+// run or a restart. Under a Stop here title the footer's Stop says
+// "everywhere", since it reaches every machine.
 // Its words are in lib/stop-labels.ts.
 export function WindDownDialog({
   agents,
@@ -73,9 +76,15 @@ export function WindDownDialog({
   const shownError = error || (deviceRun ? here.error : "")
   const [who, setWho] = useStopWho()
   const counts = stopCounts(agents)
-  const stopText = stopButton(who, counts)
   const yours = yoursOnly(st)
-  const canCallOff = yours && !st.off && !st.finished
+  // Titled Stop here for this machine's run; the footer's Stop still
+  // reaches every machine, so then it says "everywhere".
+  const titledHere = hereOn || (yours && st.scope === "device")
+  const stopText = stopButton(who, counts, titledHere)
+  // Call off reaches every Yours ask not reached yet (yoursWaiting), also
+  // one whose run a later Stop replaced or a restart forgot.
+  const waiting = st.yoursWaiting
+  const canCallOff = (yours && !st.off && !st.finished) || waiting > 0
   const groups = rowGroups(st.rows)
 
   return (
@@ -83,9 +92,7 @@ export function WindDownDialog({
       <DialogContent className="gap-3 sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
-            {hereOn || (yours && st.scope === "device")
-              ? L.here.name
-              : L.everywhere.name}
+            {titledHere ? L.here.name : L.everywhere.name}
           </DialogTitle>
           <DialogDescription>{L.how}</DialogDescription>
         </DialogHeader>
@@ -133,19 +140,22 @@ export function WindDownDialog({
         )}
 
         {!st.on && (
-          <p className="text-sm text-muted-foreground">
-            {L.everywhere.explain}
-          </p>
+          <p className="text-sm text-muted-foreground">{stopExplain(who)}</p>
         )}
 
         {!st.on && <WhoTicks who={who} counts={counts} onChange={setWho} />}
 
-        {st.id !== "" && (
+        {(st.id !== "" || waiting > 0) && (
           <div className="flex flex-col gap-1.5">
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <span className="min-w-0 flex-1">
-                {L.summary(done, st.rows.length)}
-                {st.off && ` · ${yours ? L.calledOff : L.startedAgain}`}
+                {st.id !== "" && L.summary(done, st.rows.length)}
+                {st.id !== "" &&
+                  st.off &&
+                  ` · ${yours ? L.calledOff : L.startedAgain}`}
+                {waiting > 0 &&
+                  !yours &&
+                  `${st.id !== "" ? " · " : ""}${L.yoursWaiting(waiting)}`}
               </span>
               {canCallOff && (
                 <Button

@@ -1308,5 +1308,5 @@ export function WindDownRow(p: Partial<B.WindDownRow> = {}): B.WindDownRow {
 
 /** WindDownStatus with Go's zero values for every field left out. */
 export function WindDownStatus(p: Partial<B.WindDownStatus> = {}): B.WindDownStatus {
-  return { "on": false, "since": null, "devices": [], "id": "", "scope": "", "finished": false, "off": false, "who": StopWho(), "rows": [], ...p } as B.WindDownStatus
+  return { "on": false, "since": null, "devices": [], "id": "", "scope": "", "finished": false, "off": false, "who": StopWho(), "rows": [], "yoursWaiting": 0, ...p } as B.WindDownStatus
 }
