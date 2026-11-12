@@ -13,7 +13,7 @@ fn wound_down_replies_show_only_in_the_dialog() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
     let me = r.w.core.user_sender().key;
-    let st = r.w.wind_down_all().unwrap();
+    let st = r.w.wind_down_all(None).unwrap();
     let rows: Vec<_> = st
         .rows
         .iter()
@@ -48,7 +48,7 @@ fn a_straggler_stop_is_followed_and_kept_out_too() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
     let me = r.w.core.user_sender().key;
-    let st = r.w.wind_down_all().unwrap();
+    let st = r.w.wind_down_all(None).unwrap();
     let first = st
         .rows
         .iter()
@@ -83,7 +83,7 @@ fn on_holds_starts_at_once_and_off_cancels_and_lifts_it() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
     assert!(!r.w.wind_down_status().on);
-    let st = r.w.wind_down_all().unwrap();
+    let st = r.w.wind_down_all(None).unwrap();
     // From the first moment, before any agent has answered.
     assert!(st.on && st.since > 0, "{st:?}");
     assert_eq!(st.devices.len(), 1, "{st:?}");
@@ -116,7 +116,7 @@ fn on_holds_starts_at_once_and_off_cancels_and_lifts_it() {
 fn off_leaves_a_device_that_was_paused_before() {
     let r = Rig::new();
     r.w.core.set_agents_paused(true).unwrap();
-    let st = r.w.wind_down_all().unwrap();
+    let st = r.w.wind_down_all(None).unwrap();
     // Every device was paused already: the switch still reads on.
     assert!(st.on && st.since > 0, "{st:?}");
     let p = r.w.core.agents_pause();
@@ -139,10 +139,10 @@ fn start_here_during_stop_everywhere_keeps_it_stopped() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
     let me = r.w.core.device_id().to_string();
-    let st = r.w.wind_down_all().unwrap();
+    let st = r.w.wind_down_all(None).unwrap();
     let ids: Vec<String> = st.rows.iter().map(|x| x.delivery_id.clone()).collect();
     assert!(!ids.is_empty(), "{st:?}");
-    r.w.agents_pause_set(false).unwrap();
+    r.w.agents_pause_set(false, None).unwrap();
     assert!(!r.w.core.agents_pause().on, "its own pause went");
     assert!(
         r.w.core.agents_paused_on(&me),
@@ -163,7 +163,7 @@ fn start_here_during_stop_everywhere_keeps_it_stopped() {
 fn start_everywhere_leaves_a_stop_here_run() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
-    r.w.agents_pause_set(true).unwrap();
+    r.w.agents_pause_set(true, None).unwrap();
     let ids: Vec<String> =
         r.w.wind_down_status()
             .rows
@@ -184,7 +184,7 @@ fn start_everywhere_leaves_a_stop_here_run() {
 fn a_finished_run_keeps_the_switch_on() {
     let r = Rig::new();
     // Every row answered at once: the run finishes, the switch stays on.
-    let st = r.w.wind_down_all().unwrap();
+    let st = r.w.wind_down_all(None).unwrap();
     for x in &st.rows {
         let name = if x.key == r.key_a { "alpha" } else { "beta" };
         r.w.core
@@ -208,7 +208,7 @@ fn a_finished_run_keeps_the_switch_on() {
 fn a_row_whose_agent_ended_without_answering_reads_no_answer() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
-    let st = r.w.wind_down_all().unwrap();
+    let st = r.w.wind_down_all(None).unwrap();
     for x in &st.rows {
         if x.key == r.key_a {
             ib.reply(
@@ -236,7 +236,7 @@ fn a_row_whose_agent_ended_without_answering_reads_no_answer() {
 fn pause_here_winds_this_devices_agents_down_and_off_resumes() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
-    let v = r.w.agents_pause_set(true).unwrap();
+    let v = r.w.agents_pause_set(true, None).unwrap();
     assert!(v.on);
     let st = r.w.wind_down_status();
     assert_eq!(st.scope, irori_window::wind_down::SCOPE_DEVICE, "{st:?}");
@@ -251,7 +251,7 @@ fn pause_here_winds_this_devices_agents_down_and_off_resumes() {
     for id in &ids {
         assert!(inbox::is_wind_down(&ib.get(id).unwrap().message));
     }
-    let v = r.w.agents_pause_set(false).unwrap();
+    let v = r.w.agents_pause_set(false, None).unwrap();
     assert!(!v.on);
     let st = r.w.wind_down_status();
     assert!(st.off && st.finished, "{st:?}");
@@ -266,14 +266,14 @@ fn pause_here_winds_this_devices_agents_down_and_off_resumes() {
 fn unpause_all_keeps_a_paused_devices_wind_downs() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
-    r.w.agents_pause_set(true).unwrap();
+    r.w.agents_pause_set(true, None).unwrap();
     let ids: Vec<String> =
         r.w.wind_down_status()
             .rows
             .iter()
             .map(|x| x.delivery_id.clone())
             .collect();
-    let st = r.w.wind_down_all().unwrap();
+    let st = r.w.wind_down_all(None).unwrap();
     let again: Vec<String> = st.rows.iter().map(|x| x.delivery_id.clone()).collect();
     assert_eq!(again, ids, "no second wind-down to an agent winding down");
     r.w.wind_down_off().unwrap();
@@ -281,4 +281,198 @@ fn unpause_all_keeps_a_paused_devices_wind_downs() {
     for id in &ids {
         assert_ne!(ib.get(id).unwrap().state, inbox::st::SKIPPED, "{id}");
     }
+}
+
+// Stop's who (decision 71): On cards are the agents Irori started (the
+// spawned mark), Yours the person's terminal sessions.
+
+use irori_window::wind_down::{SCOPE_ALL, SCOPE_DEVICE, StopWho};
+
+const CARDS: Option<StopWho> = Some(StopWho {
+    cards: true,
+    yours: false,
+});
+const YOURS: Option<StopWho> = Some(StopWho {
+    cards: false,
+    yours: true,
+});
+
+/// Marks alpha (key_a) as started by Irori; beta stays the person's.
+fn mark_a_spawned(r: &Rig) {
+    let me = r.w.core.device_id().to_string();
+    r.w.core
+        .coord()
+        .mark_spawned_elsewhere(&r.key_a, "t_stopwho", 1, &me, "stopwho", false)
+        .unwrap();
+    assert!(r.w.core.agent_spawned(&r.key_a));
+    assert!(!r.w.core.agent_spawned(&r.key_b));
+}
+
+/// The run's rows for alpha and beta, by key.
+fn keys(r: &Rig, st: &irori_window::wind_down::WindDownStatus) -> Vec<String> {
+    st.rows
+        .iter()
+        .filter(|x| x.key == r.key_a || x.key == r.key_b)
+        .map(|x| x.key.clone())
+        .collect()
+}
+
+#[test]
+fn stop_everywhere_on_cards_only_reaches_irori_started_agents() {
+    let r = Rig::new();
+    mark_a_spawned(&r);
+    let st = r.w.wind_down_all(CARDS).unwrap();
+    assert_eq!(keys(&r, &st), vec![r.key_a.clone()], "{st:?}");
+    assert!(st.rows[0].spawned);
+    assert!(st.on && st.who.cards && !st.who.yours, "{st:?}");
+    let me = r.w.core.device_id().to_string();
+    assert!(r.w.core.agents_paused_on(&me), "starts held everywhere");
+    assert!(
+        r.w.core
+            .inbox()
+            .open_wind_downs()
+            .iter()
+            .all(|d| d.to != r.key_b),
+        "beta untouched"
+    );
+}
+
+#[test]
+fn stop_everywhere_yours_only_holds_nothing_and_lights_no_switch() {
+    let r = Rig::new();
+    mark_a_spawned(&r);
+    let st = r.w.wind_down_all(YOURS).unwrap();
+    assert_eq!(keys(&r, &st), vec![r.key_b.clone()], "{st:?}");
+    assert!(!st.rows[0].spawned);
+    assert!(!st.on, "no switch: {st:?}");
+    assert_eq!(st.scope, SCOPE_ALL);
+    assert!(st.who.yours_only());
+    assert!(r.w.core.agents_pauses().is_empty(), "no paused:* rows");
+    let me = r.w.core.device_id().to_string();
+    assert!(!r.w.core.agents_paused_on(&me));
+    let d = r.w.core.inbox().get(&st.rows[0].delivery_id).unwrap();
+    assert!(inbox::is_wind_down(&d.message));
+}
+
+#[test]
+fn stop_everywhere_both_is_todays_stop() {
+    let r = Rig::new();
+    mark_a_spawned(&r);
+    let st = r.w.wind_down_all(None).unwrap();
+    let mut k = keys(&r, &st);
+    k.sort();
+    let mut want = vec![r.key_a.clone(), r.key_b.clone()];
+    want.sort();
+    assert_eq!(k, want, "{st:?}");
+    assert!(st.on && st.who == StopWho::BOTH);
+}
+
+#[test]
+fn stop_here_takes_each_choice() {
+    // On cards: holds starts here, winds alpha down only.
+    let r = Rig::new();
+    mark_a_spawned(&r);
+    let v = r.w.agents_pause_set(true, CARDS).unwrap();
+    assert!(v.on);
+    let st = r.w.wind_down_status();
+    assert_eq!(st.scope, SCOPE_DEVICE);
+    assert_eq!(keys(&r, &st), vec![r.key_a.clone()], "{st:?}");
+    drop(r);
+
+    // Yours: holds nothing, winds beta down, and runs again when asked.
+    let r = Rig::new();
+    mark_a_spawned(&r);
+    let v = r.w.agents_pause_set(true, YOURS).unwrap();
+    assert!(!v.on, "Yours lights no switch");
+    let st = r.w.wind_down_status();
+    assert_eq!(st.scope, SCOPE_DEVICE);
+    assert!(st.who.yours_only());
+    assert_eq!(keys(&r, &st), vec![r.key_b.clone()], "{st:?}");
+    let first = st.id.clone();
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    r.w.agents_pause_set(true, YOURS).unwrap();
+    assert_ne!(r.w.wind_down_status().id, first, "a fresh run each time");
+    drop(r);
+
+    // Both: today's Stop here, both agents.
+    let r = Rig::new();
+    mark_a_spawned(&r);
+    assert!(r.w.agents_pause_set(true, None).unwrap().on);
+    assert_eq!(keys(&r, &r.w.wind_down_status()).len(), 2);
+}
+
+/// Start here and Start everywhere lift holds; a Yours run held none, so
+/// its wind-downs not reached yet stay.
+#[test]
+fn a_yours_run_survives_start_here_and_start_everywhere() {
+    let r = Rig::new();
+    let ib = r.w.core.inbox();
+    mark_a_spawned(&r);
+    // A held Stop here first, so Start here has something to lift.
+    r.w.agents_pause_set(true, CARDS).unwrap();
+    let st = r.w.wind_down_all(YOURS).unwrap();
+    let id = st.rows[0].delivery_id.clone();
+    assert_eq!(st.rows[0].key, r.key_b);
+    r.w.agents_pause_set(false, None).unwrap();
+    assert_ne!(ib.get(&id).unwrap().state, inbox::st::SKIPPED, "Start here");
+    r.w.wind_down_all(CARDS).unwrap();
+    // That replaced the run in memory: Start everywhere has only the
+    // delivery's own words to go by.
+    r.w.wind_down_off().unwrap();
+    assert_ne!(
+        ib.get(&id).unwrap().state,
+        inbox::st::SKIPPED,
+        "Start everywhere"
+    );
+    let st = r.w.wind_down_status();
+    assert!(!st.on, "{st:?}");
+}
+
+/// Call off closes only the Yours run's rows not reached yet, and lifts
+/// nothing.
+#[test]
+fn call_off_closes_only_that_runs_unreached_rows() {
+    let r = Rig::new();
+    let ib = r.w.core.inbox();
+    mark_a_spawned(&r);
+    // alpha's held Stop here run, then beta's Yours run.
+    r.w.agents_pause_set(true, CARDS).unwrap();
+    let a_id = r.w.wind_down_status().rows[0].delivery_id.clone();
+    let st = r.w.wind_down_all(YOURS).unwrap();
+    let b_id = st.rows[0].delivery_id.clone();
+    let st = r.w.wind_down_call_off().unwrap();
+    assert!(st.off && st.finished, "{st:?}");
+    assert_eq!(st.rows[0].state, row::CANCELED);
+    assert_eq!(ib.get(&b_id).unwrap().state, inbox::st::SKIPPED);
+    assert_ne!(ib.get(&a_id).unwrap().state, inbox::st::SKIPPED, "alpha's");
+    assert!(r.w.core.agents_pause().on, "Call off lifts nothing");
+}
+
+/// Start ends a held run, never Call off; Call off on it does nothing.
+#[test]
+fn call_off_leaves_a_held_run() {
+    let r = Rig::new();
+    let ib = r.w.core.inbox();
+    let st = r.w.wind_down_all(None).unwrap();
+    let st2 = r.w.wind_down_call_off().unwrap();
+    assert!(st2.on && !st2.off, "{st2:?}");
+    for x in &st.rows {
+        assert_ne!(ib.get(&x.delivery_id).unwrap().state, inbox::st::SKIPPED);
+    }
+}
+
+/// A Yours run's straggler Stop keeps the Yours words, so Start leaves it.
+#[test]
+fn a_yours_straggler_stop_still_survives_start() {
+    let r = Rig::new();
+    let ib = r.w.core.inbox();
+    mark_a_spawned(&r);
+    r.w.wind_down_all(YOURS).unwrap();
+    r.w.wind_down_stop(&r.key_b).unwrap();
+    let id = r.w.wind_down_status().rows[0].delivery_id.clone();
+    assert!(irori_window::wind_down::is_yours_only_text(
+        &ib.get(&id).unwrap().message.text
+    ));
+    r.w.wind_down_off().unwrap();
+    assert_ne!(ib.get(&id).unwrap().state, inbox::st::SKIPPED);
 }

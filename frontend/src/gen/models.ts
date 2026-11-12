@@ -185,6 +185,7 @@ export type SpaceBoard = B.SpaceBoard
 export type StartedAgent = B.StartedAgent
 export type State = B.State
 export type Step = B.Step
+export type StopWho = B.StopWho
 export type StorageCleaned = B.StorageCleaned
 export type StorageHolder = B.StorageHolder
 export type StorageItem = B.StorageItem
@@ -1080,6 +1081,11 @@ export function Step(p: Partial<B.Step> = {}): B.Step {
   return { "id": "", "text": "", "done": false, ...p } as B.Step
 }
 
+/** StopWho with Go's zero values for every field left out. */
+export function StopWho(p: Partial<B.StopWho> = {}): B.StopWho {
+  return { "cards": false, "yours": false, ...p } as B.StopWho
+}
+
 /** StorageCleaned with Go's zero values for every field left out. */
 export function StorageCleaned(p: Partial<B.StorageCleaned> = {}): B.StorageCleaned {
   return { "removed": 0, "freed": 0, "kept": [], ...p } as B.StorageCleaned
@@ -1297,10 +1303,10 @@ export function Weight(p: Partial<B.Weight> = {}): B.Weight {
 
 /** WindDownRow with Go's zero values for every field left out. */
 export function WindDownRow(p: Partial<B.WindDownRow> = {}): B.WindDownRow {
-  return { "key": "", "name": "", "deviceId": "", "device": "", "deliveryId": "", "state": "", "reply": "", "error": "", ...p } as B.WindDownRow
+  return { "key": "", "name": "", "deviceId": "", "device": "", "deliveryId": "", "state": "", "reply": "", "error": "", "spawned": false, ...p } as B.WindDownRow
 }
 
 /** WindDownStatus with Go's zero values for every field left out. */
 export function WindDownStatus(p: Partial<B.WindDownStatus> = {}): B.WindDownStatus {
-  return { "on": false, "since": null, "devices": [], "id": "", "scope": "", "finished": false, "off": false, "rows": [], ...p } as B.WindDownStatus
+  return { "on": false, "since": null, "devices": [], "id": "", "scope": "", "finished": false, "off": false, "who": StopWho(), "rows": [], ...p } as B.WindDownStatus
 }

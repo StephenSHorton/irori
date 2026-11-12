@@ -159,9 +159,15 @@ export const commands = {
 	/**
 	 *  Wind down on (cards #220, #787): holds agent starts on every one of the
 	 *  person's devices and asks every agent to save its place, hand back its
-	 *  cards and stop.
+	 *  cards and stop. `who` picks On cards, Yours or both (decision 71;
+	 *  none is both): Yours alone holds no starts.
 	 */
-	windDownAll: () => __TAURI_INVOKE<WindDownStatus>("wind_down_all"),
+	windDownAll: (who: StopWho | null) => __TAURI_INVOKE<WindDownStatus>("wind_down_all", { who }),
+	/**
+	 *  Call off a Yours-only run (decision 71): its wind-downs not reached yet
+	 *  close; it lifts nothing.
+	 */
+	windDownCallOff: () => __TAURI_INVOKE<WindDownStatus>("wind_down_call_off"),
 	/**
 	 *  Wind down off (card #787): wind-downs not reached yet close, the pauses
 	 *  Wind down set lift, and work resumes.
@@ -571,9 +577,9 @@ export const commands = {
 	agentsPause: () => __TAURI_INVOKE<AgentsPauseView>("agents_pause"),
 	/**
 	 *  The person turns Pause agents on or off for this device (their agents
-	 *  use the agents_pause tool).
+	 *  use the agents_pause tool). On takes `who` like wind_down_all.
 	 */
-	agentsPauseSet: (on: boolean) => __TAURI_INVOKE<AgentsPauseView>("agents_pause_set", { on }),
+	agentsPauseSet: (on: boolean, who: StopWho | null) => __TAURI_INVOKE<AgentsPauseView>("agents_pause_set", { on, who }),
 	/**
 	 *  Settings › Agents' caps per device, today's count and cost, and any
 	 *  usage-limit hold (card #450).
@@ -3552,6 +3558,18 @@ export type Step = {
 	owner?: string,
 };
 
+/**
+ *  Which agents a Stop reaches (decision 71): `cards`, the agents Irori
+ *  started (the roster's spawned mark), and `yours`, the terminal sessions
+ *  the person started. Both is the behaviour before it; neither reads as
+ *  both. Only `cards` holds starts: Irori never starts a terminal session,
+ *  so a Yours-only Stop is a one-off hand-off run and lights no switch.
+ */
+export type StopWho = {
+	cards: boolean,
+	yours: boolean,
+};
+
 /**  What a clean did. */
 export type StorageCleaned = {
 	removed: number,
@@ -4364,6 +4382,11 @@ export type WindDownRow = {
 	reply: string,
 	/**  Why it couldn't be sent, when it couldn't. */
 	error: string,
+	/**
+	 *  Irori started it (On cards); else it is one of the person's own
+	 *  terminal sessions (Yours).
+	 */
+	spawned: boolean,
 };
 
 /**  The switch and this device's latest run (empty `id`: no run here). */
@@ -4384,6 +4407,11 @@ export type WindDownStatus = {
 	finished: boolean,
 	/**  The run was turned off (card #787). */
 	off: boolean,
+	/**
+	 *  Which agents the run reached (decision 71). A Yours-only run held
+	 *  nothing: no switch, and Call off ends it.
+	 */
+	who: StopWho,
 	rows: WindDownRow[],
 };
 

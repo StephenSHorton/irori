@@ -792,7 +792,7 @@ fn wind_down(o: &Opts, h: &Host) -> (Result<String, String>, Option<PathBuf>) {
     if let Err(e) = a.wait_tool_uses(3, o.turn_wait) {
         return (Err(format!("the long turn never got going: {e}")), log);
     }
-    let run = match h.window.wind_down_all() {
+    let run = match h.window.wind_down_all(None) {
         Ok(r) => r,
         Err(e) => return (Err(format!("the person's wind down: {e}")), log),
     };

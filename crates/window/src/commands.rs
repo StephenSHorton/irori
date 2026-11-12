@@ -810,11 +810,23 @@ pub async fn agent_stop(w: W<'_>, key: String, text: String) -> R<()> {
 
 /// Wind down on (cards #220, #787): holds agent starts on every one of the
 /// person's devices and asks every agent to save its place, hand back its
-/// cards and stop.
+/// cards and stop. `who` picks On cards, Yours or both (decision 71;
+/// none is both): Yours alone holds no starts.
 #[tauri::command]
 #[specta::specta]
-pub async fn wind_down_all(w: W<'_>) -> R<crate::wind_down::WindDownStatus> {
-    w.wind_down_all()
+pub async fn wind_down_all(
+    w: W<'_>,
+    who: Option<crate::wind_down::StopWho>,
+) -> R<crate::wind_down::WindDownStatus> {
+    w.wind_down_all(who)
+}
+
+/// Call off a Yours-only run (decision 71): its wind-downs not reached yet
+/// close; it lifts nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn wind_down_call_off(w: W<'_>) -> R<crate::wind_down::WindDownStatus> {
+    w.wind_down_call_off()
 }
 
 /// Wind down off (card #787): wind-downs not reached yet close, the pauses
@@ -2185,11 +2197,15 @@ pub async fn agents_pause(w: W<'_>) -> R<AgentsPauseView> {
 }
 
 /// The person turns Pause agents on or off for this device (their agents
-/// use the agents_pause tool).
+/// use the agents_pause tool). On takes `who` like wind_down_all.
 #[tauri::command]
 #[specta::specta]
-pub async fn agents_pause_set(w: W<'_>, on: bool) -> R<AgentsPauseView> {
-    w.agents_pause_set(on)
+pub async fn agents_pause_set(
+    w: W<'_>,
+    on: bool,
+    who: Option<crate::wind_down::StopWho>,
+) -> R<AgentsPauseView> {
+    w.agents_pause_set(on, who)
 }
 
 /// The person changes it: the app only, never a tool.
@@ -2628,6 +2644,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_start_now,
             agent_stop,
             wind_down_all,
+            wind_down_call_off,
             wind_down_off,
             wind_down_status,
             wind_down_stop,

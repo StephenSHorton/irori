@@ -5,7 +5,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::Window;
@@ -22,6 +22,63 @@ pub const SCOPE_DEVICE: &str = "device";
 pub const WIND_DOWN_TEXT: &str = "Wind down: save your place, hand back your cards, release your leases and reply \"wound down\". Then stop until I resume you.";
 /// The Stop a straggler's row sends.
 pub const WIND_DOWN_STOP_TEXT: &str = "Wind down now: commit and push your work, post a hand-off and leave your cards, release your leases and reply \"wound down\".";
+
+/// A Yours-only run's wind-down (Stop's "Yours" tick alone, decision
+/// 71): the same ask in other words, so the delivery itself says it holds
+/// no starts. Start here and Start everywhere never close one (only Call
+/// off does), on any device and after a restart, since the words travel
+/// with the message.
+pub const WIND_DOWN_YOURS_TEXT: &str = "Hand off: save your place, hand back your cards, release your leases and reply \"wound down\". Then stop until I resume you.";
+/// The Stop a Yours-only run's straggler row sends.
+pub const WIND_DOWN_YOURS_STOP_TEXT: &str = "Hand off now: commit and push your work, post a hand-off and leave your cards, release your leases and reply \"wound down\".";
+
+/// Whether a wind-down's text is a Yours-only run's.
+pub fn is_yours_only_text(text: &str) -> bool {
+    text == WIND_DOWN_YOURS_TEXT || text == WIND_DOWN_YOURS_STOP_TEXT
+}
+
+/// Which agents a Stop reaches (decision 71): `cards`, the agents Irori
+/// started (the roster's spawned mark), and `yours`, the terminal sessions
+/// the person started. Both is the behaviour before it; neither reads as
+/// both. Only `cards` holds starts: Irori never starts a terminal session,
+/// so a Yours-only Stop is a one-off hand-off run and lights no switch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct StopWho {
+    pub cards: bool,
+    pub yours: bool,
+}
+
+impl Default for StopWho {
+    fn default() -> Self {
+        Self::BOTH
+    }
+}
+
+impl StopWho {
+    /// Both groups: what Stop did before the choice.
+    pub const BOTH: StopWho = StopWho {
+        cards: true,
+        yours: true,
+    };
+
+    /// `who`, with none (or nothing ticked) read as both.
+    pub fn or_both(who: Option<StopWho>) -> StopWho {
+        match who {
+            Some(w) if w.cards || w.yours => w,
+            _ => Self::BOTH,
+        }
+    }
+
+    /// Whether an agent with this spawned mark is in.
+    pub fn takes(&self, spawned: bool) -> bool {
+        if spawned { self.cards } else { self.yours }
+    }
+
+    /// A one-off hand-off run: no starts held, no switch.
+    pub fn yours_only(&self) -> bool {
+        !self.cards
+    }
+}
 
 /// Row states.
 pub mod row {
@@ -53,6 +110,9 @@ pub struct WindDownRow {
     pub reply: String,
     /// Why it couldn't be sent, when it couldn't.
     pub error: String,
+    /// Irori started it (On cards); else it is one of the person's own
+    /// terminal sessions (Yours).
+    pub spawned: bool,
 }
 
 /// The switch and this device's latest run (empty `id`: no run here).
@@ -73,6 +133,9 @@ pub struct WindDownStatus {
     pub finished: bool,
     /// The run was turned off (card #787).
     pub off: bool,
+    /// Which agents the run reached (decision 71). A Yours-only run held
+    /// nothing: no switch, and Call off ends it.
+    pub who: StopWho,
     pub rows: Vec<WindDownRow>,
 }
 
@@ -122,27 +185,58 @@ impl Window {
     /// live agent on all of them, as a run that replaces any earlier one.
     /// There is no Wind down for one device (card #787): that is Pause
     /// agents. A device already paused stays as it was.
-    pub fn wind_down_all(&self) -> Result<WindDownStatus, String> {
+    ///
+    /// `who` picks the agents (decision 71, none is both): On cards holds
+    /// the starts as above; Yours alone holds nothing and only asks the
+    /// person's terminal sessions to hand off (a one-off run, no switch).
+    pub fn wind_down_all(&self, who: Option<StopWho>) -> Result<WindDownStatus, String> {
+        let who = StopWho::or_both(who);
         let here = self.core.device_id().to_string();
         let mut agents = self.core.mesh_agents();
         agents.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.key.cmp(&b.key)));
         agents.dedup_by(|a, b| a.key == b.key);
-        // Stop starts first, so no fresh agent takes a card the wound-down
-        // ones leave, on any device (card #787).
-        let mut devs = vec![here];
-        devs.extend(self.core.agent_devices());
-        devs.extend(agents.iter().map(|a| a.device_id.clone()));
-        devs.sort();
-        devs.dedup();
-        self.core.wind_down_pause(&devs)?;
-        self.start_run(SCOPE_ALL, agents);
+        if who.cards {
+            // Stop starts first, so no fresh agent takes a card the
+            // wound-down ones leave, on any device (card #787).
+            let mut devs = vec![here];
+            devs.extend(self.core.agent_devices());
+            devs.extend(agents.iter().map(|a| a.device_id.clone()));
+            devs.sort();
+            devs.dedup();
+            self.core.wind_down_pause(&devs)?;
+        }
+        // Read the marks after the hold, so an agent started just before
+        // it counts as on cards.
+        let agents = self.pick(agents, who);
+        // A held Stop always replaces the run (even with no agent, so the
+        // lit switch shows no older run's rows); Yours alone with nobody
+        // to ask leaves things as they were.
+        if who.cards || !agents.is_empty() {
+            self.start_run(SCOPE_ALL, who, agents);
+        }
         Ok(self.wind_down_told())
+    }
+
+    /// The agents `who` takes, each with its spawned mark.
+    fn pick(
+        &self,
+        agents: Vec<coord::roster::AgentCard>,
+        who: StopWho,
+    ) -> Vec<(coord::roster::AgentCard, bool)> {
+        agents
+            .into_iter()
+            .map(|a| {
+                let s = self.core.agent_spawned(&a.key);
+                (a, s)
+            })
+            .filter(|(_, s)| who.takes(*s))
+            .collect()
     }
 
     /// The shared graceful stop (card #787): a wind-down to each of
     /// `agents`, as the run that replaces any earlier one. Wind down sends
     /// it to every device's agents, Pause agents to this device's.
-    fn start_run(&self, scope: &str, agents: Vec<coord::roster::AgentCard>) {
+    fn start_run(&self, scope: &str, who: StopWho, agents: Vec<(coord::roster::AgentCard, bool)>) {
         let me = self.core.user_sender();
         let ib = self.core.inbox();
         // An agent already winding down (Pause here, then Pause all) keeps
@@ -162,10 +256,16 @@ impl Window {
                         .unwrap_or_default()
                 ),
                 scope: scope.into(),
+                who,
                 ..WindDownStatus::default()
             },
         };
-        for a in agents {
+        let text = if who.yours_only() {
+            WIND_DOWN_YOURS_TEXT
+        } else {
+            WIND_DOWN_TEXT
+        };
+        for (a, spawned) in agents {
             let to = self.core.private_key(&a.key);
             let mut r = WindDownRow {
                 key: to.clone(),
@@ -173,6 +273,7 @@ impl Window {
                 device: self.core.device_label(&a.device_id),
                 device_id: a.device_id.clone(),
                 state: row::WAITING.into(),
+                spawned,
                 ..WindDownRow::default()
             };
             if let Some(d) = open.get(&to) {
@@ -189,7 +290,7 @@ impl Window {
             match ib.send_with(
                 &me,
                 &::inbox::Address::new(::inbox::addr::AGENT, &to),
-                WIND_DOWN_TEXT,
+                text,
                 o,
             ) {
                 Ok((_, d)) => {
@@ -208,11 +309,16 @@ impl Window {
 
     /// Closes the wind-downs not reached yet whose agent's device starts
     /// agents again (no pause holds it), every device's (card #787).
+    /// A Yours-only run's are left (decision 71): Start lifts holds, and
+    /// that run held none; only its Call off closes them.
     fn cancel_unpaused(&self) -> Vec<String> {
         let ib = self.core.inbox();
         let by = self.core.user_sender().key;
         let mut errs = vec![];
         for d in ib.open_wind_downs() {
+            if is_yours_only_text(&d.message.text) {
+                continue;
+            }
             let dev = irori_identity::owner::device_of(&d.to);
             // Its own pause, or Stop everywhere's, still holds it.
             if self.core.agents_paused_on(dev) {
@@ -244,6 +350,7 @@ impl Window {
             .run
             .as_mut()
             && run.st.scope == SCOPE_ALL
+            && run.st.who.cards
         {
             run.st.off = true;
         }
@@ -255,15 +362,58 @@ impl Window {
         }
     }
 
+    /// Call off (WindDownService.CallOff, decision 71): ends a Yours-only
+    /// run, from either Stop. Its wind-downs not reached yet close; the
+    /// agents already handing off finish. It lifts nothing (the run held
+    /// nothing), and is no-op for any other run: Start ends those.
+    pub fn wind_down_call_off(&self) -> Result<WindDownStatus, String> {
+        let ids: Vec<String> = {
+            let mut slot = self.wind_down.lock().unwrap_or_else(|e| e.into_inner());
+            match slot.run.as_mut() {
+                Some(run) if run.st.who.yours_only() && !run.st.off => {
+                    run.st.off = true;
+                    run.st
+                        .rows
+                        .iter()
+                        .filter(|r| !r.delivery_id.is_empty())
+                        .map(|r| r.delivery_id.clone())
+                        .collect()
+                }
+                _ => vec![],
+            }
+        };
+        let ib = self.core.inbox();
+        let by = self.core.user_sender().key;
+        let errs: Vec<String> = ids
+            .iter()
+            .filter_map(|id| ib.cancel_wind_down(id, &by).err())
+            .map(|e| e.to_string())
+            .collect();
+        let st = self.wind_down_told();
+        if errs.is_empty() {
+            Ok(st)
+        } else {
+            Err(format!("call off: {}", errs.join("; ")))
+        }
+    }
+
     /// Pause agents from the app (card #787): a graceful stop of this
     /// device. On holds starts here and winds this device's agents down
     /// (their cards may start on the person's other devices); off lifts it
     /// and closes the wind-downs not reached yet. The `agents_pause` tool
     /// only holds starts.
-    pub(crate) fn pause_here(&self, on: bool) -> Result<(), String> {
+    ///
+    /// On takes `who` (decision 71, none is both): On cards holds starts
+    /// here as above; Yours alone holds nothing and asks this machine's
+    /// terminal sessions to hand off, every time it is asked (no switch to
+    /// be on already). Off ignores it.
+    pub(crate) fn pause_here(&self, on: bool, who: Option<StopWho>) -> Result<(), String> {
+        let who = StopWho::or_both(who);
         let was = self.core.agents_pause().on;
-        self.core.set_agents_paused(on)?;
-        if on && !was {
+        if !on || who.cards {
+            self.core.set_agents_paused(on)?;
+        }
+        if on && (!was || who.yours_only()) {
             let here = self.core.device_id().to_string();
             let mut agents: Vec<_> = self
                 .core
@@ -273,8 +423,10 @@ impl Window {
                 .collect();
             agents.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.key.cmp(&b.key)));
             agents.dedup_by(|a, b| a.key == b.key);
+            // Marks read after the hold, as in wind_down_all.
+            let agents = self.pick(agents, who);
             if !agents.is_empty() {
-                self.start_run(SCOPE_DEVICE, agents);
+                self.start_run(SCOPE_DEVICE, who, agents);
             }
         }
         if !on {
@@ -286,6 +438,7 @@ impl Window {
                 .run
                 .as_mut()
                 && run.st.scope == SCOPE_DEVICE
+                && run.st.who.cards
             {
                 run.st.off = true;
             }
@@ -412,13 +565,27 @@ impl Window {
             return Err("stop whom? no agent key".into());
         }
         let to = self.core.private_key(key);
+        // A Yours-only run's straggler keeps that run's words, so Start
+        // still leaves it.
+        let yours = self
+            .wind_down
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .run
+            .as_ref()
+            .is_some_and(|r| r.st.who.yours_only() && r.st.rows.iter().any(|x| x.key == to));
+        let text = if yours {
+            WIND_DOWN_YOURS_STOP_TEXT
+        } else {
+            WIND_DOWN_STOP_TEXT
+        };
         let (_, d) = self
             .core
             .inbox()
             .send_with(
                 &self.core.user_sender(),
                 &::inbox::Address::new(::inbox::addr::AGENT, &to),
-                WIND_DOWN_STOP_TEXT,
+                text,
                 ::inbox::SendOptions {
                     mode: ::inbox::mode::STOP.into(),
                     reason: ::inbox::REASON_WIND_DOWN.into(),
