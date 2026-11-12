@@ -45,7 +45,7 @@ fn key_person(k: &str) -> String {
 
 fn device_person(d: &str) -> String {
     match d {
-        "dev-a" | "dev-a2" => "p1".into(),
+        "dev-a" | "dev-a2" | "dev-a3" => "p1".into(),
         "dev-b" | "dev-b2" => "p2".into(),
         _ => String::new(),
     }
@@ -3480,6 +3480,214 @@ fn not_now_stands_until_it_is_given_again() {
     b.c.assign(P2, &t.id, P1).unwrap();
     sync(&a, &b);
     assert_eq!(a.c.given_to_ask().len(), 1, "given again");
+}
+
+/// What a device makes of card `id`'s given question: the question,
+/// its asker, the say, and the question's blocker.
+fn given_state(
+    s: &Side,
+    id: &str,
+    q: &str,
+) -> (
+    String,
+    String,
+    Option<GivenSaid>,
+    Option<Resolution>,
+    String,
+    usize,
+) {
+    let t = s.c.get_task(id).unwrap();
+    let g = t.given.clone().unwrap();
+    let b = t.blockers.iter().find(|b| b.id == q).expect("raised");
+    let res = b.resolved.clone().map(|r| Resolution {
+        at: GoTime::default(),
+        ..r
+    });
+    (
+        g.question,
+        g.asker,
+        t.given_said.clone(),
+        res,
+        t.state.clone(),
+        s.c.given_to_ask().len(),
+    )
+}
+
+/// Folds rows on `to` one at a time, in the order given.
+fn fold_each(to: &Side, rows: &[Event]) {
+    for r in rows {
+        let (_, res) = to.st.insert_batch(std::slice::from_ref(r));
+        res.unwrap();
+        to.c.fold_live(std::slice::from_ref(r));
+    }
+}
+
+/// Every order of `units` that keeps each one's `after` behind it.
+fn orders(n: usize, after: &[(usize, usize)]) -> Vec<Vec<usize>> {
+    fn go(left: Vec<usize>, cur: Vec<usize>, after: &[(usize, usize)], out: &mut Vec<Vec<usize>>) {
+        if left.is_empty() {
+            out.push(cur);
+            return;
+        }
+        for (i, &u) in left.iter().enumerate() {
+            if after.iter().any(|&(x, y)| y == u && !cur.contains(&x)) {
+                continue;
+            }
+            let mut l = left.clone();
+            l.remove(i);
+            let mut c = cur.clone();
+            c.push(u);
+            go(l, c, after, out);
+        }
+    }
+    let mut out = Vec::new();
+    go((0..n).collect(), Vec::new(), after, &mut out);
+    out
+}
+
+/// A card given again after a Not now: p1's device raises the new
+/// question once it has the give, and p1 says Not now on it. Another
+/// device of p1's hears those rows in any order and must end where dev-a
+/// does: the raise came after the give, so it is the new give's question
+/// (the flaky core spawn_devices restart test). `twice`: dev-a2 raises the
+/// same question too, before it hears dev-a's.
+fn regive_in_any_order(twice: bool) {
+    let (a, b) = two_people_shared();
+    let owners: Owners = Arc::new(Mutex::new(vec![("p1".into(), 0, u64::MAX)]));
+    let a2 = side_with("dev-a2", P1, &owners, false);
+    let t = given(&a, &b);
+    say(&a, P1, &t, 2);
+    sync(&a, &b);
+    pull(&a, &a2);
+    pull(&b, &a2);
+    let units = if twice { 4 } else { 3 };
+    let all = orders(units, &[(1, 2)]);
+    let watchers: Vec<Side> = all
+        .iter()
+        .map(|_| {
+            let w = side_with("dev-a3", P1, &owners, false);
+            pull(&a, &w);
+            pull(&b, &w);
+            w
+        })
+        .collect();
+    let base = a.st.vector().unwrap();
+    let base_a2 = a2.st.vector().unwrap();
+    b.c.assign(P2, &t.id, P1).unwrap();
+    pull(&b, &a);
+    a.c.ask_given(P1, &t.id, "p2 gave you this card again.")
+        .unwrap();
+    if twice {
+        pull(&b, &a2);
+        a2.c.ask_given(P1, &t.id, "p2 gave you this card again.")
+            .unwrap();
+    }
+    let got = a.c.get_task(&t.id).unwrap();
+    let q = got
+        .blockers
+        .iter()
+        .find(|x| x.open() && x.question == GIVEN_QUESTION)
+        .expect("asked again")
+        .clone();
+    a.c.answer(
+        P1,
+        &t.id,
+        &q.id,
+        BlockerAnswer {
+            pick: 2,
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    // The units: dev-b's give, dev-a's raise, dev-a's Not now, dev-a2's raise.
+    let mine: Vec<Event> = a.st.missing(&base, 1000).unwrap();
+    let mine: Vec<Event> = mine
+        .into_iter()
+        .filter(|e| e.device_id == "dev-a")
+        .collect();
+    let cut = mine
+        .iter()
+        .position(|e| e.kind == kinds::BLOCKER_RESOLVED)
+        .unwrap();
+    let theirs: Vec<Event> =
+        b.st.missing(&base, 1000)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.device_id == "dev-b")
+            .collect();
+    let mut rows = vec![theirs, mine[..cut].to_vec(), mine[cut..].to_vec()];
+    if twice {
+        let r2: Vec<Event> = a2
+            .st
+            .missing(&base_a2, 1000)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.device_id == "dev-a2")
+            .collect();
+        let r2q = r2
+            .iter()
+            .filter(|e| e.kind == kinds::TASK_STATUS)
+            .filter_map(|e| serde_json::from_slice::<serde_json::Value>(&e.payload).ok())
+            .find_map(|v| v["blocker"]["id"].as_str().map(String::from))
+            .expect("dev-a2 raised it");
+        assert_eq!(r2q, q.id, "the same question");
+        rows.push(r2);
+    }
+    let give = rows[0]
+        .iter()
+        .find(|e| e.kind == kinds::TASK_ASSIGNED)
+        .unwrap();
+    let raise = rows[1]
+        .iter()
+        .find(|e| e.kind == kinds::TASK_STATUS)
+        .unwrap();
+    assert!(
+        RowPos::of(give) < RowPos::of(raise),
+        "the raise sorts after the give it heard"
+    );
+    let mut seen = Vec::new();
+    for (w, order) in watchers.iter().zip(&all) {
+        for &u in order {
+            fold_each(w, &rows[u]);
+        }
+        let live = given_state(w, &t.id, &q.id);
+        let again = replayed(w, P1, &owners);
+        let rt = again.get_task(&t.id).unwrap();
+        let replay = (
+            rt.given.clone().unwrap().question,
+            rt.given.clone().unwrap().asker,
+            rt.given_said.clone(),
+        );
+        assert_eq!(
+            (live.0.clone(), live.1.clone(), live.2.clone()),
+            replay,
+            "replay after order {order:?}"
+        );
+        seen.push((order.clone(), live));
+    }
+    let want = &seen[0].1;
+    assert_eq!(want.0, q.id, "the new question is the card's");
+    assert_eq!(want.1, "dev-a", "the lowest device asks");
+    assert!(want.2.as_ref().is_some_and(|y| !y.yes), "{:?}", want.2);
+    assert!(
+        want.3.as_ref().is_some_and(|r| !r.closed),
+        "Not now answered it"
+    );
+    assert_eq!(want.5, 0, "Not now stands");
+    for (order, got) in &seen {
+        assert_eq!(got, want, "order {order:?}");
+    }
+}
+
+#[test]
+fn a_question_raised_after_a_regive_stands_in_any_arrival_order() {
+    regive_in_any_order(false);
+}
+
+#[test]
+fn a_question_two_devices_raise_after_a_regive_stands_in_any_arrival_order() {
+    regive_in_any_order(true);
 }
 
 #[test]

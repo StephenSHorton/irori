@@ -276,6 +276,10 @@ pub struct Given {
     /// The question's blocker id, once they raised it themselves: only
     /// an answer on that one is their say.
     pub question: String,
+    /// Where in the log the question was raised (the first of two raises
+    /// of it): a give that sorts before it doesn't end it.
+    #[serde(skip)]
+    pub question_at: RowPos,
     /// The batch this give belongs to (decision 69); "" for a single give.
     pub batch: String,
     /// The give's hand-off note.

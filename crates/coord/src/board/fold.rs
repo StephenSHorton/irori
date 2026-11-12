@@ -878,24 +878,36 @@ impl Fold {
                 };
                 if let Some(person) = gave {
                     self.given_ever.insert(p.task_id.clone());
-                    // A say and a question were about the last give.
-                    super::cards::close_given_question(&mut t, at(p.at));
+                    // A say and a question were about the last give, unless
+                    // the question was raised after this give: a device
+                    // that heard the raise first keeps it, and the say on
+                    // it, as the devices that heard the give first do.
+                    let pos = RowPos::of(ev);
+                    let kept = t
+                        .given
+                        .take()
+                        .filter(|g| g.key == p.to && !g.question.is_empty() && pos < g.question_at)
+                        .unwrap_or_default();
+                    super::cards::close_given_question_but(&mut t, at(p.at), &kept.question);
                     let by_person = self
                         .key_person
                         .as_ref()
                         .map_or_else(String::new, |kp| kp(&p.by));
+                    if kept.question.is_empty() {
+                        t.given_said = None;
+                    }
                     t.given = Some(Given {
                         key: p.to.clone(),
                         person,
                         by: p.by.clone(),
-                        asker: String::new(),
-                        question: String::new(),
+                        asker: kept.asker,
+                        question: kept.question,
+                        question_at: kept.question_at,
                         batch: p.batch.clone(),
                         note: trim_space(&p.note).to_string(),
                         assistant: p.assistant,
                         by_person,
                     });
-                    t.given_said = None;
                 } else if back {
                     // Its author takes it back: the way out when the person
                     // it went to is away for good.

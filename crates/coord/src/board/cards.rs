@@ -145,11 +145,16 @@ fn nobody_on(t: &Task) -> bool {
 /// longer holds (the card went to someone else, they came off it, or its
 /// text changed). A fold's own step, so every member does the same.
 pub(crate) fn close_given_question(t: &mut Task, at: GoTime) {
+    close_given_question_but(t, at, "");
+}
+
+/// close_given_question, leaving blocker `keep` open.
+pub(crate) fn close_given_question_but(t: &mut Task, at: GoTime, keep: &str) {
     let mut closed = false;
     for b in t
         .blockers
         .iter_mut()
-        .filter(|b| b.open() && b.question == super::spawn::GIVEN_QUESTION)
+        .filter(|b| b.open() && b.question == super::spawn::GIVEN_QUESTION && b.id != keep)
     {
         b.resolved = Some(Resolution {
             option: -1,

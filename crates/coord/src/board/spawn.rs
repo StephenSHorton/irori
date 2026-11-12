@@ -1363,14 +1363,19 @@ impl Fold {
         // The lowest device that raised it asks, whatever has been said:
         // every device works that out the same from the same rows, so one
         // yes can't have two askers.
+        let pos = RowPos::of(ev);
         if known {
             if ev.device_id < g.asker {
                 g.asker = ev.device_id.clone();
+            }
+            if g.question == br.id && pos < g.question_at {
+                g.question_at = pos;
             }
             return true;
         }
         g.asker = ev.device_id.clone();
         g.question = br.id.clone();
+        g.question_at = pos;
         t.given_said = None;
         false
     }
