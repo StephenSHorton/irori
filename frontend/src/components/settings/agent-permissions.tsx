@@ -226,8 +226,8 @@ function PermissionsShape() {
       <p className="text-[12.5px] text-muted-foreground">
         In a shared space, or when a card quotes someone else, Anything without
         asking isn&apos;t used: the agent runs in auto mode instead, with the
-        git and Irori rules and the never-allow list.
-        Force pushes and <code>rm -rf</code> are never allowed.
+        git and Irori rules and the never-allow list. Force pushes and{" "}
+        <code>rm -rf</code> are never allowed.
       </p>
       <div className="grid gap-1.5">
         <h4 className="text-[12.5px] font-medium text-ink">Pushing to main</h4>
