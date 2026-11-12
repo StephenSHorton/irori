@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import type { WindDownRow, WindDownStatus } from "@/gen/bindings"
 
-import { windDownLine, yoursOnly } from "./wind-down"
+import { canCallOff, windDownLine, yoursOnly } from "./wind-down"
 
 const row = (state: string): WindDownRow => ({
   key: "k",
@@ -141,5 +141,21 @@ describe("Stop's who (decision 71)", () => {
     expect(
       yoursOnly(run([], { id: "", who: { cards: false, yours: false } }))
     ).toBe(false)
+  })
+
+  test("Call off shows for a Yours run going, or any Yours ask waiting", () => {
+    const y = { who: { cards: false, yours: true } }
+    expect(canCallOff(run(["waiting"], { ...y, finished: false }))).toBe(true)
+    expect(
+      canCallOff(run(["canceled"], { ...y, finished: true, off: true }))
+    ).toBe(false)
+    // No run in memory (a restart), asks still waiting.
+    expect(canCallOff(run([], { id: "", yoursWaiting: 2 }))).toBe(true)
+    // A Cards run replaced the Yours run; its asks still wait.
+    const c = { who: { cards: true, yours: false }, on: true }
+    expect(canCallOff(run(["winding"], { ...c, finished: false }))).toBe(false)
+    expect(
+      canCallOff(run(["winding"], { ...c, finished: false, yoursWaiting: 1 }))
+    ).toBe(true)
   })
 })

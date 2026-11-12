@@ -627,23 +627,15 @@ impl Window {
             return Err("stop whom? no agent key".into());
         }
         let to = self.core.private_key(key);
-        // A straggler asked in the Yours words keeps them, so Start still
-        // leaves it and Call off still reaches it.
-        let asked = self
+        // A Yours-only run's straggler keeps that run's words, so Start
+        // still leaves it.
+        let yours = self
             .wind_down
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .run
             .as_ref()
-            .and_then(|r| r.st.rows.iter().find(|x| x.key == to))
-            .map(|x| x.delivery_id.clone())
-            .unwrap_or_default();
-        let yours = !asked.is_empty()
-            && self
-                .core
-                .inbox()
-                .get(&asked)
-                .is_some_and(|d| is_yours_only_text(&d.message.text));
+            .is_some_and(|r| r.st.who.yours_only() && r.st.rows.iter().any(|x| x.key == to));
         let text = if yours {
             WIND_DOWN_YOURS_STOP_TEXT
         } else {

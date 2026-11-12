@@ -58,6 +58,14 @@ export function yoursOnly(st: WindDownStatus): boolean {
   return st.id !== "" && !!st.who && !st.who.cards && st.who.yours
 }
 
+// canCallOff is whether the dialog offers Call off (decision 71): a
+// Yours-only run still going, or any Yours ask not reached yet
+// (yoursWaiting), also one whose run a later Stop replaced or a restart
+// forgot.
+export function canCallOff(st: WindDownStatus): boolean {
+  return (yoursOnly(st) && !st.off && !st.finished) || st.yoursWaiting > 0
+}
+
 // devicesText names the machines Stop everywhere holds: "this Mac and Stephen's PC".
 export function devicesText(devices: string[]): string {
   return L.machines(devices.map(plainLine))

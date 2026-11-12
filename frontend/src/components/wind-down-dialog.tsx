@@ -14,7 +14,12 @@ import { nameOr } from "@/lib/names"
 import { stopLabels as L } from "@/lib/stop-labels"
 import { WhoTicks } from "@/components/stop-who-ticks"
 import { stopButton, stopCounts, stopExplain, useStopWho } from "@/lib/stop-who"
-import { devicesText, yoursOnly, type WindDown } from "@/lib/wind-down"
+import {
+  canCallOff as callOffShown,
+  devicesText,
+  yoursOnly,
+  type WindDown,
+} from "@/lib/wind-down"
 import type { WindDownRow } from "@/gen/bindings"
 
 const stateVariant: Record<
@@ -84,7 +89,7 @@ export function WindDownDialog({
   // Call off reaches every Yours ask not reached yet (yoursWaiting), also
   // one whose run a later Stop replaced or a restart forgot.
   const waiting = st.yoursWaiting
-  const canCallOff = (yours && !st.off && !st.finished) || waiting > 0
+  const canCallOff = callOffShown(st)
   const groups = rowGroups(st.rows)
 
   return (
