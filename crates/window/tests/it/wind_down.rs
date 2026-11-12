@@ -476,3 +476,41 @@ fn a_yours_straggler_stop_still_survives_start() {
     r.w.wind_down_off().unwrap();
     assert_ne!(ib.get(&id).unwrap().state, inbox::st::SKIPPED);
 }
+
+/// A held Stop that took over a Yours run's ask (the agent was still to
+/// be reached) closes it with its own Start, as before the choice.
+#[test]
+fn a_held_run_that_took_over_a_yours_ask_closes_it_on_start() {
+    let r = Rig::new();
+    let ib = r.w.core.inbox();
+    mark_a_spawned(&r);
+    let st = r.w.wind_down_all(YOURS).unwrap();
+    let id = st.rows[0].delivery_id.clone();
+    let st = r.w.wind_down_all(None).unwrap();
+    let b = st.rows.iter().find(|x| x.key == r.key_b).unwrap();
+    assert_eq!(b.delivery_id, id, "the Both run follows beta's ask");
+    r.w.wind_down_off().unwrap();
+    assert_eq!(ib.get(&id).unwrap().state, inbox::st::SKIPPED);
+}
+
+/// Call off closes only its own asks: one it took over from a held run
+/// stays with that run.
+#[test]
+fn call_off_leaves_an_ask_it_took_over_from_a_held_run() {
+    let r = Rig::new();
+    let ib = r.w.core.inbox();
+    mark_a_spawned(&r);
+    let st = r.w.wind_down_all(None).unwrap();
+    let id = st
+        .rows
+        .iter()
+        .find(|x| x.key == r.key_b)
+        .unwrap()
+        .delivery_id
+        .clone();
+    let st = r.w.wind_down_all(YOURS).unwrap();
+    assert_eq!(st.rows[0].delivery_id, id);
+    r.w.wind_down_call_off().unwrap();
+    assert_ne!(ib.get(&id).unwrap().state, inbox::st::SKIPPED);
+    assert!(r.w.wind_down_status().on, "the hold stays");
+}

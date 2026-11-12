@@ -310,13 +310,15 @@ impl Window {
     /// Closes the wind-downs not reached yet whose agent's device starts
     /// agents again (no pause holds it), every device's (card #787).
     /// A Yours-only run's are left (decision 71): Start lifts holds, and
-    /// that run held none; only its Call off closes them.
-    fn cancel_unpaused(&self) -> Vec<String> {
+    /// that run held none; only its Call off closes them. One a held run
+    /// took over (`held`, the rows of the run being turned off) closes
+    /// with it.
+    fn cancel_unpaused(&self, held: &[String]) -> Vec<String> {
         let ib = self.core.inbox();
         let by = self.core.user_sender().key;
         let mut errs = vec![];
         for d in ib.open_wind_downs() {
-            if is_yours_only_text(&d.message.text) {
+            if is_yours_only_text(&d.message.text) && !held.contains(&d.id) {
                 continue;
             }
             let dev = irori_identity::owner::device_of(&d.to);
@@ -342,7 +344,7 @@ impl Window {
         }
         // A device still paused (by the person, or its own Pause agents)
         // keeps its graceful stop going.
-        errs.extend(self.cancel_unpaused());
+        errs.extend(self.cancel_unpaused(&self.held_rows(SCOPE_ALL)));
         if let Some(run) = self
             .wind_down
             .lock()
@@ -384,8 +386,14 @@ impl Window {
         };
         let ib = self.core.inbox();
         let by = self.core.user_sender().key;
+        // Only its own asks: a row it took over from a held run stays
+        // with that run's Start.
         let errs: Vec<String> = ids
             .iter()
+            .filter(|id| {
+                ib.get(id)
+                    .is_some_and(|d| is_yours_only_text(&d.message.text))
+            })
             .filter_map(|id| ib.cancel_wind_down(id, &by).err())
             .map(|e| e.to_string())
             .collect();
@@ -430,7 +438,7 @@ impl Window {
             }
         }
         if !on {
-            let errs = self.cancel_unpaused();
+            let errs = self.cancel_unpaused(&self.held_rows(SCOPE_DEVICE));
             if let Some(run) = self
                 .wind_down
                 .lock()
@@ -512,6 +520,22 @@ impl Window {
         };
         self.wind_down_switch(&mut st);
         st
+    }
+
+    /// The delivery ids of the run in the slot when it held starts and has
+    /// `scope`: the run Start is turning off.
+    fn held_rows(&self, scope: &str) -> Vec<String> {
+        let slot = self.wind_down.lock().unwrap_or_else(|e| e.into_inner());
+        match slot.run.as_ref() {
+            Some(run) if run.st.who.cards && run.st.scope == scope => run
+                .st
+                .rows
+                .iter()
+                .map(|r| r.delivery_id.clone())
+                .filter(|id| !id.is_empty())
+                .collect(),
+            _ => vec![],
+        }
     }
 
     /// The status, told to the window and the switch's listeners.
