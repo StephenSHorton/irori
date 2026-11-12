@@ -106,8 +106,8 @@ export function PermissionsSection({
         />
         <p className="text-[12.5px] text-muted-foreground">
           In a shared space, or when a card quotes someone else, Anything
-          without asking isn&apos;t used: the agent gets the git and Irori rules
-          instead.
+          without asking isn&apos;t used: the agent runs in auto mode instead,
+          with the git and Irori rules and the never-allow list.
           {choice !== BYPASS && (
             <>
               {" "}
@@ -225,7 +225,8 @@ function PermissionsShape() {
       <span skullet-block="" className="block h-7 w-[220px] rounded-lg" />
       <p className="text-[12.5px] text-muted-foreground">
         In a shared space, or when a card quotes someone else, Anything without
-        asking isn&apos;t used: the agent gets the git and Irori rules instead.
+        asking isn&apos;t used: the agent runs in auto mode instead, with the
+        git and Irori rules and the never-allow list.
         Force pushes and <code>rm -rf</code> are never allowed.
       </p>
       <div className="grid gap-1.5">

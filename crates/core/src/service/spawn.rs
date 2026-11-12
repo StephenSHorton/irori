@@ -4629,7 +4629,7 @@ mod tests {
             spawn_permissions(&set, "", "r", &theirs, &card(), false),
             spawn_permissions(&set, "board1", "r", &mine, &card(), false),
         ] {
-            assert_eq!(p.mode, "acceptEdits");
+            assert_eq!(p.mode, "auto");
             assert!(p.settings.is_some(), "deny rules go with it");
             assert!(p.fell_back.is_some(), "and the card can say why");
         }

@@ -98,7 +98,13 @@ pub const GIVEN_START: &str = "Start an agent";
 pub const GIVEN_NOT_NOW: &str = "Not now";
 
 /// The permission modes a spawn may pass (§7). One is always passed.
-pub const PERMISSION_MODES: [&str; 4] = ["bypassPermissions", "acceptEdits", "default", "plan"];
+pub const PERMISSION_MODES: [&str; 5] = [
+    "bypassPermissions",
+    "acceptEdits",
+    "auto",
+    "default",
+    "plan",
+];
 
 /// A card's newest spawn request for one part (the card itself when
 /// `step` and `subtask` are empty).

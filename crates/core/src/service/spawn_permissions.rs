@@ -21,6 +21,11 @@ use serde_json::json;
 
 pub const ACCEPT_EDITS: &str = "acceptEdits";
 pub const BYPASS: &str = "bypassPermissions";
+/// Claude Code's auto mode: a classifier answers what the allow and deny
+/// rules don't, so a Bypass board's agent on a shared board or a card that
+/// quotes someone else runs on without stopping on every command, while
+/// the deny rules still hold (Stephen, 2026-11-12).
+pub const AUTO: &str = "auto";
 
 /// The board's permission choice (§13.8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -132,14 +137,15 @@ pub fn spawn_permissions(p: &BoardPermissions, spawn: Spawn) -> SpawnPermissions
             settings: Some(settings(&[], &deny_rules(p, &spawn))),
             fell_back: None,
         },
-        (Choice::Bypass, why @ Some(_)) | (Choice::Limited, why) => SpawnPermissions {
+        (Choice::Bypass, why @ Some(_)) => SpawnPermissions {
+            mode: AUTO,
+            settings: Some(settings(&allow_rules(p, &spawn), &deny_rules(p, &spawn))),
+            fell_back: why,
+        },
+        (Choice::Limited, _) => SpawnPermissions {
             mode: ACCEPT_EDITS,
             settings: Some(settings(&allow_rules(p, &spawn), &deny_rules(p, &spawn))),
-            fell_back: if p.choice == Choice::Bypass {
-                why
-            } else {
-                None
-            },
+            fell_back: None,
         },
     }
 }
@@ -347,7 +353,10 @@ mod tests {
                             ..Default::default()
                         },
                     );
-                    assert!(s.mode == ACCEPT_EDITS || s.mode == BYPASS, "{s:?}");
+                    assert!(
+                        s.mode == ACCEPT_EDITS || s.mode == AUTO || s.mode == BYPASS,
+                        "{s:?}"
+                    );
                 }
             }
         }
@@ -369,7 +378,9 @@ mod tests {
                 ..Default::default()
             },
         );
-        assert_eq!(s.mode, ACCEPT_EDITS);
+        // Auto, not acceptEdits: it runs on without stopping on every
+        // command, and the deny rules still hold.
+        assert_eq!(s.mode, AUTO);
         assert_eq!(s.fell_back, Some(SHARED_BOARD));
         // The fallback keeps the board's rules, deny rules included.
         assert!(list(&s, "deny").contains(&"Bash(cargo publish:*)".to_string()));
@@ -383,7 +394,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        assert_eq!((s.mode, s.fell_back), (ACCEPT_EDITS, Some(OTHERS_TEXT)));
+        assert_eq!((s.mode, s.fell_back), (AUTO, Some(OTHERS_TEXT)));
         assert!(s.counts_as_bypass(), "shell rules on the allow list");
     }
 
