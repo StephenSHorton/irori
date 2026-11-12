@@ -144,6 +144,35 @@ pub fn spawn_permissions(p: &BoardPermissions, spawn: Spawn) -> SpawnPermissions
     }
 }
 
+/// The allow rule for reading exactly the brief at `path`: Claude Code's
+/// absolute path form, `Read(//abs/path)`, in POSIX spelling on Windows
+/// too (`C:\x\b.md` is `//c/x/b.md`). The brief is outside the agent's
+/// tree, so without it the agent's first step stops on a prompt.
+pub fn brief_read_rule(path: &std::path::Path) -> String {
+    let raw = path.to_string_lossy();
+    let raw = raw.strip_prefix(r"\\?\").unwrap_or(&raw);
+    let p = raw.replace('\\', "/");
+    let b = p.as_bytes();
+    let posix = if b.len() >= 2 && b[1] == b':' && b[0].is_ascii_alphabetic() {
+        format!("/{}{}", (b[0] as char).to_ascii_lowercase(), &p[2..])
+    } else {
+        p
+    };
+    let rest = posix.trim_start_matches('/');
+    format!("Read(//{rest})")
+}
+
+/// Adds the read rule for the brief at `path` to a spawn's settings.
+pub fn allow_brief_read(settings: &mut serde_json::Value, path: &std::path::Path) {
+    let rule = serde_json::Value::from(brief_read_rule(path));
+    let allow = &mut settings["permissions"]["allow"];
+    match allow.as_array_mut() {
+        Some(a) if a.contains(&rule) => {}
+        Some(a) => a.push(rule),
+        None => *allow = serde_json::json!([rule]),
+    }
+}
+
 fn settings(allow: &[String], deny: &[String]) -> serde_json::Value {
     json!({ "permissions": { "allow": allow, "deny": deny } })
 }
@@ -585,6 +614,67 @@ mod tests {
         }
         let s = spawn_permissions(&board(Choice::Bypass), review_spawn(true));
         assert_eq!(s.fell_back, Some(REVIEW_CARD));
+    }
+
+    #[test]
+    fn the_brief_rule_is_that_one_file_in_posix_form() {
+        use std::path::Path;
+        assert_eq!(
+            brief_read_rule(Path::new("/Users/me/.irori/briefs/01ABC-1.md")),
+            "Read(//Users/me/.irori/briefs/01ABC-1.md)"
+        );
+        assert_eq!(
+            brief_read_rule(Path::new(
+                r"C:\Users\me\AppData\Local\irori\briefs\01ABC-2.md"
+            )),
+            "Read(//c/Users/me/AppData/Local/irori/briefs/01ABC-2.md)"
+        );
+        assert_eq!(
+            brief_read_rule(Path::new(r"\\?\D:\irori\briefs\x-1.md")),
+            "Read(//d/irori/briefs/x-1.md)"
+        );
+    }
+
+    /// Limited, edits-only and review spawns each get the brief's rule,
+    /// once, and nothing wider (no glob, no Edit).
+    #[test]
+    fn every_limited_spawn_may_read_its_brief_and_nothing_more() {
+        let path = std::path::Path::new("/h/.irori/briefs/01ABC-3.md");
+        let want = "Read(//h/.irori/briefs/01ABC-3.md)".to_string();
+        for (choice, spawn) in [
+            (Choice::Limited, Spawn::default()),
+            (Choice::EditsOnly, Spawn::default()),
+            (Choice::Bypass, review_spawn(true)),
+            (
+                Choice::Bypass,
+                Spawn {
+                    shared_board: true,
+                    ..Default::default()
+                },
+            ),
+        ] {
+            let mut s = spawn_permissions(&board(choice), spawn).settings.unwrap();
+            allow_brief_read(&mut s, path);
+            allow_brief_read(&mut s, path);
+            let got = SpawnPermissions {
+                mode: ACCEPT_EDITS,
+                settings: Some(s),
+                fell_back: None,
+            };
+            let allow = list(&got, "allow");
+            assert_eq!(allow.iter().filter(|r| **r == want).count(), 1, "{allow:?}");
+            assert!(
+                allow.iter().all(
+                    |r| !r.starts_with("Edit(") && !(r.starts_with("Read(") && r.contains('*'))
+                ),
+                "{allow:?}"
+            );
+            assert!(!list(&got, "deny").iter().any(|r| r.starts_with("Read(")));
+        }
+        // A settings value with no permissions yet gets the list.
+        let mut v = serde_json::json!({});
+        allow_brief_read(&mut v, path);
+        assert_eq!(v["permissions"]["allow"], serde_json::json!([want]));
     }
 
     #[test]

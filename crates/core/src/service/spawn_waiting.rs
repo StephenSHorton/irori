@@ -129,7 +129,27 @@ pub(crate) struct PermState {
     prompt_seen: Mutex<HashMap<String, Instant>>,
     /// The `irori` the hook runs; `None` installs no hook.
     pub(crate) hook_exe: Mutex<Option<std::path::PathBuf>>,
+    /// Agents this run started, by the short id `claude --bg` printed,
+    /// until they are bound: an agent's first prompt (often reading its
+    /// brief) comes before presence shows it, which took 90 s with 15
+    /// starting at once, so its hook finds its card by the id.
+    started: Mutex<HashMap<String, Started>>,
 }
+
+/// An agent this run started, not yet bound to its card.
+#[derive(Debug, Clone)]
+struct Started {
+    /// The shared board whose log holds the card; empty for the person's own.
+    board: String,
+    task_id: String,
+    generation: i64,
+    name: String,
+    at: Instant,
+}
+
+/// How long a start is looked up by its short id: binding comes well
+/// before this, and after it the card is found by the binding.
+const STARTED_KEPT: Duration = Duration::from_secs(60 * 60);
 
 /// Whether presence says the agent is stopped on a permission prompt.
 pub fn on_permission_prompt(a: &presence::AgentCard) -> bool {
@@ -333,6 +353,61 @@ impl Services {
     /// the phone) starts agents without one.
     pub(crate) fn set_permission_hook(&self, exe: Option<std::path::PathBuf>) {
         *self.spawn.perm.hook_exe.lock().unwrap() = exe;
+    }
+
+    /// Notes an agent `claude --bg` just started for card `task_id` (on
+    /// `board`, "" for the person's own log) by request `generation`, with
+    /// the short id it printed: its hook can then find the card before the
+    /// agent is bound. An id under 8 hex is never noted.
+    pub(crate) fn note_spawn_session(
+        &self,
+        short_id: &str,
+        board: &str,
+        task_id: &str,
+        generation: i64,
+        name: &str,
+    ) {
+        let id = short_id.trim().to_ascii_lowercase();
+        if id.len() < 8 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+            return;
+        }
+        let mut started = self.spawn.perm.started.lock().unwrap();
+        started.retain(|_, s| s.at.elapsed() < STARTED_KEPT);
+        started.insert(
+            id,
+            Started {
+                board: board.to_string(),
+                task_id: task_id.to_string(),
+                generation,
+                name: name.to_string(),
+                at: Instant::now(),
+            },
+        );
+    }
+
+    /// The start noted for agent `key` on this device whose card's request
+    /// is still pending for it: the agent is up but not bound yet.
+    fn started_unbound(&self, key: &str) -> Option<Started> {
+        let (device, session) = key.split_once('/')?;
+        if device != self.device.id {
+            return None;
+        }
+        let session = session.to_ascii_lowercase();
+        let s = self
+            .spawn
+            .perm
+            .started
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(id, _)| session.starts_with(id.as_str()))
+            .map(|(_, s)| s.clone())?;
+        let co = self.log_coord(&s.board)?;
+        let t = co.get_task(&s.task_id)?;
+        t.spawns
+            .iter()
+            .any(|r| r.generation == s.generation && r.pending() && r.device == self.device.id)
+            .then_some(s)
     }
 
     /// The hook's settings for a spawn, if a hook is installed.
@@ -607,6 +682,17 @@ impl Services {
             let (co, t, _) = self.spawn_card_of(key)?;
             return Some((m.board, co, t));
         }
+        // An agent Irori started that isn't bound yet: its first prompt can
+        // come long before presence shows it (a shared board's agents all
+        // stopped on reading their brief before they were bound).
+        if let Some(s) = self.started_unbound(key) {
+            let co = self.log_coord(&s.board)?;
+            let t = co.get_task(&s.task_id)?;
+            if !s.board.is_empty() && !co.mine_to_serve(&t) {
+                return None;
+            }
+            return Some((s.board, co, t));
+        }
         // A session the person started, which the mod tracks (GitHub #322):
         // the open card it holds on the person's own log, the one it is
         // working on first.
@@ -623,7 +709,7 @@ impl Services {
 
     /// How the item's text names the agent's tie to its card.
     fn agent_role(&self, key: &str) -> &'static str {
-        if self.coord.spawned(key).is_some() {
+        if self.coord.spawned(key).is_some() || self.started_unbound(key).is_some() {
             "Irori started for"
         } else {
             "working on"
@@ -658,7 +744,10 @@ impl Services {
     fn agent_label(&self, key: &str) -> String {
         let n = self.roster.name_of(key);
         if n.is_empty() {
-            "Its agent".to_string()
+            self.started_unbound(key)
+                .map(|s| s.name)
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| "Its agent".to_string())
         } else {
             n
         }
@@ -728,9 +817,16 @@ impl Services {
             // The hook fires before the session file says `waiting`: until
             // presence shows the prompt (or PROMPT_LAG), its agent isn't
             // past it.
+            // An agent not bound yet may not be in presence at all (with
+            // many starting, it showed 90 s late): while its hook still
+            // asks and presence never showed it past a prompt, it isn't.
             let young = pending
                 .values()
-                .filter(|p| !p.prompted && now.duration_since(p.raised) < PROMPT_LAG)
+                .filter(|p| {
+                    !p.prompted
+                        && (now.duration_since(p.raised) < PROMPT_LAG
+                            || !agents.iter().any(|a| a.key == p.agent))
+                })
                 .map(|p| p.agent.clone())
                 .collect();
             (hooked, young)
