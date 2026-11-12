@@ -1119,7 +1119,7 @@ impl Core {
         }
         match crate::reset::reset_if_asked(&dir) {
             Ok(Some(dst)) => logf(format_args!(
-                "reset: this device's log and identity moved to {}; it starts as a new device",
+                "reset: this device's log, identity and spaces moved to {}; it starts as a new device",
                 dst.display()
             )),
             Ok(None) => {}

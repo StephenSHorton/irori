@@ -3,6 +3,20 @@
 //! `reset-<UTC time>-<random>/` in the data dir, so the next start has a new
 //! device id and key and its own first-run person. Nothing is deleted, and
 //! the settings (`settings.json`, `relay.json`, `irori.json`) stay.
+//!
+//! The shared spaces move aside too (card #1096): the whole `spaces/`
+//! folder, each log with its `.secrets`, and v0.10's `boards/` if one is
+//! left, which the next start would otherwise pour into `spaces/`. They are
+//! the old person's: what says this person joined, forgot or hides each one
+//! is in the private log, which moves, yet a start opens every log it finds
+//! in `spaces/`. Kept, they showed the old cards on the new device's board
+//! and left it holding the old person's space keys: `.secrets` is sealed by
+//! the data dir's keystore (the Mac's Keychain item for this data dir, the
+//! PC's Windows user), not by `device.key`, so a Reset alone doesn't stop it
+//! unsealing them. A space comes back the way it reaches any new device:
+//! over sync once this device is paired into the person again, or by a new
+//! invite. If this device was the only one holding a space, its files are
+//! in the reset folder, and the same keystore still opens them.
 
 use std::fs;
 use std::io;
@@ -17,7 +31,7 @@ use crate::lockfile;
 pub const RESET_FILE: &str = "reset-pending";
 
 /// The data dir entries a Reset moves aside.
-pub const RESET_MOVES: [&str; 13] = [
+pub const RESET_MOVES: [&str; 15] = [
     "irori.db",
     "irori.db-wal",
     "irori.db-shm",
@@ -32,6 +46,9 @@ pub const RESET_MOVES: [&str; 13] = [
     "capture-cursors.json",
     "files",
     "blobs",
+    // The old person's spaces and their keys (card #1096, see above).
+    crate::service::boards::SPACES_DIR,
+    crate::service::boards::BOARDS_DIR,
 ];
 
 /// Writes the marker (the GUI's Reset button; the next start finishes it):
@@ -110,4 +127,43 @@ pub(crate) fn write_private(path: &Path, data: &[u8]) -> io::Result<()> {
     }
     use std::io::Write as _;
     o.open(path)?.write_all(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Card #1096: the spaces and a leftover v0.10 `boards/` move with the
+    /// log, each file inside them as it was; the settings stay.
+    #[test]
+    fn moves_the_spaces_aside() {
+        let data = tempfile::tempdir().unwrap();
+        let d = data.path();
+        let id = "18327b806585d2ad0630c1235212eba5";
+        for dir in ["spaces", "boards"] {
+            fs::create_dir(d.join(dir)).unwrap();
+            for ext in ["db", "db-wal", "db-shm", "secrets"] {
+                fs::write(d.join(dir).join(format!("{id}.{ext}")), dir).unwrap();
+            }
+        }
+        fs::write(d.join("irori.db"), b"log").unwrap();
+        fs::write(d.join("settings.json"), b"{}").unwrap();
+        fs::write(d.join(RESET_FILE), b"x").unwrap();
+
+        let dst = reset_if_asked(d).unwrap().expect("a reset was asked");
+
+        for dir in ["spaces", "boards"] {
+            assert!(!d.join(dir).exists(), "{dir}/ left in the data dir");
+            for ext in ["db", "db-wal", "db-shm", "secrets"] {
+                let f = dst.join(dir).join(format!("{id}.{ext}"));
+                assert_eq!(fs::read_to_string(&f).unwrap(), dir, "{}", f.display());
+            }
+        }
+        assert!(dst.join("irori.db").exists(), "the log did not move");
+        assert!(
+            d.join("settings.json").exists(),
+            "the settings did not stay"
+        );
+        assert!(!d.join(RESET_FILE).exists(), "the marker was left");
+    }
 }

@@ -577,6 +577,56 @@ fn test_reset_makes_a_new_device() {
     assert!(!data.path().join("device.json").exists());
 }
 
+/// Card #1096: a space the old person held moves aside with the log, its
+/// secrets too, so the new device opens none of it and holds none of its
+/// keys.
+#[test]
+fn test_reset_moves_the_old_spaces_aside() {
+    let data = tempfile::tempdir().unwrap();
+    let claude = tempfile::tempdir().unwrap();
+    let c = Core::start(options(data.path(), claude.path())).unwrap();
+    let id = c.create_board("Wind Waker Multiplayer", "wind").unwrap();
+    let spaces = data.path().join("spaces");
+    let files = [format!("{id}.db"), format!("{id}.secrets")];
+    for f in &files {
+        assert!(spaces.join(f).exists(), "no {f} before the reset");
+    }
+    c.request_reset().unwrap();
+    c.close().unwrap();
+    drop(c);
+    let c2 = Core::start(options(data.path(), claude.path())).unwrap();
+    // The spaces open after the start returns; a lookup waits for that.
+    assert!(
+        c2.board_coord(&id).is_err(),
+        "the new device opened the old space"
+    );
+    assert!(
+        !c2.boards().contains(&id),
+        "the new device opened the old space: {:?}",
+        c2.boards()
+    );
+    assert!(
+        !c2.board_list().iter().any(|b| b.board_id == id),
+        "the old space is listed"
+    );
+    for f in &files {
+        assert!(!spaces.join(f).exists(), "{f} left in spaces/");
+    }
+    let moved: Vec<_> = std::fs::read_dir(data.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with("reset-"))
+        .collect();
+    assert_eq!(moved.len(), 1, "one reset folder");
+    for f in &files {
+        assert!(
+            moved[0].path().join("spaces").join(f).exists(),
+            "{f} not in the reset folder"
+        );
+    }
+    c2.close().unwrap();
+}
+
 /// coord.md §6 "expiry timer fires without a row": a lease running out
 /// reaches subscribers by itself; nobody calls sweep, leases or expire,
 /// and no row is involved. The timer then re-arms for the next lease.

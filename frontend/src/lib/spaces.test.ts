@@ -15,6 +15,7 @@ import {
   cardsOnPersonal,
   closedBoards,
   openBoards,
+  forgetSpace,
 } from "./spaces"
 import { cropSquare, initials, isAvatar } from "./avatar"
 
@@ -209,5 +210,28 @@ describe("waitingSpaces (card #1001)", () => {
     const got = waitingSpaces(spaces, (id) => id === "b-b")
     expect([...got]).toEqual(["b-b"])
     expect(waitingSpaces(spaces, () => false).size).toBe(0)
+  })
+})
+
+// Card #1096: a Reset moves the spaces aside, so the saved pick goes too.
+describe("forgetSpace", () => {
+  test("drops the saved pick and leaves the other keys", () => {
+    const was = globalThis.localStorage
+    const m = new Map<string, string>([
+      ["irori.space", "b-mlg"],
+      ["irori.sidebarFolded", "1"],
+    ])
+    globalThis.localStorage = {
+      getItem: (k: string) => m.get(k) ?? null,
+      setItem: (k: string, v: string) => void m.set(k, v),
+      removeItem: (k: string) => void m.delete(k),
+    } as unknown as Storage
+    try {
+      forgetSpace()
+      expect(m.has("irori.space")).toBe(false)
+      expect(m.get("irori.sidebarFolded")).toBe("1")
+    } finally {
+      globalThis.localStorage = was
+    }
   })
 })
