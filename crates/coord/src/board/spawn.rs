@@ -288,6 +288,19 @@ impl Task {
     }
 }
 
+/// What a given person's raise of "OK to start an agent on this?" is to
+/// the card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Raised {
+    /// A new question, or none of the given person's.
+    New,
+    /// A second row for the question the card already has.
+    Again,
+    /// Raised before the give, take back or leave that ended it (at this
+    /// time), folded here after that row.
+    Stale(GoTime),
+}
+
 impl Fold {
     /// The card agent `key` was started for, if it was spawned; kept
     /// after the agent goes.
@@ -1330,7 +1343,12 @@ impl Fold {
         if b.question != GIVEN_QUESTION || !b.open() {
             return None;
         }
-        let g = t.given.as_ref()?;
+        // Or the parked question, for a give not folded here yet.
+        let g = t
+            .given
+            .as_ref()
+            .filter(|g| g.question == p.blocker_id)
+            .or_else(|| t.given_parked.as_ref().map(|(g, _)| g))?;
         let who = g.person.clone();
         let kp = self.key_person.as_ref()?;
         if !person || kp(&p.by) != who || g.question != p.blocker_id {
@@ -1345,20 +1363,62 @@ impl Fold {
 
     /// Notes the given person raising the question on card t, as
     /// themselves from their own device: no agent's or other member's row
-    /// makes a question their yes can stand on. True when it is a second
-    /// row for the question the card already has: it changes nothing, and
-    /// the lowest device of the two acts.
-    pub(crate) fn given_raised(&self, t: &mut Task, p: &TaskStateRow, ev: &Event) -> bool {
+    /// makes a question their yes can stand on. [`Raised::Again`] for a
+    /// second row of the question the card already has: it changes
+    /// nothing, and the lowest device of the two acts. [`Raised::Stale`]
+    /// for one raised before the give, take back or leave that ended it,
+    /// folded here after that row: it lands closed, as that row closed it.
+    pub(crate) fn given_raised(&self, t: &mut Task, p: &TaskStateRow, ev: &Event) -> Raised {
         let Some(br) = p.blocker.as_ref().filter(|b| b.question == GIVEN_QUESTION) else {
-            return false;
+            return Raised::New;
         };
-        let mine = t.given.as_ref().is_some_and(|g| g.key == p.by);
-        if !mine || !self.person_row(ev, &p.by) {
-            return false;
+        if !self.person_row(ev, &p.by) {
+            return Raised::New;
+        }
+        let pos = RowPos::of(ev);
+        if let Some((_, at)) = t.given_reset.clone().filter(|(r, _)| pos < *r) {
+            // A second raise of it can be the earlier one: the question
+            // was over before the give that took it up.
+            if let Some(g) = t.given.as_mut().filter(|g| g.question == br.id) {
+                g.asker.clear();
+                g.question.clear();
+                g.question_at = RowPos::default();
+                t.given_said = None;
+            }
+            if t.given_parked
+                .as_ref()
+                .is_some_and(|(g, _)| g.question == br.id)
+            {
+                t.given_parked = None;
+            }
+            return Raised::Stale(at);
         }
         let known = t.blockers.iter().any(|b| b.id == br.id);
-        let Some(g) = t.given.as_mut() else {
-            return false;
+        let g = match t.given.as_mut().filter(|g| g.key == p.by) {
+            Some(g) => g,
+            // Raised after the card's given state ended here, for a give
+            // that hasn't folded here yet: parked for it.
+            None if t.given_reset.is_some() => {
+                let same =
+                    |(g, _): &(Given, Option<GivenSaid>)| g.key == p.by && g.question == br.id;
+                if !t.given_parked.as_ref().is_some_and(same) {
+                    if known {
+                        return Raised::Again;
+                    }
+                    let person = self
+                        .key_person
+                        .as_ref()
+                        .map_or_else(String::new, |kp| kp(&p.by));
+                    let g = Given {
+                        key: p.by.clone(),
+                        person,
+                        ..Given::default()
+                    };
+                    t.given_parked = Some((g, None));
+                }
+                &mut t.given_parked.as_mut().expect("parked").0
+            }
+            None => return Raised::New,
         };
         // The lowest device that raised it asks, whatever has been said:
         // every device works that out the same from the same rows, so one
@@ -1367,12 +1427,20 @@ impl Fold {
             if ev.device_id < g.asker {
                 g.asker = ev.device_id.clone();
             }
-            return true;
+            // The first raise of it is where it began, whichever folded
+            // first: a give between the two ends it.
+            if g.question == br.id && pos < g.question_at {
+                g.question_at = pos;
+            }
+            return Raised::Again;
         }
         g.asker = ev.device_id.clone();
         g.question = br.id.clone();
-        t.given_said = None;
-        false
+        g.question_at = pos;
+        if t.given.as_ref().is_some_and(|g| g.question == br.id) {
+            t.given_said = None;
+        }
+        Raised::New
     }
 
     /// Whether ev waits beside the row that lets it in: rows come device
