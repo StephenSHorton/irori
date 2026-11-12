@@ -46,6 +46,7 @@
 //!   attach or member secret resolved to.
 
 mod args;
+mod assistant_needs;
 pub mod assistant_writes;
 mod attachments;
 mod avatar;
@@ -58,6 +59,7 @@ mod huddle;
 mod later;
 mod mention;
 mod messages;
+mod needs;
 mod notes;
 pub mod notice;
 pub mod notify;
@@ -78,7 +80,10 @@ use gocompat::time::GoTime;
 
 pub use attachments::Attacher;
 pub use explore::spawned_lines;
-pub use format::{clip, clip_mcp, one_line};
+pub use format::{
+    MAX_NAME, SENDER_NOTE, SENDER_TAG, clip, clip_mcp, escape, fence_sender, one_line,
+};
+pub use needs::{needs_snapshot, needs_snapshot_before};
 pub use notes::NotesBackend;
 pub use notify::{Action, Note, Notifier};
 pub use observe::redact;
@@ -111,7 +116,7 @@ pub const CLIENT_ASSISTANT: &str = "assistant";
 /// the API refuses any other for its caller, and `GET
 /// /v1/tools?client=assistant` lists exactly these. None of them marks
 /// anything delivered or read (inbox and talk_* are left out for that).
-pub const ASSISTANT_TOOLS: [&str; 15] = [
+pub const ASSISTANT_TOOLS: [&str; 16] = [
     "search",
     "show",
     "board",
@@ -128,10 +133,13 @@ pub const ASSISTANT_TOOLS: [&str; 15] = [
     "events",
     // Card #1009: what the window is showing (the window sends it with each ask).
     "screen",
+    // Decision 69: what waits on the person, given cards first.
+    "needs_you",
 ];
 
 pub use assistant_writes::{
-    ASSISTANT_WRITE_TOOLS, Grant, Grants, TOOL_CLOSE, TOOL_COMMENT, TOOL_SEND, TOOL_TICK,
+    ASSISTANT_WRITE_TOOLS, Grant, Grants, ItemState, SnapItem, SnapPerson, Snapshot, TOOL_CLOSE,
+    TOOL_COMMENT, TOOL_GIVE, TOOL_GIVE_BACK, TOOL_NOT_NOW, TOOL_SEND, TOOL_START, TOOL_TICK,
     grants_for,
 };
 
@@ -607,7 +615,8 @@ pub fn heavy_family(device_id: &str) -> Option<String> {
 }
 
 /// The read-only tools that read as the caller.
-const CALLER_READS: [&str; 10] = [
+const CALLER_READS: [&str; 11] = [
+    "needs_you",
     "huddle_status",
     "huddle_canvas",
     "inbox",
@@ -621,7 +630,7 @@ const CALLER_READS: [&str; 10] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 73] = [
+    let list: [(&'static str, Handler); 78] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -655,6 +664,11 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("assistant_tick", assistant_writes::assistant_tick),
         ("assistant_send", assistant_writes::assistant_send),
         ("assistant_comment", assistant_writes::assistant_comment),
+        ("assistant_start", needs::assistant_start),
+        ("assistant_not_now", needs::assistant_not_now),
+        ("assistant_give_back", needs::assistant_give_back),
+        ("assistant_give", needs::assistant_give),
+        ("needs_you", needs::needs_you),
         ("board_link", board::board_link),
         ("board_edit", board::board_edit),
         ("board_later", later::board_later),

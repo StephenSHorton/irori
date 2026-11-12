@@ -170,6 +170,19 @@ pub trait SharedBoards: Send + Sync {
     ) -> Result<Task, String>;
     /// Withdraw a shared card (§5.3) for the person.
     fn withdraw(&self, task_id: &str) -> Result<(), String>;
+    /// Shares the person's Personal cards `task_ids` to space `board_id`'s
+    /// first board and gives the copies to the person `to` as one batch,
+    /// under one lock so no sweep sees them unheld (decision 69, §5.2.1).
+    /// Every card is checked before any is shared; a card with open
+    /// subtasks is refused. The copies, in order. Default: not here.
+    fn share_give(
+        &self,
+        _task_ids: &[String],
+        _board_id: &str,
+        _to: &str,
+    ) -> Result<Vec<Task>, String> {
+        Err("sharing and giving isn't on here".into())
+    }
     /// Who an agent's @name on board `board_id`'s cards may also name
     /// (card #186): the other members, as `person:<id>` by their profile
     /// name, and their agents' cards, as `agent:<cardId>`. This person's

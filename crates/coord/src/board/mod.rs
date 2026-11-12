@@ -2163,6 +2163,11 @@ impl Coord {
     pub fn given_to(&self, viewer: &str) -> Vec<GivenItem> {
         self.lock().given_to(viewer)
     }
+    /// Whether an agent is on card `t` or starting on it: a holder that
+    /// isn't a person, or a spawn request that isn't stale (decision 69).
+    pub fn agent_on_or_starting(&self, t: &Task) -> bool {
+        self.lock().agent_on_or_starting(t)
+    }
     /// Raises the given question on card `id` and answers it Start an
     /// agent in one step (decision 69). False when the question did not end
     /// up this device's.

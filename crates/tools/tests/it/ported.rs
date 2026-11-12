@@ -196,6 +196,7 @@ fn test_unbound_caller() {
     // search, show, overview and board read as the caller: run as nobody,
     // they would read as the person (viewer ""), who sees every message.
     for name in [
+        "needs_you",
         "inbox",
         "send",
         "reply",
@@ -480,6 +481,7 @@ fn test_specs() {
         "agents_started",
         "agent_end",
         "agents_pause",
+        "needs_you",
     ];
     for n in want {
         assert!(
@@ -516,6 +518,7 @@ fn test_specs() {
         "notes_search",
         "agents_started",
         "screen",
+        "needs_you",
     ];
     for sp in s.specs("") {
         assert_eq!(
