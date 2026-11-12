@@ -903,6 +903,28 @@ fn an_agent_pauses_and_unpauses_agent_starts() {
     assert!(!s.r.core.agents_pause().on);
 }
 
+/// Card #1196 follow-up: an agent's agents_pause off lifts the old inbox
+/// Pause all too, as the person's Stop here off does, even with Pause
+/// agents already off. Before, an agent asked to get cards going again
+/// turned starts "on" while the old pause still held every wake and start.
+#[test]
+fn an_agents_pause_off_lifts_the_old_pause_all() {
+    let s = bound();
+    let inbox = s.r.core.inbox();
+    let mut pol = inbox.policy();
+    pol.paused = true;
+    inbox.set_policy(pol, "user:test").unwrap();
+    assert!(s.r.core.inbox().policy().paused);
+    assert!(!s.r.core.agents_pause().on);
+    // Pause on leaves it alone.
+    let said = tool_as_a(&s, "agents_pause", serde_json::json!({ "on": true }));
+    assert!(said.contains("Pause agents is on"), "{said}");
+    assert!(s.r.core.inbox().policy().paused, "on doesn't lift it");
+    let said = tool_as_a(&s, "agents_pause", serde_json::json!({ "on": false }));
+    assert!(said.contains("Pause agents is off"), "{said}");
+    assert!(!s.r.core.inbox().policy().paused, "off lifts it");
+}
+
 /// The agents tool lists the person's devices with Stop here, so a device
 /// with no agents doesn't read as offline.
 #[test]

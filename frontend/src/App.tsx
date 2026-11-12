@@ -1347,7 +1347,7 @@ export function App() {
           </div>
           {windDown && (
             <WindDownDialog
-              agents={roster.agents.length}
+              agents={roster.agents}
               windDown={windDownSwitch}
               onClose={() => setWindDown(false)}
             />

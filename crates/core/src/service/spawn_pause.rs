@@ -321,6 +321,14 @@ impl Services {
             name
         };
         let p = self.set_agents_paused(&dev, on, caller)?;
+        // Off lifts the old Pause all too, as the person's Stop here off
+        // does (card #1196): an agent asked to get this device's cards
+        // started again otherwise turns starts on while the old inbox
+        // pause still holds every wake and start here, with nothing in
+        // the top bar saying so. Only this device's inbox has it.
+        if !on && (dev.is_empty() || dev == self.device.id) {
+            self.lift_old_pause_all("an agent's Pause agents off");
+        }
         Ok(if p.on {
             format!(
                 "Pause agents is on for {on_dev} (since {}): Irori starts no agent there until it is turned off; the person's other devices don't ask it. Running agents keep running; to wind down, ask each one to push, write left_off and stop.",

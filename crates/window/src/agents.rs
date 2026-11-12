@@ -734,9 +734,14 @@ impl Window {
     }
 
     /// The person turns Pause agents on or off for this device: a graceful
-    /// stop, its agents wound down (card #787).
-    pub fn agents_pause_set(&self, on: bool) -> Result<AgentsPauseView, String> {
-        self.pause_here(on)?;
+    /// stop, its agents wound down (card #787). `who` picks which agents
+    /// (decision 71, none is both); Yours alone lights no switch.
+    pub fn agents_pause_set(
+        &self,
+        on: bool,
+        who: Option<crate::wind_down::StopWho>,
+    ) -> Result<AgentsPauseView, String> {
+        self.pause_here(on, who)?;
         let v = self.agents_pause();
         self.emit(EVENT_AGENTS_PAUSED, &v);
         Ok(v)

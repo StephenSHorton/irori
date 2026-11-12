@@ -178,9 +178,11 @@ export const InboxService = {
 
 // Wind down (cards #220, #787): a switch. All turns it on: agent starts
 // held on every device, and every agent saves its place, hands back its
-// cards and stops. Off turns it off at any time, mid-run too.
+// cards and stops. Off turns it off at any time, mid-run too. `who` picks
+// On cards, Yours or both (decision 71); CallOff ends a Yours-only run.
 export const WindDownService = {
-  All: () => call(commands.windDownAll()),
+  All: (who?: B.StopWho) => call(commands.windDownAll(who ?? null)),
+  CallOff: () => call(commands.windDownCallOff()),
   Off: () => call(commands.windDownOff()),
   Status: () => call(commands.windDownStatus()),
   Stop: (key: string) => done(commands.windDownStop(key)),
@@ -487,7 +489,8 @@ export const AgentsService = {
     call(commands.namesThemeSet(id, on)),
   // Pause agents (card #665): no device starts agents while it is on.
   Pause: () => call(commands.agentsPause()),
-  PauseSet: (on: boolean) => call(commands.agentsPauseSet(on)),
+  PauseSet: (on: boolean, who?: B.StopWho) =>
+    call(commands.agentsPauseSet(on, who ?? null)),
   End: (key: string) => done(commands.agentsEnd(key)),
   OfferSet: (key: string, on: boolean) =>
     done(commands.agentsOfferSet(key, on)),
