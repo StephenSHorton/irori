@@ -544,7 +544,9 @@ fn call_off_during_a_cards_run_leaves_its_rows_and_hold() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
     mark_a_spawned(&r);
-    let b_id = r.w.wind_down_all(YOURS).unwrap().rows[0].delivery_id.clone();
+    let b_id = r.w.wind_down_all(YOURS).unwrap().rows[0]
+        .delivery_id
+        .clone();
     let st = r.w.wind_down_all(CARDS).unwrap();
     let a_id = st.rows[0].delivery_id.clone();
     let st = r.w.wind_down_call_off().unwrap();
@@ -561,7 +563,9 @@ fn call_off_reaches_yours_asks_after_a_restart() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
     mark_a_spawned(&r);
-    let id = r.w.wind_down_all(YOURS).unwrap().rows[0].delivery_id.clone();
+    let id = r.w.wind_down_all(YOURS).unwrap().rows[0]
+        .delivery_id
+        .clone();
     let w2 = irori_window::Window::new(
         r.core.clone(),
         irori_window::Window::default_seams(&r.core),
@@ -587,7 +591,9 @@ fn call_off_leaves_a_yours_ask_a_held_run_took_over() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
     mark_a_spawned(&r);
-    let id = r.w.wind_down_all(YOURS).unwrap().rows[0].delivery_id.clone();
+    let id = r.w.wind_down_all(YOURS).unwrap().rows[0]
+        .delivery_id
+        .clone();
     let st = r.w.wind_down_all(None).unwrap();
     assert_eq!(st.yours_waiting, 0, "{st:?}");
     r.w.wind_down_call_off().unwrap();
