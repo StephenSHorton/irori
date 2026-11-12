@@ -88,7 +88,9 @@ export function AppHeader({
           {/* Stop here (cards #665, #773): this machine, one click each
               way. While Stop everywhere is on this machine's stop is part
               of it, so this hides (card #787). */}
-          {!windDown?.status.on && <PauseAgentsButton agents={roster.agents} />}
+          {!windDown?.status.on && (
+            <PauseAgentsButton agents={roster.agents} onYours={onWindDown} />
+          )}
           {/* Stop everywhere (cards #773, #787): a switch too. Its off button
               isn't on the sample roster; its on state shows wherever it is
               on. */}

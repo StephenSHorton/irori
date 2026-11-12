@@ -26,9 +26,13 @@ import { cn } from "@/lib/utils"
 // and on Home, and Call off ends it.
 export function PauseAgentsButton({
   agents = [],
+  onYours,
 }: {
   // The roster, for the ticks' counts on this machine.
   agents?: { spawned: boolean; here?: boolean }[]
+  // Opens the dialog: Yours alone lights nothing here, so its run shows
+  // there.
+  onYours?: () => void
 }) {
   const { pause, error, busy, set } = useAgentsPause()
   const [who, setWho] = useStopWho()
@@ -80,7 +84,10 @@ export function PauseAgentsButton({
         size="sm"
         variant="ghost"
         disabled={busy || nothing}
-        onClick={() => set(true, who)}
+        onClick={() => {
+          set(true, who)
+          if (!who.cards) onYours?.()
+        }}
         title={stopHereTitle(who) + (error ? `\n${error}` : "")}
         aria-label={L.here.name}
         aria-pressed={false}
