@@ -2831,6 +2831,13 @@ impl Services {
             env.push(("CARGO_TARGET_DIR".to_string(), dir));
         }
         let brief_path = self.write_brief(&t.id, g, &brief.text)?;
+        // Its first step reads the brief, outside its tree: a spawn with
+        // limits may read that one file without a prompt (bypass has none).
+        if perms.settings.is_some()
+            && let Some(v) = settings.as_mut()
+        {
+            super::spawn_permissions::allow_brief_read(v, &brief_path);
+        }
         let settings_file = match &settings {
             Some(v) => Some(self.write_settings(&t.id, g, v)?),
             None => None,
@@ -2873,7 +2880,9 @@ impl Services {
             )),
         }
         match got {
-            Ok(_) => {
+            Ok(s) => {
+                // Its hook may ask before it is bound (card #682).
+                self.note_spawn_session(&s.prefix, &log.board_id, &t.id, g, &started_name);
                 // Only the private board's: a board card keeps one agent
                 // by its own log's generation and binding.
                 if private {
@@ -4620,7 +4629,7 @@ mod tests {
             spawn_permissions(&set, "", "r", &theirs, &card(), false),
             spawn_permissions(&set, "board1", "r", &mine, &card(), false),
         ] {
-            assert_eq!(p.mode, "acceptEdits");
+            assert_eq!(p.mode, "auto");
             assert!(p.settings.is_some(), "deny rules go with it");
             assert!(p.fell_back.is_some(), "and the card can say why");
         }

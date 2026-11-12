@@ -1849,3 +1849,133 @@ fn haiku_is_refused_and_an_old_haiku_row_runs_on_sonnet() {
         "{s:?}"
     );
 }
+
+/// An agent's first prompt (reading its brief, before the fix) comes
+/// before presence shows it, so before it is bound: its hook finds the
+/// card by the short id `claude --bg` printed, and the sweep keeps the item
+/// while the hook asks, though presence has no such agent yet. A limited
+/// spawn's settings let it read exactly its brief.
+#[test]
+fn a_prompt_before_the_agent_shows_is_answered_from_the_card() {
+    use irori_core::spawn_waiting::{PermissionAsk, PermissionDecision};
+    use std::time::Duration;
+
+    let r = Rig::new();
+    let work = tempfile::tempdir().unwrap();
+    let fake = Arc::new(Fake::default());
+    let me = r.core.device_id().to_string();
+    let person = format!("user:{me}");
+    let co = r.core.coord();
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    r.core
+        .set_spawn_permissions("", "limited", vec![], vec![], Default::default())
+        .unwrap();
+    let t = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Ship it early".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.set_where(
+        &t.id,
+        Where {
+            who: r.key_a.clone(),
+            cwd: work.path().to_string_lossy().into(),
+            worktree: work.path().to_string_lossy().into(),
+            ..Where::default()
+        },
+    )
+    .unwrap();
+    r.core
+        .set_permission_hook(Some(PathBuf::from("/opt/irori/irori")));
+    // Started, but no session file: presence never lists it.
+    let a = fake.clone();
+    r.core.set_spawner(Some(Spawner {
+        ready: None,
+        spawn: Arc::new(move |req: &SpawnReq| {
+            a.started.lock().unwrap().push(req.clone());
+            Ok(SpawnStarted {
+                name: req.name.clone(),
+                prefix: SPAWNED_SESS[..8].into(),
+            })
+        }),
+        end: Arc::new(|_: &str| Ok(String::new())),
+        trusted: Arc::new(|_| true),
+        list: None,
+    }));
+    wait_for(60, "the agent is started", || {
+        !fake.started.lock().unwrap().is_empty()
+    });
+    let started = fake.started.lock().unwrap()[0].clone();
+    assert_eq!(started.permission_mode, "acceptEdits");
+    let v: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(started.settings_file.unwrap()).unwrap()).unwrap();
+    let allow: Vec<String> = v["permissions"]["allow"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_str().unwrap().to_string())
+        .collect();
+    let brief = irori_core::spawn_permissions::brief_read_rule(&started.brief_path);
+    assert!(allow.contains(&brief), "{brief} not in {allow:?}");
+    assert!(brief.ends_with(".md)") && !brief.contains('*'), "{brief}");
+    assert!(co.get_task(&t.id).unwrap().spawn_pending(), "not bound");
+
+    let ask = PermissionAsk {
+        id: "early".into(),
+        session_id: SPAWNED_SESS.into(),
+        tool_name: "Bash".into(),
+        tool_input: serde_json::json!({"command": "make lint"}),
+        permission_mode: "acceptEdits".into(),
+        permission_suggestions: serde_json::json!([]),
+    };
+    assert_eq!(
+        r.core.permission_wait(&ask, Duration::from_millis(300)),
+        PermissionDecision::Pending,
+        "an item, not Nothing"
+    );
+    let item = || -> Option<coord::Blocker> {
+        co.get_task(&t.id)
+            .unwrap()
+            .blockers
+            .into_iter()
+            .find(|b| b.open() && b.permission.as_ref().is_some_and(|w| w.request == "early"))
+    };
+    let b = item().expect("the hook's item on the card");
+    // Past the prompt lag, sweeping while the hook asks: the item stays.
+    let until = std::time::Instant::now() + Duration::from_secs(20);
+    while std::time::Instant::now() < until {
+        let _ = r.core.permission_wait(&ask, Duration::from_millis(500));
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+    }
+    std::thread::sleep(Duration::from_secs(2));
+    assert!(item().is_some_and(|x| x.id == b.id), "the sweep kept it");
+    let i = b
+        .options
+        .iter()
+        .position(|o| o.answer == coord::PERMISSION_ALLOW_ONCE)
+        .unwrap();
+    co.answer(
+        &person,
+        &t.id,
+        &b.id,
+        coord::BlockerAnswer {
+            pick: i as i64 + 1,
+            resolve: true,
+            ..coord::BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        r.core.permission_wait(&ask, Duration::from_secs(5)),
+        PermissionDecision::AllowOnce
+    );
+}

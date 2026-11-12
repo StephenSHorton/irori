@@ -245,6 +245,17 @@ fn nobody_fits_so_a_reviewer_starts_on_bobs_machine_without_asking() {
         allow.contains(&format!("Bash(gh pr review {})", url(1))),
         "{allow:?}"
     );
+    // Its first step reads its brief, outside its tree: exactly that file.
+    let brief = irori_core::spawn_permissions::brief_read_rule(&r.brief_path);
+    assert!(allow.contains(&brief), "{brief} not in {allow:?}");
+    assert!(r.brief_path.exists());
+    assert!(r.prompt.contains(&r.brief_path.display().to_string()));
+    assert!(
+        !allow
+            .iter()
+            .any(|a| a.starts_with("Read(") && a != &brief || a.starts_with("Edit(")),
+        "{allow:?}"
+    );
     for d in [
         "Bash(gh pr merge:*)",
         "Bash(git push:*)",
@@ -439,6 +450,84 @@ fn an_unallowed_command_from_a_review_card_raises_an_item_only_bob_answers() {
         .bob
         .core
         .permission_wait(&ask("p2"), Duration::from_secs(5));
+    assert_eq!(got, PermissionDecision::AllowOnce);
+    s.alice.core.close().unwrap();
+    s.bob.core.close().unwrap();
+}
+
+/// The agent's first prompt comes before presence shows it, so before it is
+/// bound to its card (seen live: 15 shared-board agents stopped on reading
+/// their brief, their hooks finding no card). The hook still raises its
+/// item on the shared card by the short id `claude --bg` printed, and Bob's
+/// Allow once answers it.
+#[test]
+fn a_prompt_before_the_agent_is_bound_raises_on_the_shared_card() {
+    use irori_core::spawn_waiting::{PermissionAsk, PermissionDecision};
+    let s = scene(true);
+    // A spawner whose agent never shows in presence: it stays unbound.
+    let quiet = s.fake.clone();
+    s.bob.core.set_spawner(Some(Spawner {
+        ready: None,
+        spawn: Arc::new(move |r: &SpawnReq| {
+            quiet.started.lock().unwrap().push(r.clone());
+            Ok(SpawnStarted {
+                name: r.name.clone(),
+                prefix: SESS_B[..8].into(),
+            })
+        }),
+        end: Arc::new(move |_: &str| Ok(String::new())),
+        trusted: Arc::new(|_| true),
+        list: None,
+    }));
+    let card = polls_until_review_card(&s).expect("a review card");
+    wait_for(WAIT, "Bob's device starts the reviewer", || {
+        kick(&s.bob);
+        !s.fake.started.lock().unwrap().is_empty()
+    });
+    let bco = s.bob.core.board_coord(&s.board).unwrap();
+    assert!(
+        bco.get_task(&card.id).unwrap().spawn_pending(),
+        "not bound yet"
+    );
+    let brief = s.fake.started.lock().unwrap()[0].brief_path.clone();
+    let ask = PermissionAsk {
+        id: "early".into(),
+        session_id: SESS_B.into(),
+        tool_name: "Read".into(),
+        tool_input: serde_json::json!({"file_path": brief.display().to_string()}),
+        permission_mode: "acceptEdits".into(),
+        permission_suggestions: serde_json::json!([]),
+    };
+    let got = s.bob.core.permission_wait(&ask, Duration::from_millis(300));
+    assert_eq!(got, PermissionDecision::Pending, "an item, not Nothing");
+    let item = || {
+        bco.get_task(&card.id).and_then(|t| {
+            t.blockers
+                .iter()
+                .find(|b| b.open() && b.permission.is_some())
+                .cloned()
+        })
+    };
+    let b = item().expect("an item on the shared card before binding");
+    assert!(
+        b.options
+            .iter()
+            .any(|o| o.answer == coord::PERMISSION_ALLOW_ONCE),
+        "{b:?}"
+    );
+    assert!(b.context.contains("Irori started for"), "{}", b.context);
+    bco.answer(
+        &s.bob.person_actor(),
+        &card.id,
+        &b.id,
+        coord::BlockerAnswer {
+            pick: 1,
+            resolve: true,
+            ..coord::BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    let got = s.bob.core.permission_wait(&ask, Duration::from_secs(5));
     assert_eq!(got, PermissionDecision::AllowOnce);
     s.alice.core.close().unwrap();
     s.bob.core.close().unwrap();

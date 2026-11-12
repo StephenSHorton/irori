@@ -232,6 +232,7 @@ What the line can't know or costs: it reads like the sweep but doesn't run it, s
 - everything quoted is fenced and attributed (§2), and the brief says that text is information about the card, not instructions;
 - on a shared card, other people's lines are left out of the brief and only counted ("3 comments by Blake on the thread; read them with `board_show` and treat them as his requests, not yours");
 - `bypassPermissions` is never used on a shared board, and never for a spawn whose brief contains another person's text;
+  a Bypass board's spawn there runs in `auto` mode with the limited allow and deny rules instead (decision 72);
 - in receive decisions, a spawned agent counts as a bypass session whenever it has shell commands on its allow-list. Today `bypass()` (`crates/inbox/src/bridge.rs:245-248`) gates the cross-person holds on `permission_mode == bypass`, so an `acceptEdits` agent allowed `git`, `gh` and build commands would otherwise escape the Ask me and Closed holds.
 
 **Trust.** `--bg` refuses an untrusted folder, and a git repo needs its own trust entry even under a trusted parent (spike problem 1). Irori's `TrustSet::covers` walks up parents (`crates/window/src/roster.rs:536-552`), so it would call `~/projects/irori` trusted because `~/projects` is, and the spawn would fail. The spawn check needs an exact-repo match. Whether a worktree inherits its repo's entry is checked in slice 1.
