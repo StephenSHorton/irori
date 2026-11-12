@@ -598,6 +598,18 @@ fn for_and_list() {
     assert!(all.len() == 2 && all[0].id == d2.id && all[1].id == d1.id);
     let l = h.ib.list(2);
     assert!(l.len() == 2 && l[0].id == d3.id && l[1].id == d2.id);
+    for k in [KEY_A, KEY_B, KEY_C] {
+        assert_eq!(
+            h.ib.unread_count(k),
+            h.ib.for_agent(k, false, 1 << 20).len()
+        );
+        let held =
+            h.ib.list(1 << 20)
+                .iter()
+                .filter(|d| d.to == k && d.state == st::HELD && !inbox::editing(d))
+                .count();
+        assert_eq!(h.ib.held_count(k), held);
+    }
     assert!(h.ib.get("dlv_nope").is_none());
     assert_eq!(h.ib.message(&d3.message_id).unwrap().text, "3");
 }
