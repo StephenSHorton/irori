@@ -3690,6 +3690,323 @@ fn a_question_two_devices_raise_after_a_regive_stands_in_any_arrival_order() {
     regive_in_any_order(true);
 }
 
+/// Everything a device makes of card `id`'s given state: the question,
+/// its asker and the say, every given question's blocker (resolution
+/// times left out), the card's state and whether its person is to be
+/// asked.
+type GivenSnap = (
+    Option<(String, String)>,
+    Option<GivenSaid>,
+    Vec<(String, Option<Resolution>)>,
+    String,
+    usize,
+);
+
+fn given_snap(c: &Coord, id: &str) -> GivenSnap {
+    let t = c.get_task(id).unwrap();
+    let qs = t
+        .blockers
+        .iter()
+        .filter(|b| b.question == GIVEN_QUESTION)
+        .map(|b| {
+            let res = b.resolved.clone().map(|r| Resolution {
+                at: GoTime::default(),
+                ..r
+            });
+            (b.id.clone(), res)
+        })
+        .collect();
+    (
+        t.given.map(|g| (g.question, g.asker)),
+        t.given_said,
+        qs,
+        t.state,
+        c.given_to_ask().len(),
+    )
+}
+
+/// A device's rows since `base`, cut into units where `cut` says a new
+/// one starts.
+fn units_of(
+    s: &Side,
+    base: &store::Vector,
+    dev: &str,
+    cut: &dyn Fn(&Event) -> bool,
+) -> Vec<Vec<Event>> {
+    let mut out: Vec<Vec<Event>> = Vec::new();
+    for e in s.st.missing(base, 1000).unwrap() {
+        if e.device_id != dev {
+            continue;
+        }
+        let starts = cut(&e);
+        if out.is_empty() || starts {
+            out.push(Vec::new());
+        }
+        out.last_mut().unwrap().push(e);
+    }
+    out
+}
+
+/// The `n`th row of a kind starts a unit.
+fn nth_of(kind: &'static str, n: usize) -> impl Fn(&Event) -> bool {
+    let count = std::cell::Cell::new(0);
+    move |e: &Event| {
+        if e.kind != kind {
+            return false;
+        }
+        count.set(count.get() + 1);
+        count.get() == n
+    }
+}
+
+/// Fresh dev-a3 watchers that hold what `from` holds now, one per order.
+fn watchers(from: &[&Side], owners: &Owners, n: usize) -> Vec<Side> {
+    (0..n)
+        .map(|_| {
+            let w = side_with("dev-a3", P1, owners, false);
+            for f in from {
+                pull(f, &w);
+            }
+            w
+        })
+        .collect()
+}
+
+/// Folds `units` on each watcher in each order and checks every one ends
+/// as a replay of it does, and all the same; returns that end.
+fn fold_in_every_order(
+    watchers: &[Side],
+    all: &[Vec<usize>],
+    units: &[Vec<Event>],
+    owners: &Owners,
+    id: &str,
+) -> GivenSnap {
+    fold_in_every_order_by(watchers, all, units, owners, id, &|s| s)
+}
+
+/// fold_in_every_order, comparing what `see` keeps of each end.
+fn fold_in_every_order_by(
+    watchers: &[Side],
+    all: &[Vec<usize>],
+    units: &[Vec<Event>],
+    owners: &Owners,
+    id: &str,
+    see: &dyn Fn(GivenSnap) -> GivenSnap,
+) -> GivenSnap {
+    let mut seen: Vec<(Vec<usize>, GivenSnap)> = Vec::new();
+    for (w, order) in watchers.iter().zip(all) {
+        for &u in order {
+            fold_each(w, &units[u]);
+        }
+        let live = see(given_snap(&w.c, id));
+        let replay = see(given_snap(&replayed(w, P1, owners), id));
+        assert_eq!(live, replay, "replay after order {order:?}");
+        seen.push((order.clone(), live));
+    }
+    let want = seen[0].1.clone();
+    for (order, got) in &seen {
+        assert_eq!(got, &want, "order {order:?}");
+    }
+    want
+}
+
+/// p1's dev-a raises the question on a give and leaves it open; p2 gives
+/// the card to p1 again (dev-a's asker lets them), dev-a raises the new
+/// question and says Not now on it. Another device of p1's that hears the
+/// old raise after the re-give closes it, as the re-give did on dev-a,
+/// and keeps the new question and the Not now.
+#[test]
+fn a_question_raised_before_a_regive_ends_in_any_arrival_order() {
+    let (a, b) = two_people_shared();
+    let owners: Owners = Arc::new(Mutex::new(vec![("p1".into(), 0, u64::MAX)]));
+    let t = b.c.create_task(P2, nt("Their card", "")).unwrap();
+    b.c.assign(P2, &t.id, P1).unwrap();
+    sync(&a, &b);
+    let all = orders(4, &[(1, 2), (2, 3)]);
+    let ws = watchers(&[&a, &b], &owners, all.len());
+    let base = a.st.vector().unwrap();
+    a.c.ask_given(P1, &t.id, "p2 gave you this card.").unwrap();
+    pull(&a, &b);
+    b.c.assign(P2, &t.id, P1).unwrap();
+    pull(&b, &a);
+    a.c.ask_given(P1, &t.id, "p2 gave you this card again.")
+        .unwrap();
+    let q = a.c.get_task(&t.id).unwrap();
+    let q = q
+        .blockers
+        .iter()
+        .find(|x| x.open() && x.question == GIVEN_QUESTION)
+        .expect("asked again")
+        .clone();
+    say(&a, P1, &open_given(&a, &t.id), 2);
+    let raise2 = nth_of(kinds::TASK_STATUS, 2);
+    let mine = units_of(&a, &base, "dev-a", &|e| {
+        raise2(e) || e.kind == kinds::BLOCKER_RESOLVED
+    });
+    assert_eq!(mine.len(), 3, "the old raise, the new one, the Not now");
+    let theirs = units_of(&b, &base, "dev-b", &|_| false);
+    let units = vec![
+        theirs[0].clone(),
+        mine[0].clone(),
+        mine[1].clone(),
+        mine[2].clone(),
+    ];
+    let want = fold_in_every_order(&ws, &all, &units, &owners, &t.id);
+    assert_eq!(want, given_snap(&a.c, &t.id), "where dev-a is");
+    assert_eq!(want.0.as_ref().map(|g| g.0.clone()), Some(q.id.clone()));
+    assert!(want.1.as_ref().is_some_and(|y| !y.yes), "{:?}", want.1);
+    assert_eq!(want.2.len(), 2, "both questions: {:?}", want.2);
+    assert!(
+        want.2[0].1.as_ref().is_some_and(|r| r.closed),
+        "the old one closed"
+    );
+}
+
+/// The old raise and the re-give alone: the card's state after them is
+/// the same whichever folds first, and the same as on dev-a.
+#[test]
+fn an_open_question_and_a_regive_end_alike_in_any_arrival_order() {
+    let (a, b) = two_people_shared();
+    let owners: Owners = Arc::new(Mutex::new(vec![("p1".into(), 0, u64::MAX)]));
+    let t = b.c.create_task(P2, nt("Their card", "")).unwrap();
+    b.c.assign(P2, &t.id, P1).unwrap();
+    sync(&a, &b);
+    let all = orders(2, &[]);
+    let ws = watchers(&[&a, &b], &owners, all.len());
+    let base = a.st.vector().unwrap();
+    a.c.ask_given(P1, &t.id, "p2 gave you this card.").unwrap();
+    pull(&a, &b);
+    b.c.assign(P2, &t.id, P1).unwrap();
+    pull(&b, &a);
+    let mut units = units_of(&b, &base, "dev-b", &|_| false);
+    units.extend(units_of(&a, &base, "dev-a", &|_| false));
+    let want = fold_in_every_order(&ws, &all, &units, &owners, &t.id);
+    assert_eq!(want, given_snap(&a.c, &t.id), "where dev-a is");
+}
+
+/// p2 takes the card back after p1's Not now and gives it to p1 again;
+/// dev-a raises the new question and says Not now. Another device of
+/// p1's ends where dev-a does in any order, the raise and the Not now
+/// coming before the take back, between it and the give, or after.
+#[test]
+fn a_question_raised_after_a_take_back_and_regive_stands_in_any_arrival_order() {
+    let (a, b) = two_people_shared();
+    let owners: Owners = Arc::new(Mutex::new(vec![("p1".into(), 0, u64::MAX)]));
+    let t = given(&a, &b);
+    say(&a, P1, &t, 2);
+    sync(&a, &b);
+    let all = orders(4, &[(0, 1), (2, 3)]);
+    let ws = watchers(&[&a, &b], &owners, all.len());
+    let base = a.st.vector().unwrap();
+    b.c.assign(P2, &t.id, P2).unwrap();
+    assert!(b.c.get_task(&t.id).unwrap().given.is_none(), "taken back");
+    b.c.assign(P2, &t.id, P1).unwrap();
+    pull(&b, &a);
+    a.c.ask_given(P1, &t.id, "p2 gave you this card again.")
+        .unwrap();
+    say(&a, P1, &open_given(&a, &t.id), 2);
+    let theirs = units_of(&b, &base, "dev-b", &nth_of(kinds::TASK_ASSIGNED, 2));
+    assert_eq!(theirs.len(), 2, "the take back, the give");
+    let mine = units_of(&a, &base, "dev-a", &|e| e.kind == kinds::BLOCKER_RESOLVED);
+    assert_eq!(mine.len(), 2, "the raise, the Not now");
+    let mut units = theirs;
+    units.extend(mine);
+    let want = fold_in_every_order(&ws, &all, &units, &owners, &t.id);
+    assert_eq!(want, given_snap(&a.c, &t.id), "where dev-a is");
+    assert!(want.1.as_ref().is_some_and(|y| !y.yes), "{:?}", want.1);
+}
+
+/// The card with its open given question, as `s` sees it.
+fn open_given(s: &Side, id: &str) -> Task {
+    let mut t = s.c.get_task(id).unwrap();
+    t.blockers
+        .retain(|b| b.question != GIVEN_QUESTION || b.open());
+    t
+}
+
+/// dev-a raises the question on a re-give; p2 hears it and gives the card
+/// to p1 again (`back`: takes it back first); dev-a2, having heard
+/// neither, raises the same question after that give. The first raise is
+/// where the question began, so the give ends it on every device,
+/// whichever raise folds first.
+fn give_between_two_raises(back: bool) {
+    let (a, b) = two_people_shared();
+    let owners: Owners = Arc::new(Mutex::new(vec![("p1".into(), 0, u64::MAX)]));
+    let a2 = side_with("dev-a2", P1, &owners, false);
+    let t = given(&a, &b);
+    say(&a, P1, &t, 2);
+    sync(&a, &b);
+    b.c.assign(P2, &t.id, P1).unwrap();
+    sync(&a, &b);
+    pull(&a, &a2);
+    pull(&b, &a2);
+    // The units: dev-a's raise, dev-b's take back and give, dev-a2's raise.
+    let all = if back {
+        orders(4, &[(1, 2)])
+    } else {
+        orders(3, &[])
+    };
+    let ws = watchers(&[&a, &b], &owners, all.len());
+    let base = a.st.vector().unwrap();
+    a.c.ask_given(P1, &t.id, "p2 gave you this card again.")
+        .unwrap();
+    pull(&a, &b);
+    if back {
+        b.c.assign(P2, &t.id, P2).unwrap();
+    }
+    b.c.assign(P2, &t.id, P1).unwrap();
+    a2.clk.add(Duration::from_secs(3600));
+    a2.c.ask_given(P1, &t.id, "p2 gave you this card again.")
+        .unwrap();
+    let r1 = units_of(&a, &base, "dev-a", &|_| false);
+    let gives = units_of(&b, &base, "dev-b", &nth_of(kinds::TASK_ASSIGNED, 2));
+    let r2 = units_of(&a2, &base, "dev-a2", &|_| false);
+    let pos = |u: &[Event], k: &str| RowPos::of(u.iter().find(|e| e.kind == k).unwrap());
+    assert!(
+        pos(&r1[0], kinds::TASK_STATUS) < pos(&gives[0], kinds::TASK_ASSIGNED)
+            && pos(gives.last().unwrap(), kinds::TASK_ASSIGNED) < pos(&r2[0], kinds::TASK_STATUS),
+        "the give sorts between the raises"
+    );
+    let id_of = |u: &[Event]| {
+        u.iter()
+            .filter(|e| e.kind == kinds::TASK_STATUS)
+            .filter_map(|e| serde_json::from_slice::<serde_json::Value>(&e.payload).ok())
+            .find_map(|v| v["blocker"]["id"].as_str().map(String::from))
+            .unwrap()
+    };
+    assert_eq!(id_of(&r1[0]), id_of(&r2[0]), "the same question");
+    let mut units = r1;
+    units.extend(gives);
+    units.extend(r2);
+    assert_eq!(units.len(), all[0].len());
+    // With a take back between, the card's state after the question
+    // closes follows who held it when it closed, which the take back
+    // changes: in order [1, 0, 2, 3] the old raise closes after it and the
+    // card reads submitted, not working. Only the question is compared.
+    let see = |mut s: GivenSnap| {
+        if back {
+            s.3.clear();
+        }
+        s
+    };
+    let want = fold_in_every_order_by(&ws, &all, &units, &owners, &t.id, &see);
+    assert_eq!(
+        want.0.as_ref().map(|g| g.0.clone()),
+        Some(String::new()),
+        "the give ended it: {want:?}"
+    );
+}
+
+#[test]
+fn a_give_between_two_raises_of_one_question_ends_it_in_any_arrival_order() {
+    give_between_two_raises(false);
+}
+
+#[test]
+fn a_take_back_between_two_raises_of_one_question_ends_it_in_any_arrival_order() {
+    give_between_two_raises(true);
+}
+
 #[test]
 fn an_earlier_reply_never_stands_as_my_yes() {
     let (a, b) = two_people_shared();

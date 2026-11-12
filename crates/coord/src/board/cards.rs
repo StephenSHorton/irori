@@ -145,16 +145,17 @@ fn nobody_on(t: &Task) -> bool {
 /// longer holds (the card went to someone else, they came off it, or its
 /// text changed). A fold's own step, so every member does the same.
 pub(crate) fn close_given_question(t: &mut Task, at: GoTime) {
-    close_given_question_but(t, at, "");
+    close_given_where(t, at, |_| true);
 }
 
-/// close_given_question, leaving blocker `keep` open.
-pub(crate) fn close_given_question_but(t: &mut Task, at: GoTime, keep: &str) {
+/// Closes card t's open "OK to start an agent on this?" items that pass
+/// `pick`, as close_given_question does.
+fn close_given_where(t: &mut Task, at: GoTime, pick: impl Fn(&str) -> bool) {
     let mut closed = false;
     for b in t
         .blockers
         .iter_mut()
-        .filter(|b| b.open() && b.question == super::spawn::GIVEN_QUESTION && b.id != keep)
+        .filter(|b| b.open() && b.question == super::spawn::GIVEN_QUESTION && pick(&b.id))
     {
         b.resolved = Some(Resolution {
             option: -1,
@@ -171,6 +172,34 @@ pub(crate) fn close_given_question_but(t: &mut Task, at: GoTime, keep: &str) {
     if closed {
         sync_reason(t);
     }
+}
+
+/// Closes the one given question `id`, as the give, take back or leave
+/// that ended it (at `at`) would have: it was raised before that row and
+/// only folded here after it.
+pub(crate) fn close_given_one(t: &mut Task, id: &str, at: GoTime) {
+    close_given_where(t, at, |b| b == id);
+}
+
+/// Ends card t's given state at a give, take back or leave at `pos`. A
+/// question raised after `pos` is the next give's, folded here first: it
+/// stays open, parked with its say, for that give to take up. Every other
+/// given question closes.
+pub(crate) fn end_given(t: &mut Task, pos: &RowPos, at: GoTime) {
+    if t.given_reset.as_ref().is_none_or(|(p, _)| p < pos) {
+        t.given_reset = Some((pos.clone(), at));
+    }
+    let later = |g: &Given| !g.question.is_empty() && *pos < g.question_at;
+    let said = t.given_said.take();
+    let cur = t.given.take().filter(later).map(|g| (g, said));
+    let parked = t.given_parked.take().filter(|(g, _)| later(g));
+    t.given_parked = cur.or(parked);
+    let keep = t
+        .given_parked
+        .as_ref()
+        .map(|(g, _)| g.question.clone())
+        .unwrap_or_default();
+    close_given_where(t, at, |b| b != keep);
 }
 
 fn trim_resolved(t: &mut Task) {
@@ -752,7 +781,15 @@ impl Fold {
             if blocker_index(t, &br.id).is_some() {
                 return none();
             }
-            if let Some(i) = open_with_question(t, &br.question) {
+            // The given person's question for a give is its own item,
+            // never added to an earlier give's still open here: that give
+            // ends it, whichever of the two folds first.
+            let given_q = br.question == super::spawn::GIVEN_QUESTION
+                && [t.given.as_ref(), t.given_parked.as_ref().map(|(g, _)| g)]
+                    .into_iter()
+                    .flatten()
+                    .any(|g| g.question == br.id);
+            if let Some(i) = open_with_question(t, &br.question).filter(|_| !given_q) {
                 t.was_held |= !br.later.is_empty();
                 let b = &mut t.blockers[i];
                 b.on = br.on.clone();
@@ -932,7 +969,16 @@ impl Fold {
                     return;
                 };
                 if said.is_some() {
-                    t.given_said = said;
+                    // A say on the parked question waits with it for its give.
+                    match t.given_parked.as_mut() {
+                        Some((g, s))
+                            if g.question == p.blocker_id
+                                && t.given.as_ref().is_none_or(|g| g.question != p.blocker_id) =>
+                        {
+                            *s = said;
+                        }
+                        _ => t.given_said = said,
+                    }
                 }
                 // Their say on the crash question clears the run on a card
                 // no answer can put back on the Board too (card #540).

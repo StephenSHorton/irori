@@ -277,7 +277,8 @@ pub struct Given {
     /// an answer on that one is their say.
     pub question: String,
     /// Where in the log the question was raised (the first of two raises
-    /// of it): a give that sorts before it doesn't end it.
+    /// of it): a give, take back or leave that sorts before it doesn't end
+    /// it.
     #[serde(skip)]
     pub question_at: RowPos,
     /// The batch this give belongs to (decision 69); "" for a single give.
@@ -709,6 +710,16 @@ pub struct Task {
     /// The last say on "OK to start an agent on this?", since it was given.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub given_said: Option<GivenSaid>,
+    /// Where the latest give, take back or leave that ended the card's
+    /// given state sits in the log, and its time: a question raised before
+    /// it is over, in whatever order the rows came.
+    #[serde(skip)]
+    pub given_reset: Option<(RowPos, GoTime)>,
+    /// A question the given person raised after the card's given state
+    /// ended (and the say on it), for the give it followed, which hasn't
+    /// folded here yet.
+    #[serde(skip)]
+    pub given_parked: Option<(Given, Option<GivenSaid>)>,
     /// An agent that had read another person's text made or changed this
     /// card (card #1075), on the private log. Sticky. Its spawn counts as
     /// quoting others, and waits on the person's "OK to start an agent on

@@ -15,6 +15,7 @@ use super::asks::AskBook;
 use super::error::{Error, ErrorKind, Result};
 use super::resource::{Resource, is_pr_claim, normalize_resource, parse_resource};
 use super::rows::*;
+use super::spawn::Raised;
 use super::types::*;
 use super::util::{SWEEPER, cmp_str, collapse_space, contains, cut, remove_str};
 use super::{MAX_ASIDE, Options};
@@ -882,20 +883,19 @@ impl Fold {
                     // the question was raised after this give: a device
                     // that heard the raise first keeps it, and the say on
                     // it, as the devices that heard the give first do.
-                    let pos = RowPos::of(ev);
-                    let kept = t
-                        .given
-                        .take()
-                        .filter(|g| g.key == p.to && !g.question.is_empty() && pos < g.question_at)
-                        .unwrap_or_default();
-                    super::cards::close_given_question_but(&mut t, at(p.at), &kept.question);
+                    super::cards::end_given(&mut t, &RowPos::of(ev), at(p.at));
+                    let (kept, said) = match t.given_parked.take() {
+                        Some((g, said)) if g.key == p.to => (g, said),
+                        other => {
+                            t.given_parked = other;
+                            (Given::default(), None)
+                        }
+                    };
+                    t.given_said = said;
                     let by_person = self
                         .key_person
                         .as_ref()
                         .map_or_else(String::new, |kp| kp(&p.by));
-                    if kept.question.is_empty() {
-                        t.given_said = None;
-                    }
                     t.given = Some(Given {
                         key: p.to.clone(),
                         person,
@@ -911,9 +911,7 @@ impl Fold {
                 } else if back {
                     // Its author takes it back: the way out when the person
                     // it went to is away for good.
-                    super::cards::close_given_question(&mut t, at(p.at));
-                    t.given = None;
-                    t.given_said = None;
+                    super::cards::end_given(&mut t, &RowPos::of(ev), at(p.at));
                 }
                 let engaged = is_holder(&t, &p.to) && !contains(&t.assigned, &p.to);
                 add_holder(&mut t, &p.to);
@@ -996,9 +994,7 @@ impl Fold {
                             || (p.reason == LEFT_REMOVED
                                 && kp.as_ref().is_some_and(|f| f(&p.who) == g.person))
                     }) {
-                        super::cards::close_given_question(&mut t, at(p.at));
-                        t.given = None;
-                        t.given_said = None;
+                        super::cards::end_given(&mut t, &RowPos::of(ev), at(p.at));
                     }
                     if t.holders.is_empty() {
                         t.let_go = Some((p.who.clone(), at(p.at)));
@@ -1572,8 +1568,11 @@ impl Fold {
         // The question raised by two of the person's devices at once is one
         // question: the second row leaves the card as the first left it,
         // which may already be answered, and the lowest device acts on it.
-        let again = self.given_raised(&mut t, &p, ev);
-        if !again {
+        // One raised before the give, take back or leave that ended it
+        // folds as it would have before that row, then closes as that row
+        // closed it.
+        let raised_as = self.given_raised(&mut t, &p, ev);
+        if raised_as != Raised::Again {
             t.state = p.state.clone();
             t.note = p.note.clone();
         }
@@ -1589,6 +1588,10 @@ impl Fold {
             raised = f.raised;
             revised = f.revised;
             gist = f.gist;
+            if let (Raised::Stale(ended), Some(br)) = (raised_as, p.blocker.as_ref()) {
+                super::cards::close_given_one(&mut t, &br.id, ended);
+                raised.clear();
+            }
         } else {
             // The person's completed on a card waiting on its done check is
             // their Done (card #315): the check reads answered Done, not
