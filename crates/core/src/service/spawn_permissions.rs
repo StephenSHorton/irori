@@ -5,14 +5,18 @@
 //! Every spawn passes `--permission-mode`, since without it the agent
 //! inherits the caller's (bypass on both machines). The board's choice is
 //! set in the app only, never by a tool (decision 23):
-//! - [`Choice::Limited`]: `acceptEdits` plus a dedicated `--settings` file
-//!   with allow rules for the repo's checks, git and the irori tools, and
-//!   deny rules for what must never run;
+//! - [`Choice::Limited`]: Claude Code's `auto` mode plus a dedicated
+//!   `--settings` file with allow rules for the repo's checks, git and the
+//!   irori tools, and deny rules for what must never run (Stephen,
+//!   2026-11-12: "use the default agent mode that people use"; it was
+//!   `acceptEdits`, which asked on every command the rules missed);
 //! - [`Choice::EditsOnly`]: `acceptEdits` alone, so any shell command
 //!   prompts;
 //! - [`Choice::Bypass`]: `bypassPermissions`, refused on a shared board
 //!   and whenever another person's text is in the brief. There it falls
 //!   back to [`Choice::Limited`], deny rules included.
+//!
+//! A review card's agent runs in `auto` mode too, with its own short list.
 //!
 //! Claude Code's allow rules are prefix matches, so "git, but never push
 //! to main" is a deny rule, not an allow rule with an exception.
@@ -74,8 +78,10 @@ impl SpawnPermissions {
     /// Whether the receive decisions treat this agent as a bypass session
     /// (§7 "The brief is data"): bypass itself, or shell commands on its
     /// allow list, either of which lets it act on another person's row.
+    /// Auto mode runs commands without asking, so it counts too.
     pub fn counts_as_bypass(&self) -> bool {
         self.mode == BYPASS
+            || self.mode == AUTO
             || self.settings.as_ref().is_some_and(|s| {
                 s["permissions"]["allow"].as_array().is_some_and(|a| {
                     a.iter()
@@ -121,7 +127,7 @@ pub fn spawn_permissions(p: &BoardPermissions, spawn: Spawn) -> SpawnPermissions
     };
     if spawn.review {
         return SpawnPermissions {
-            mode: ACCEPT_EDITS,
+            mode: AUTO,
             settings: Some(settings(&review_allow(&spawn), &review_deny(p))),
             fell_back: (p.choice == Choice::Bypass).then_some(REVIEW_CARD),
         };
@@ -143,7 +149,7 @@ pub fn spawn_permissions(p: &BoardPermissions, spawn: Spawn) -> SpawnPermissions
             fell_back: why,
         },
         (Choice::Limited, _) => SpawnPermissions {
-            mode: ACCEPT_EDITS,
+            mode: AUTO,
             settings: Some(settings(&allow_rules(p, &spawn), &deny_rules(p, &spawn))),
             fell_back: None,
         },
@@ -577,7 +583,7 @@ mod tests {
     fn a_review_card_is_limited_under_bypass_with_its_own_list() {
         for choice in [Choice::Bypass, Choice::Limited, Choice::EditsOnly] {
             let s = spawn_permissions(&board(choice), review_spawn(true));
-            assert_eq!(s.mode, ACCEPT_EDITS, "{choice:?}");
+            assert_eq!(s.mode, AUTO, "{choice:?}");
             let allow = list(&s, "allow");
             let deny = list(&s, "deny");
             assert!(

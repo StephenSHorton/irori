@@ -389,7 +389,7 @@ impl SpawnSetting {
     }
 }
 
-/// [`SpawnSetting::permission`]: acceptEdits plus the board's rules.
+/// [`SpawnSetting::permission`]: auto mode plus the board's rules.
 pub const PERMISSION_LIMITED: &str = "limited";
 /// acceptEdits alone: any shell command prompts.
 pub const PERMISSION_EDITS: &str = "edits";
@@ -4655,7 +4655,7 @@ mod tests {
         let p = spawn_permissions(&set, "", "remote:irori", &mine, &card(), false);
         assert_eq!(
             (p.mode.as_str(), p.fell_back.as_deref()),
-            ("acceptEdits", None)
+            ("auto", None)
         );
         assert!(rules(&p, "allow").contains(&"Bash(cargo test:*)".to_string()));
         assert!(rules(&p, "deny").contains(&"Bash(cargo publish:*)".to_string()));

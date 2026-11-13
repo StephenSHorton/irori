@@ -110,6 +110,9 @@ struct Pending {
     seen: Instant,
     /// When its item was raised.
     raised: Instant,
+    /// The same, on the wall clock (Unix ms), to compare with the session
+    /// file's `statusUpdatedAt`.
+    raised_ms: i64,
     /// Presence has shown its agent on the prompt since. The hook fires
     /// as the prompt opens, before the session file says so: until then
     /// (or [`PROMPT_LAG`]) an agent not on a prompt isn't past this one.
@@ -134,6 +137,12 @@ pub(crate) struct PermState {
     /// brief) comes before presence shows it, which took 90 s with 15
     /// starting at once, so its hook finds its card by the id.
     started: Mutex<HashMap<String, Started>>,
+    /// Each open item's prompt, by blocker id: the `statusUpdatedAt` (Unix
+    /// ms) of the `waiting` status it was raised for. Answering a prompt in
+    /// the agent's own terminal doesn't stop its hook, and the next prompt
+    /// keeps the agent on "permission prompt"; only this moves. A newer
+    /// one means the item's prompt was answered there.
+    item_since: Mutex<HashMap<String, i64>>,
 }
 
 /// An agent this run started, not yet bound to its card.
@@ -526,6 +535,7 @@ impl Services {
                 rule: String::new(),
                 seen: Instant::now(),
                 raised: Instant::now(),
+                raised_ms: now_ms(),
                 prompted: false,
             },
         );
@@ -831,6 +841,17 @@ impl Services {
                 .collect();
             (hooked, young)
         };
+        let raised_ms: HashMap<String, i64> = self
+            .spawn
+            .perm
+            .pending
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|p| !p.blocker_id.is_empty())
+            .map(|p| (p.blocker_id.clone(), p.raised_ms))
+            .collect();
+        let mut open_items: Vec<String> = Vec::new();
         let none = Vec::new();
         for (board, co) in &logs {
             let open = co.list_tasks(&TaskFilter {
@@ -845,7 +866,26 @@ impl Services {
                     .filter(|b| b.open() && is_permission_wait(b))
                     .collect();
                 for b in &items {
+                    open_items.push(b.id.clone());
                     let agent = b.permission.as_ref().map_or("", |w| w.agent.as_str());
+                    if let Some(a) = here.iter().find(|a| !agent.is_empty() && a.key == agent) {
+                        if self.answered_in_terminal(b, a, raised_ms.get(&b.id).copied()) {
+                            self.close_permission_wait(
+                                co,
+                                board,
+                                &t,
+                                b,
+                                "Answered in the agent's terminal.",
+                            );
+                            self.spawn
+                                .perm
+                                .pending
+                                .lock()
+                                .unwrap()
+                                .retain(|_, p| p.blocker_id != b.id);
+                            continue;
+                        }
+                    }
                     let still = if agent.is_empty() {
                         // An older Irori's item names no agent: any of the card's.
                         !here.is_empty()
@@ -885,6 +925,46 @@ impl Services {
                     }
                     self.raise_presence_wait(co, board, &t, a);
                 }
+            }
+        }
+        self.spawn
+            .perm
+            .item_since
+            .lock()
+            .unwrap()
+            .retain(|id, _| open_items.contains(id));
+    }
+
+    /// Whether item b's prompt was answered in agent a's own terminal: a
+    /// is on a prompt again, but one whose `waiting` began after the one b
+    /// was raised for. The first look records b's prompt; a hook's item is
+    /// raised just before the session file says `waiting`, so a `waiting`
+    /// older than its raise (`hook_raised_ms`) is the previous prompt's and
+    /// isn't recorded.
+    fn answered_in_terminal(
+        &self,
+        b: &Blocker,
+        a: &presence::AgentCard,
+        hook_raised_ms: Option<i64>,
+    ) -> bool {
+        if a.status_since.is_zero() {
+            return false;
+        }
+        let since = a.status_since.unix_milli_value();
+        let mut seen = self.spawn.perm.item_since.lock().unwrap();
+        match seen.get(&b.id) {
+            Some(&was) => {
+                if since > was {
+                    seen.remove(&b.id);
+                    return true;
+                }
+                false
+            }
+            None => {
+                if hook_raised_ms.is_none_or(|r| since + STATUS_SLACK_MS >= r) {
+                    seen.insert(b.id.clone(), since);
+                }
+                false
             }
         }
     }
@@ -945,6 +1025,17 @@ impl Services {
                 .iter()
                 .any(|a| elsewhere.contains(&a.key.as_str()) && roster_on_prompt(a))
     }
+}
+
+/// How far the session file's `statusUpdatedAt` may sit before a hook's
+/// raise and still be that hook's prompt: the hook fires first, so this
+/// only covers clock rounding.
+const STATUS_SLACK_MS: i64 = 1_000;
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64)
 }
 
 fn first_line(s: &str) -> String {
