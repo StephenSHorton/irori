@@ -125,6 +125,26 @@ fn an_outside_wait_whose_gone_agent_raised_it_needs_the_person() {
     assert_eq!(lane(&e, USER, &t.id), (true, false));
 }
 
+/// An outside wait put to the person ("Paste TTD's reply when it
+/// arrives?") ends with their answer: its gone raiser isn't a gone wait.
+#[test]
+fn an_outside_wait_asking_the_person_is_not_a_gone_wait() {
+    let e = Env::new();
+    let t = card(&e, ALICE);
+    wait(
+        &e,
+        &t.id,
+        "Paste TTD's reply (George) when it arrives?",
+        BLOCKED_ON_EXTERNAL,
+        "TTD's reply to the email thread",
+    );
+    e.c.leave(ALICE, &t.id, ALICE).unwrap();
+    e.ros.set(ALICE, "gone");
+    assert!(e.c.gone_waits(&t.id).is_empty());
+    // Blocked on the outside, not Needs you.
+    assert_eq!(lane(&e, USER, &t.id), (false, true));
+}
+
 #[test]
 fn a_question_and_a_card_wait_are_left_to_their_own_rows() {
     let e = Env::new();

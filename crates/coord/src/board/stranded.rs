@@ -17,6 +17,12 @@ use super::types::*;
 use super::util::SWEEPER;
 use crate::names::trim_space;
 
+/// Whether an outside wait's question is put to the person, who ends it by
+/// answering (a reply to paste), rather than something an agent watches.
+fn asks_the_person(question: &str) -> bool {
+    question.trim_end().ends_with('?')
+}
+
 /// An open blocker whose agent is gone, on a card nobody holds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Stranded {
@@ -136,7 +142,8 @@ impl Fold {
 
     /// The stranded waits of `t` that only Needs you can show (card #520):
     /// a wait on a gone agent, or an outside wait whose gone agent raised
-    /// it, on a card nobody holds. A question or done check already counts
+    /// it and that only an agent ends (not a question to the person), on a
+    /// card nobody holds. A question or done check already counts
     /// as a decision, so those are left out and nothing shows twice. A wait
     /// on a PR counts like any outside wait (card #970): with its agent
     /// gone, nobody hears the PR merge. On a shared board only
@@ -158,10 +165,18 @@ impl Fold {
                 if self.on_board && !self.own_on_board(b) {
                     return false;
                 }
-                matches!(
-                    b.on.as_ref().map(|on| on.kind.as_str()),
-                    Some(BLOCKED_ON_AGENT | BLOCKED_ON_EXTERNAL)
-                )
+                // An outside wait put to the person as a question ("Paste
+                // TTD's reply when it arrives?") ends with their answer,
+                // which sends the card out again: flagging its gone raiser
+                // hid why it waits (Stephen, 2026-11-12). One an agent
+                // watches (CI, a PR merging) has nobody once it is gone.
+                match b.on.as_ref().map(|on| on.kind.as_str()) {
+                    Some(BLOCKED_ON_AGENT) => true,
+                    Some(BLOCKED_ON_EXTERNAL) => {
+                        b.pr_wait().is_some() || !asks_the_person(&b.question)
+                    }
+                    _ => false,
+                }
             })
             .collect()
     }
