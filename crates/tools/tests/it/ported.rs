@@ -627,6 +627,9 @@ fn test_specs() {
             "“Can I merge PR #N (covers #a, #b)?”",
             "options Merge it (recommended) and Not yet",
             "merge it yourself",
+            // The person's agents open PRs from the person's account, so
+            // an approval comes from another person's agent, never them.
+            "board_review another person's agent, never the person",
             // Card #970: never a wait on a PR; a refused completed after a
             // merge is retried once GitHub says merged.
             "Never raise a wait on a PR, nor set completed while it is open",
