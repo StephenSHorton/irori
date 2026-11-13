@@ -868,23 +868,23 @@ impl Services {
                 for b in &items {
                     open_items.push(b.id.clone());
                     let agent = b.permission.as_ref().map_or("", |w| w.agent.as_str());
-                    if let Some(a) = here.iter().find(|a| !agent.is_empty() && a.key == agent) {
-                        if self.answered_in_terminal(b, a, raised_ms.get(&b.id).copied()) {
-                            self.close_permission_wait(
-                                co,
-                                board,
-                                &t,
-                                b,
-                                "Answered in the agent's terminal.",
-                            );
-                            self.spawn
-                                .perm
-                                .pending
-                                .lock()
-                                .unwrap()
-                                .retain(|_, p| p.blocker_id != b.id);
-                            continue;
-                        }
+                    if let Some(a) = here.iter().find(|a| !agent.is_empty() && a.key == agent)
+                        && self.answered_in_terminal(b, a, raised_ms.get(&b.id).copied())
+                    {
+                        self.close_permission_wait(
+                            co,
+                            board,
+                            &t,
+                            b,
+                            "Answered in the agent's terminal.",
+                        );
+                        self.spawn
+                            .perm
+                            .pending
+                            .lock()
+                            .unwrap()
+                            .retain(|_, p| p.blocker_id != b.id);
+                        continue;
                     }
                     let still = if agent.is_empty() {
                         // An older Irori's item names no agent: any of the card's.
