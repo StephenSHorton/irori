@@ -19,7 +19,7 @@ export const EDITS = "edits"
 
 export const permissionChoices = [
   { value: BYPASS, label: "Anything, without asking" },
-  { value: LIMITED, label: "Git and Irori without asking, plus your rules" },
+  { value: LIMITED, label: "Auto mode, plus git, Irori and your rules" },
   { value: EDITS, label: "Edit files, ask before any command" },
 ]
 

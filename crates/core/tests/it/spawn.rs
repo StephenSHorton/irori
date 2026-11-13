@@ -234,7 +234,7 @@ fn a_card_gets_its_own_agent_which_ends_at_its_done_check() {
 }
 
 /// Card #449: the board's permission choice and rules reach the spawn. A
-/// limited board starts its agent with acceptEdits and a `--settings` file
+/// limited board starts its agent in auto mode and a `--settings` file
 /// holding the board's allow and deny rules; changing the permissions keeps
 /// the switch; and the setting is a `user` row only (no tool writes it).
 #[test]
@@ -307,7 +307,7 @@ fn the_boards_permission_choice_reaches_the_spawn() {
             .is_some_and(|t| t.holders.contains(&spawned))
     });
     let req = fake.started.lock().unwrap()[0].clone();
-    assert_eq!(req.permission_mode, "acceptEdits");
+    assert_eq!(req.permission_mode, "auto");
     let file = req.settings_file.expect("a --settings file");
     let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
     let rules = |which: &str| -> Vec<String> {
@@ -1365,6 +1365,66 @@ fn a_hooked_permission_prompt_is_answered_from_the_card() {
         });
         assert_eq!(h4.join().unwrap(), PermissionDecision::Nothing);
 
+        // Answered at the terminal, then straight on to the next prompt:
+        // Claude Code doesn't stop the first prompt's hook, and the agent
+        // stays on "permission prompt", but the session file's
+        // statusUpdatedAt moves. The first item resolves; the second stays.
+        let set_since = |ms: u128| {
+            let f = sessions.join("900003.json");
+            let mut m: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&f).unwrap()).unwrap();
+            m["status"] = "waiting".into();
+            m["waitingFor"] = "permission prompt".into();
+            m["statusUpdatedAt"] = (ms as u64).into();
+            m["updatedAt"] = (ms as u64).into();
+            std::fs::write(&f, serde_json::to_vec(&m).unwrap()).unwrap();
+        };
+        let now_ms = || {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        };
+        let h9 = wait(ask("h9", "npm test", "default"));
+        wait_for(30, "the ninth item", || item("h9").is_some());
+        set_since(now_ms());
+        for _ in 0..3 {
+            r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        assert!(item("h9").is_some(), "its own prompt keeps the item");
+        std::thread::sleep(Duration::from_millis(1_200));
+        let h10 = wait(ask("h10", "npm run lint", "default"));
+        wait_for(30, "the tenth item", || item("h10").is_some());
+        set_since(now_ms());
+        wait_for(60, "the answered prompt's item resolved", || {
+            r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+            item("h9").is_none()
+        });
+        assert_eq!(h9.join().unwrap(), PermissionDecision::Nothing);
+        let b9 = co
+            .get_task(&t.id)
+            .unwrap()
+            .blockers
+            .into_iter()
+            .find(|b| b.permission.as_ref().is_some_and(|w| w.request == "h9"))
+            .unwrap();
+        assert!(
+            b9.resolved.as_ref().is_some_and(|r| {
+                r.note.contains("Answered in the agent's terminal")
+                    || r.answer.contains("Answered in the agent's terminal")
+            }),
+            "{b9:?}"
+        );
+        for _ in 0..3 {
+            r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        assert!(item("h10").is_some(), "the new prompt's item stays");
+        pick(&item("h10").unwrap(), "Allow once");
+        assert_eq!(h10.join().unwrap(), PermissionDecision::AllowOnce);
+        set_status("busy", "");
+
         // Two prompts up at once whose questions would match (one file, two
         // edits) are two items: each pick answers its own.
         let h7 = wait(ask("h7", "cat <<'EOF' > a\none", "default"));
@@ -1915,7 +1975,7 @@ fn a_prompt_before_the_agent_shows_is_answered_from_the_card() {
         !fake.started.lock().unwrap().is_empty()
     });
     let started = fake.started.lock().unwrap()[0].clone();
-    assert_eq!(started.permission_mode, "acceptEdits");
+    assert_eq!(started.permission_mode, "auto");
     let v: serde_json::Value =
         serde_json::from_slice(&std::fs::read(started.settings_file.unwrap()).unwrap()).unwrap();
     let allow: Vec<String> = v["permissions"]["allow"]

@@ -14,8 +14,12 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Loading } from "@/components/ui/loading"
 import { TileGridShape } from "@/components/common/loading-shapes"
+import { PermissionPrompt } from "@/components/cards/permission-prompt"
+import { spawnNeed } from "@/lib/needs"
 import {
+  BlockerState,
   busy,
+  useCard,
   withLive,
   cards as cardsApi,
   deviceVar,
@@ -441,6 +445,9 @@ export function CardGrid({
 
         dim={context?.has(c.id) ?? false}
       />
+      {spawnNeed(c) === "permission" && (
+        <TilePrompts card={c} onOpen={onSelect} />
+      )}
     </div>
   )
   // Masonry (card #113): each column stacks on its own, so a family's
@@ -505,6 +512,43 @@ export function familyGroups(
       (c) => !(c.parent?.id && c.parent.id !== c.id && ids.has(c.parent.id))
     )
     .map((c) => ({ head: c, kids: kids.get(c.id) ?? [] }))
+}
+
+// TilePrompts is a card's permission prompts under its tile, with their
+// buttons, so the person answers without opening the card (Stephen,
+// 2026-11-12). Outside the tile: a button can't hold buttons.
+function TilePrompts({
+  card,
+  onOpen,
+}: {
+  card: CardSummary
+  onOpen: (id: string) => void
+}) {
+  const { detail } = useCard(card.id)
+  const prompts = (detail?.blockers ?? []).filter(
+    (b) =>
+      !!b.permission &&
+      !b.decider &&
+      !b.waitsOn &&
+      b.state !== BlockerState.Resolved &&
+      b.state !== BlockerState.Closed
+  )
+  if (prompts.length === 0) return null
+  const who = card.working.find((w) => w.spawned && !w.assigned)
+  return (
+    <div className="mt-1.5 grid gap-3 p-3 glass-panel" data-tile-prompts>
+      {prompts.map((b) => (
+        <PermissionPrompt
+          key={b.id}
+          cardId={card.id}
+          b={b}
+          who={who}
+          onOpenCard={onOpen}
+          compact
+        />
+      ))}
+    </div>
+  )
 }
 
 function CardTile({
